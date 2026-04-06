@@ -1,0 +1,19 @@
+// firestore.rules
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Users ──────────────────────────────────────────────────────────
+    // Each user can only read/write their own user doc
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // ── Business + all subcollections ──────────────────────────────────
+    // Only the authenticated user whose userId maps to this businessId can access
+    match /businesses/{businessId}/{document=**} {
+      allow read, write: if request.auth != null
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.businessId == businessId;
+    }
+  }
+}
