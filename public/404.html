@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Mobile Service OS</title>
+    <script>
+      // SPA redirect fix for GitHub Pages
+      // Saves the full path to sessionStorage then redirects to root
+      // index.html picks it up and restores the URL via history.replaceState
+      var segmentCount = 1; // number of path segments in your repo URL (1 for /reponame/)
+      var l = window.location;
+      var path = l.pathname.slice(1).split('/').slice(segmentCount).join('/');
+      sessionStorage.redirect = l.pathname + l.search + l.hash;
+      l.replace(
+        l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
+        l.pathname.split('/').slice(0, 1 + segmentCount).join('/') + '/'
+      );
+    </script>
+  </head>
+  <body></body>
+</html>
