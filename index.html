@@ -12,6 +12,10 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
@@ -147,10 +151,7 @@
     /* Logo upload */
     .logo-drop{border:2px dashed rgba(255,255,255,.12);border-radius:14px;padding:22px;text-align:center;cursor:pointer;transition:all .15s;margin-bottom:10px}
     .logo-drop:hover{border-color:rgba(255,255,255,.28)}
-    /* Website import */
-    .import-field{position:relative}
-    .import-field .ainp{padding-right:56px}
-    .import-go{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:#ea580c;border:none;border-radius:8px;padding:7px 12px;color:#fff;font-size:12px;font-weight:700;cursor:pointer}
+
     /* Settings tabs */
     .stab-bar{display:flex;overflow-x:auto;border-bottom:1px solid #f0f0f0;background:#fff;flex-shrink:0}
     .stab{display:flex;flex-direction:column;align-items:center;padding:10px 14px;border:none;background:none;cursor:pointer;flex-shrink:0;gap:2px;border-bottom:2.5px solid transparent;transition:border-color .15s}
@@ -188,23 +189,24 @@
 <script>
 /* ── Firebase init ── */
 const FB_CFG = {
-  apiKey:            "%%FIREBASE_API_KEY%%",
-  authDomain:        "%%FIREBASE_AUTH_DOMAIN%%",
-  projectId:         "%%FIREBASE_PROJECT_ID%%",
-  storageBucket:     "%%FIREBASE_STORAGE_BUCKET%%",
-  messagingSenderId: "%%FIREBASE_MESSAGING_SENDER_ID%%",
-  appId:             "%%FIREBASE_APP_ID%%"
+  apiKey:            "AIzaSyA7q8zr9IIygu-2Weds8VO2Z9xy9dK51HE",
+  authDomain:        "wheel-rush-expense.firebaseapp.com",
+  projectId:         "wheel-rush-expense",
+  storageBucket:     "wheel-rush-expense.firebasestorage.app",
+  messagingSenderId: "400580006654",
+  appId:             "1:400580006654:web:b8e435c2807b51af244baf"
 };
 let _app,_db,_auth;
 function initFB(){
   try{
-    if(typeof firebase==='undefined') return;
+    if(typeof firebase==='undefined'){ setTimeout(initFB,100); return; }
+    if(!firebase.auth){ setTimeout(initFB,100); return; }
     _app  = firebase.apps.length ? firebase.apps[0] : firebase.initializeApp(FB_CFG);
     _db   = firebase.firestore();
     _auth = firebase.auth();
-  }catch(e){console.warn('FB:',e);}
+  }catch(e){ console.warn('FB init:',e); setTimeout(initFB,200); }
 }
-typeof firebase!=='undefined' ? initFB() : window.addEventListener('load',initFB);
+initFB();
 
 /* ── Workspace-scoped Firestore helpers ─────────────────────────────────────
    Architecture: workspaces/{workspaceId}/jobs | services | expenses | profile
@@ -475,71 +477,7 @@ function exportCSV(jobs,p){
   URL.revokeObjectURL(url);
 }
 
-// ─── Website import — backend-first, client fallback ─────────────────────────
-// Set IMPORT_ENDPOINT to your deployed Cloudflare Worker URL.
-// Cloudflare Worker source is in msos-import-worker.js (delivered separately).
-// If blank, falls back to allorigins.win client-side proxy (dev only).
-const IMPORT_ENDPOINT = ''; // e.g. 'https://msos-import.yourname.workers.dev'
 
-async function importWebsite(rawUrl){
-  let url=rawUrl.trim();
-  if(!/^https?:\/\//i.test(url)) url='https://'+url;
-
-  // ── Backend path (production) ────────────────────────────────────────────
-  if(IMPORT_ENDPOINT){
-    const res=await fetch(IMPORT_ENDPOINT,{
-      method:'POST',
-      headers:{'Content-Type':'application/json','Accept':'application/json'},
-      body:JSON.stringify({url}),
-      signal:AbortSignal.timeout(15000),
-    });
-    if(!res.ok) throw new Error(`Import service error (${res.status})`);
-    const data=await res.json();
-    if(!data.success) throw new Error(data.error||'Import returned an error');
-    data.importedServices=dedupeServices((data.importedServices||[]).map((s,i)=>({
-      id:s.id||`imp-${slug(s.slug||s.name||'svc')}-${i}`,
-      name:s.name||'Imported Service',
-      slug:slug(s.name||'svc'),
-      basePrice:Number(s.basePrice||0),
-      minPrice:Number(s.minPrice||0),
-      maxPrice:Number(s.maxPrice||0),
-      dur:Number(s.estimatedDurationMinutes||60),
-      notes:s.notes||'',active:true,source:'imported',
-    })));
-    return data;
-  }
-
-  // ── Client-side fallback (dev/demo — deploy backend for production) ───────
-  const proxyUrl=`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
-  const res=await fetch(proxyUrl,{signal:AbortSignal.timeout(12000)});
-  if(!res.ok) throw new Error('Could not reach that site. Check the URL and try again.');
-  const {contents}=await res.json();
-  if(!contents) throw new Error('Site returned no content.');
-  const parser=new DOMParser();
-  const doc=parser.parseFromString(contents,'text/html');
-  const meta=(n,a='content')=>doc.querySelector(`meta[name="${n}"]`)?.getAttribute(a)||doc.querySelector(`meta[property="${n}"]`)?.getAttribute(a)||'';
-  const text=doc.body?.innerText||doc.body?.textContent||'';
-  const name=meta('og:site_name')||meta('og:title')||doc.querySelector('title')?.textContent?.split(/[-|–]/)[0].trim()||'';
-  const phoneM=text.match(/\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/);
-  const phone=phoneM?phoneM[0].replace(/\D+/g,' ').trim():'';
-  const emailM=text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-  const email=emailM?emailM[0]:'';
-  let logoUrl=meta('og:image')||'';if(logoUrl&&!logoUrl.startsWith('http'))logoUrl='';
-  const tagline=meta('og:description')||meta('description')||'';
-  const lower=text.toLowerCase();
-  let bizType='general',bizConf=0.4;
-  const signals={tire:/(tire|tyre|rim|wheel|flat|patch|plug)/g,mechanic:/(mechanic|oil change|brake|engine|diagnostic)/g,detailing:/(detail|wax|polish|ceramic|interior clean)/g,roadside:/(roadside|jump start|lockout|fuel delivery|tow)/g};
-  let maxC=0;for(const[t,rx] of Object.entries(signals)){const c=(lower.match(rx)||[]).length;if(c>maxC){maxC=c;bizType=t;bizConf=Math.min(0.95,0.4+c*0.12);}}
-  const svcNames=[];
-  doc.querySelectorAll('h2,h3,h4').forEach(h=>{if(/service|we offer|what we do/i.test(h.textContent)){let el=h.nextElementSibling;while(el&&!['H2','H3','H4'].includes(el.tagName)){el.querySelectorAll('li,p').forEach(li=>{const t=li.textContent.trim();if(t.length>3&&t.length<80)svcNames.push(t);});el=el.nextElementSibling;}}});
-  let jld={};try{const s=doc.querySelector('script[type="application/ld+json"]');if(s){const p=JSON.parse(s.textContent);jld=Array.isArray(p)?p[0]:p;}}catch{}
-  return {
-    success:true,detectedBusinessType:bizType,confidence:bizConf,
-    businessProfile:{businessName:jld.name||name||'',phone:jld.telephone||phone||'',email:jld.email||email||'',logoUrl,tagline:tagline.slice(0,160),serviceArea:jld.areaServed||'',websiteUrl:url},
-    importedServices:dedupeServices(svcNames.slice(0,8).map((n,i)=>({id:`imp-${slug(n)}-${i}`,name:n,slug:slug(n),basePrice:0,minPrice:0,maxPrice:0,dur:60,active:true,source:'imported'}))),
-    warnings:[...(!logoUrl?['No logo detected']:[]),(IMPORT_ENDPOINT?'':'Client-side import mode — for better results, deploy the backend worker')].filter(Boolean),
-  };
-}
 // ─── Shared components ────────────────────────────────────────────────────────
 const Empty=({icon,title,sub,action})=>(
   <div className="empty">
@@ -641,10 +579,11 @@ function AuthScreen({onAuth}){
   const [busy,  setBusy] =useState(false);
 
   const submit=async()=>{
+    if(!_auth){setErr('Connecting… wait a moment and try again.');return;}
     if(!email.trim()){setErr('Enter your email.');return;}
     if(mode==='reset'){
       setBusy(true);setErr('');
-      try{await _auth.sendPasswordResetEmail(email.trim());setInfo('Check your email for a reset link.');setMode('login');}
+      try{await _auth.sendPasswordResetEmail(email.trim());setInfo('Reset link sent — check your email.');setMode('login');}
       catch(e){setErr(e.message);}
       setBusy(false);return;
     }
@@ -655,10 +594,11 @@ function AuthScreen({onAuth}){
         ?await _auth.signInWithEmailAndPassword(email.trim(),pass)
         :await _auth.createUserWithEmailAndPassword(email.trim(),pass);
       onAuth(c.user);
-    }catch(e){setErr(e.message||'Auth failed.');}
+    }catch(e){setErr(e.message||'Check your email and password and try again.');}
     setBusy(false);
   };
   const google=async()=>{
+    if(!_auth){setErr('Connecting… wait a moment and try again.');return;}
     try{const c=await _auth.signInWithPopup(new firebase.auth.GoogleAuthProvider());onAuth(c.user);}
     catch(e){setErr(e.message);}
   };
@@ -704,270 +644,164 @@ function AuthScreen({onAuth}){
 }
 
 // ─── Onboarding ───────────────────────────────────────────────────────────────
+// ─── Onboarding (5 steps — Business info, Type, Services, Done) ──────────────
+// Travel, fees, and team/payout moved to Settings after first login.
+// This keeps onboarding fast and removes friction for beta users.
 function Onboarding({user,onComplete}){
-  const TOTAL=7;
+  const TOTAL=5;
   const [step,setStep]=useState(0);
-  const [data,setData]=useState({
+  const [busy,setBusy]=useState(false);
+  const [d,setD]=useState({
     businessName:'',ownerName:user?.displayName||'',phone:'',email:user?.email||'',
-    websiteUrl:'',logoData:'',serviceArea:'',businessType:'tire',
-    services:[],teamMode:'solo',owner2Name:'',profitSplit1:100,profitSplit2:0,
-    costPerMile:0.65,chargePerMile:1.0,freeRadiusMiles:5,
-    emergencyFee:25,lateNightFee:25,weekendFee:10,
-    weeklyGoal:1200,taxRate:25,skipThreshold:65,riskyMiles:25,
-    // Website import state
-    importUrl:'',importLoading:false,importResult:null,importErr:'',importDone:false,
+    logoData:'',businessType:'tire',services:[],
   });
-  const set=(k,v)=>setData(p=>({...p,[k]:v}));
+  const sd=(k,v)=>setD(p=>({...p,[k]:v}));
 
-  const setBizType=t=>{
-    set('businessType',t);
-    // mergeServices instead of replace: preserves any manually edited prices
-    const newTemplates=makeStarterServices(t);
-    set('services', data.services.length
-      ? mergeServices(data.services, newTemplates) // user edits survive type switch
-      : newTemplates
-    );
+  // Set biz type and regenerate starter services — single setState call
+  const pickBizType=t=>{
+    setD(p=>({...p,businessType:t,services:makeStarterServices(t)}));
   };
-  // Init services ONCE — never on re-render
-  useEffect(()=>{
-    if(!data.services.length) set('services',makeStarterServices(data.businessType));
-  },[]); // empty deps = mount only
 
-  const cfg=BIZ[data.businessType]||BIZ.general;
-  const ok=()=>{
-    if(step===1) return data.businessName.trim().length>0&&data.ownerName.trim().length>0;
-    if(step===5&&data.teamMode==='co-owners') return data.profitSplit1+data.profitSplit2===100;
+  // Init services once on mount
+  useEffect(()=>{
+    if(!d.services.length) setD(p=>({...p,services:makeStarterServices(p.businessType)}));
+  },[]);
+
+  const cfg=BIZ[d.businessType]||BIZ.general;
+  const canNext=()=>{
+    if(step===1) return d.businessName.trim().length>0 && d.ownerName.trim().length>0;
+    if(step===2) return !!d.businessType;
     return true;
   };
-  const next=()=>ok()&&setStep(s=>s+1);
+  const next=()=>{ if(canNext()) setStep(s=>s+1); };
   const back=()=>setStep(s=>s-1);
 
-  // Website import
-  const doImport=async()=>{
-    if(!data.importUrl.trim()){set('importErr','Enter a website URL.');return;}
-    set('importLoading',true);set('importErr','');
-    try{
-      const r=await importWebsite(data.importUrl);
-      set('importResult',r);
-      // Pre-fill from result if fields are empty
-      if(r.businessProfile.businessName&&!data.businessName) set('businessName',r.businessProfile.businessName);
-      if(r.businessProfile.phone&&!data.phone) set('phone',r.businessProfile.phone);
-      if(r.businessProfile.serviceArea&&!data.serviceArea) set('serviceArea',r.businessProfile.serviceArea);
-      if(r.detectedBusinessType) setBizType(r.detectedBusinessType);
-      if(r.importedServices.length) {
-        const starters=makeStarterServices(r.detectedBusinessType||'general');
-        // imported takes priority over starters (imported wins on same ID)
-        set('services', mergeServices(starters, r.importedServices));
-      }
-      set('importDone',true);
-    }catch(e){set('importErr',e.message||'Import failed. Check the URL and try again.');}
-    set('importLoading',false);
-  };
-
-  const finish=()=>{
-    const isCo=data.teamMode==='co-owners';
+  const finish=async()=>{
+    setBusy(true);
     const profile={
       ...DEF_PROFILE(),
-      businessName:data.businessName.trim(),ownerName:data.ownerName.trim(),
-      phone:data.phone.trim(),email:data.email.trim(),logoData:data.logoData,
-      serviceArea:data.serviceArea.trim(),businessType:data.businessType,
-      onboardingDone:true,servicesSeeded:true,
-      owner1Name:data.ownerName.trim()||'Owner 1',
-      owner2Name:isCo?data.owner2Name.trim():'',
-      owner1Active:true,owner2Active:isCo,
-      profitSplit1:isCo?data.profitSplit1:100,profitSplit2:isCo?data.profitSplit2:0,
-      costPerMile:data.costPerMile,chargePerMile:data.chargePerMile,
-      freeRadiusMiles:data.freeRadiusMiles,emergencyFee:data.emergencyFee,
-      lateNightFee:data.lateNightFee,weekendFee:data.weekendFee,
-      weeklyGoal:data.weeklyGoal,taxRate:data.taxRate,
-      skipThreshold:data.skipThreshold,riskyMiles:data.riskyMiles,
-      repairTarget:cfg.repairTarget,replaceTarget:cfg.replaceTarget,
+      businessName:d.businessName.trim(),
+      ownerName:d.ownerName.trim(),
+      phone:d.phone.trim(),
+      email:d.email.trim()||user?.email||'',
+      logoData:d.logoData,
+      businessType:d.businessType,
+      onboardingDone:true,
+      servicesSeeded:true,
+      uid:user?.uid||'',
+      workspaceId:user?.uid||'',
+      owner1Name:d.ownerName.trim()||'Owner 1',
+      repairTarget:cfg.repairTarget,
+      replaceTarget:cfg.replaceTarget,
+      skipThreshold:cfg.skipThreshold,
     };
-    onComplete(profile,dedupeServices(data.services));
+    onComplete(profile, dedupeServices(d.services));
   };
 
-  // Shared input style
-  const ai={width:'100%',background:'rgba(255,255,255,.07)',border:'1.5px solid rgba(255,255,255,.1)',borderRadius:12,padding:'14px 16px',color:'#fff',fontSize:16,outline:'none',fontFamily:'inherit',marginBottom:12,transition:'border-color .15s'};
-  const ai2={...ai,padding:'11px 13px',borderRadius:10};
-  const ai2n={...ai2,fontFamily:'"JetBrains Mono",monospace'};
+  // Shared dark input style
+  const ai={width:'100%',background:'rgba(255,255,255,.07)',border:'1.5px solid rgba(255,255,255,.1)',borderRadius:12,padding:'14px 16px',color:'#fff',fontSize:16,outline:'none',fontFamily:'inherit',transition:'border-color .15s',marginBottom:12,boxSizing:'border-box'};
   const lbl={fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'.6px',color:'#555',display:'block',marginBottom:6};
 
   const STEPS=[
-    // 0 — Welcome to onboarding
-    <div key={0}>
-      <div style={{fontSize:44,textAlign:'center',marginBottom:16}}>👋</div>
-      <div style={{color:'#fff',fontSize:22,fontWeight:800,marginBottom:8,textAlign:'center'}}>Let's set up your business</div>
-      <div style={{color:'#555',fontSize:13,marginBottom:28,textAlign:'center',lineHeight:1.7}}>
-        We'll ask a few questions to personalize your app. Takes about 2 minutes. You can change everything later in Settings.
+    // 0 — Welcome
+    <div key={0} style={{textAlign:'center'}}>
+      <img src={MSOS_LOGO} alt="MSOS" style={{width:72,height:72,borderRadius:18,marginBottom:24}}/>
+      <div style={{color:'#fff',fontSize:26,fontWeight:800,marginBottom:8,letterSpacing:'-.5px'}}>Mobile Service OS</div>
+      <div style={{color:'#555',fontSize:14,marginBottom:36,lineHeight:1.7,maxWidth:300,margin:'0 auto 36px'}}>Track jobs, manage payouts, and grow your mobile service business.</div>
+      <div style={{textAlign:'left',maxWidth:320,margin:'0 auto'}}>
+        {[['📊','Real-time P&L dashboard'],['💰','Automated payout splits'],['🛠','Job tracking per service'],['📱','Works on iPhone, synced']].map(([i,l])=>(
+          <div key={l} style={{display:'flex',alignItems:'center',gap:12,padding:'10px 0',borderBottom:'1px solid rgba(255,255,255,.05)'}}>
+            <span style={{fontSize:20,width:28}}>{i}</span>
+            <span style={{color:'#777',fontSize:13,fontWeight:500}}>{l}</span>
+          </div>
+        ))}
       </div>
-      {[['📊','Dashboard with real-time P&L'],['💰','Automated payout calculations'],['📱','Mobile-first, works on iPhone'],['🔄','Synced across all your devices']].map(([i,l])=>(
-        <div key={l} style={{display:'flex',alignItems:'center',gap:12,padding:'10px 14px',background:'rgba(255,255,255,.04)',borderRadius:12,marginBottom:8}}>
-          <span style={{fontSize:20}}>{i}</span>
-          <span style={{color:'#888',fontSize:13,fontWeight:500}}>{l}</span>
-        </div>
-      ))}
     </div>,
 
-    // 1 — Business profile
+    // 1 — Business basics
     <div key={1}>
-      <div style={{fontSize:44,textAlign:'center',marginBottom:16}}>🏢</div>
-      <div style={{color:'#fff',fontSize:22,fontWeight:800,marginBottom:6,textAlign:'center'}}>Your Business</div>
-      <div style={{color:'#555',fontSize:13,marginBottom:24,textAlign:'center'}}>Tell us about your business.</div>
+      <div style={{textAlign:'center',marginBottom:28}}>
+        <div style={{fontSize:38,marginBottom:12}}>🏢</div>
+        <div style={{color:'#fff',fontSize:22,fontWeight:800,marginBottom:6}}>Your Business</div>
+        <div style={{color:'#555',fontSize:13,lineHeight:1.6}}>Basic info. You can update everything later in Settings.</div>
+      </div>
       <label style={lbl}>Business Name *</label>
-      <input style={ai} value={data.businessName} onChange={e=>set('businessName',e.target.value)} placeholder="Miami Mobile Tire Repair"/>
+      <input style={ai} value={d.businessName} onChange={e=>sd('businessName',e.target.value)} placeholder="Miami Mobile Tire Repair" autoFocus/>
       <label style={lbl}>Your Name *</label>
-      <input style={ai} value={data.ownerName} onChange={e=>set('ownerName',e.target.value)} placeholder="Your full name"/>
+      <input style={ai} value={d.ownerName} onChange={e=>sd('ownerName',e.target.value)} placeholder="Your full name"/>
       <label style={lbl}>Phone</label>
-      <input style={ai} type="tel" value={data.phone} onChange={e=>set('phone',e.target.value)} placeholder="(305) 555-0000"/>
-      <label style={lbl}>Service Area</label>
-      <input style={ai} value={data.serviceArea} onChange={e=>set('serviceArea',e.target.value)} placeholder="Miami, FL"/>
+      <input style={ai} type="tel" value={d.phone} onChange={e=>sd('phone',e.target.value)} placeholder="(305) 555-0000"/>
       <label style={lbl}>Business Logo</label>
-      <LogoUpload value={data.logoData} onChange={v=>set('logoData',v)} dark/>
+      <LogoUpload value={d.logoData} onChange={v=>sd('logoData',v)} dark/>
     </div>,
 
-    // 2 — Website import (optional)
+    // 2 — Business type
     <div key={2}>
-      <div style={{fontSize:44,textAlign:'center',marginBottom:16}}>🌐</div>
-      <div style={{color:'#fff',fontSize:22,fontWeight:800,marginBottom:6,textAlign:'center'}}>Import from your website</div>
-      <div style={{color:'#555',fontSize:13,marginBottom:24,textAlign:'center',lineHeight:1.6}}>Optional shortcut. Paste your website URL and we'll auto-fill your profile. You can edit everything after.</div>
-      {!data.importDone?(
-        <>
-          <label style={lbl}>Website URL (optional)</label>
-          <div className="import-field" style={{marginBottom:12}}>
-            <input className="ainp" value={data.importUrl} onChange={e=>set('importUrl',e.target.value)} placeholder="yourwebsite.com" style={{paddingRight:56}} onKeyDown={e=>e.key==='Enter'&&doImport()}/>
-            <button className="import-go" onClick={doImport} disabled={data.importLoading}>{data.importLoading?'…':'Go'}</button>
-          </div>
-          {data.importErr&&<div className="alert a-red" style={{background:'rgba(220,38,38,.12)',border:'1px solid rgba(220,38,38,.2)',color:'#f87171'}}>{data.importErr}</div>}
-          {data.importLoading&&<div style={{textAlign:'center',color:'#555',fontSize:13,padding:'20px 0'}}>Fetching website info…</div>}
-          <div style={{marginTop:20,padding:'14px',background:'rgba(255,255,255,.04)',borderRadius:12}}>
-            <div style={{fontSize:12,color:'#444',fontWeight:600,marginBottom:8,textTransform:'uppercase',letterSpacing:'.5px'}}>What gets imported</div>
-            {['Business name','Phone number','Service area','Service categories','Business type detection'].map(i=><div key={i} style={{fontSize:12,color:'#555',padding:'3px 0'}}>✓ {i}</div>)}
-          </div>
-        </>
-      ):(
-        <div>
-          <div style={{display:'flex',alignItems:'center',gap:10,background:'rgba(21,128,61,.12)',border:'1px solid rgba(21,128,61,.2)',borderRadius:12,padding:'12px 14px',marginBottom:14}}>
-            <span style={{fontSize:18}}>✅</span>
-            <div><div style={{fontSize:13,fontWeight:700,color:'#4ade80'}}>Imported successfully</div><div style={{fontSize:11,color:'#2d6a4f',marginTop:1}}>{data.importUrl}</div></div>
-          </div>
-          {data.importResult&&(
-            <div>
-              {/* Detected type */}
-              <div style={{background:'rgba(37,99,235,.12)',border:'1px solid rgba(37,99,235,.2)',borderRadius:12,padding:'10px 14px',marginBottom:12,fontSize:12,color:'#93c5fd'}}>
-                💡 Detected: <strong>{BIZ[data.importResult.detectedBusinessType]?.label||'General'}</strong> ({Math.round((data.importResult.confidence||0)*100)}% confident) — You can change this in the next step
-              </div>
-              {/* Editable profile fields */}
-              <div style={{fontSize:11,color:'#555',fontWeight:700,textTransform:'uppercase',letterSpacing:'.5px',marginBottom:8}}>Review & Edit Imported Info</div>
-              {[['Business Name','businessName'],['Phone','phone'],['Email','email'],['Service Area','serviceArea']].map(([l,k])=>{
-                const val=data.importResult.businessProfile[k];
-                return val?(
-                  <div key={k} style={{marginBottom:8}}>
-                    <div style={{fontSize:10,color:'#444',marginBottom:4,textTransform:'uppercase',letterSpacing:'.5px'}}>{l}</div>
-                    <input className="ainp" value={data[k]||val} onChange={e=>{set(k,e.target.value);}} placeholder={val} style={{marginBottom:0,padding:'11px 14px'}}/>
-                  </div>
-                ):null;
-              })}
-              {/* Imported services */}
-              {data.importResult.importedServices.length>0&&(
-                <div style={{marginTop:14}}>
-                  <div style={{fontSize:11,color:'#555',fontWeight:700,textTransform:'uppercase',letterSpacing:'.5px',marginBottom:8}}>Imported Services ({data.importResult.importedServices.length})</div>
-                  {data.importResult.importedServices.map((svc,i)=>(
-                    <div key={svc.id} style={{display:'flex',alignItems:'center',gap:10,background:'rgba(255,255,255,.05)',border:'1px solid rgba(255,255,255,.08)',borderRadius:10,padding:'8px 12px',marginBottom:6}}>
-                      <div style={{flex:1,fontSize:13,color:'#ddd'}}>{svc.name}</div>
-                      <span style={{fontSize:10,color:'#555',background:'rgba(255,255,255,.06)',padding:'2px 7px',borderRadius:4}}>imported</span>
-                      <button onClick={()=>{const updated={...data.importResult,importedServices:data.importResult.importedServices.filter((_,j)=>j!==i)};set('importResult',updated);set('services',mergeServices(makeStarterServices(data.importResult.detectedBusinessType),updated.importedServices));}} style={{background:'none',border:'none',color:'#555',fontSize:16,cursor:'pointer',lineHeight:1}}>×</button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {data.importResult.warnings.length>0&&<div style={{fontSize:11,color:'#555',marginTop:10,lineHeight:1.6}}>{data.importResult.warnings.map((w,i)=><div key={i}>⚠️ {w}</div>)}</div>}
-            </div>
-          )}
-          <button className="ob-btn" style={{width:'100%',marginTop:14,background:'rgba(255,255,255,.06)',color:'#555'}} onClick={()=>{set('importDone',false);set('importResult',null);}}>Try a different URL</button>
-        </div>
-      )}
-    </div>,
-
-    // 3 — Business type
-    <div key={3}>
-      <div style={{fontSize:44,textAlign:'center',marginBottom:16}}>🚐</div>
-      <div style={{color:'#fff',fontSize:22,fontWeight:800,marginBottom:6,textAlign:'center'}}>Business type</div>
-      <div style={{color:'#555',fontSize:13,marginBottom:24,textAlign:'center'}}>This customizes job fields, services, and pricing suggestions.</div>
-      {data.importResult&&<div className="alert a-blue" style={{marginBottom:14,background:'rgba(37,99,235,.12)',border:'1px solid rgba(37,99,235,.2)',color:'#93c5fd',fontSize:12}}>💡 Website detected: {BIZ[data.importResult.detectedBusinessType]?.label}</div>}
-      <div className="biz-grid">
-        {Object.entries(BIZ).map(([k,v])=>(
-          <div key={k} className={`biz-card ${data.businessType===k?'on':''}`} onClick={()=>setBizType(k)}>
-            <div style={{fontSize:28,marginBottom:8}}>{v.icon}</div>
-            <div style={{fontSize:12,fontWeight:700,color:'#ddd'}}>{v.label}</div>
-          </div>
-        ))}
+      <div style={{textAlign:'center',marginBottom:24}}>
+        <div style={{fontSize:38,marginBottom:12}}>🚐</div>
+        <div style={{color:'#fff',fontSize:22,fontWeight:800,marginBottom:6}}>What type of business?</div>
+        <div style={{color:'#555',fontSize:13}}>This customizes your job fields and starter services.</div>
       </div>
-    </div>,
-
-    // 4 — Starter services
-    <div key={4}>
-      <div style={{fontSize:44,textAlign:'center',marginBottom:16}}>{cfg.icon}</div>
-      <div style={{color:'#fff',fontSize:22,fontWeight:800,marginBottom:6,textAlign:'center'}}>Your Services</div>
-      <div style={{color:'#555',fontSize:13,marginBottom:20,textAlign:'center'}}>Pre-loaded for {cfg.label}. Edit prices to match yours.</div>
-      {dedupeServices(data.services).map(svc=>(
-        <div key={svc.id} style={{background:'rgba(255,255,255,.06)',border:'1.5px solid rgba(255,255,255,.08)',borderRadius:12,padding:'12px 14px',marginBottom:8}}>
-          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
-            <div style={{fontSize:13,fontWeight:700,color:'#ddd',flex:1,marginRight:8}}>{svc.name}</div>
-            <Tog on={svc.active!==false} set={v=>set('services',data.services.map(s=>s.id===svc.id?{...s,active:v}:s))}/>
-          </div>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}}>
-            {[['Base $','basePrice'],['Min $','minPrice'],['Max $','maxPrice']].map(([l,k])=>(
-              <div key={k}>
-                <div style={{fontSize:9,color:'#444',marginBottom:4,textTransform:'uppercase',letterSpacing:'.5px'}}>{l}</div>
-                <input type="number" value={svc[k]||''} onChange={e=>set('services',data.services.map(s=>s.id===svc.id?{...s,[k]:Number(e.target.value||0)}:s))} style={{width:'100%',background:'rgba(255,255,255,.08)',border:'1px solid rgba(255,255,255,.1)',borderRadius:8,padding:'8px 9px',color:'#fff',fontSize:13,outline:'none',fontFamily:'"JetBrains Mono",monospace'}}/>
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
-      <button onClick={()=>set('services',[...data.services,{id:`svc-${uid()}`,name:'New Service',basePrice:0,minPrice:0,maxPrice:0,dur:60,active:true,source:'manual'}])} style={{width:'100%',background:'rgba(255,255,255,.04)',border:'1.5px dashed rgba(255,255,255,.12)',borderRadius:12,padding:12,color:'#555',fontSize:13,fontWeight:700,cursor:'pointer',marginTop:4}}>+ Add Custom Service</button>
-    </div>,
-
-    // 5 — Travel & fees
-    <div key={5}>
-      <div style={{fontSize:44,textAlign:'center',marginBottom:16}}>🚗</div>
-      <div style={{color:'#fff',fontSize:22,fontWeight:800,marginBottom:6,textAlign:'center'}}>Travel & Fees</div>
-      <div style={{color:'#555',fontSize:13,marginBottom:24,textAlign:'center'}}>How do you charge for distance and special jobs?</div>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:14}}>
-        {[['Cost/mile (your cost)','costPerMile','0.65'],['Charge/mile (customer)','chargePerMile','1.00'],['Free radius (miles)','freeRadiusMiles','5'],['Emergency fee ($)','emergencyFee','25'],['Late-night fee ($)','lateNightFee','25'],['Weekend fee ($)','weekendFee','10']].map(([l,k,ph])=>(
-          <div key={k}>
-            <div style={lbl}>{l}</div>
-            <input type="number" step="0.01" value={data[k]||''} onChange={e=>set(k,Number(e.target.value||0))} placeholder={ph} style={ai2n}/>
-          </div>
-        ))}
-      </div>
-    </div>,
-
-    // 6 — Team & goals
-    <div key={6}>
-      <div style={{fontSize:44,textAlign:'center',marginBottom:16}}>👥</div>
-      <div style={{color:'#fff',fontSize:22,fontWeight:800,marginBottom:6,textAlign:'center'}}>Team & Goals</div>
-      <div style={{color:'#555',fontSize:13,marginBottom:20,textAlign:'center'}}>How is your business structured?</div>
-      <div style={{display:'grid',gap:10,marginBottom:20}}>
-        {[['solo','🙋','Solo Owner','All profits go to me'],['co-owners','🤝','Two Co-Owners','Split profits with a partner'],['team','👔','Owner + Staff','I pay employees separately']].map(([id,i,l,s])=>(
-          <div key={id} className={`biz-card ${data.teamMode===id?'on':''}`} style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',textAlign:'left'}} onClick={()=>set('teamMode',id)}>
-            <span style={{fontSize:22}}>{i}</span>
-            <div><div style={{fontSize:13,fontWeight:700,color:'#ddd'}}>{l}</div><div style={{fontSize:11,color:'#555',marginTop:2}}>{s}</div></div>
-          </div>
-        ))}
-      </div>
-      {data.teamMode==='co-owners'&&(
-        <div style={{marginBottom:16}}>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:8}}>
-            <div><label style={lbl}>Partner Name</label><input style={ai2} value={data.owner2Name} onChange={e=>set('owner2Name',e.target.value)} placeholder="Partner name"/></div>
-            <div><label style={lbl}>Your Split %</label><input type="number" style={ai2n} value={data.profitSplit1} onChange={e=>{const v=Number(e.target.value||0);set('profitSplit1',v);set('profitSplit2',100-v);}}/></div>
-          </div>
-          {data.profitSplit1+data.profitSplit2!==100&&<div style={{fontSize:12,color:'#ea580c',fontWeight:600}}>⚠️ Must add to 100% (currently {data.profitSplit1+data.profitSplit2}%)</div>}
-        </div>
-      )}
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-        <div><label style={lbl}>Weekly Goal ($)</label><input type="number" style={ai2n} value={data.weeklyGoal} onChange={e=>set('weeklyGoal',Number(e.target.value||0))}/></div>
-        <div><label style={lbl}>Tax Rate (%)</label><input type="number" style={ai2n} value={data.taxRate} onChange={e=>set('taxRate',Number(e.target.value||0))}/></div>
+        {Object.entries(BIZ).map(([k,v])=>(
+          <div key={k}
+            onClick={()=>pickBizType(k)}
+            style={{border:`1.5px solid ${d.businessType===k?'#ea580c':'rgba(255,255,255,.08)'}`,borderRadius:14,padding:'16px 12px',textAlign:'center',cursor:'pointer',background:d.businessType===k?'rgba(234,88,12,.14)':'rgba(255,255,255,.03)',transition:'all .15s'}}>
+            <div style={{fontSize:28,marginBottom:8}}>{v.icon}</div>
+            <div style={{fontSize:12,fontWeight:700,color:d.businessType===k?'#fb923c':'#888',lineHeight:1.3}}>{v.label}</div>
+          </div>
+        ))}
+      </div>
+    </div>,
+
+    // 3 — Services
+    <div key={3}>
+      <div style={{textAlign:'center',marginBottom:20}}>
+        <div style={{fontSize:38,marginBottom:12}}>{cfg.icon}</div>
+        <div style={{color:'#fff',fontSize:22,fontWeight:800,marginBottom:6}}>Your Services</div>
+        <div style={{color:'#555',fontSize:13,lineHeight:1.6}}>Pre-loaded for {cfg.label}. Edit prices to match yours. You can add or remove in Settings later.</div>
+      </div>
+      <div style={{display:'grid',gap:8,marginBottom:10}}>
+        {dedupeServices(d.services).map(svc=>(
+          <div key={svc.id} style={{background:'rgba(255,255,255,.05)',border:`1.5px solid ${svc.active!==false?'rgba(255,255,255,.1)':'rgba(255,255,255,.04)'}`,borderRadius:12,padding:'12px 14px',opacity:svc.active!==false?1:0.5}}>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:svc.active!==false?10:0}}>
+              <div style={{fontSize:13,fontWeight:700,color:svc.active!==false?'#ddd':'#555',flex:1,paddingRight:8}}>{svc.name}</div>
+              <Tog on={svc.active!==false} set={v=>setD(p=>({...p,services:p.services.map(s=>s.id===svc.id?{...s,active:v}:s)}))}/>
+            </div>
+            {svc.active!==false&&(
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6}}>
+                {[['Base $','basePrice'],['Min $','minPrice'],['Max $','maxPrice']].map(([l,k])=>(
+                  <div key={k}>
+                    <div style={{fontSize:9,color:'#444',marginBottom:3,textTransform:'uppercase',letterSpacing:'.5px'}}>{l}</div>
+                    <input type="number" value={svc[k]||''}
+                      onChange={e=>setD(p=>({...p,services:p.services.map(s=>s.id===svc.id?{...s,[k]:Number(e.target.value||0)}:s)}))}
+                      style={{width:'100%',background:'rgba(255,255,255,.08)',border:'1px solid rgba(255,255,255,.1)',borderRadius:8,padding:'7px 8px',color:'#fff',fontSize:13,outline:'none',fontFamily:'"JetBrains Mono",monospace'}}/>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      <button onClick={()=>setD(p=>({...p,services:mergeServices(p.services,[{id:'svc-'+uid(),name:'New Service',slug:'new-service',basePrice:0,minPrice:0,maxPrice:0,dur:60,active:true,source:'manual',businessType:d.businessType}]}))}
+        style={{width:'100%',background:'rgba(255,255,255,.04)',border:'1.5px dashed rgba(255,255,255,.1)',borderRadius:12,padding:11,color:'#555',fontSize:13,fontWeight:700,cursor:'pointer'}}>
+        + Add Custom Service
+      </button>
+    </div>,
+
+    // 4 — Done
+    <div key={4} style={{textAlign:'center',paddingTop:20}}>
+      <div style={{fontSize:60,marginBottom:20}}>🚀</div>
+      <div style={{color:'#fff',fontSize:24,fontWeight:800,marginBottom:8}}>You're all set!</div>
+      <div style={{color:'#555',fontSize:14,marginBottom:36,lineHeight:1.7}}>
+        Your dashboard is ready. You can set up travel fees, payout splits, and advanced pricing in <strong style={{color:'#777'}}>Settings</strong> any time.
+      </div>
+      <div style={{background:'rgba(255,255,255,.04)',border:'1px solid rgba(255,255,255,.08)',borderRadius:14,padding:16,textAlign:'left',maxWidth:320,margin:'0 auto'}}>
+        {[['🏢',d.businessName||'Your Business'],[cfg.icon,cfg.label],['🛠',`${dedupeServices(d.services).filter(s=>s.active!==false).length} services ready`]].map(([i,l])=>(
+          <div key={l} style={{display:'flex',alignItems:'center',gap:10,padding:'7px 0',fontSize:13,color:'#777'}}>
+            <span>{i}</span><span>{l}</span>
+          </div>
+        ))}
       </div>
     </div>,
   ];
@@ -978,14 +812,18 @@ function Onboarding({user,onComplete}){
       <div className="ob-dots">{Array.from({length:TOTAL},(_,i)=><div key={i} className={`ob-dot ${i===step?'on':''}`} style={{width:i===step?20:6}}/>)}</div>
       <div className="ob-content">{STEPS[step]}</div>
       <div className={`ob-footer ${step>0?'two':''}`}>
-        {step>0&&<button className="ob-btn ob-back" onClick={back}>← Back</button>}
-        <button className="ob-btn ob-primary" onClick={step<TOTAL-1?next:finish} style={{opacity:ok()?1:.4}} disabled={!ok()}>
-          {step<TOTAL-1?'Continue →':'Launch My App 🚀'}
+        {step>0&&<button className="ob-btn ob-back" onClick={back} disabled={busy}>← Back</button>}
+        <button className="ob-btn ob-primary"
+          onClick={step<TOTAL-1?next:finish}
+          disabled={!canNext()||busy}
+          style={{opacity:(canNext()&&!busy)?1:.4}}>
+          {busy?'Setting up…':step===0?'Get Started →':step<TOTAL-1?'Continue →':'Launch Dashboard 🚀'}
         </button>
       </div>
     </div>
   );
 }
+
 
 // ─── Header ───────────────────────────────────────────────────────────────────
 function Header({profile,sync,onSignOut}){
@@ -1019,7 +857,6 @@ function Dashboard({jobs,services,profile,setTab,onRepeat}){
   const wjobs=useMemo(()=>jobs.filter(j=>wkStart(j.date)===thisWk),[jobs,thisWk]);
   const tjobs=useMemo(()=>jobs.filter(j=>j.date===today),[jobs,today]);
   const tot  =useMemo(()=>weekSum(wjobs,profile),[wjobs,profile]);
-  const fixed=wFixed(profile);
   const cfg  =BIZ[profile.businessType]||BIZ.general;
   const avg  =wjobs.length?r2(tot.gross/wjobs.length):0;
   const gPct =clamp((tot.gross/(profile.weeklyGoal||1))*100,0,100);
@@ -1029,129 +866,129 @@ function Dashboard({jobs,services,profile,setTab,onRepeat}){
   const o1   =tot.net>0&&ao1?r2(tot.net*(Number(profile.profitSplit1||100)/st)):0;
   const o2   =tot.net>0&&ao2?r2(tot.net*(Number(profile.profitSplit2||0)/st)):0;
   const tax  =tot.net>0&&profile.taxRate>0?r2(tot.net*(Number(profile.taxRate)/100)):0;
-
   const topSrc=useMemo(()=>{const m={};jobs.forEach(j=>{const s=j.source||'Other';m[s]=(m[s]||0)+1;});return Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,5);},[jobs]);
   const maxSrc=topSrc.length?topSrc[0][1]:1;
-  const last4 =useMemo(()=>groupWeeks(jobs).slice(0,4).reverse().map(([wk,wj])=>{const t=weekSum(wj,profile);return{wk,m:t.revenue>0?r2((t.gross/t.revenue)*100):0};}), [jobs,profile]);
+  const last4=useMemo(()=>groupWeeks(jobs).slice(0,4).reverse().map(([wk,wj])=>{const t=weekSum(wj,profile);return{wk,m:t.revenue>0?r2((t.gross/t.revenue)*100):0};}), [jobs,profile]);
   const recent=useMemo(()=>[...jobs].sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id)).slice(0,6),[jobs]);
+  const margin=tot.revenue>0?r2((tot.gross/tot.revenue)*100):0;
   const barC  =gPct>=100?'#16a34a':gPct>=60?'#111':'#ea580c';
-  // Next action
-  const nextAction=()=>{
-    if(!jobs.length) return {msg:'Add your first job to get started.',action:'add'};
-    if(gPct<100) return {msg:`${typeof need==='number'?need+' more job'+(need!==1?'s':''):''} to hit your ${money(profile.weeklyGoal)} weekly goal.`,action:'add'};
-    return {msg:`Goal hit! 🎉 ${money(tot.net)} net profit this week.`,action:null};
-  };
-  const na=nextAction();
 
   return(
     <div className="screen"><div className="page">
-      {/* Today */}
+
+      {/* ── Hero profit card ── */}
+      <div style={{background:'#111',borderRadius:18,padding:'18px 20px',marginBottom:10,display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}>
+        <div>
+          <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'1px',color:'#555',marginBottom:6}}>This Week · Net Profit</div>
+          <div style={{fontFamily:'"JetBrains Mono",monospace',fontSize:32,fontWeight:800,color:tot.net>=0?'#4ade80':'#f87171',letterSpacing:'-1px',lineHeight:1}}>{money(tot.net)}</div>
+          <div style={{fontSize:12,color:'#555',marginTop:6}}>{money(tot.revenue)} rev · {money(tot.gross)} gross · {margin}% margin</div>
+        </div>
+        <button onClick={()=>setTab('add')} style={{background:'#ea580c',border:'none',borderRadius:12,padding:'12px 16px',color:'#fff',fontWeight:800,fontSize:14,cursor:'pointer',flexShrink:0,lineHeight:1.2,textAlign:'center'}}>
+          <div style={{fontSize:18,marginBottom:2}}>＋</div>Job
+        </button>
+      </div>
+
+      {/* ── Today strip (only if jobs today) ── */}
       {tjobs.length>0&&(
-        <><div className="sec" style={{marginTop:0}}>Today</div>
-        <div className="kgrid g4" style={{marginBottom:12}}>
-          <div className="kpi"><div className="kpi-l">Jobs</div><div className="kpi-v">{tjobs.length}</div></div>
+        <div className="kgrid g4" style={{marginBottom:10}}>
+          <div className="kpi"><div className="kpi-l">Today</div><div className="kpi-v" style={{fontSize:22}}>{tjobs.length}</div><div className="kpi-s">jobs</div></div>
           <div className="kpi"><div className="kpi-l">Revenue</div><div className="kpi-v" style={{fontSize:14}}>{money(tjobs.reduce((s,j)=>s+Number(j.revenue||0),0))}</div></div>
-          <div className="kpi"><div className="kpi-l">Profit</div><div className="kpi-v" style={{fontSize:14}}>{money(tjobs.reduce((s,j)=>s+jGross(j,profile),0))}</div></div>
-          <div className="kpi"><div className="kpi-l">Avg/Job</div><div className="kpi-v" style={{fontSize:14}}>{money(tjobs.reduce((s,j)=>s+jGross(j,profile),0)/tjobs.length)}</div></div>
-        </div></>
-      )}
-      {/* Next action */}
-      {na.msg&&(
-        <div className={`alert ${gPct>=100?'a-green':'a-blue'}`} style={{marginBottom:12,cursor:na.action?'pointer':'default'}} onClick={()=>na.action&&setTab(na.action)}>
-          {na.msg} {na.action&&<span style={{fontWeight:700}}>→</span>}
+          <div className="kpi"><div className="kpi-l">Profit</div><div className="kpi-v" style={{fontSize:14,color:'#16a34a'}}>{money(tjobs.reduce((s,j)=>s+jGross(j,profile),0))}</div></div>
+          <div className="kpi"><div className="kpi-l">Avg</div><div className="kpi-v" style={{fontSize:14}}>{money(tjobs.reduce((s,j)=>s+jGross(j,profile),0)/tjobs.length)}</div></div>
         </div>
       )}
-      {/* This week */}
-      <div className="sec" style={{marginTop:tjobs.length?undefined:0}}>This Week</div>
+
+      {/* ── Weekly KPIs ── */}
       <div className="kgrid g2" style={{marginBottom:2}}>
         <div className="kpi"><div className="kpi-l">Revenue</div><div className="kpi-v">{money(tot.revenue)}</div><div className="kpi-s">{wjobs.length} job{wjobs.length!==1?'s':''}</div></div>
-        <div className="kpi"><div className="kpi-l">Gross Profit</div><div className="kpi-v">{money(tot.gross)}</div><div className="kpi-s">before overhead</div></div>
-        <div className="kpi"><div className="kpi-l">Fixed Exp.</div><div className="kpi-v">{money(fixed)}</div><div className="kpi-s">weekly</div></div>
-        <div className="kpi"><div className="kpi-l">Net Profit</div><div className="kpi-v" style={{color:tot.net>=0?'#16a34a':'#dc2626'}}>{money(tot.net)}</div><div className="kpi-s">after all costs</div></div>
+        <div className="kpi"><div className="kpi-l">Gross Profit</div><div className="kpi-v">{money(tot.gross)}</div><div className="kpi-s">{margin}% margin</div></div>
+        <div className="kpi"><div className="kpi-l">Direct Costs</div><div className="kpi-v" style={{fontSize:15}}>{money(tot.costs)}</div><div className="kpi-s">travel + parts</div></div>
+        <div className="kpi"><div className="kpi-l">Fixed Overhead</div><div className="kpi-v" style={{fontSize:15}}>{money(tot.fixed)}</div><div className="kpi-s">weekly</div></div>
       </div>
       <div className="kgrid g3" style={{marginBottom:12}}>
-        <div className="kpi"><div className="kpi-l">Direct Costs</div><div className="kpi-v" style={{fontSize:15}}>{money(tot.costs)}</div></div>
-        <div className="kpi"><div className="kpi-l">Avg/Job</div><div className="kpi-v" style={{fontSize:15}}>{money(avg)}</div></div>
-        <div className="kpi"><div className="kpi-l">Jobs to Goal</div><div className="kpi-v" style={{fontSize:15}}>{need}</div></div>
+        <div className="kpi"><div className="kpi-l">Avg / Job</div><div className="kpi-v" style={{fontSize:15}}>{money(avg)}</div></div>
+        <div className="kpi"><div className="kpi-l">Jobs to Goal</div><div className="kpi-v" style={{fontSize:15,color:typeof need==='number'&&need>0?'#ea580c':'#16a34a'}}>{need}</div></div>
+        <div className="kpi"><div className="kpi-l">Goal %</div><div className="kpi-v" style={{fontSize:15,color:barC}}>{gPct.toFixed(0)}%</div></div>
       </div>
-      {/* Goal bar */}
+
+      {/* ── Goal bar ── */}
       <div className="card">
         <div className="cpad">
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
-            <div>
-              <div style={{fontSize:12,color:'#999',fontWeight:600}}>Weekly Goal</div>
-              <div style={{fontFamily:'"JetBrains Mono",monospace',fontSize:15,fontWeight:700,marginTop:2}}>
-                {money(tot.gross)} <span style={{color:'#ddd',fontWeight:400}}>/ {money(profile.weeklyGoal)}</span>
-              </div>
-            </div>
-            {gPct>=100?<span className="pill p-green">🎉 Goal Hit</span>:<span className="pill p-gray">{gPct.toFixed(0)}%</span>}
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:2}}>
+            <div style={{fontSize:13,fontWeight:700,color:'#333'}}>Weekly Goal Progress</div>
+            {gPct>=100
+              ?<span className="pill p-green">🎉 Goal Hit</span>
+              :<span style={{fontFamily:'"JetBrains Mono",monospace',fontSize:12,color:'#aaa'}}>{money(tot.gross)} / {money(profile.weeklyGoal)}</span>
+            }
           </div>
           <div className="gtrack"><div className="gfill" style={{width:`${gPct}%`,background:barC}}/></div>
-          <div style={{display:'flex',justifyContent:'space-between',fontSize:11,color:'#aaa'}}>
-            <span>Next payout: {nextFri()}</span>
-            {typeof need==='number'&&need>0&&<span>{need} more job{need!==1?'s':''} needed</span>}
+          <div style={{display:'flex',justifyContent:'space-between',fontSize:11,color:'#bbb'}}>
+            <span>Payout: {nextFri()}</span>
+            {typeof need==='number'&&need>0&&<span style={{color:'#ea580c',fontWeight:600}}>{need} more job{need!==1?'s':''} needed</span>}
           </div>
         </div>
       </div>
-      {/* Payout card */}
+
+      {/* ── Payout projection ── */}
       <div className="dk">
-        <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'1px',color:'#555',marginBottom:14}}>Friday Payout Projection</div>
+        <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'1px',color:'#555',marginBottom:14}}>Payout Projection · {nextFri()}</div>
         {[{n:profile.owner1Name||'Owner 1',a:o1,ok:ao1},{n:profile.owner2Name||'Owner 2',a:o2,ok:ao2}].filter(o=>o.ok).map((o,i)=>(
-          <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
-            <span style={{color:'#777',fontSize:14}}>{o.n}</span>
-            <strong style={{fontFamily:'"JetBrains Mono",monospace',fontSize:22,color:o.a>0?'#4ade80':'#555'}}>{money(o.a)}</strong>
+          <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12,paddingBottom:12,borderBottom:'1px solid #1a1a1a'}}>
+            <span style={{color:'#888',fontSize:14,fontWeight:600}}>{o.n}</span>
+            <strong style={{fontFamily:'"JetBrains Mono",monospace',fontSize:24,color:o.a>0?'#4ade80':'#555'}}>{money(o.a)}</strong>
           </div>
         ))}
-        <div style={{borderTop:'1px solid #1a1a1a',paddingTop:10,fontSize:11,color:'#333',lineHeight:1.9}}>
-          {money(tot.revenue)} rev − {money(tot.costs)} costs = {money(tot.gross)} gross<br/>
-          {money(tot.gross)} gross − {money(fixed)} fixed = {money(tot.net)} net
+        <div style={{fontSize:11,color:'#2a2a2a',lineHeight:2}}>
+          {money(tot.revenue)} rev  −  {money(tot.costs)} direct  =  {money(tot.gross)} gross<br/>
+          {money(tot.gross)} gross  −  {money(tot.fixed)} fixed  =  <span style={{color:'#4ade80',fontWeight:700}}>{money(tot.net)} net</span>
         </div>
-        {tax>0&&(
-          <div className="taxbox" style={{marginTop:12}}>
-            <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',color:'#92400e',marginBottom:5}}>💰 Tax Reserve ({profile.taxRate}%)</div>
-            <div style={{fontFamily:'"JetBrains Mono",monospace',fontSize:18,fontWeight:700,color:'#b45309'}}>{money(tax)}</div>
-            <div style={{fontSize:11,color:'#92400e',marginTop:3}}>~{money(tax/2)} per owner — move to savings</div>
-          </div>
-        )}
+        {tax>0&&<div className="taxbox" style={{marginTop:12}}><div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',color:'#92400e',marginBottom:5}}>💰 Tax Reserve ({profile.taxRate}%)</div><div style={{fontFamily:'"JetBrains Mono",monospace',fontSize:17,fontWeight:700,color:'#b45309'}}>{money(tax)}</div><div style={{fontSize:11,color:'#92400e',marginTop:2}}>~{money(tax/2)} per owner — set aside</div></div>}
       </div>
-      {/* Trend */}
-      {last4.length>1&&(<>
-        <div className="sec">4-Week Margin Trend</div>
-        <div className="card"><div className="cpad">
-          <div style={{display:'flex',alignItems:'flex-end',gap:6,height:52,marginBottom:8}}>
-            {last4.map((w,i)=>{const mx=Math.max(...last4.map(x=>x.m),1);return(
-              <div key={i} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
-                <div style={{fontSize:10,color:'#aaa',fontFamily:'"JetBrains Mono",monospace'}}>{w.m}%</div>
-                <div style={{width:'100%',height:Math.max(4,Math.round((w.m/mx)*40)),background:w.m>=50?'#111':'#ea580c',borderRadius:'4px 4px 0 0'}}/>
-              </div>
-            );})}
-          </div>
-          <div style={{display:'flex',gap:6}}>{last4.map((w,i)=><div key={i} style={{flex:1,fontSize:9,color:'#bbb',textAlign:'center'}}>{wkLabel(w.wk).split('–')[0].trim()}</div>)}</div>
-        </div></div>
-      </>)}
-      {/* Sources */}
-      {topSrc.length>0&&(<>
-        <div className="sec">Lead Sources</div>
-        <div className="card"><div className="cpad">
-          {topSrc.map(([s,c])=>(
-            <div className="srcbar" key={s}>
-              <div style={{fontSize:12,color:'#666',width:120,flexShrink:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s}</div>
-              <div style={{flex:1,height:6,background:'#f0f0f0',borderRadius:999,overflow:'hidden'}}><div style={{height:'100%',background:'#111',width:`${(c/maxSrc)*100}%`,borderRadius:999}}/></div>
-              <div style={{fontFamily:'"JetBrains Mono",monospace',fontSize:12,color:'#bbb',width:20,textAlign:'right',flexShrink:0}}>{c}</div>
+
+      {/* ── Margin trend ── */}
+      {last4.length>1&&(
+        <>
+          <div className="sec">4-Week Margin Trend</div>
+          <div className="card"><div className="cpad">
+            <div style={{display:'flex',alignItems:'flex-end',gap:8,height:52,marginBottom:8}}>
+              {last4.map((w,i)=>{const mx=Math.max(...last4.map(x=>x.m),1);const h=Math.max(4,Math.round((w.m/mx)*40));return(
+                <div key={i} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
+                  <div style={{fontSize:9,color:'#aaa',fontFamily:'"JetBrains Mono",monospace'}}>{w.m}%</div>
+                  <div style={{width:'100%',height:h,background:w.m>=50?'#111':'#ea580c',borderRadius:'4px 4px 0 0',transition:'height .3s'}}/>
+                </div>
+              );})}
             </div>
-          ))}
-        </div></div>
-      </>)}
-      {/* Recent */}
+            <div style={{display:'flex',gap:8}}>{last4.map((w,i)=><div key={i} style={{flex:1,fontSize:9,color:'#bbb',textAlign:'center',overflow:'hidden'}}>{wkLabel(w.wk).split('–')[0].trim()}</div>)}</div>
+          </div></div>
+        </>
+      )}
+
+      {/* ── Lead sources ── */}
+      {topSrc.length>0&&(
+        <>
+          <div className="sec">Lead Sources</div>
+          <div className="card"><div className="cpad">
+            {topSrc.map(([s,c])=>(
+              <div className="srcbar" key={s}>
+                <div style={{fontSize:12,color:'#555',width:120,flexShrink:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s}</div>
+                <div style={{flex:1,height:6,background:'#f0f0f0',borderRadius:999,overflow:'hidden'}}><div style={{height:'100%',background:'#111',width:`${(c/maxSrc)*100}%`,borderRadius:999}}/></div>
+                <div style={{fontFamily:'"JetBrains Mono",monospace',fontSize:12,color:'#bbb',width:20,textAlign:'right',flexShrink:0}}>{c}</div>
+              </div>
+            ))}
+          </div></div>
+        </>
+      )}
+
+      {/* ── Recent jobs ── */}
       <div className="sec">Recent Jobs</div>
       {recent.length>0?(
         <div style={{display:'grid',gap:8}}>
-          {recent.map(j=>{const gp=jGross(j,profile);return(
+          {recent.map(j=>{const gp=jGross(j,profile);const dec=decision(j,profile,[],0);return(
             <div className="jrow" key={j.id} style={{cursor:'pointer'}} onClick={()=>onRepeat(j)}>
-              <div className="jicon">{cfg.jobIcon}</div>
+              <div className="jicon" style={{background:cfg.color+'18'}}>{cfg.jobIcon}</div>
               <div className="jmain">
                 <div className="jtitle">{j.serviceName||'Service'} · {j.area}</div>
-                <div className="jmeta">{j.date} · {j.source||'—'} · {j.payment}</div>
+                <div className="jmeta">{j.date}{j.tireSize?' · '+j.tireSize:''} · {j.payment}</div>
               </div>
               <div className="jright">
                 <div style={{fontFamily:'"JetBrains Mono",monospace',fontSize:14,fontWeight:700}}>{money(j.revenue)}</div>
@@ -1159,52 +996,72 @@ function Dashboard({jobs,services,profile,setTab,onRepeat}){
               </div>
             </div>
           );})}
+          <button className="btn b-secondary b-full" onClick={()=>setTab('history')} style={{marginTop:4}}>View all jobs →</button>
         </div>
       ):(
-        <Empty icon={cfg.jobIcon} title="No jobs yet" sub="Add your first job to bring the dashboard to life."
-          action={<button className="btn b-primary" onClick={()=>setTab('add')}>Add First Job</button>}/>
+        <Empty icon={cfg.jobIcon} title="No jobs yet" sub={`Start logging ${cfg.label.toLowerCase()} jobs to see your P&L here.`}
+          action={<button className="btn b-primary" onClick={()=>setTab('add')}>Log First Job</button>}/>
       )}
     </div></div>
   );
 }
-
-// ─── Add Job ──────────────────────────────────────────────────────────────────
 function AddJob({onSave,profile,services,jobs,prefill,onClear}){
   const cfg=BIZ[profile.businessType]||BIZ.general;
-  // DEDUPED active services for dropdown — fixes the duplicate service bug in New Job
-  // Map-based dedupe + sort: this is the final gate before the dropdown
+  const [mode,setMode]=useState('quick'); // 'quick' | 'full'
+
+  // ── Deduped, sorted active services — final gate before dropdown ──────────
   const activeSvcs=useMemo(()=>{
-    const deduped=dedupeServices((services||[]).filter(s=>s.active!==false));
-    return [...deduped].sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+    const d=dedupeServices((services||[]).filter(s=>s.active!==false));
+    return [...d].sort((a,b)=>(a.name||'').localeCompare(b.name||''));
   },[services]);
   const [svcSearch,setSvcSearch]=useState('');
-  const filteredSvcs=useMemo(()=>activeSvcs.filter(s=>s.name.toLowerCase().includes(svcSearch.toLowerCase())),[activeSvcs,svcSearch]);
+  const filteredSvcs=useMemo(()=>
+    svcSearch.trim()?activeSvcs.filter(s=>s.name.toLowerCase().includes(svcSearch.toLowerCase())):activeSvcs
+  ,[activeSvcs,svcSearch]);
 
-  const EMPTY=()=>({date:TODAY(),serviceId:activeSvcs[0]?.id||'',serviceName:activeSvcs[0]?.name||'',area:profile.serviceArea||'',payment:'Cash',status:'Completed',source:'Google Search',customerName:'',customerPhone:'',miles:'',revenue:'',miscCost:'',tireCost:'',tireSize:'',qty:1,laborHours:'',partsCost:'',diagFee:'',repairCategory:'',packageType:'',vehicleSize:'',serviceCategory:'',note:'',emergency:false,lateNight:false,highway:false,weekend:false});
+  const EMPTY=()=>({
+    date:TODAY(),serviceId:activeSvcs[0]?.id||'',serviceName:activeSvcs[0]?.name||'',
+    area:profile.serviceArea||'',payment:'Cash',status:'Completed',source:'Google Search',
+    customerName:'',customerPhone:'',miles:'',revenue:'',miscCost:'',
+    tireCost:'',tireSize:'',qty:1,laborHours:'',partsCost:'',diagFee:'',
+    repairCategory:'',packageType:'',vehicleSize:'',serviceCategory:'',
+    note:'',emergency:false,lateNight:false,highway:false,weekend:false,
+  });
   const [form,setForm]=useState(EMPTY);
-  const [err, setErr] =useState('');
+  const [err,setErr]=useState('');
   const [tick,setTick]=useState(0);
   const sizes=useMemo(()=>[...new Set([...ls(`msos3-sizes-${profile.owner1Name||'u'}`,[]),...['225/55R17','235/60R18','245/45R18','215/65R16','265/65R17']])].slice(0,6),[tick]);
 
   const weekGross=useMemo(()=>{const tw=wkStart(TODAY());return jobs.filter(j=>wkStart(j.date)===tw).reduce((s,j)=>s+jGross(j,profile),0);},[jobs,profile]);
 
   useEffect(()=>{
-    if(prefill){setForm({...EMPTY(),serviceId:prefill.serviceId||'',serviceName:prefill.serviceName||'',area:prefill.area||'',payment:prefill.payment||'Cash',source:prefill.source||'Google Search',tireSize:prefill.tireSize||'',qty:prefill.qty||1,miles:prefill.miles||'',tireCost:prefill.tireCost||'',miscCost:prefill.miscCost||'',emergency:!!prefill.emergency,lateNight:!!prefill.lateNight,highway:!!prefill.highway,weekend:!!prefill.weekend});if(onClear)onClear();}
+    if(prefill){
+      setForm({...EMPTY(),serviceId:prefill.serviceId||'',serviceName:prefill.serviceName||'',area:prefill.area||'',payment:prefill.payment||'Cash',source:prefill.source||'Google Search',tireSize:prefill.tireSize||'',qty:prefill.qty||1,miles:prefill.miles||'',tireCost:prefill.tireCost||'',miscCost:prefill.miscCost||'',emergency:!!prefill.emergency,lateNight:!!prefill.lateNight,highway:!!prefill.highway,weekend:!!prefill.weekend});
+      if(onClear) onClear();
+    }
   },[prefill]);
 
   const sf=(k,v)=>{setForm(p=>({...p,[k]:v}));setErr('');};
-  const selSvc=id=>{const s=activeSvcs.find(x=>x.id===id);sf('serviceId',id);sf('serviceName',s?.name||'');};
+  const selSvc=id=>{const s=activeSvcs.find(x=>x.id===id);sf('serviceId',id);sf('serviceName',s?.name||'');sf('revenue','');};
 
   const dc  =useMemo(()=>jDirect(form,profile),[form,profile]);
   const sugg=useMemo(()=>suggestedPrice(form,profile,activeSvcs),[form,profile,activeSvcs]);
   const dec =useMemo(()=>decision({...form,revenue:form.revenue||sugg},profile,activeSvcs,weekGross),[form,profile,activeSvcs,sugg,weekGross]);
-  const gp  =useMemo(()=>form.revenue?jGross(form,profile):r2(sugg-dc),[form,profile,sugg,dc]);
+  const enteredRev=Number(form.revenue||0);
+  const gp  =enteredRev?r2(enteredRev-dc):r2(sugg-dc);
+  const marg=enteredRev>0?r2(((enteredRev-dc)/enteredRev)*100):0;
+
+  // Color-code profit: green ≥ 50% margin, orange 20-50%, red < 20%
+  const profitColor=marg>=50?'#16a34a':marg>=20?'#ea580c':'#dc2626';
+  const profitBg   =marg>=50?'#f0fdf4':marg>=20?'#fff7ed':'#fff5f5';
 
   const save=(andAdd=false)=>{
-    const rev=Number(form.revenue||0);
-    if(!rev){setErr('Enter a job price.');return;}
-    if(form.tireSize&&cfg.fields.includes('tireSize')){try{const p=ls(`msos3-sizes-${profile.owner1Name||'u'}`,[]);lss(`msos3-sizes-${profile.owner1Name||'u'}`,[form.tireSize,...p.filter(s=>s!==form.tireSize)].slice(0,10));}catch{}}
-    const e={...form,id:uid(),qty:Number(form.qty||1),revenue:r2(rev),tireCost:r2(form.tireCost),miscCost:r2(form.miscCost),partsCost:r2(form.partsCost),miles:r2(form.miles),diagFee:r2(form.diagFee),laborHours:r2(form.laborHours)};
+    const rev=Number(form.revenue||0)||sugg;
+    if(!rev){setErr('Enter a price or accept the suggestion.');return;}
+    if(form.tireSize&&cfg.fields.includes('tireSize')){
+      try{const p=ls(`msos3-sizes-${profile.owner1Name||'u'}`,[]);lss(`msos3-sizes-${profile.owner1Name||'u'}`,[form.tireSize,...p.filter(s=>s!==form.tireSize)].slice(0,10));}catch{}
+    }
+    const e={...form,id:uid(),revenue:r2(rev),qty:Number(form.qty||1),tireCost:r2(form.tireCost),miscCost:r2(form.miscCost),partsCost:r2(form.partsCost),miles:r2(form.miles),diagFee:r2(form.diagFee),laborHours:r2(form.laborHours)};
     onSave(e,andAdd);setTick(t=>t+1);
     if(andAdd){setForm(EMPTY());setErr('');}
   };
@@ -1212,112 +1069,159 @@ function AddJob({onSave,profile,services,jobs,prefill,onClear}){
   const requestReview=()=>{
     const url=(profile.googleReviewUrl||'').trim();
     if(!url){alert('Add your Google Review URL in Settings → Business.');return;}
-    const msg=encodeURIComponent('Hi'+(form.customerName?' '+form.customerName:'')+'! Thanks for choosing '+(profile.businessName||'us')+'! We\'d love a quick Google review — it helps us a lot! '+url);
+    const msg=encodeURIComponent('Hi'+(form.customerName?' '+form.customerName:'')+'! Thanks for choosing '+(profile.businessName||'us')+'! We\'d love a quick Google review — it means a lot! '+url);
     window.open(form.customerPhone?'sms:'+form.customerPhone+'?body='+msg:'sms:?body='+msg);
   };
 
-  const FLAGS=[['emergency','🚨 Emergency',profile.emergencyFee||25],['lateNight','🌙 Late Night',profile.lateNightFee||25],['highway','🛣 Highway',profile.highwayFee||15],['weekend','📅 Weekend',profile.weekendFee||10]];
+  const FLAGS=[['emergency','🚨','Emergency',profile.emergencyFee||25],['lateNight','🌙','Late Night',profile.lateNightFee||25],['highway','🛣','Highway',profile.highwayFee||15],['weekend','📅','Weekend',profile.weekendFee||10]];
 
   return(
     <div className="screen"><div className="page">
-      <div className="sec" style={{marginTop:0}}>New Job</div>
-      {err&&<div className="alert a-red" style={{marginBottom:14}}>{err}</div>}
 
-      <div className="frow" style={{marginBottom:14}}>
-        <div className="field" style={{marginBottom:0}}><label className="flabel">Date</label><input type="date" className="finp" value={form.date} onChange={e=>sf('date',e.target.value)}/></div>
-        <div className="field" style={{marginBottom:0}}><label className="flabel">Lead Source</label><select className="finp" value={form.source} onChange={e=>sf('source',e.target.value)}>{SOURCES.map(s=><option key={s}>{s}</option>)}</select></div>
+      {/* ── Mode toggle ── */}
+      <div style={{display:'flex',gap:8,marginBottom:16,padding:'4px',background:'#f0f0f0',borderRadius:12}}>
+        {[['quick','⚡ Quick Add'],['full','📋 Full Form']].map(([m,l])=>(
+          <button key={m} onClick={()=>setMode(m)} style={{flex:1,border:'none',borderRadius:9,padding:'9px',fontWeight:700,fontSize:12,cursor:'pointer',background:mode===m?'#111':'transparent',color:mode===m?'#fff':'#888',transition:'all .15s'}}>{l}</button>
+        ))}
       </div>
 
-      {/* Service picker — clean, searchable, deduped */}
+      {err&&<div className="alert a-red" style={{marginBottom:14}}>{err}</div>}
+
+      {/* ── Live profit preview (always visible) ── */}
+      <div style={{background:profitBg,border:`1.5px solid ${profitColor}22`,borderRadius:14,padding:'12px 14px',marginBottom:14}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+          <div>
+            <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.6px',color:'#aaa',marginBottom:3}}>
+              {enteredRev?'Gross Profit':'Suggested Price'}
+            </div>
+            <div style={{fontFamily:'"JetBrains Mono",monospace',fontSize:26,fontWeight:800,color:enteredRev?profitColor:'#111',lineHeight:1}}>
+              {enteredRev?money(gp):money(sugg)}
+            </div>
+            {enteredRev>0&&<div style={{fontSize:11,color:profitColor,marginTop:3,fontWeight:600}}>{marg}% margin · {money(dc)} cost</div>}
+            {!enteredRev&&<div style={{fontSize:11,color:'#aaa',marginTop:3}}>tap price to override</div>}
+          </div>
+          <span className={`pill p-${dec.c}`} style={{fontSize:11,padding:'6px 12px'}}>{dec.label}</span>
+        </div>
+      </div>
+
+      {/* ── Service picker ── */}
       <div className="field">
-        <label className="flabel">Service {activeSvcs.length>5&&<span style={{color:'#bbb',textTransform:'none',fontWeight:400}}>— type to search</span>}</label>
-        {activeSvcs.length>5&&<input className="finp" style={{marginBottom:8}} value={svcSearch} onChange={e=>setSvcSearch(e.target.value)} placeholder="Search services…"/>}
+        <label className="flabel">Service</label>
+        {activeSvcs.length>6&&(
+          <input className="finp" value={svcSearch} onChange={e=>setSvcSearch(e.target.value)} placeholder="Search services…" style={{marginBottom:8,fontSize:14}}/>
+        )}
         {filteredSvcs.length>0?(
           <select className="finp" value={form.serviceId} onChange={e=>selSvc(e.target.value)}>
-            <option value="">— Select a service —</option>
-            {filteredSvcs.map(s=><option key={s.id} value={s.id}>{s.name}{s.basePrice>0?' · '+money(s.basePrice):''}</option>)}
+            <option value="">— Choose a service —</option>
+            {filteredSvcs.map(s=>(
+              <option key={s.id} value={s.id}>
+                {s.name}{s.basePrice>0?'  ·  '+money(s.basePrice):''}
+              </option>
+            ))}
           </select>
         ):(
-          <div className="alert a-orange">No active services. Go to Services tab to add some.</div>
+          <div className="alert a-orange">No active services. Add them in the Services tab.</div>
         )}
       </div>
 
+      {/* ── Price input ── */}
+      <div className="field">
+        <label className="flabel">Job Price <span style={{color:'#ccc',textTransform:'none',fontWeight:500}}>— suggested: {money(sugg)}</span></label>
+        <input type="number" min="0" inputMode="decimal" className="finp"
+          value={form.revenue} onChange={e=>sf('revenue',e.target.value)}
+          placeholder={String(sugg)}
+          style={{fontFamily:'"JetBrains Mono",monospace',fontWeight:700,fontSize:18}}/>
+      </div>
+
+      {/* ── Quick mode: just the essentials ── */}
       <div className="frow" style={{marginBottom:14}}>
-        <div className="field" style={{marginBottom:0}}><label className="flabel">Job Price ($)</label><input type="number" min="0" inputMode="decimal" className="finp" value={form.revenue} onChange={e=>sf('revenue',e.target.value)} placeholder={String(sugg)} style={{fontFamily:'"JetBrains Mono",monospace',fontWeight:700}}/></div>
+        <div className="field" style={{marginBottom:0}}><label className="flabel">Date</label><input type="date" className="finp" value={form.date} onChange={e=>sf('date',e.target.value)}/></div>
         <div className="field" style={{marginBottom:0}}><label className="flabel">Miles</label><input type="number" min="0" inputMode="decimal" className="finp" value={form.miles} onChange={e=>sf('miles',e.target.value)} placeholder="0"/></div>
       </div>
 
-      <div className="frow" style={{marginBottom:14}}>
-        <div className="field" style={{marginBottom:0}}><label className="flabel">Area</label><select className="finp" value={form.area} onChange={e=>sf('area',e.target.value)}><option value="">Select…</option>{AREAS.map(a=><option key={a}>{a}</option>)}</select></div>
-        <div className="field" style={{marginBottom:0}}><label className="flabel">Status</label><select className="finp" value={form.status} onChange={e=>sf('status',e.target.value)}><option>Completed</option><option>Pending</option></select></div>
+      {/* ── Payment ── */}
+      <div className="field">
+        <label className="flabel">Payment</label>
+        <div className="pgrid">
+          {PAYMENT.map(({l,i})=><button key={l} type="button" className={`pbtn ${form.payment===l?'on':''}`} onClick={()=>sf('payment',l)}><span style={{fontSize:18}}>{i}</span>{l}</button>)}
+        </div>
       </div>
 
-      {/* Business-type specific fields */}
-      {cfg.fields.includes('tireSize')&&(
+      {/* ── Full form extras ── */}
+      {mode==='full'&&(
         <>
           <div className="frow" style={{marginBottom:14}}>
-            <div className="field" style={{marginBottom:0}}><label className="flabel">Tire Cost ($)</label><input type="number" min="0" inputMode="decimal" className="finp" value={form.tireCost} onChange={e=>sf('tireCost',e.target.value)} placeholder="0"/></div>
-            <div className="field" style={{marginBottom:0}}><label className="flabel">Misc Cost ($)</label><input type="number" min="0" inputMode="decimal" className="finp" value={form.miscCost} onChange={e=>sf('miscCost',e.target.value)} placeholder="0"/></div>
+            <div className="field" style={{marginBottom:0}}><label className="flabel">Area</label><select className="finp" value={form.area} onChange={e=>sf('area',e.target.value)}><option value="">Select…</option>{AREAS.map(a=><option key={a}>{a}</option>)}</select></div>
+            <div className="field" style={{marginBottom:0}}><label className="flabel">Source</label><select className="finp" value={form.source} onChange={e=>sf('source',e.target.value)}>{SOURCES.map(s=><option key={s}>{s}</option>)}</select></div>
           </div>
+
+          {/* Business-type fields */}
+          {cfg.fields.includes('tireSize')&&(
+            <>
+              <div className="frow" style={{marginBottom:14}}>
+                <div className="field" style={{marginBottom:0}}><label className="flabel">Tire Cost ($)</label><input type="number" min="0" inputMode="decimal" className="finp" value={form.tireCost} onChange={e=>sf('tireCost',e.target.value)} placeholder="0"/></div>
+                <div className="field" style={{marginBottom:0}}><label className="flabel">Misc Cost ($)</label><input type="number" min="0" inputMode="decimal" className="finp" value={form.miscCost} onChange={e=>sf('miscCost',e.target.value)} placeholder="0"/></div>
+              </div>
+              <div className="field">
+                <label className="flabel">Tire Size</label>
+                <input className="finp" value={form.tireSize} onChange={e=>sf('tireSize',e.target.value)} placeholder="225/55R17" style={{marginBottom:8}}/>
+                <div className="chips">{sizes.map(sz=><button key={sz} type="button" className={`chip sm ${form.tireSize===sz?'on':''}`} onClick={()=>sf('tireSize',sz)}>{sz}</button>)}</div>
+              </div>
+              <div className="frow" style={{marginBottom:14}}>
+                <div className="field" style={{marginBottom:0}}><label className="flabel">Qty</label><input type="number" min="1" className="finp" value={form.qty} onChange={e=>sf('qty',e.target.value)}/></div>
+                <div className="field" style={{marginBottom:0}}><label className="flabel">Phone</label><input type="tel" className="finp" value={form.customerPhone} onChange={e=>sf('customerPhone',e.target.value)} placeholder="Optional"/></div>
+              </div>
+            </>
+          )}
+          {cfg.fields.includes('laborHours')&&(
+            <div className="frow" style={{marginBottom:14}}>
+              <div className="field" style={{marginBottom:0}}><label className="flabel">Labor Hours</label><input type="number" step="0.5" className="finp" value={form.laborHours} onChange={e=>sf('laborHours',e.target.value)} placeholder="1.0"/></div>
+              <div className="field" style={{marginBottom:0}}><label className="flabel">Parts Cost ($)</label><input type="number" min="0" className="finp" value={form.partsCost} onChange={e=>sf('partsCost',e.target.value)} placeholder="0"/></div>
+            </div>
+          )}
+          {cfg.fields.includes('packageType')&&(
+            <div className="frow" style={{marginBottom:14}}>
+              <div className="field" style={{marginBottom:0}}><label className="flabel">Package</label><select className="finp" value={form.packageType} onChange={e=>sf('packageType',e.target.value)}><option value="">Select…</option>{['Exterior Only','Interior Only','Full Detail','Paint Correction','Ceramic Coating'].map(x=><option key={x}>{x}</option>)}</select></div>
+              <div className="field" style={{marginBottom:0}}><label className="flabel">Vehicle</label><select className="finp" value={form.vehicleSize} onChange={e=>sf('vehicleSize',e.target.value)}><option value="">Select…</option>{['Sedan','SUV / Crossover','Truck','Van','Sports Car'].map(x=><option key={x}>{x}</option>)}</select></div>
+            </div>
+          )}
+          {cfg.fields.includes('serviceCategory')&&(
+            <div className="frow" style={{marginBottom:14}}>
+              <div className="field" style={{marginBottom:0}}><label className="flabel">Category</label><select className="finp" value={form.serviceCategory} onChange={e=>sf('serviceCategory',e.target.value)}><option value="">Select…</option>{['Jump Start','Lockout','Fuel Delivery','Spare Tire','Battery Boost','Winch / Pull Out'].map(x=><option key={x}>{x}</option>)}</select></div>
+              <div className="field" style={{marginBottom:0}}><label className="flabel">Misc Cost ($)</label><input type="number" min="0" className="finp" value={form.miscCost} onChange={e=>sf('miscCost',e.target.value)} placeholder="0"/></div>
+            </div>
+          )}
+          {!cfg.fields.includes('tireSize')&&(
+            <div className="frow" style={{marginBottom:14}}>
+              <div className="field" style={{marginBottom:0}}><label className="flabel">Customer Phone</label><input type="tel" className="finp" value={form.customerPhone} onChange={e=>sf('customerPhone',e.target.value)} placeholder="Optional"/></div>
+              <div className="field" style={{marginBottom:0}}><label className="flabel">Misc Cost ($)</label><input type="number" min="0" className="finp" value={form.miscCost} onChange={e=>sf('miscCost',e.target.value)} placeholder="0"/></div>
+            </div>
+          )}
+          <div className="field"><label className="flabel">Customer Name</label><input className="finp" value={form.customerName} onChange={e=>sf('customerName',e.target.value)} placeholder="Optional"/></div>
+
+          {/* Conditions */}
           <div className="field">
-            <label className="flabel">Tire Size</label>
-            <input className="finp" value={form.tireSize} onChange={e=>sf('tireSize',e.target.value)} placeholder="225/55R17" style={{marginBottom:8}}/>
-            <div className="chips">{sizes.map(sz=><button key={sz} type="button" className={`chip chip-sm ${form.tireSize===sz?'on':''}`} onClick={()=>sf('tireSize',sz)}>{sz}</button>)}</div>
+            <label className="flabel">Conditions <span style={{color:'#ccc',textTransform:'none',fontWeight:500}}>— add to suggested price</span></label>
+            <div className="chips">
+              {FLAGS.map(([key,ico,lbl,amt])=>(
+                <button key={key} type="button" className={`chip ${form[key]?'on':''}`} onClick={()=>sf(key,!form[key])}>
+                  {ico} {lbl}{form[key]?` +$${amt}`:''}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="frow" style={{marginBottom:14}}>
-            <div className="field" style={{marginBottom:0}}><label className="flabel">Qty</label><input type="number" min="1" className="finp" value={form.qty} onChange={e=>sf('qty',e.target.value)}/></div>
-            <div className="field" style={{marginBottom:0}}><label className="flabel">Customer Phone</label><input type="tel" className="finp" value={form.customerPhone} onChange={e=>sf('customerPhone',e.target.value)} placeholder="Optional"/></div>
-          </div>
+
+          <div className="field"><label className="flabel">Notes</label><textarea className="finp" value={form.note} onChange={e=>sf('note',e.target.value)} placeholder="Any details about this job…"/></div>
         </>
       )}
-      {cfg.fields.includes('laborHours')&&(
-        <div className="frow" style={{marginBottom:14}}>
-          <div className="field" style={{marginBottom:0}}><label className="flabel">Labor Hours</label><input type="number" step="0.5" className="finp" value={form.laborHours} onChange={e=>sf('laborHours',e.target.value)} placeholder="1.0"/></div>
-          <div className="field" style={{marginBottom:0}}><label className="flabel">Parts Cost ($)</label><input type="number" min="0" className="finp" value={form.partsCost} onChange={e=>sf('partsCost',e.target.value)} placeholder="0"/></div>
-        </div>
-      )}
-      {cfg.fields.includes('packageType')&&(
-        <div className="frow" style={{marginBottom:14}}>
-          <div className="field" style={{marginBottom:0}}><label className="flabel">Package</label><select className="finp" value={form.packageType} onChange={e=>sf('packageType',e.target.value)}><option value="">Select…</option>{['Exterior Only','Interior Only','Full Detail','Paint Correction','Ceramic Coating'].map(x=><option key={x}>{x}</option>)}</select></div>
-          <div className="field" style={{marginBottom:0}}><label className="flabel">Vehicle Size</label><select className="finp" value={form.vehicleSize} onChange={e=>sf('vehicleSize',e.target.value)}><option value="">Select…</option>{['Sedan','SUV / Crossover','Truck','Van','Sports Car'].map(x=><option key={x}>{x}</option>)}</select></div>
-        </div>
-      )}
-      {cfg.fields.includes('serviceCategory')&&(
-        <div className="frow" style={{marginBottom:14}}>
-          <div className="field" style={{marginBottom:0}}><label className="flabel">Category</label><select className="finp" value={form.serviceCategory} onChange={e=>sf('serviceCategory',e.target.value)}><option value="">Select…</option>{['Jump Start','Lockout','Fuel Delivery','Spare Tire','Battery Boost','Winch / Pull Out'].map(x=><option key={x}>{x}</option>)}</select></div>
-          <div className="field" style={{marginBottom:0}}><label className="flabel">Misc Cost ($)</label><input type="number" min="0" className="finp" value={form.miscCost} onChange={e=>sf('miscCost',e.target.value)} placeholder="0"/></div>
-        </div>
-      )}
-      {!cfg.fields.includes('tireSize')&&(
-        <div className="frow" style={{marginBottom:14}}>
-          <div className="field" style={{marginBottom:0}}><label className="flabel">Customer Phone</label><input type="tel" className="finp" value={form.customerPhone} onChange={e=>sf('customerPhone',e.target.value)} placeholder="Optional"/></div>
-          <div className="field" style={{marginBottom:0}}><label className="flabel">Misc Cost ($)</label><input type="number" min="0" className="finp" value={form.miscCost} onChange={e=>sf('miscCost',e.target.value)} placeholder="0"/></div>
-        </div>
-      )}
-      <div className="field"><label className="flabel">Customer Name</label><input className="finp" value={form.customerName} onChange={e=>sf('customerName',e.target.value)} placeholder="Optional"/></div>
 
-      {/* Payment */}
-      <div className="field">
-        <label className="flabel">Payment Method</label>
-        <div className="pgrid">{PAYMENT.map(({l,i})=><button key={l} type="button" className={`pbtn ${form.payment===l?'on':''}`} onClick={()=>sf('payment',l)}><span style={{fontSize:18}}>{i}</span>{l}</button>)}</div>
+      {/* ── Profit detail row ── */}
+      <div style={{background:'#f8f8f8',borderRadius:12,padding:'12px 14px',marginBottom:14,display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+        <div style={{fontSize:12,color:'#aaa'}}><span style={{color:'#555',fontWeight:600}}>Cost</span> {money(dc)}</div>
+        <div style={{fontSize:12,color:'#aaa'}}><span style={{color:'#555',fontWeight:600}}>Profit</span> <span style={{color:profitColor,fontWeight:700}}>{money(gp)}</span></div>
+        <div style={{fontSize:12,color:'#aaa'}}><span style={{color:'#555',fontWeight:600}}>Margin</span> <span style={{color:profitColor,fontWeight:700}}>{marg}%</span></div>
+        <div style={{fontSize:10,color:'#ddd',letterSpacing:'.3px'}}>decision applies at payout</div>
       </div>
-
-      {/* Conditions */}
-      <div className="field">
-        <label className="flabel">Conditions <span style={{textTransform:'none',fontWeight:500,color:'#ccc'}}>— adjusts suggested price</span></label>
-        <div className="chips">{FLAGS.map(([k,l,a])=><button key={k} type="button" className={`chip ${form[k]?'on':''}`} onClick={()=>sf(k,!form[k])}>{l}{form[k]?` +$${a}`:''}</button>)}</div>
-      </div>
-
-      <div className="field"><label className="flabel">Notes</label><textarea className="finp" value={form.note} onChange={e=>sf('note',e.target.value)} placeholder="Any relevant details…"/></div>
-
-      {/* Preview */}
-      <div className="prev">
-        <div className="prow"><span>Suggested Price</span><strong style={{fontFamily:'"JetBrains Mono",monospace'}}>{money(sugg)}</strong></div>
-        <div className="prow"><span>Direct Cost</span><strong style={{fontFamily:'"JetBrains Mono",monospace',color:'#dc2626'}}>{money(dc)}</strong></div>
-        <div className="prow"><span>Gross Profit</span><strong style={{fontFamily:'"JetBrains Mono",monospace',color:gp>=0?'#16a34a':'#dc2626'}}>{money(gp)}</strong></div>
-        <div className="prow"><span>Decision</span><div style={{textAlign:'right'}}><span className={`pill p-${dec.c}`}>{dec.label}</span><div style={{fontSize:10,color:'#aaa',marginTop:3}}>{dec.why}</div></div></div>
-      </div>
-      <div style={{fontSize:11,color:'#bbb',marginBottom:14,lineHeight:1.6}}>Direct cost = travel + parts + misc. Fixed overhead is only deducted at payout, not per job.</div>
 
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
         <button className="btn b-primary" onClick={()=>save(false)}>Save Job</button>
@@ -1329,8 +1233,6 @@ function AddJob({onSave,profile,services,jobs,prefill,onClear}){
     </div></div>
   );
 }
-
-// ─── History ──────────────────────────────────────────────────────────────────
 function History({jobs,profile,setJobs,onRepeat}){
   const [filter,setFilter]=useState('All');
   const [search,setSearch]=useState('');
@@ -1485,65 +1387,123 @@ function Payouts({jobs,profile}){
 // ─── Services ─────────────────────────────────────────────────────────────────
 function Services({services,setServices,profile}){
   const [editId,setEditId]=useState(null);
+  const [search,setSearch]=useState('');
   const cfg=BIZ[profile.businessType]||BIZ.general;
-  // Dedupe on mount
+
+  // Always display deduped, searchable list
   const deduped=useMemo(()=>dedupeServices(services),[services]);
+  const filtered=useMemo(()=>search.trim()?deduped.filter(s=>s.name.toLowerCase().includes(search.toLowerCase())):deduped,[deduped,search]);
 
   const upd=(id,patch)=>setServices(prev=>dedupeServices(prev.map(s=>s.id===id?{...s,...patch,updatedAt:new Date().toISOString()}:s)));
   const rm =id=>{if(!window.confirm('Remove this service?'))return;setServices(prev=>prev.filter(s=>s.id!==id));setEditId(null);};
+
   const add=()=>{
     const id='svc-'+uid();
-    const newSvc={id,name:'New Service',slug:id,basePrice:0,minPrice:0,maxPrice:0,dur:60,active:true,source:'manual',workspaceId:profile.workspaceId||profile.uid||'',businessType:profile.businessType,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};
-    // mergeServices: safe add — impossible to create duplicate
-    setServices(prev=>mergeServices(prev,[newSvc]));
+    const now=new Date().toISOString();
+    setServices(prev=>mergeServices(prev,[{id,name:'New Service',slug:id,basePrice:0,minPrice:0,maxPrice:0,dur:60,active:true,source:'manual',workspaceId:profile.workspaceId||profile.uid||'',businessType:profile.businessType,createdAt:now,updatedAt:now}]));
     setEditId(id);
   };
 
+  const duplicate=svc=>{
+    const id='svc-'+uid();
+    const now=new Date().toISOString();
+    setServices(prev=>mergeServices(prev,[{...svc,id,name:svc.name+' (copy)',slug:id,source:'manual',createdAt:now,updatedAt:now}]));
+    setEditId(id);
+  };
+
+  // Reset to defaults for current business type
+  const resetDefaults=()=>{
+    if(!window.confirm(`Reset services to ${cfg.label} defaults? Your custom services will be removed.`)) return;
+    const fresh=makeStarterServices(profile.businessType);
+    setServices(fresh);
+    setEditId(null);
+  };
+
+  // Move service up/down
+  const move=(id,dir)=>{
+    setServices(prev=>{
+      const arr=[...dedupeServices(prev)];
+      const idx=arr.findIndex(s=>s.id===id);
+      if(idx<0) return prev;
+      const newIdx=clamp(idx+dir,0,arr.length-1);
+      if(newIdx===idx) return prev;
+      const item=arr.splice(idx,1)[0];
+      arr.splice(newIdx,0,item);
+      return arr;
+    });
+  };
+
   const ei={border:'1.5px solid #e8e8e8',borderRadius:10,padding:'10px 12px',fontSize:14,outline:'none',width:'100%',fontFamily:'inherit',background:'#fff'};
-  const enm={...ei,fontFamily:'"JetBrains Mono",monospace',fontWeight:700};
+  const em={...ei,fontFamily:'"JetBrains Mono",monospace',fontWeight:700};
+
+  const activeCount=deduped.filter(s=>s.active!==false).length;
 
   return(
     <div className="screen"><div className="page">
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
-        <div className="sec" style={{margin:0}}>{cfg.label} Services <span style={{color:'#ccc',fontWeight:400}}>({deduped.length})</span></div>
-        <button className="btn b-primary b-sm" onClick={add}>+ Add Service</button>
+      {/* Header */}
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+        <div>
+          <div className="sec" style={{margin:0}}>{cfg.icon} {cfg.label} Services</div>
+          <div style={{fontSize:11,color:'#bbb',marginTop:3}}>{activeCount} active · {deduped.length} total</div>
+        </div>
+        <div style={{display:'flex',gap:8}}>
+          <button className="btn b-secondary b-sm" onClick={resetDefaults} title="Reset to defaults">↺ Reset</button>
+          <button className="btn b-primary b-sm" onClick={add}>+ Add</button>
+        </div>
       </div>
-      <div style={{fontSize:11,color:'#bbb',marginBottom:12,lineHeight:1.5}}>Tap a service to edit pricing and details. Active services appear in the New Job dropdown.</div>
-      {deduped.length===0&&(
-        <Empty icon={cfg.icon} title="No services yet" sub={`Add your ${cfg.label.toLowerCase()} services here. They'll appear in the New Job screen for fast selection.`} action={<button className="btn b-primary" onClick={add}>Add First Service</button>}/>
+
+      {/* Search (shows when > 5 services) */}
+      {deduped.length>5&&(
+        <input className="finp" value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Search services…" style={{marginBottom:12}}/>
       )}
-      {deduped.map(svc=>{
+
+      <div style={{fontSize:11,color:'#bbb',marginBottom:12,lineHeight:1.6,padding:'10px 14px',background:'#f9f9f9',borderRadius:10,border:'1px solid #f0f0f0'}}>
+        Tap a service to edit. Active services appear in <strong>New Job</strong>. Use ↑↓ to reorder.
+      </div>
+
+      {filtered.length===0&&<Empty icon={cfg.icon} title="No services" sub={`Add your first ${cfg.label.toLowerCase()} service.`} action={<button className="btn b-primary" onClick={add}>Add First Service</button>}/>}
+
+      {filtered.map((svc,idx)=>{
         const isE=editId===svc.id;
         return(
           <div className="svcard" key={svc.id}>
+            {/* Main row */}
             <div className="svhdr" onClick={()=>setEditId(isE?null:svc.id)}>
+              {/* Reorder buttons */}
+              <div style={{display:'flex',flexDirection:'column',gap:2,flexShrink:0}} onClick={e=>e.stopPropagation()}>
+                <button onClick={()=>move(svc.id,-1)} style={{background:'none',border:'none',padding:'2px 4px',fontSize:10,color:'#ccc',cursor:'pointer',lineHeight:1}}>▲</button>
+                <button onClick={()=>move(svc.id,1)}  style={{background:'none',border:'none',padding:'2px 4px',fontSize:10,color:'#ccc',cursor:'pointer',lineHeight:1}}>▼</button>
+              </div>
               <div className="svicon" style={{background:svc.active!==false?cfg.color+'18':'#f5f5f7',fontSize:15}}>{svc.active!==false?cfg.icon:'—'}</div>
               <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:14,fontWeight:700,color:svc.active!==false?'#111':'#bbb'}}>{svc.name}</div>
+                <div style={{fontSize:14,fontWeight:700,color:svc.active!==false?'#111':'#bbb',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{svc.name}</div>
                 <div style={{fontSize:11,color:'#aaa',marginTop:2,fontFamily:'"JetBrains Mono",monospace'}}>
-                  {money(svc.basePrice)} base · {money(svc.minPrice)} min · {money(svc.maxPrice)} max
+                  {svc.basePrice>0?money(svc.basePrice)+' base':'No price set'}{svc.dur?' · '+svc.dur+'min':''}
                 </div>
               </div>
-              <Tog on={svc.active!==false} set={v=>upd(svc.id,{active:v})}/>
+              <Tog on={svc.active!==false} set={v=>{upd(svc.id,{active:v});}}/>
               <span style={{color:'#ddd',fontSize:10,marginLeft:4}}>{isE?'▲':'▼'}</span>
             </div>
+
+            {/* Edit panel */}
             {isE&&(
               <div className="svedit">
                 <div style={{marginBottom:10}}>
                   <div className="flabel">Service Name</div>
-                  <input style={ei} value={svc.name} onChange={e=>upd(svc.id,{name:e.target.value})} placeholder="Service name"/>
+                  <input style={ei} value={svc.name} onChange={e=>upd(svc.id,{name:e.target.value})} placeholder="Service name" autoFocus/>
                 </div>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:10}}>
                   {[['Base Price','basePrice'],['Min Price','minPrice'],['Max Price','maxPrice']].map(([l,k])=>(
-                    <div key={k}><div className="flabel">{l} $</div><input type="number" style={enm} value={svc[k]||''} onChange={e=>upd(svc.id,{[k]:Number(e.target.value||0)})} placeholder="0"/></div>
+                    <div key={k}><div className="flabel">{l} $</div><input type="number" style={em} value={svc[k]||''} onChange={e=>upd(svc.id,{[k]:Number(e.target.value||0)})} placeholder="0"/></div>
                   ))}
                 </div>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:10}}>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:12}}>
                   <div><div className="flabel">Duration (min)</div><input type="number" style={ei} value={svc.dur||''} onChange={e=>upd(svc.id,{dur:Number(e.target.value||0)})} placeholder="60"/></div>
                   <div><div className="flabel">Notes</div><input style={ei} value={svc.notes||''} onChange={e=>upd(svc.id,{notes:e.target.value})} placeholder="Optional"/></div>
                 </div>
-                <div style={{display:'grid',gridTemplateColumns:'1fr auto',gap:8}}>
-                  <button className="btn b-secondary b-sm b-full" onClick={()=>setEditId(null)}>Done ✓</button>
+                <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                  <button className="btn b-secondary b-sm" style={{flex:1}} onClick={()=>setEditId(null)}>Done ✓</button>
+                  <button className="btn b-secondary b-sm" onClick={()=>duplicate(svc)} title="Duplicate">⧉ Copy</button>
                   <button className="btn b-danger b-sm" onClick={()=>rm(svc.id)}>Remove</button>
                 </div>
               </div>
@@ -1554,8 +1514,6 @@ function Services({services,setServices,profile}){
     </div></div>
   );
 }
-
-// ─── Expenses ─────────────────────────────────────────────────────────────────
 function Expenses({expenses,setExpenses}){
   const CATS=['Fuel','Oil / Fluids','Equipment Repair','Supplies','Food','Tolls / Parking','Advertising','Other'];
   const [form,setForm]=useState({date:TODAY(),category:'Fuel',amount:'',note:''});
@@ -1609,16 +1567,56 @@ function Settings({profile,setProfile,jobs,setJobs,expenses,services}){
   const upE=(id,patch)=>setProfile(p=>({...p,expenses:p.expenses.map(e=>e.id===id?{...e,...patch}:e)}));
   const addE=()=>setProfile(p=>({...p,expenses:[...p.expenses,{id:'exp-'+uid(),name:'New Expense',amount:0,active:true}]}));
   const delE=id=>setProfile(p=>({...p,expenses:p.expenses.filter(e=>e.id!==id)}));
-  const save=()=>{setSaved(true);setTimeout(()=>setSaved(false),2000);};
-  const SECS=[{id:'business',ico:'🏢',l:'Business'},{id:'branding',ico:'🎨',l:'Branding'},{id:'team',ico:'👥',l:'Team'},{id:'pricing',ico:'💰',l:'Pricing'},{id:'travel',ico:'🚗',l:'Travel'},{id:'expenses',ico:'📋',l:'Fixed'},{id:'data',ico:'💾',l:'Data'}];
+  const save=()=>{setSaved(true);setTimeout(()=>setSaved(false),2200);};
+
+  const SECS=[
+    {id:'business',ico:'🏢',l:'Business'},
+    {id:'branding',ico:'🎨',l:'Branding'},
+    {id:'payout',  ico:'💰',l:'Payout'},
+    {id:'pricing', ico:'🎯',l:'Pricing'},
+    {id:'travel',  ico:'🚗',l:'Travel'},
+    {id:'expenses',ico:'📋',l:'Fixed'},
+    {id:'data',    ico:'💾',l:'Data'},
+  ];
   const si={border:'1.5px solid #e8e8e8',borderRadius:10,padding:'11px 12px',fontFamily:'inherit',fontSize:15,outline:'none',transition:'border-color .15s'};
+  const si_w={...si,width:'100%'};
+  const cfgBiz=BIZ[profile.businessType]||BIZ.general;
+
   const exportCSVClick=()=>exportCSV(jobs,profile);
-  const exportJSON=()=>{const d={jobs,profile,expenses,services,exportedAt:new Date().toISOString(),version:'3'};const url=URL.createObjectURL(new Blob([JSON.stringify(d,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=`msos-backup-${TODAY()}.json`;a.click();URL.revokeObjectURL(url);};
-  const importJSON=()=>{const i=document.createElement('input');i.type='file';i.accept='.json';i.onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const d=JSON.parse(await f.text());if(Array.isArray(d.jobs))setJobs(d.jobs);if(d.profile)setProfile({...DEF_PROFILE(),...d.profile});alert('Import complete.');}catch{alert('Invalid backup file.');}};i.click();};
+  const exportJSON=()=>{
+    const d={jobs,profile,expenses,services,exportedAt:new Date().toISOString(),version:'3'};
+    const url=URL.createObjectURL(new Blob([JSON.stringify(d,null,2)],{type:'application/json'}));
+    const a=document.createElement('a');a.href=url;a.download=`msos-backup-${TODAY()}.json`;a.click();
+    URL.revokeObjectURL(url);
+  };
+  const importJSON=()=>{
+    const i=document.createElement('input');i.type='file';i.accept='.json';
+    i.onchange=async e=>{
+      const f=e.target.files[0];if(!f)return;
+      try{const d=JSON.parse(await f.text());if(Array.isArray(d.jobs))setJobs(d.jobs);if(d.profile)setProfile({...DEF_PROFILE(),...d.profile});alert('Import complete.');}
+      catch{alert('Invalid backup file.');}
+    };i.click();
+  };
   const clearAll=()=>{if(!window.confirm('Clear ALL data? Cannot be undone.'))return;window.location.reload();};
+
+  const Row=({label,hint,children})=>(
+    <div className="crow" style={{flexDirection:'column',alignItems:'stretch',gap:6,paddingBottom:14}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+        <div><div style={{fontSize:13,fontWeight:700,color:'#222'}}>{label}</div>{hint&&<div style={{fontSize:11,color:'#aaa',marginTop:1}}>{hint}</div>}</div>
+      </div>
+      {children}
+    </div>
+  );
+  const InlineRow=({label,hint,children})=>(
+    <div className="crow">
+      <div style={{flex:1}}><div style={{fontSize:13,fontWeight:700,color:'#222'}}>{label}</div>{hint&&<div style={{fontSize:11,color:'#aaa',marginTop:1}}>{hint}</div>}</div>
+      {children}
+    </div>
+  );
 
   return(
     <div className="screen" style={{display:'flex',flexDirection:'column'}}>
+      {/* Tab bar */}
       <div className="stab-bar">
         {SECS.map(s=>(
           <button key={s.id} className={`stab ${sec===s.id?'on':''}`} onClick={()=>setSec(s.id)}>
@@ -1627,264 +1625,332 @@ function Settings({profile,setProfile,jobs,setJobs,expenses,services}){
           </button>
         ))}
       </div>
+
       <div style={{flex:1,overflowY:'auto',padding:'16px 16px 90px'}}>
-        {saved&&<div className="alert a-green" style={{marginBottom:12}}>✓ Saved</div>}
+        {saved&&<div className="alert a-green" style={{marginBottom:12}}>✓ Settings saved</div>}
 
-        {sec==='business'&&(<>
-          <div className="sec" style={{marginTop:0}}>Business Profile</div>
-          <div className="card">
-            {[['Business Name','businessName','text'],['Owner Name','ownerName','text'],['Phone','phone','tel'],['Email','email','email'],['Service Area','serviceArea','text']].map(([l,k,t])=>(
-              <div className="crow" key={k} style={{flexDirection:'column',alignItems:'stretch',gap:6}}>
-                <div style={{fontSize:12,fontWeight:700,color:'#aaa',textTransform:'uppercase',letterSpacing:'.5px'}}>{l}</div>
-                <input type={t} style={{...si,width:'100%'}} value={profile[k]||''} onChange={e=>up(k,e.target.value)}/>
-              </div>
-            ))}
-            <div className="crow"><button className="btn b-primary b-sm b-full" onClick={save}>Save Profile</button></div>
-          </div>
-          <div className="sec">Business Type</div>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:12}}>
-            {Object.entries(BIZ).map(([k,v])=>(
-              <div key={k} onClick={()=>up('businessType',k)} style={{border:`1.5px solid ${profile.businessType===k?'#111':'#e8e8e8'}`,borderRadius:12,padding:'12px',textAlign:'center',cursor:'pointer',background:profile.businessType===k?'#f5f5f7':'#fff',transition:'all .15s'}}>
-                <div style={{fontSize:22,marginBottom:4}}>{v.icon}</div>
-                <div style={{fontSize:12,fontWeight:700,color:profile.businessType===k?'#111':'#aaa'}}>{v.label}</div>
-              </div>
-            ))}
-          </div>
-          <div className="sec">Google Review</div>
-          <div className="card">
-            <div className="crow" style={{flexDirection:'column',alignItems:'stretch',gap:6}}>
-              <div style={{fontSize:12,fontWeight:700,color:'#aaa',textTransform:'uppercase',letterSpacing:'.5px'}}>Review URL</div>
-              <input type="url" style={{...si,width:'100%'}} value={profile.googleReviewUrl||''} onChange={e=>up('googleReviewUrl',e.target.value)} placeholder="https://g.page/r/…/review"/>
-              <div style={{fontSize:11,color:'#bbb'}}>Find in Google Business Profile → Get more reviews → Copy link</div>
+        {/* ── BUSINESS ── */}
+        {sec==='business'&&(
+          <>
+            <div className="sec" style={{marginTop:0}}>Business Profile</div>
+            <div className="card">
+              {[['Business Name','businessName','text',null],['Owner Name','ownerName','text',null],['Phone','phone','tel',null],['Service Area','serviceArea','text','City, State where you operate']].map(([l,k,t,hint])=>(
+                <Row key={k} label={l} hint={hint}><input type={t} style={si_w} value={profile[k]||''} onChange={e=>up(k,e.target.value)}/></Row>
+              ))}
+              <div className="crow"><button className="btn b-primary b-sm b-full" onClick={save}>Save Profile</button></div>
             </div>
-            {(profile.googleReviewUrl||'').trim()&&(
-              <div className="crow">
-                <div style={{fontSize:13,color:'#777'}}>Test link</div>
-                <button className="btn b-success b-sm" onClick={()=>window.open(profile.googleReviewUrl,'_blank')}>Open ↗</button>
-              </div>
-            )}
-          </div>
-        </>)}
+            <div className="sec">Business Type</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:12}}>
+              {Object.entries(BIZ).map(([k,v])=>(
+                <div key={k} onClick={()=>up('businessType',k)} style={{border:`1.5px solid ${profile.businessType===k?'#111':'#e8e8e8'}`,borderRadius:12,padding:'14px 12px',textAlign:'center',cursor:'pointer',background:profile.businessType===k?'#f5f5f7':'#fff',transition:'all .15s'}}>
+                  <div style={{fontSize:24,marginBottom:5}}>{v.icon}</div>
+                  <div style={{fontSize:12,fontWeight:700,color:profile.businessType===k?'#111':'#aaa'}}>{v.label}</div>
+                </div>
+              ))}
+            </div>
+            <div className="sec">Google Review</div>
+            <div className="card">
+              <Row label="Review Page URL" hint="Find in Google Business Profile → Get more reviews">
+                <input type="url" style={si_w} value={profile.googleReviewUrl||''} onChange={e=>up('googleReviewUrl',e.target.value)} placeholder="https://g.page/r/…/review"/>
+              </Row>
+              {(profile.googleReviewUrl||'').trim()&&(
+                <div className="crow"><button className="btn b-success b-sm b-full" onClick={()=>window.open(profile.googleReviewUrl,'_blank')}>✓ Test — Opens Review Page</button></div>
+              )}
+            </div>
+          </>
+        )}
 
-        {sec==='branding'&&(<>
-          <div className="sec" style={{marginTop:0}}>Logo</div>
-          <div className="card" style={{padding:16}}><LogoUpload value={profile.logoData||''} onChange={v=>up('logoData',v)}/></div>
-        </>)}
+        {/* ── BRANDING ── */}
+        {sec==='branding'&&(
+          <>
+            <div className="sec" style={{marginTop:0}}>Business Logo</div>
+            <div className="card" style={{padding:16}}>
+              <LogoUpload value={profile.logoData||''} onChange={v=>up('logoData',v)}/>
+              <div style={{fontSize:11,color:'#bbb',marginTop:8,lineHeight:1.6}}>Your logo appears in the app header. PNG or WebP recommended for best quality. Auto-compressed to 512px.</div>
+            </div>
+          </>
+        )}
 
-        {sec==='team'&&(<>
-          <div className="sec" style={{marginTop:0}}>Owners & Payout Split</div>
-          <div className="card">
-            {[{nk:'owner1Name',pk:'profitSplit1',ak:'owner1Active',l:'Owner 1'},{nk:'owner2Name',pk:'profitSplit2',ak:'owner2Active',l:'Owner 2'}].map(({nk,pk,ak,l})=>{
-              const on=profile[ak]!==false;
-              return(
-                <div key={nk} style={{opacity:on?1:0.5}}>
-                  <div className="crow" style={{alignItems:'flex-start'}}>
-                    <div style={{flex:1}}>
-                      <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
-                        <div style={{fontSize:12,fontWeight:700,color:'#aaa',textTransform:'uppercase',letterSpacing:'.5px'}}>{l}</div>
-                        <Tog on={on} set={v=>up(ak,v)}/>
-                      </div>
-                      <input style={{...si,width:'100%'}} value={profile[nk]||''} onChange={e=>up(nk,e.target.value)} disabled={!on}/>
+        {/* ── PAYOUT ── */}
+        {sec==='payout'&&(
+          <>
+            <div className="sec" style={{marginTop:0}}>Owners & Split</div>
+            <div className="card">
+              {[{nk:'owner1Name',pk:'profitSplit1',ak:'owner1Active',l:'Owner 1'},{nk:'owner2Name',pk:'profitSplit2',ak:'owner2Active',l:'Owner 2'}].map(({nk,pk,ak,l})=>{
+                const on=profile[ak]!==false;
+                return(
+                  <div key={nk} style={{opacity:on?1:0.5,borderBottom:'1px solid #f5f5f5',padding:'14px 16px'}}>
+                    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
+                      <div style={{fontSize:13,fontWeight:700,color:'#222'}}>{l}</div>
+                      <Tog on={on} set={v=>up(ak,v)}/>
                     </div>
-                    <div style={{flexShrink:0,marginLeft:12}}>
-                      <div style={{fontSize:11,color:'#bbb',marginBottom:6}}>Split %</div>
-                      <input type="number" style={{...si,width:80}} value={profile[pk]||0} onChange={e=>up(pk,Number(e.target.value||0))} disabled={!on}/>
+                    <div style={{display:'grid',gridTemplateColumns:'1fr auto',gap:10}}>
+                      <input style={si_w} value={profile[nk]||''} onChange={e=>up(nk,e.target.value)} placeholder="Name" disabled={!on}/>
+                      <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:4}}>
+                        <div style={{fontSize:10,color:'#aaa',textTransform:'uppercase',letterSpacing:'.5px'}}>Split %</div>
+                        <input type="number" style={{...si,width:80,textAlign:'center'}} value={profile[pk]||0} onChange={e=>up(pk,Number(e.target.value||0))} disabled={!on}/>
+                      </div>
                     </div>
                   </div>
+                );
+              })}
+              {profile.owner1Active!==false&&profile.owner2Active&&(Number(profile.profitSplit1||0)+Number(profile.profitSplit2||0))!==100&&(
+                <div className="alert a-red" style={{margin:'8px 16px'}}>⚠️ Splits must add to 100%</div>
+              )}
+            </div>
+            <div className="sec">Goals & Tax</div>
+            <div className="card">
+              <InlineRow label="Weekly Gross Profit Goal" hint="Used for progress tracking"><input type="number" style={{...si,width:120}} value={profile.weeklyGoal||0} onChange={e=>up('weeklyGoal',Number(e.target.value||0))}/></InlineRow>
+              <InlineRow label="Tax Reserve Rate (%)" hint="Shown as a reminder, not deducted"><input type="number" style={{...si,width:90}} value={profile.taxRate||0} onChange={e=>up('taxRate',Number(e.target.value||0))}/></InlineRow>
+            </div>
+          </>
+        )}
+
+        {/* ── PRICING ── */}
+        {sec==='pricing'&&(
+          <>
+            <div className="sec" style={{marginTop:0}}>Suggested Pricing Targets</div>
+            <div style={{fontSize:12,color:'#aaa',marginBottom:12,lineHeight:1.6}}>These drive the "Suggested Price" on new jobs. Set to your average target profit per job type.</div>
+            <div className="card">
+              <InlineRow label="Repair / Basic Service" hint="Target gross profit per job"><input type="number" style={{...si,width:100}} value={profile.repairTarget||0} onChange={e=>up('repairTarget',Number(e.target.value||0))}/></InlineRow>
+              <InlineRow label="Replacement / Premium" hint="For higher-cost jobs"><input type="number" style={{...si,width:100}} value={profile.replaceTarget||0} onChange={e=>up('replaceTarget',Number(e.target.value||0))}/></InlineRow>
+            </div>
+            <div className="sec">Job Decision Engine</div>
+            <div style={{fontSize:12,color:'#aaa',marginBottom:12,lineHeight:1.6}}>The decision badge (Take / Risky / Skip) on each job is driven by these thresholds.</div>
+            <div className="card">
+              <InlineRow label="Skip if profit below ($)" hint="Jobs below this = 'Skip'"><input type="number" style={{...si,width:100}} value={profile.skipThreshold||0} onChange={e=>up('skipThreshold',Number(e.target.value||0))}/></InlineRow>
+              <InlineRow label="Risky beyond (miles)" hint="Long distance = 'Risky'"><input type="number" style={{...si,width:100}} value={profile.riskyMiles||0} onChange={e=>up('riskyMiles',Number(e.target.value||0))}/></InlineRow>
+            </div>
+          </>
+        )}
+
+        {/* ── TRAVEL ── */}
+        {sec==='travel'&&(
+          <>
+            <div className="sec" style={{marginTop:0}}>Mileage</div>
+            <div className="card">
+              <InlineRow label="Your cost per mile ($)" hint="Fuel + wear (IRS: $0.67/mi)"><input type="number" step="0.01" style={{...si,width:100}} value={profile.costPerMile||0} onChange={e=>up('costPerMile',Number(e.target.value||0))}/></InlineRow>
+              <InlineRow label="Charge customer per mile ($)" hint="What you bill for distance"><input type="number" step="0.01" style={{...si,width:100}} value={profile.chargePerMile||0} onChange={e=>up('chargePerMile',Number(e.target.value||0))}/></InlineRow>
+              <InlineRow label="Free radius (miles)" hint="No charge within this distance"><input type="number" style={{...si,width:100}} value={profile.freeRadiusMiles||0} onChange={e=>up('freeRadiusMiles',Number(e.target.value||0))}/></InlineRow>
+            </div>
+            <div className="sec">Condition Fees</div>
+            <div style={{fontSize:12,color:'#aaa',marginBottom:12,lineHeight:1.6}}>Added to the suggested price when you flag a job with these conditions.</div>
+            <div className="card">
+              {[['🚨 Emergency fee ($)','emergencyFee'],['🌙 Late-night fee ($)','lateNightFee'],['🛣 Highway fee ($)','highwayFee'],['📅 Weekend fee ($)','weekendFee']].map(([l,k])=>(
+                <InlineRow key={k} label={l}><input type="number" style={{...si,width:90}} value={profile[k]||0} onChange={e=>up(k,Number(e.target.value||0))}/></InlineRow>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* ── FIXED EXPENSES ── */}
+        {sec==='expenses'&&(
+          <>
+            <div className="sec" style={{marginTop:0}}>Monthly Fixed Expenses</div>
+            <div style={{fontSize:12,color:'#aaa',marginBottom:12,lineHeight:1.6}}>These are deducted from gross profit at payout (not per job). Enter your recurring monthly costs.</div>
+            <div className="card">
+              {(profile.expenses||[]).map(e=>(
+                <div key={e.id} style={{display:'grid',gridTemplateColumns:'1fr 90px auto auto',gap:8,alignItems:'center',padding:'10px 16px',borderBottom:'1px solid #f5f5f5'}}>
+                  <input value={e.name} onChange={x=>upE(e.id,{name:x.target.value})} style={si_w} placeholder="Expense name"/>
+                  <input type="number" value={e.amount||''} onChange={x=>upE(e.id,{amount:Number(x.target.value||0)})} style={si} placeholder="0"/>
+                  <Tog on={e.active} set={v=>upE(e.id,{active:v})}/>
+                  <button className="btn b-danger b-xs" onClick={()=>delE(e.id)}>×</button>
                 </div>
-              );
-            })}
-          </div>
-          <div className="sec">Goals</div>
-          <div className="card">
-            <div className="crow"><div style={{flex:1}}><div style={{fontSize:13,fontWeight:600}}>Weekly Gross Profit Goal</div></div><input type="number" style={{...si,width:110}} value={profile.weeklyGoal||0} onChange={e=>up('weeklyGoal',Number(e.target.value||0))}/></div>
-            <div className="crow"><div style={{flex:1}}><div style={{fontSize:13,fontWeight:600}}>Tax Rate (%)</div></div><input type="number" style={{...si,width:80}} value={profile.taxRate||0} onChange={e=>up('taxRate',Number(e.target.value||0))}/></div>
-          </div>
-        </>)}
-
-        {sec==='pricing'&&(<>
-          <div className="sec" style={{marginTop:0}}>Decision Engine</div>
-          <div className="card">
-            {[['Base Repair Target Profit','repairTarget'],['Base Replacement Target Profit','replaceTarget'],['Skip if profit below ($)','skipThreshold'],['Risky if beyond (miles)','riskyMiles']].map(([l,k])=>(
-              <div className="crow" key={k}><div style={{flex:1,fontSize:13,fontWeight:600}}>{l}</div><input type="number" style={{...si,width:90}} value={profile[k]||0} onChange={e=>up(k,Number(e.target.value||0))}/></div>
-            ))}
-          </div>
-        </>)}
-
-        {sec==='travel'&&(<>
-          <div className="sec" style={{marginTop:0}}>Travel Config</div>
-          <div className="card">
-            {[['Your cost / mile ($)','costPerMile'],['Charge customer / mile ($)','chargePerMile'],['Free radius (miles)','freeRadiusMiles']].map(([l,k])=>(
-              <div className="crow" key={k}><div style={{flex:1,fontSize:13,fontWeight:600}}>{l}</div><input type="number" step="0.01" style={{...si,width:90}} value={profile[k]||0} onChange={e=>up(k,Number(e.target.value||0))}/></div>
-            ))}
-          </div>
-          <div className="sec">Condition Fees</div>
-          <div className="card">
-            {[['Emergency fee ($)','emergencyFee'],['Late-night fee ($)','lateNightFee'],['Highway fee ($)','highwayFee'],['Weekend fee ($)','weekendFee']].map(([l,k])=>(
-              <div className="crow" key={k}><div style={{flex:1,fontSize:13,fontWeight:600}}>{l}</div><input type="number" style={{...si,width:90}} value={profile[k]||0} onChange={e=>up(k,Number(e.target.value||0))}/></div>
-            ))}
-          </div>
-        </>)}
-
-        {sec==='expenses'&&(<>
-          <div className="sec" style={{marginTop:0}}>Monthly Fixed Expenses</div>
-          <div className="card">
-            {(profile.expenses||[]).map(e=>(
-              <div key={e.id} style={{display:'grid',gridTemplateColumns:'1fr 90px auto auto',gap:8,alignItems:'center',padding:'10px 16px',borderBottom:'1px solid #f5f5f5'}}>
-                <input value={e.name} onChange={x=>upE(e.id,{name:x.target.value})} style={si} placeholder="Expense name"/>
-                <input type="number" value={e.amount||''} onChange={x=>upE(e.id,{amount:Number(x.target.value||0)})} style={si} placeholder="0"/>
-                <Tog on={e.active} set={v=>upE(e.id,{active:v})}/>
-                <button className="btn b-danger b-xs" onClick={()=>delE(e.id)}>×</button>
-              </div>
-            ))}
-            <div className="crow">
-              <button className="btn b-secondary b-sm" onClick={addE}>+ Add</button>
-              <div style={{textAlign:'right'}}>
-                <div style={{fontFamily:'"JetBrains Mono",monospace',fontSize:14,fontWeight:700}}>{money(mFixed(profile))}/mo</div>
-                <div style={{fontSize:11,color:'#aaa'}}>{money(wFixed(profile))}/wk</div>
+              ))}
+              <div className="crow">
+                <button className="btn b-secondary b-sm" onClick={addE}>+ Add Expense</button>
+                <div style={{textAlign:'right'}}>
+                  <div style={{fontFamily:'"JetBrains Mono",monospace',fontSize:14,fontWeight:700}}>{money(mFixed(profile))}/mo</div>
+                  <div style={{fontSize:11,color:'#aaa'}}>{money(wFixed(profile))}/wk</div>
+                </div>
               </div>
             </div>
-          </div>
-        </>)}
+          </>
+        )}
 
-        {sec==='data'&&(<>
-          <div className="sec" style={{marginTop:0}}>Export & Backup</div>
-          <div className="card">
-            <div className="crow"><div><div style={{fontSize:13,fontWeight:700}}>Export CSV</div><div style={{fontSize:11,color:'#aaa'}}>Jobs for QuickBooks / Excel</div></div><button className="btn b-secondary b-sm" onClick={exportCSVClick}>CSV</button></div>
-            <div className="crow"><div><div style={{fontSize:13,fontWeight:700}}>Export Full Backup</div><div style={{fontSize:11,color:'#aaa'}}>Jobs, services, settings</div></div><button className="btn b-secondary b-sm" onClick={exportJSON}>JSON</button></div>
-            <div className="crow"><div><div style={{fontSize:13,fontWeight:700}}>Import Backup</div><div style={{fontSize:11,color:'#aaa'}}>Restore from .json file</div></div><button className="btn b-secondary b-sm" onClick={importJSON}>Import</button></div>
-            <div className="crow"><div><div style={{fontSize:13,fontWeight:700,color:'#dc2626'}}>Reset App</div><div style={{fontSize:11,color:'#dc2626'}}>Clears all local data</div></div><button className="btn b-danger b-sm" onClick={clearAll}>Reset</button></div>
-          </div>
-          <div className="sec">Workspace Info</div>
-          <div className="card">
-            <div className="crow"><div style={{fontSize:12,color:'#aaa'}}>Workspace ID</div><div style={{fontFamily:'"JetBrains Mono",monospace',fontSize:11,color:'#ccc',maxWidth:180,overflow:'hidden',textOverflow:'ellipsis'}}>{profile.uid||'—'}</div></div>
-            <div className="crow"><div style={{fontSize:12,color:'#aaa'}}>Business Type</div><div style={{fontSize:12,fontWeight:700}}>{BIZ[profile.businessType]?.label||'—'}</div></div>
-            <div className="crow"><div style={{fontSize:12,color:'#aaa'}}>Data structure</div><div style={{fontSize:11,color:'#bbb'}}>workspaces/{'{uid}'}/…</div></div>
-          </div>
-          <div style={{textAlign:'center',padding:'10px 0',fontSize:11,color:'#ccc',lineHeight:1.7}}>Mobile Service OS · v3<br/>All data is workspace-scoped and synced via Firebase</div>
-        </>)}
+        {/* ── DATA ── */}
+        {sec==='data'&&(
+          <>
+            <div className="sec" style={{marginTop:0}}>Export & Backup</div>
+            <div className="card">
+              <div className="crow"><div><div style={{fontSize:13,fontWeight:700}}>Export CSV</div><div style={{fontSize:11,color:'#aaa'}}>Jobs for QuickBooks / Excel</div></div><button className="btn b-secondary b-sm" onClick={exportCSVClick}>CSV</button></div>
+              <div className="crow"><div><div style={{fontSize:13,fontWeight:700}}>Full Backup</div><div style={{fontSize:11,color:'#aaa'}}>Jobs, services, settings</div></div><button className="btn b-secondary b-sm" onClick={exportJSON}>JSON</button></div>
+              <div className="crow"><div><div style={{fontSize:13,fontWeight:700}}>Import Backup</div><div style={{fontSize:11,color:'#aaa'}}>Restore from .json file</div></div><button className="btn b-secondary b-sm" onClick={importJSON}>Import</button></div>
+              <div className="crow"><div><div style={{fontSize:13,fontWeight:700,color:'#dc2626'}}>Reset App</div><div style={{fontSize:11,color:'#dc2626'}}>Clears all local data</div></div><button className="btn b-danger b-sm" onClick={clearAll}>Reset</button></div>
+            </div>
+            <div className="sec">Workspace Info</div>
+            <div className="card">
+              <div className="crow"><div style={{fontSize:12,color:'#aaa'}}>Workspace ID</div><div style={{fontFamily:'"JetBrains Mono",monospace',fontSize:11,color:'#ccc',maxWidth:180,overflow:'hidden',textOverflow:'ellipsis'}}>{profile.uid||'—'}</div></div>
+              <div className="crow"><div style={{fontSize:12,color:'#aaa'}}>Business Type</div><div style={{fontSize:12,fontWeight:700,color:'#555'}}>{BIZ[profile.businessType]?.icon} {BIZ[profile.businessType]?.label||'—'}</div></div>
+              <div className="crow"><div style={{fontSize:12,color:'#aaa'}}>Data structure</div><div style={{fontSize:11,color:'#bbb',fontFamily:'monospace'}}>workspaces/{'{uid}'}/…</div></div>
+            </div>
+            <div style={{textAlign:'center',padding:'10px 0',fontSize:11,color:'#ddd',lineHeight:1.7}}>Mobile Service OS · v3<br/>All data synced via Firebase Firestore</div>
+          </>
+        )}
       </div>
     </div>
   );
 }
-
-// ─── App Root ─────────────────────────────────────────────────────────────────
-// ─── Auth/onboarding flow ─────────────────────────────────────────────────────
-// ROUTE:  Welcome → Auth → Onboarding → App
-// Onboarding completion is persisted in:
-//   1. workspace/{uid}/profile doc (Firebase) — source of truth
-//   2. localStorage per uid — fast local cache
-// On load: check local cache first. If onboarded, skip to App immediately.
-// Firebase listener then verifies and updates profile in background.
-// This prevents the "refresh sends back to onboarding" bug.
-
 function App(){
-  const [stage,    setStage]    = useState('init'); // init|welcome|auth|onboarding|app
-  const [user,     setUser]     = useState(null);
-  const [profile,  setProfile]  = useState(DEF_PROFILE());
-  const [jobs,     setJobs]     = useState([]);
-  const [services, setServices] = useState([]);
-  const [expenses, setExpenses] = useState([]);
-  const [prefill,  setPrefill]  = useState(null);
-  const [tab,      setTab]      = useState('dashboard');
-  const [sync,     setSync]     = useState('local');
+  const [stage,   setStage]   = useState('init');
+  const [user,    setUser]    = useState(null);
+  const [profile, setProfile] = useState(DEF_PROFILE());
+  const [jobs,    setJobs]    = useState([]);
+  const [services,setServices]= useState([]);
+  const [expenses,setExpenses]= useState([]);
+  const [prefill, setPrefill] = useState(null);
+  const [tab,     setTab]     = useState('dashboard');
+  const [sync,    setSync]    = useState('local');
 
-  // ── Step 1: auth listener — runs ONCE ──────────────────────────────────────
+  // Guard: prevents Firebase service listener from re-merging right after seeding
+  const justSeeded      = useRef(false);
+  const authInitialized = useRef(false); // prevents onboarding loop from token refreshes
+
+  // Dedicated onboarding flag (never stale, never overwritten by profile sync)
+  const obKey   = uid => `msos3-ob-${uid}`;
+  const isObDone= uid => localStorage.getItem(obKey(uid)) === 'done';
+  const markObDone = uid => { try{ localStorage.setItem(obKey(uid),'done'); }catch{} };
+
+  // ── AUTH LISTENER ─────────────────────────────────────────────────────────
+  // Firebase onAuthStateChanged can fire multiple times: initial load, token
+  // refresh, session confirmation. The authInitialized ref ensures we only run
+  // the full boot check ONCE. After that, subsequent fires only handle sign-out.
   useEffect(()=>{
-    if(!_auth){setStage('welcome');return;}
-    const unsub=_auth.onAuthStateChanged(u=>{
-      if(u){
-        setUser(u);
-        // Check local cache first for instant load
-        const K=lk(u.uid);
-        const cached=ls(K.profile,null);
-        if(cached?.onboardingDone===true){
-          setProfile(cached);
-          setJobs(ls(K.jobs,[]));
-          setServices(dedupeServices(ls(K.services,[])));
-          setExpenses(ls(K.expenses,[]));
-          setStage('app'); // ← instant, no flash
-        } else {
-          setStage('onboarding');
-        }
-      } else {
+    // Poll until Firebase auth is ready (scripts load async on mobile)
+    let unsub=null;
+    const tryAuth=()=>{
+      if(!_auth){ setTimeout(tryAuth,150); return; }
+      unsub=_auth.onAuthStateChanged(u=>{
+      if(!u){
+        // Explicit sign-out — always go to welcome, reset flag
+        setUser(null);
         setStage('welcome');
+        authInitialized.current=false;
+        return;
       }
-    });
-    return ()=>unsub();
+
+      // ── KEY FIX: skip re-running boot check on token refresh / repeat fires ──
+      if(authInitialized.current) return;
+      authInitialized.current=true;
+
+      setUser(u);
+      const K=lk(u.uid);
+
+      // GATE 1: dedicated localStorage flag (fastest, most reliable)
+      if(isObDone(u.uid)){
+        setProfile(ls(K.profile,DEF_PROFILE()));
+        setJobs(ls(K.jobs,[]));
+        setServices(dedupeServices(ls(K.services,[])));
+        setExpenses(ls(K.expenses,[]));
+        setStage('app');
+        return;
+      }
+      // GATE 2: profile cache has onboardingDone (migrates old users)
+      const cached=ls(K.profile,null);
+      if(cached?.onboardingDone===true){
+        markObDone(u.uid);
+        setProfile(cached);
+        setJobs(ls(K.jobs,[]));
+        setServices(dedupeServices(ls(K.services,[])));
+        setExpenses(ls(K.expenses,[]));
+        setStage('app');
+        return;
+      }
+      // Fresh user — go to onboarding
+      setStage('onboarding');
+      });
+    }; // end tryAuth
+    tryAuth();
+    return ()=>{ if(unsub) unsub(); authInitialized.current=false; };
   },[]);
 
-  // ── Step 2: Firebase listeners — only when in app ──────────────────────────
+  // ── FIREBASE LISTENERS — only when in app ─────────────────────────────────
   useEffect(()=>{
     if(stage!=='app'||!user||!_db) return;
     const uid=user.uid, K=lk(uid);
     setSync('syncing');
 
-    // Profile listener
+    // Profile — use functional updater to avoid stale closure
     const uP=fbListenDoc(ws(uid)?.collection('profile')?.doc('main'),doc=>{
       if(doc?.onboardingDone===true){
-        setProfile(p=>({...p,...doc}));
-        lss(K.profile,{...profile,...doc});
+        setProfile(prev=>{
+          const merged={...prev,...doc};
+          lss(K.profile, merged); // uses merged, not stale closure
+          return merged;
+        });
+        markObDone(uid); // ensure flag is set cross-device
       }
     });
 
-    // Jobs — merge local + Firebase, never overwrite with empty
+    // Jobs — merge, never overwrite with empty
     const uJ=fbListen(wc(uid,'jobs'),docs=>{
       if(docs.length>0){
         const local=ls(K.jobs,[]);
         const fbIds=new Set(docs.map(d=>String(d.id)));
         const localOnly=local.filter(j=>!fbIds.has(String(j.id)));
         const merged=[...docs,...localOnly];
-        setJobs(merged);lss(K.jobs,merged);
+        setJobs(merged); lss(K.jobs,merged);
         if(localOnly.length) fbBatch(wc(uid,'jobs'),localOnly);
       } else {
         const local=ls(K.jobs,[]);
-        if(local.length){fbBatch(wc(uid,'jobs'),local);setJobs(local);}
+        if(local.length){ fbBatch(wc(uid,'jobs'),local); }
       }
       setSync('connected');
     });
 
-    // Services listener — Map-based merge, never spread-concat
+    // Services — skip merge if we just seeded (prevents instant doubling)
     const uS=fbListen(wc(uid,'services'),docs=>{
       if(docs.length>0){
-        // Step 1: dedupe what Firebase returned (migration: fixes existing dupes)
-        const fbDeduped=dedupeServices(docs);
-        // Step 2: merge with local (local may have unsaved manual adds)
-        const local=dedupeServices(ls(K.services,[]));
-        const merged=mergeServices(local, fbDeduped); // Firebase wins on conflict
-        setServices(merged);lss(K.services,merged);
-        // Step 3: if we found dupes in Firebase, push clean version back
-        if(fbDeduped.length<docs.length) fbBatch(wc(uid,'services'),fbDeduped);
+        if(justSeeded.current){
+          // We just wrote these — Firebase is just confirming. Don't re-merge.
+          justSeeded.current=false;
+          const clean=dedupeServices(docs);
+          lss(K.services,clean);
+          if(clean.length<docs.length) fbBatch(wc(uid,'services'),clean);
+          return;
+        }
+        // Normal sync: dedupe Firestore result, merge with any local-only adds
+        const fbClean=dedupeServices(docs);
+        setServices(prev=>{
+          const prevIds=new Set(prev.map(s=>s.id));
+          const fbOnly=fbClean.filter(s=>!prevIds.has(s.id));
+          if(!fbOnly.length){ lss(K.services,fbClean); return fbClean; } // FB is authoritative
+          const merged=mergeServices(prev,fbClean);
+          lss(K.services,merged);
+          return merged;
+        });
+        if(fbClean.length<docs.length) fbBatch(wc(uid,'services'),fbClean);
       } else {
-        // Firebase empty — only upload local if servicesSeeded already happened
-        // (prevents re-seeding race condition)
         const local=dedupeServices(ls(K.services,[]));
-        if(local.length){ fbBatch(wc(uid,'services'),local); setServices(local); }
+        if(local.length){ fbBatch(wc(uid,'services'),local); }
       }
     });
 
     // Expenses
     const uE=fbListen(wc(uid,'expenses'),docs=>{
-      if(docs.length>0){setExpenses(docs);lss(K.expenses,docs);}
-      else{const l=ls(K.expenses,[]);if(l.length){fbBatch(wc(uid,'expenses'),l);setExpenses(l);}}
+      if(docs.length>0){ setExpenses(docs); lss(K.expenses,docs); }
+      else { const l=ls(K.expenses,[]); if(l.length){ fbBatch(wc(uid,'expenses'),l); } }
     });
 
-    return ()=>{uP&&uP();uJ();uS();uE();};
+    return ()=>{ uP&&uP(); uJ(); uS(); uE(); };
   },[stage,user]);
 
-  // ── Persist profile locally whenever it changes ────────────────────────────
-  useEffect(()=>{if(user&&profile.onboardingDone)lss(lk(user.uid).profile,profile);},[profile,user]);
-
-  // ── Sync profile to Firebase ───────────────────────────────────────────────
+  // ── Persist profile locally ────────────────────────────────────────────────
   useEffect(()=>{
-    if(!user||!_db||!profile.onboardingDone) return;
-    fbSetDoc(ws(user.uid)?.collection('profile')?.doc('main'),{...profile,uid:user.uid,updatedAt:new Date().toISOString()});
+    if(user&&profile.onboardingDone) lss(lk(user.uid).profile,profile);
   },[profile,user]);
 
-  // ── Sync services — always dedupe before writing ────────────────────────────
+  // ── Sync profile to Firebase (only after onboarding) ──────────────────────
+  useEffect(()=>{
+    if(!user||!_db||!profile.onboardingDone) return;
+    fbSetDoc(ws(user.uid)?.collection('profile')?.doc('main'),
+      {...profile,uid:user.uid,updatedAt:new Date().toISOString()});
+  },[profile,user]);
+
+  // ── Sync services (always dedupe before write) ─────────────────────────────
   useEffect(()=>{
     if(!user||!_db||stage!=='app') return;
-    const d=dedupeServices(services); // final normalize before any write
+    const d=dedupeServices(services);
     lss(lk(user.uid).services,d);
     if(d.length) fbBatch(wc(user.uid,'services'),d);
   },[services,user,stage]);
@@ -1892,61 +1958,109 @@ function App(){
   // ── Save job ───────────────────────────────────────────────────────────────
   const saveJob=useCallback((job,andAdd)=>{
     const e={...job,id:job.id||uid()};
-    setJobs(prev=>{const next=[e,...prev.filter(j=>j.id!==e.id)];lss(lk(user.uid).jobs,next);return next;});
+    setJobs(prev=>{const next=[e,...prev.filter(j=>j.id!==e.id)]; lss(lk(user.uid).jobs,next); return next;});
     if(user&&_db) fbSet(wc(user.uid,'jobs'),e.id,e);
     if(!andAdd) setTab('dashboard');
   },[user]);
 
-  const deleteJob=useCallback(id=>{
-    setJobs(prev=>{const next=prev.filter(j=>j.id!==id);lss(lk(user.uid).jobs,next);return next;});
-    if(user&&_db) fbDel(wc(user.uid,'jobs'),id);
-  },[user]);
-
   const updateServices=useCallback(svcs=>{
-    const d=dedupeServices(svcs); // normalize before save
+    const d=dedupeServices(svcs);
     setServices(d);
-    lss(lk(user.uid).services,d);
     if(user&&_db) fbBatch(wc(user.uid,'services'),d);
   },[user]);
 
   const updateExpenses=useCallback(exps=>{
-    setExpenses(exps);lss(lk(user.uid).expenses,exps);
+    setExpenses(exps); lss(lk(user.uid).expenses,exps);
     if(user&&_db) fbBatch(wc(user.uid,'expenses'),exps);
   },[user]);
 
-  const handleRepeat=useCallback(job=>{setPrefill(job);setTab('add');},[]);
-  const signOut=async()=>{try{await _auth.signOut();}catch{}setUser(null);setStage('welcome');setProfile(DEF_PROFILE());setJobs([]);setServices([]);setExpenses([]);};
+  const handleRepeat=useCallback(job=>{ setPrefill(job); setTab('add'); },[]);
 
-  // ── Onboarding complete ────────────────────────────────────────────────────
+  const signOut=async()=>{
+    try{ await _auth.signOut(); }catch{}
+    setUser(null); setStage('welcome');
+    setProfile(DEF_PROFILE()); setJobs([]); setServices([]); setExpenses([]);
+  };
+
+  // ── Onboarding complete ─────────────────────────────────────────────────────
   const finishOnboarding=useCallback((newProfile,newServices)=>{
-    const p={...newProfile,onboardingDone:true,servicesSeeded:true,uid:user?.uid||'',workspaceId:user?.uid||''};
-    setProfile(p);
-    // dedupeServices normalizes, then we store clean array — no spread concat
+    const p={...newProfile,onboardingDone:true,servicesSeeded:true};
     const d=dedupeServices(newServices);
-    setServices(d);
+
+    // ── CRITICAL ORDER ──────────────────────────────────────────────────────
+    // markObDone MUST be first. If auth listener fires during any async gap
+    // below, it will see isObDone()===true and NOT reset to onboarding.
+    if(user) markObDone(user.uid);
+
+    // Write localStorage before state — so if re-render triggers auth check
+    // it reads consistent data
     if(user){
       const K=lk(user.uid);
       lss(K.profile,p);
       lss(K.services,d);
-      // Persist to workspace — this is the ONLY place seeding writes to Firebase
-      fbSetDoc(ws(user.uid)?.collection('profile')?.doc('main'),{...p,uid:user.uid,updatedAt:new Date().toISOString()});
+    }
+
+    // Now safe to update React state
+    setProfile(p);
+    setServices(d);
+
+    // Set stage — auth listener is now protected by authInitialized ref
+    setStage('app');
+
+    // Firebase writes happen AFTER stage change (listeners will use justSeeded guard)
+    if(user&&_db){
+      justSeeded.current=true; // tell services listener to skip re-merge
+      fbSetDoc(ws(user.uid)?.collection('profile')?.doc('main'),
+        {...p,uid:user.uid,updatedAt:new Date().toISOString()});
       fbBatch(wc(user.uid,'services'),d);
     }
-    setStage('app');
   },[user]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
   if(stage==='init') return(
     <div style={{height:'100%',display:'flex',alignItems:'center',justifyContent:'center',background:'#0a0a0a',flexDirection:'column',gap:16}}>
-      <img src={MSOS_LOGO} alt="Loading" style={{width:60,height:60,borderRadius:16,opacity:.6}}/>
-      <div style={{color:'#333',fontSize:13}}>Loading…</div>
+      <img src={MSOS_LOGO} alt="" style={{width:56,height:56,borderRadius:15,opacity:.5}}/>
+      <div style={{color:'#2a2a2a',fontSize:13}}>Loading…</div>
     </div>
   );
+
   if(stage==='welcome') return <Welcome onContinue={()=>setStage('auth')}/>;
-  if(stage==='auth')    return <AuthScreen onAuth={u=>{setUser(u);const K=lk(u.uid);const cached=ls(K.profile,null);if(cached?.onboardingDone){setProfile(cached);setJobs(ls(K.jobs,[]));setServices(dedupeServices(ls(K.services,[])));setExpenses(ls(K.expenses,[]));setStage('app');}else{setStage('onboarding');}}}/>;
+
+  if(stage==='auth') return (
+    <AuthScreen onAuth={u=>{
+      setUser(u);
+      authInitialized.current=true; // ← mark initialized so auth listener skips on re-fire
+      if(isObDone(u.uid)){
+        const K=lk(u.uid);
+        setProfile(ls(K.profile,DEF_PROFILE()));
+        setJobs(ls(K.jobs,[]));
+        setServices(dedupeServices(ls(K.services,[])));
+        setExpenses(ls(K.expenses,[]));
+        setStage('app');
+      } else {
+        const cached=ls(lk(u.uid).profile,null);
+        if(cached?.onboardingDone===true){
+          markObDone(u.uid);
+          setProfile(cached);
+          setStage('app');
+        } else {
+          setStage('onboarding');
+        }
+      }
+    }}/>
+  );
+
   if(stage==='onboarding') return <Onboarding user={user} onComplete={finishOnboarding}/>;
 
-  const NAV=[{id:'dashboard',ico:'📊',l:'Home'},{id:'add',ico:'＋',l:'Add'},{id:'history',ico:'📋',l:'History'},{id:'payouts',ico:'💰',l:'Payouts'},{id:'expenses',ico:'🧾',l:'Expenses'},{id:'services',ico:'🛠',l:'Services'},{id:'settings',ico:'⚙️',l:'Settings'}];
+  const NAV=[
+    {id:'dashboard',ico:'📊',l:'Home'},
+    {id:'add',      ico:'＋',l:'Add'},
+    {id:'history',  ico:'📋',l:'History'},
+    {id:'payouts',  ico:'💰',l:'Payouts'},
+    {id:'expenses', ico:'🧾',l:'Expenses'},
+    {id:'services', ico:'🛠',l:'Services'},
+    {id:'settings', ico:'⚙️',l:'Settings'},
+  ];
 
   return(
     <div className="app">
@@ -1959,13 +2073,18 @@ function App(){
       {tab==='services' &&<Services services={services} setServices={updateServices} profile={profile}/>}
       {tab==='settings' &&<Settings profile={profile} setProfile={setProfile} jobs={jobs} setJobs={setJobs} expenses={expenses} services={services}/>}
       <nav className="nav">
-        {NAV.map(({id,ico,l})=><button key={id} className={`nbtn ${tab===id?'on':''}`} onClick={()=>setTab(id)}><span className="ico">{ico}</span>{l}</button>)}
+        {NAV.map(({id,ico,l})=>(
+          <button key={id} className={`nbtn ${tab===id?'on':''}`} onClick={()=>setTab(id)}>
+            <span className="ico">{ico}</span>{l}
+          </button>
+        ))}
       </nav>
     </div>
   );
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+
 </script>
 </body>
 </html>
