@@ -1,0 +1,4000 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#0a0a0f">
+    <meta name="description" content="Mobile Service OS - Professional service management platform">
+    <title>Mobile Service OS</title>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Material Icons -->
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet">
+
+    <style>
+        :root {
+            --primary: #6c5ce7;
+            --accent: #00cec9;
+            --success: #00b894;
+            --warning: #fdcb6e;
+            --danger: #e74c3c;
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #14141f;
+            --bg-tertiary: #1a1a28;
+            --border: #1e1e2e;
+            --text-primary: #e8e8f0;
+            --text-secondary: #8888a8;
+            --text-tertiary: #6666aa;
+            --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
+            --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.4);
+            --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.5);
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 16px;
+            --transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        html {
+            font-size: 16px;
+            -webkit-text-size-adjust: 100%;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.5;
+            overflow-x: hidden;
+            position: fixed;
+            width: 100%;
+            height: 100vh;
+        }
+
+        /* Typography */
+        h1 { font-size: 2rem; font-weight: 700; line-height: 1.2; }
+        h2 { font-size: 1.5rem; font-weight: 600; line-height: 1.3; }
+        h3 { font-size: 1.25rem; font-weight: 600; line-height: 1.3; }
+        h4 { font-size: 1.125rem; font-weight: 600; line-height: 1.4; }
+        h5 { font-size: 1rem; font-weight: 600; line-height: 1.4; }
+        h6 { font-size: 0.875rem; font-weight: 600; line-height: 1.4; letter-spacing: 0.5px; }
+
+        p { color: var(--text-secondary); font-size: 0.9375rem; }
+        small { font-size: 0.8125rem; color: var(--text-tertiary); }
+        a { color: var(--primary); text-decoration: none; transition: color var(--transition); }
+        a:hover { color: var(--accent); }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: var(--bg-primary);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-tertiary);
+        }
+
+        /* Main Layout */
+        #appContainer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #authScreen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            z-index: 1000;
+            animation: fadeIn 0.5s var(--transition);
+        }
+
+        #authScreen.hidden {
+            display: none;
+        }
+
+        #appShell {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: none;
+            flex-direction: column;
+        }
+
+        /* Auth Card */
+        .auth-container {
+            width: 100%;
+            max-width: 420px;
+            animation: slideUp 0.6s var(--transition);
+        }
+
+        .auth-card {
+            background: linear-gradient(135deg, rgba(20, 20, 31, 0.8) 0%, rgba(26, 26, 40, 0.6) 100%);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 32px 24px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        }
+
+        .auth-header {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        .auth-logo {
+            width: 56px;
+            height: 56px;
+            margin: 0 auto 16px;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%);
+            border-radius: var(--radius-lg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+            font-weight: 700;
+            color: white;
+        }
+
+        .auth-header h1 {
+            font-size: 1.5rem;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .auth-header p {
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+        }
+
+        /* Form Groups */
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 0.875rem;
+            font-weight: 500;
+            margin-bottom: 8px;
+            color: var(--text-primary);
+        }
+
+        .form-group input,
+        .form-group textarea,
+        .form-group select {
+            width: 100%;
+            padding: 12px 16px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 1rem;
+            transition: all var(--transition);
+        }
+
+        .form-group input::placeholder {
+            color: var(--text-tertiary);
+        }
+
+        .form-group input:focus,
+        .form-group textarea:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: var(--primary);
+            background: rgba(255, 255, 255, 0.08);
+            box-shadow: 0 0 0 3px rgba(108, 92, 231, 0.1);
+        }
+
+        /* Buttons */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 12px 24px;
+            border: none;
+            border-radius: var(--radius-md);
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all var(--transition);
+            text-decoration: none;
+            white-space: nowrap;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary) 0%, #7d6ff8 100%);
+            color: white;
+            width: 100%;
+            box-shadow: 0 4px 16px rgba(108, 92, 231, 0.3);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 24px rgba(108, 92, 231, 0.4);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.15);
+            border-color: var(--text-secondary);
+        }
+
+        .btn-icon {
+            width: 48px;
+            height: 48px;
+            padding: 0;
+            border-radius: 50%;
+        }
+
+        .btn-small {
+            padding: 8px 16px;
+            font-size: 0.875rem;
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, var(--danger) 0%, #d63c25 100%);
+            color: white;
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, var(--success) 0%, #009874 100%);
+            color: white;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Auth Links */
+        .auth-links {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.875rem;
+            margin-top: 16px;
+        }
+
+        .auth-links a {
+            color: var(--primary);
+        }
+
+        /* Form Divider */
+        .form-divider {
+            display: flex;
+            align-items: center;
+            margin: 24px 0;
+            gap: 12px;
+        }
+
+        .form-divider::before,
+        .form-divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--border);
+        }
+
+        .form-divider span {
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Social Button */
+        .btn-social {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            width: 100%;
+        }
+
+        .btn-social:hover {
+            background: rgba(255, 255, 255, 0.12);
+            border-color: var(--primary);
+        }
+
+        /* Toggle Auth Forms */
+        .auth-form {
+            display: none;
+        }
+
+        .auth-form.active {
+            display: block;
+            animation: slideUp 0.4s var(--transition);
+        }
+
+        /* App Shell */
+        #topBar {
+            height: 56px;
+            background: linear-gradient(180deg, rgba(20, 20, 31, 0.9) 0%, rgba(20, 20, 31, 0.8) 100%);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 16px;
+            gap: 12px;
+            padding-top: max(0, env(safe-area-inset-top));
+            backdrop-filter: blur(10px);
+            z-index: 100;
+        }
+
+        .top-bar-title {
+            font-size: 1.125rem;
+            font-weight: 600;
+            flex: 1;
+        }
+
+        .top-bar-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .top-bar-actions .btn-icon {
+            width: 40px;
+            height: 40px;
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+        }
+
+        .top-bar-actions .btn-icon:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        /* Main Content Area */
+        #mainContent {
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
+            scroll-behavior: smooth;
+            -webkit-overflow-scrolling: touch;
+            padding-bottom: 80px;
+            transition: opacity 0.15s ease;
+        }
+
+        /* Bottom Navigation */
+        #bottomNav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 64px;
+            background: linear-gradient(180deg, rgba(20, 20, 31, 0.95) 0%, rgba(20, 20, 31, 1) 100%);
+            border-top: 1px solid var(--border);
+            display: flex;
+            justify-content: space-around;
+            align-items: flex-start;
+            padding-bottom: max(0, env(safe-area-inset-bottom));
+            backdrop-filter: blur(10px);
+            z-index: 99;
+        }
+
+        .nav-item {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            color: var(--text-secondary);
+            padding: 8px 0;
+            cursor: pointer;
+            transition: all var(--transition-fast);
+            position: relative;
+            font-size: 0.75rem;
+        }
+
+        .nav-item.active {
+            color: var(--primary);
+        }
+
+        .nav-item .material-icons {
+            font-size: 24px;
+        }
+
+        .nav-center-spacer {
+            width: 60px;
+        }
+
+        /* Floating Action Button */
+        .fab {
+            position: fixed;
+            bottom: calc(20px + max(0, env(safe-area-inset-bottom)));
+            left: 50%;
+            transform: translateX(-50%);
+            width: 56px;
+            height: 56px;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%);
+            border: none;
+            border-radius: 50%;
+            color: white;
+            font-size: 28px;
+            cursor: pointer;
+            box-shadow: 0 8px 24px rgba(108, 92, 231, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 98;
+            transition: all var(--transition);
+        }
+
+        .fab:active {
+            transform: translateX(-50%) scale(0.95);
+        }
+
+        .fab:hover {
+            box-shadow: 0 12px 32px rgba(108, 92, 231, 0.5);
+        }
+
+        /* Cards */
+        .card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 16px;
+            transition: all var(--transition);
+        }
+
+        .card:hover {
+            border-color: var(--text-tertiary);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .card-title {
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .card-subtitle {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
+
+        .card-content {
+            font-size: 0.9375rem;
+            color: var(--text-secondary);
+        }
+
+        /* Dashboard Grid */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 12px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+
+        .metric-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 16px;
+            text-align: center;
+        }
+
+        .metric-value {
+            font-size: 1.75rem;
+            font-weight: 700;
+            color: var(--primary);
+            margin: 8px 0;
+        }
+
+        .metric-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* Badge */
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .badge-primary {
+            background: rgba(108, 92, 231, 0.2);
+            color: var(--primary);
+        }
+
+        .badge-success {
+            background: rgba(0, 184, 148, 0.2);
+            color: var(--success);
+        }
+
+        .badge-warning {
+            background: rgba(253, 203, 110, 0.2);
+            color: var(--warning);
+        }
+
+        .badge-danger {
+            background: rgba(231, 76, 60, 0.2);
+            color: var(--danger);
+        }
+
+        .badge-info {
+            background: rgba(0, 206, 201, 0.2);
+            color: var(--accent);
+        }
+
+        .badge-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-secondary);
+        }
+
+        /* View Structure */
+        .view-container {
+            padding: 20px 16px;
+            padding-bottom: 100px;
+            max-width: 960px;
+            margin: 0 auto;
+            animation: fadeIn 0.2s ease;
+        }
+
+        .view-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            gap: 12px;
+        }
+
+        .view-header h2 {
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+
+        .metric-sub {
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
+            margin-top: 2px;
+        }
+
+        /* Suggestions Dropdown */
+        .suggestions-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 1000;
+            box-shadow: var(--shadow-md);
+        }
+
+        .suggestion-item {
+            padding: 10px 14px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: background var(--transition-fast);
+        }
+
+        .suggestion-item:hover,
+        .suggestion-item.active {
+            background: var(--bg-secondary);
+            color: var(--accent);
+        }
+
+        /* Tab Content */
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+            animation: fadeIn 0.2s ease;
+        }
+
+        .tab {
+            padding: 10px 20px;
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all var(--transition-fast);
+        }
+
+        .tab:hover {
+            border-color: var(--primary);
+            color: var(--text-primary);
+        }
+
+        .tab.active {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: white;
+        }
+
+        /* Status Badge */
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.8125rem;
+            font-weight: 500;
+        }
+
+        .status-active::before {
+            content: '';
+            width: 6px;
+            height: 6px;
+            background: var(--success);
+            border-radius: 50%;
+        }
+
+        .status-pending::before {
+            content: '';
+            width: 6px;
+            height: 6px;
+            background: var(--warning);
+            border-radius: 50%;
+        }
+
+        .status-completed::before {
+            content: '';
+            width: 6px;
+            height: 6px;
+            background: var(--primary);
+            border-radius: 50%;
+        }
+
+        /* List Items */
+        .list-item {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 16px;
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            transition: all var(--transition);
+        }
+
+        .list-item:hover {
+            border-color: var(--primary);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .list-item-left {
+            flex: 1;
+        }
+
+        .list-item-title {
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+
+        .list-item-subtitle {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
+
+        .list-item-right {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        /* Empty State */
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 64px 32px;
+            text-align: center;
+            min-height: 400px;
+        }
+
+        .empty-state-icon {
+            font-size: 64px;
+            color: var(--text-tertiary);
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
+
+        .empty-state-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+
+        .empty-state-description {
+            color: var(--text-secondary);
+            max-width: 300px;
+            margin-bottom: 24px;
+        }
+
+        /* Modal */
+        .modal-backdrop {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(4px);
+            display: flex;
+            align-items: flex-end;
+            z-index: 1000;
+            animation: fadeIn 0.3s var(--transition);
+        }
+
+        .modal-backdrop.hidden {
+            display: none;
+        }
+
+        .modal-content {
+            width: 100%;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+            padding: 24px 16px;
+            padding-bottom: calc(24px + max(0, env(safe-area-inset-bottom)));
+            max-height: 90vh;
+            overflow-y: auto;
+            animation: slideUp 0.4s var(--transition);
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .modal-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 24px;
+            padding: 0;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: color var(--transition);
+        }
+
+        .modal-close:hover {
+            color: var(--text-primary);
+        }
+
+        /* Toast Notifications */
+        #toastContainer {
+            position: fixed;
+            top: 16px;
+            right: 16px;
+            z-index: 2000;
+            max-width: 400px;
+            pointer-events: none;
+        }
+
+        .toast {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 16px;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            box-shadow: var(--shadow-md);
+            animation: slideIn 0.4s var(--transition);
+            pointer-events: auto;
+        }
+
+        .toast-icon {
+            font-size: 20px;
+            flex-shrink: 0;
+        }
+
+        .toast.success .toast-icon {
+            color: var(--success);
+        }
+
+        .toast.error .toast-icon {
+            color: var(--danger);
+        }
+
+        .toast.warning .toast-icon {
+            color: var(--warning);
+        }
+
+        .toast.info .toast-icon {
+            color: var(--primary);
+        }
+
+        .toast-content {
+            flex: 1;
+        }
+
+        .toast-title {
+            font-weight: 600;
+            color: var(--text-primary);
+            font-size: 0.9375rem;
+        }
+
+        .toast-message {
+            font-size: 0.8125rem;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+
+        /* Loading Overlay */
+        #loadingOverlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(10, 10, 15, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2001;
+        }
+
+        #loadingOverlay.hidden {
+            display: none;
+        }
+
+        .spinner {
+            width: 48px;
+            height: 48px;
+            border: 4px solid rgba(108, 92, 231, 0.2);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Search Input */
+        .search-input {
+            position: relative;
+        }
+
+        input.search-input {
+            width: 100%;
+            padding: 12px 16px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            color: var(--text-primary);
+            font-size: 0.9rem;
+            font-family: 'Inter', sans-serif;
+        }
+
+        input.search-input:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(108, 92, 231, 0.15);
+        }
+
+        .search-input input {
+            padding-left: 40px;
+        }
+
+        .search-input .material-icons {
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-tertiary);
+            font-size: 20px;
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 8px;
+            border-bottom: 1px solid var(--border);
+            padding: 0 16px;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .tab {
+            padding: 12px 16px;
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-weight: 500;
+            font-size: 0.9375rem;
+            border-bottom: 2px solid transparent;
+            transition: all var(--transition);
+            white-space: nowrap;
+        }
+
+        .tab.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+        }
+
+        /* Toggle Switch */
+        .toggle {
+            position: relative;
+            width: 48px;
+            height: 28px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            cursor: pointer;
+            transition: all var(--transition);
+        }
+
+        .toggle.active {
+            background: var(--primary);
+            border-color: var(--primary);
+        }
+
+        .toggle::after {
+            content: '';
+            position: absolute;
+            width: 24px;
+            height: 24px;
+            background: white;
+            border-radius: 50%;
+            top: 1px;
+            left: 2px;
+            transition: left var(--transition);
+        }
+
+        .toggle.active::after {
+            left: 21px;
+        }
+
+        /* Input Group */
+        .input-group {
+            position: relative;
+        }
+
+        .input-group input {
+            padding-right: 40px;
+        }
+
+        .input-group .btn-icon {
+            position: absolute;
+            right: 4px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 36px;
+            height: 36px;
+            background: none;
+        }
+
+        /* Chips/Tags */
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            background: rgba(108, 92, 231, 0.15);
+            border: 1px solid rgba(108, 92, 231, 0.3);
+            border-radius: 16px;
+            color: var(--primary);
+            font-size: 0.8125rem;
+            cursor: pointer;
+            transition: all var(--transition);
+            margin: 4px;
+        }
+
+        .chip:hover {
+            background: rgba(108, 92, 231, 0.25);
+        }
+
+        .chip.active {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+
+        .chip-close {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9375rem;
+        }
+
+        thead {
+            background: rgba(255, 255, 255, 0.05);
+            border-bottom: 1px solid var(--border);
+        }
+
+        th {
+            padding: 12px 16px;
+            text-align: left;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        td {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-secondary);
+        }
+
+        tbody tr:hover {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        /* Form Row */
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+
+        .form-row.single {
+            grid-template-columns: 1fr;
+        }
+
+        /* Price Breakdown */
+        .price-breakdown {
+            background: rgba(108, 92, 231, 0.1);
+            border: 1px solid rgba(108, 92, 231, 0.2);
+            border-radius: var(--radius-lg);
+            padding: 16px;
+            margin: 16px 0;
+        }
+
+        .price-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            font-size: 0.9375rem;
+        }
+
+        .price-row.total {
+            border-top: 1px solid rgba(108, 92, 231, 0.3);
+            padding-top: 12px;
+            margin-top: 12px;
+            font-weight: 600;
+            color: var(--primary);
+        }
+
+        /* Warning Banner */
+        .warning-banner {
+            background: rgba(231, 76, 60, 0.1);
+            border: 1px solid rgba(231, 76, 60, 0.2);
+            border-radius: var(--radius-lg);
+            padding: 16px;
+            margin: 16px 0;
+            display: flex;
+            gap: 12px;
+            align-items: flex-start;
+        }
+
+        .warning-banner-icon {
+            font-size: 20px;
+            color: var(--danger);
+            flex-shrink: 0;
+            margin-top: 2px;
+        }
+
+        .warning-banner-content {
+            flex: 1;
+        }
+
+        .warning-banner-title {
+            font-weight: 600;
+            color: var(--danger);
+            margin-bottom: 4px;
+        }
+
+        .warning-banner-text {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
+
+        /* Animations */
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        /* Responsive - Tablet */
+        @media (min-width: 768px) {
+            .modal-content {
+                width: 90%;
+                max-width: 600px;
+                margin: 0 auto;
+                margin-bottom: 40px;
+                border-radius: var(--radius-lg);
+            }
+
+            .modal-backdrop {
+                align-items: center;
+            }
+
+            .auth-container {
+                max-width: 480px;
+            }
+
+            .dashboard-grid {
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            }
+
+            .form-row {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            table {
+                font-size: 1rem;
+            }
+
+            th, td {
+                padding: 14px 18px;
+            }
+        }
+
+        /* Responsive - Desktop */
+        @media (min-width: 1024px) {
+            #appShell {
+                flex-direction: row;
+            }
+
+            #topBar {
+                display: none;
+            }
+
+            #bottomNav {
+                position: fixed;
+                left: 0;
+                bottom: 0;
+                width: 280px;
+                height: 100%;
+                flex-direction: column;
+                border-right: 1px solid var(--border);
+                border-top: none;
+                padding: 24px 0;
+            }
+
+            #mainContent {
+                margin-left: 280px;
+                padding-bottom: 20px;
+            }
+
+            .nav-item {
+                width: 100%;
+                justify-content: flex-start;
+                padding: 12px 16px;
+                gap: 12px;
+                flex-direction: row;
+            }
+
+            .fab {
+                display: none;
+            }
+
+            .dashboard-grid {
+                grid-template-columns: repeat(4, 1fr);
+            }
+
+            .form-row {
+                grid-template-columns: 1fr 1fr 1fr;
+            }
+
+            .form-row.single {
+                grid-template-columns: 1fr;
+            }
+
+            #toastContainer {
+                bottom: 20px;
+                top: auto;
+                right: 20px;
+            }
+        }
+
+        /* Print Styles */
+        @media print {
+            body {
+                background: white;
+                color: black;
+            }
+
+            #topBar,
+            #bottomNav,
+            .fab,
+            .no-print {
+                display: none !important;
+            }
+
+            .card {
+                border: 1px solid #ccc;
+                background: white;
+                color: black;
+            }
+
+            a {
+                color: #0066cc;
+            }
+        }
+
+        /* Accessibility */
+        @media (prefers-reduced-motion: reduce) {
+            * {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+
+        /* Dark mode forced (always dark) */
+        @media (prefers-color-scheme: dark) {
+            :root {
+                color-scheme: dark;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Toast Container -->
+    <div id="toastContainer" role="region" aria-live="polite" aria-atomic="true"></div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="hidden">
+        <div class="spinner"></div>
+    </div>
+
+    <!-- Main App Container -->
+    <div id="appContainer">
+        <!-- Auth Screen -->
+        <div id="authScreen" class="no-print" role="main">
+            <div class="auth-container">
+                <div class="auth-card">
+                    <!-- Auth Header -->
+                    <div class="auth-header">
+                        <div class="auth-logo">MS</div>
+                        <h1>Mobile Service OS</h1>
+                        <p>Professional service management</p>
+                    </div>
+
+                    <!-- Login Form -->
+                    <form id="loginForm" class="auth-form active">
+                        <div class="form-group">
+                            <label for="loginEmail">Email Address</label>
+                            <input
+                                type="email"
+                                id="loginEmail"
+                                name="email"
+                                placeholder="you@example.com"
+                                required
+                                aria-label="Email address for login"
+                            >
+                        </div>
+
+                        <div class="form-group">
+                            <label for="loginPassword">Password</label>
+                            <input
+                                type="password"
+                                id="loginPassword"
+                                name="password"
+                                placeholder="Enter your password"
+                                required
+                                aria-label="Password for login"
+                            >
+                        </div>
+
+                        <button type="submit" class="btn btn-primary" aria-label="Sign in to your account">
+                            <span class="material-icons">login</span>
+                            Sign In
+                        </button>
+
+                        <div class="form-divider">
+                            <span>or</span>
+                        </div>
+
+                        <button type="button" class="btn btn-social" id="googleSignInBtn" aria-label="Sign in with Google">
+                            <span class="material-icons">home</span>
+                            Sign in with Google
+                        </button>
+
+                        <div class="auth-links">
+                            <button type="button" class="auth-link" onclick="showRegisterForm()" aria-label="Create a new account">
+                                Create account
+                            </button>
+                            <button type="button" class="auth-link" onclick="showForgotPasswordForm()" aria-label="Reset your password">
+                                Forgot password?
+                            </button>
+                        </div>
+                    </form>
+
+                    <!-- Register Form -->
+                    <form id="registerForm" class="auth-form">
+                        <div class="form-group">
+                            <label for="registerEmail">Email Address</label>
+                            <input
+                                type="email"
+                                id="registerEmail"
+                                name="email"
+                                placeholder="you@example.com"
+                                required
+                                aria-label="Email address for new account"
+                            >
+                        </div>
+
+                        <div class="form-group">
+                            <label for="registerPassword">Password</label>
+                            <input
+                                type="password"
+                                id="registerPassword"
+                                name="password"
+                                placeholder="At least 6 characters"
+                                required
+                                aria-label="Password for new account"
+                            >
+                        </div>
+
+                        <div class="form-group">
+                            <label for="registerPasswordConfirm">Confirm Password</label>
+                            <input
+                                type="password"
+                                id="registerPasswordConfirm"
+                                name="confirmPassword"
+                                placeholder="Confirm your password"
+                                required
+                                aria-label="Confirm password"
+                            >
+                        </div>
+
+                        <button type="submit" class="btn btn-primary" aria-label="Create your account">
+                            <span class="material-icons">person_add</span>
+                            Create Account
+                        </button>
+
+                        <div class="form-divider">
+                            <span>or</span>
+                        </div>
+
+                        <button type="button" class="btn btn-social" id="googleSignUpBtn" aria-label="Sign up with Google">
+                            <span class="material-icons">home</span>
+                            Sign up with Google
+                        </button>
+
+                        <div class="auth-links" style="justify-content: center; gap: 4px;">
+                            <span style="color: var(--text-secondary);">Already have an account?</span>
+                            <button type="button" class="auth-link" onclick="showLoginForm()" aria-label="Return to login">
+                                Sign in
+                            </button>
+                        </div>
+                    </form>
+
+                    <!-- Forgot Password Form -->
+                    <form id="forgotPasswordForm" class="auth-form">
+                        <p style="margin-bottom: 16px; color: var(--text-secondary); font-size: 0.875rem;">
+                            Enter your email address and we'll send you a link to reset your password.
+                        </p>
+
+                        <div class="form-group">
+                            <label for="resetEmail">Email Address</label>
+                            <input
+                                type="email"
+                                id="resetEmail"
+                                name="email"
+                                placeholder="you@example.com"
+                                required
+                                aria-label="Email address for password reset"
+                            >
+                        </div>
+
+                        <button type="submit" class="btn btn-primary" aria-label="Send password reset link">
+                            <span class="material-icons">mail</span>
+                            Send Reset Link
+                        </button>
+
+                        <div class="auth-links" style="justify-content: center;">
+                            <button type="button" class="auth-link" onclick="showLoginForm()" aria-label="Return to login">
+                                Back to Sign In
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- App Shell -->
+        <div id="appShell">
+            <!-- Top Bar -->
+            <div id="topBar" class="no-print">
+                <h2 class="top-bar-title" id="businessNameHeader">Service Pro</h2>
+                <div class="top-bar-actions">
+                    <button class="btn-icon" id="searchBtn" aria-label="Search">
+                        <span class="material-icons">search</span>
+                    </button>
+                    <button class="btn-icon" id="notificationsBtn" aria-label="Notifications">
+                        <span class="material-icons">notifications</span>
+                    </button>
+                    <button class="btn-icon" id="userMenuBtn" aria-label="User menu" aria-haspopup="menu">
+                        <span class="material-icons">account_circle</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Main Content Area -->
+            <div id="mainContent" role="main">
+                <!-- Content will be inserted here by JavaScript -->
+            </div>
+
+            <!-- Bottom Navigation -->
+            <nav id="bottomNav" class="no-print" role="navigation" aria-label="Main navigation">
+                <div class="nav-item active" data-view="dashboard" aria-label="Dashboard" role="button" tabindex="0">
+                    <span class="material-icons">home</span>
+                    <span>Home</span>
+                </div>
+
+                <div class="nav-item" data-view="jobs" aria-label="Jobs" role="button" tabindex="0">
+                    <span class="material-icons">assignment</span>
+                    <span>Jobs</span>
+                </div>
+
+                <div class="nav-center-spacer"></div>
+
+                <div class="nav-item" data-view="inventory" aria-label="Inventory" role="button" tabindex="0">
+                    <span class="material-icons">inventory_2</span>
+                    <span>Inventory</span>
+                </div>
+
+                <div class="nav-item" data-view="more" aria-label="More options" role="button" tabindex="0">
+                    <span class="material-icons">more_horiz</span>
+                    <span>More</span>
+                </div>
+            </nav>
+
+            <!-- Floating Action Button -->
+            <button class="fab no-print" id="fabBtn" aria-label="Create new job">
+                <span class="material-icons">add</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- MAIN APPLICATION SCRIPT (Firebase Modular SDK + App Logic) -->
+    <script type="module">
+    /* ========================================================================
+       MOBILE SERVICE OS - Complete Application Engine
+       Production Build — Firebase Modular SDK (v10)
+       ======================================================================== */
+
+    // ─── Firebase Modular SDK Imports ───────────────────────────────────
+    import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import {
+        getAuth,
+        onAuthStateChanged,
+        signInWithEmailAndPassword,
+        createUserWithEmailAndPassword,
+        sendPasswordResetEmail,
+        signInWithPopup,
+        signOut,
+        GoogleAuthProvider
+    } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+    import {
+        getFirestore,
+        collection,
+        doc,
+        getDoc,
+        getDocs,
+        setDoc,
+        addDoc,
+        updateDoc,
+        deleteDoc,
+        query,
+        where,
+        orderBy,
+        limit,
+        serverTimestamp,
+        Timestamp
+    } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+    // ─── Firebase Configuration ─────────────────────────────────────────
+    const firebaseConfig = {
+        apiKey: "AIzaSyDpe9pVejH1EFZmQYv04sgtZBoLxqM6lW0",
+        authDomain: "mobile-service-os.firebaseapp.com",
+        projectId: "mobile-service-os",
+        storageBucket: "mobile-service-os.firebasestorage.app",
+        messagingSenderId: "77527561910",
+        appId: "1:77527561910:web:4a0c65c0203d403f4f5817"
+    };
+
+    // ─── Firebase Initialization (safe — prevents duplicate init) ───────
+    const app = getApps().length === 0
+        ? initializeApp(firebaseConfig)
+        : getApps()[0];
+
+    const auth     = getAuth(app);
+    const db       = getFirestore(app);
+    const provider = new GoogleAuthProvider();
+
+    // Make available globally for debugging
+    window.firebaseApp  = app;
+    window.firebaseAuth = auth;
+    window.firebaseDB   = db;
+
+    console.log('Firebase initialized — project:', firebaseConfig.projectId);
+
+    // ─── Firestore Helpers (modular SDK with compat-style chaining) ────
+    // Wrapper that lets existing code call userRef('jobs').orderBy(...).limit(...).get()
+    // while using the modular SDK under the hood. This avoids rewriting 100+ call sites.
+
+    function _wrapCollection(colRef) {
+        const constraints = [];
+        const wrapper = {
+            orderBy(field, dir = 'asc') { constraints.push(orderBy(field, dir)); return wrapper; },
+            where(field, op, val)       { constraints.push(where(field, op, val)); return wrapper; },
+            limit(n)                    { constraints.push(limit(n)); return wrapper; },
+            async get() {
+                const q = constraints.length > 0 ? query(colRef, ...constraints) : colRef;
+                return getDocs(q);
+            },
+            async add(data) {
+                return addDoc(colRef, data);
+            },
+            doc(docId) {
+                const ref = doc(colRef, docId);
+                return {
+                    async get()        { return getDoc(ref); },
+                    async set(data)    { return setDoc(ref, data); },
+                    async update(data) { return updateDoc(ref, data); },
+                    async delete()     { return deleteDoc(ref); },
+                    get id()           { return ref.id; }
+                };
+            }
+        };
+        return wrapper;
+    }
+
+    function _wrapDoc(docRef) {
+        return {
+            async get()        { return getDoc(docRef); },
+            async set(data)    { return setDoc(docRef, data); },
+            async update(data) { return updateDoc(docRef, data); },
+            async delete()     { return deleteDoc(docRef); },
+            get id()           { return docRef.id; }
+        };
+    }
+
+    // ─── Global State ───────────────────────────────────────────────────
+    const APP = {
+        user: null,
+        settings: null,
+        currentView: 'dashboard',
+        listeners: [],
+        cache: {},
+        defaultSettings: {
+            businessName: 'Mobile Service OS',
+            phone: '',
+            email: '',
+            logoUrl: '',
+            primaryColor: '#6c5ce7',
+            accentColor: '#00cec9',
+            businessType: 'mobile_tire',
+            serviceArea: 'local',
+            baseLocation: '',
+            freeMiles: 10,
+            perMileRate: 3.00,
+            vehicleMultiplier: 1.0,
+            heavyDutyMultiplier: 1.5,
+            emergencyFee: 50,
+            afterHoursFee: 35,
+            sundayFee: 25,
+            holidayFee: 50,
+            minimumProfit: 25,
+            invoiceFooter: 'Thank you for your business!',
+            reviewLink: '',
+            websiteLink: '',
+            setupComplete: false,
+            role: 'owner',
+            services: [
+                { id: 's1', name: 'Flat Tire Repair', icon: 'build', basePrice: 60, minProfit: 25, enabled: true, perMile: true, heavyDuty: false, tireRelated: true },
+                { id: 's2', name: 'Tire Replacement', icon: 'swap_horiz', basePrice: 40, minProfit: 30, enabled: true, perMile: true, heavyDuty: false, tireRelated: true },
+                { id: 's3', name: 'Mobile Tire Service', icon: 'tire_repair', basePrice: 50, minProfit: 25, enabled: true, perMile: true, heavyDuty: true, tireRelated: true },
+                { id: 's4', name: 'Roadside Assistance', icon: 'car_crash', basePrice: 75, minProfit: 30, enabled: true, perMile: true, heavyDuty: false, tireRelated: false },
+                { id: 's5', name: 'Tractor-Trailer Service', icon: 'local_shipping', basePrice: 150, minProfit: 50, enabled: true, perMile: true, heavyDuty: true, tireRelated: true },
+                { id: 's6', name: 'Spare Tire Change', icon: 'autorenew', basePrice: 55, minProfit: 20, enabled: true, perMile: true, heavyDuty: false, tireRelated: true },
+                { id: 's7', name: 'Tire Rotation', icon: 'sync', basePrice: 45, minProfit: 20, enabled: true, perMile: false, heavyDuty: false, tireRelated: true },
+                { id: 's8', name: 'Jump Start', icon: 'bolt', basePrice: 50, minProfit: 20, enabled: true, perMile: true, heavyDuty: false, tireRelated: false },
+                { id: 's9', name: 'Fuel Delivery', icon: 'local_gas_station', basePrice: 55, minProfit: 15, enabled: true, perMile: true, heavyDuty: false, tireRelated: false },
+                { id: 's10', name: 'Lockout Service', icon: 'lock_open', basePrice: 65, minProfit: 25, enabled: true, perMile: true, heavyDuty: false, tireRelated: false }
+            ],
+            expenseCategories: ['Fuel', 'Tires/Parts', 'Tools', 'Vehicle Maintenance', 'Insurance', 'Marketing', 'Phone/Internet', 'Software', 'Other']
+        }
+    };
+
+    // ─── Utility Functions ──────────────────────────────────────────────
+    function uid() { return APP.user ? APP.user.uid : null; }
+    function userRef(colName) {
+        return _wrapCollection(collection(db, 'users', uid(), colName));
+    }
+    function settingsRef(userId) {
+        const id = userId || uid();
+        return _wrapDoc(doc(db, 'users', id, 'settings', 'business'));
+    }
+    function genId() { return Date.now().toString(36) + Math.random().toString(36).substr(2, 9); }
+    function money(n) { return '$' + (Number(n) || 0).toFixed(2); }
+    function pct(n) { return (Number(n) || 0).toFixed(1) + '%'; }
+    function escHtml(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+    function formatDate(d) {
+        if (!d) return '—';
+        const dt = d.toDate ? d.toDate() : new Date(d);
+        return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+    function formatDateShort(d) {
+        if (!d) return '—';
+        const dt = d.toDate ? d.toDate() : new Date(d);
+        return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    }
+    function timeAgo(d) {
+        if (!d) return '';
+        const dt = d.toDate ? d.toDate() : new Date(d);
+        const diff = (Date.now() - dt.getTime()) / 1000;
+        if (diff < 60) return 'just now';
+        if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+        if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+        if (diff < 604800) return Math.floor(diff / 86400) + 'd ago';
+        return formatDateShort(d);
+    }
+    function weekStart() {
+        const d = new Date(); d.setHours(0,0,0,0);
+        d.setDate(d.getDate() - d.getDay());
+        return d;
+    }
+    function monthStart() {
+        const d = new Date(); d.setHours(0,0,0,0); d.setDate(1);
+        return d;
+    }
+
+    // ─── Toast System ───────────────────────────────────────────────────
+    function showToast(message, type = 'info', duration = 3500) {
+        const container = document.getElementById('toastContainer');
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+        const icons = { success: 'check_circle', error: 'error', warning: 'warning', info: 'info' };
+        toast.innerHTML = `<span class="material-icons">${icons[type] || 'info'}</span><span>${escHtml(message)}</span>`;
+        container.appendChild(toast);
+        requestAnimationFrame(() => toast.classList.add('show'));
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 300);
+        }, duration);
+    }
+
+    // ─── Loading State ──────────────────────────────────────────────────
+    function showLoading() { document.getElementById('loadingOverlay').classList.remove('hidden'); }
+    function hideLoading() { document.getElementById('loadingOverlay').classList.add('hidden'); }
+
+    // ─── Modal System ───────────────────────────────────────────────────
+    function openModal(title, content, actions = '') {
+        closeModal();
+        const modal = document.createElement('div');
+        modal.className = 'modal-backdrop';
+        modal.id = 'activeModal';
+        modal.innerHTML = `
+            <div class="modal-content" role="dialog" aria-modal="true" aria-label="${escHtml(title)}">
+                <div class="modal-header">
+                    <h3>${escHtml(title)}</h3>
+                    <button class="btn-icon" onclick="closeModal()" aria-label="Close modal">
+                        <span class="material-icons">close</span>
+                    </button>
+                </div>
+                <div class="modal-body">${content}</div>
+                ${actions ? `<div class="modal-footer">${actions}</div>` : ''}
+            </div>`;
+        modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+        document.body.appendChild(modal);
+        requestAnimationFrame(() => modal.classList.add('active'));
+    }
+    function closeModal() {
+        const m = document.getElementById('activeModal');
+        if (m) { m.classList.remove('active'); setTimeout(() => m.remove(), 200); }
+    }
+
+    // ─── Auth System ────────────────────────────────────────────────────
+    function showLoginForm() {
+        document.querySelectorAll('.auth-form').forEach(f => f.classList.remove('active'));
+        document.getElementById('loginForm').classList.add('active');
+    }
+    function showRegisterForm() {
+        document.querySelectorAll('.auth-form').forEach(f => f.classList.remove('active'));
+        document.getElementById('registerForm').classList.add('active');
+    }
+    function showForgotPasswordForm() {
+        document.querySelectorAll('.auth-form').forEach(f => f.classList.remove('active'));
+        document.getElementById('forgotPasswordForm').classList.add('active');
+    }
+
+    function friendlyAuthError(code) {
+        const map = {
+            'auth/user-not-found': 'No account found with that email.',
+            'auth/wrong-password': 'Incorrect password. Please try again.',
+            'auth/email-already-in-use': 'An account already exists with that email.',
+            'auth/weak-password': 'Password must be at least 6 characters.',
+            'auth/invalid-email': 'Please enter a valid email address.',
+            'auth/too-many-requests': 'Too many attempts. Please wait a moment.',
+            'auth/network-request-failed': 'Network error. Please check your connection.',
+            'auth/popup-closed-by-user': 'Sign-in popup was closed.',
+            'auth/invalid-credential': 'Invalid credentials. Please try again.',
+        };
+        return map[code] || 'Something went wrong. Please try again.';
+    }
+
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = e.target.querySelector('button[type="submit"]');
+        btn.disabled = true; btn.innerHTML = '<div class="spinner" style="width:20px;height:20px;border-width:2px;"></div> Signing in...';
+        try {
+            await signInWithEmailAndPassword(
+                auth,
+                document.getElementById('loginEmail').value.trim(),
+                document.getElementById('loginPassword').value
+            );
+        } catch (err) {
+            showToast(friendlyAuthError(err.code), 'error');
+        }
+        btn.disabled = false; btn.innerHTML = '<span class="material-icons">login</span> Sign In';
+    });
+
+    document.getElementById('registerForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const pw = document.getElementById('registerPassword').value;
+        const pw2 = document.getElementById('registerPasswordConfirm').value;
+        if (pw !== pw2) { showToast('Passwords do not match.', 'error'); return; }
+        if (pw.length < 6) { showToast('Password must be at least 6 characters.', 'error'); return; }
+        const btn = e.target.querySelector('button[type="submit"]');
+        btn.disabled = true; btn.innerHTML = '<div class="spinner" style="width:20px;height:20px;border-width:2px;"></div> Creating...';
+        try {
+            const cred = await createUserWithEmailAndPassword(
+                auth, document.getElementById('registerEmail').value.trim(), pw
+            );
+            await setDoc(doc(db, 'users', cred.user.uid, 'settings', 'business'), APP.defaultSettings);
+        } catch (err) {
+            showToast(friendlyAuthError(err.code), 'error');
+        }
+        btn.disabled = false; btn.innerHTML = '<span class="material-icons">person_add</span> Create Account';
+    });
+
+    document.getElementById('forgotPasswordForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = e.target.querySelector('button[type="submit"]');
+        btn.disabled = true;
+        try {
+            await sendPasswordResetEmail(auth, document.getElementById('resetEmail').value.trim());
+            showToast('Password reset email sent! Check your inbox.', 'success');
+            showLoginForm();
+        } catch (err) {
+            showToast(friendlyAuthError(err.code), 'error');
+        }
+        btn.disabled = false;
+    });
+
+    async function googleSignIn() {
+        try {
+            const cred = await signInWithPopup(auth, provider);
+            const settingsSnap = await settingsRef(cred.user.uid).get();
+            if (!settingsSnap.exists()) {
+                await settingsRef(cred.user.uid).set(APP.defaultSettings);
+            }
+        } catch (err) {
+            if (err.code !== 'auth/popup-closed-by-user') showToast(friendlyAuthError(err.code), 'error');
+        }
+    }
+    document.getElementById('googleSignInBtn').addEventListener('click', googleSignIn);
+    document.getElementById('googleSignUpBtn').addEventListener('click', googleSignIn);
+
+    // ─── Auth State Listener ────────────────────────────────────────────
+    onAuthStateChanged(auth, async (user) => {
+        if (user) {
+            APP.user = user;
+            showLoading();
+            try {
+                const settingsSnap = await settingsRef().get();
+                APP.settings = settingsSnap.exists() ? { ...APP.defaultSettings, ...settingsSnap.data() } : { ...APP.defaultSettings };
+                if (!settingsSnap.exists()) await settingsRef().set(APP.defaultSettings);
+                applyBranding();
+                document.getElementById('authScreen').style.display = 'none';
+                document.getElementById('appShell').style.display = 'flex';
+                if (!APP.settings.setupComplete) {
+                    renderOnboarding();
+                } else {
+                    navigateTo('dashboard');
+                }
+            } catch (err) {
+                console.error('Init error:', err);
+                showToast('Error loading your data.', 'error');
+            }
+            hideLoading();
+        } else {
+            APP.user = null;
+            APP.settings = null;
+            APP.listeners.forEach(fn => { try { fn(); } catch(e){} });
+            APP.listeners = [];
+            document.getElementById('authScreen').style.display = '';
+            document.getElementById('appShell').style.display = '';
+            showLoginForm();
+        }
+    });
+
+    function applyBranding() {
+        if (!APP.settings) return;
+        document.documentElement.style.setProperty('--primary', APP.settings.primaryColor || '#6c5ce7');
+        document.documentElement.style.setProperty('--accent', APP.settings.accentColor || '#00cec9');
+        document.getElementById('businessNameHeader').textContent = APP.settings.businessName || 'Mobile Service OS';
+        document.title = APP.settings.businessName || 'Mobile Service OS';
+    }
+
+    // ─── Navigation ─────────────────────────────────────────────────────
+    function navigateTo(view) {
+        APP.currentView = view;
+        document.querySelectorAll('.nav-item').forEach(n => {
+            n.classList.toggle('active', n.dataset.view === view || (view === 'expenses' && n.dataset.view === 'more'));
+        });
+        APP.listeners.forEach(fn => { try { fn(); } catch(e){} });
+        APP.listeners = [];
+        const main = document.getElementById('mainContent');
+        main.style.opacity = '0';
+        setTimeout(() => {
+            switch (view) {
+                case 'dashboard': renderDashboard(); break;
+                case 'jobs': renderJobs(); break;
+                case 'newjob': renderJobForm(); break;
+                case 'inventory': renderInventory(); break;
+                case 'expenses': renderExpenses(); break;
+                case 'customers': renderCustomers(); break;
+                case 'quotes': renderQuotes(); break;
+                case 'invoices': renderInvoices(); break;
+                case 'settings': renderSettings(); break;
+                case 'more': renderMore(); break;
+                default: renderDashboard();
+            }
+            main.style.opacity = '1';
+        }, 150);
+    }
+
+    document.querySelectorAll('.nav-item').forEach(item => {
+        item.addEventListener('click', () => navigateTo(item.dataset.view));
+        item.addEventListener('keydown', (e) => { if (e.key === 'Enter') navigateTo(item.dataset.view); });
+    });
+    document.getElementById('fabBtn').addEventListener('click', () => navigateTo('newjob'));
+    document.getElementById('userMenuBtn').addEventListener('click', () => {
+        openModal('Account', `
+            <div style="text-align:center;padding:16px 0;">
+                <span class="material-icons" style="font-size:48px;color:var(--primary);margin-bottom:12px;">account_circle</span>
+                <p style="font-weight:600;">${escHtml(APP.user?.email)}</p>
+                <p style="color:var(--text-secondary);font-size:0.875rem;margin-top:4px;">Role: ${escHtml(APP.settings?.role || 'owner')}</p>
+                <button class="btn btn-danger" style="margin-top:24px;" onclick="doSignOut();closeModal();">
+                    <span class="material-icons">logout</span> Sign Out
+                </button>
+            </div>`);
+    });
+
+    // ─── Onboarding ─────────────────────────────────────────────────────
+    function renderOnboarding() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = `
+        <div class="view-container" style="max-width:560px;margin:0 auto;">
+            <div style="text-align:center;margin-bottom:32px;">
+                <span class="material-icons" style="font-size:48px;color:var(--primary);">rocket_launch</span>
+                <h2 style="margin-top:12px;">Welcome to Mobile Service OS</h2>
+                <p style="color:var(--text-secondary);margin-top:8px;">Let's set up your business in a few quick steps.</p>
+            </div>
+            <div id="onboardSteps">
+                <div class="card" id="obStep1">
+                    <h3 style="margin-bottom:16px;">Business Info</h3>
+                    <div class="form-group">
+                        <label>Business Name *</label>
+                        <input type="text" id="obName" value="${escHtml(APP.settings.businessName)}" placeholder="Your Business Name" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Business Phone</label>
+                        <input type="tel" id="obPhone" value="${escHtml(APP.settings.phone)}" placeholder="(555) 123-4567">
+                    </div>
+                    <div class="form-group">
+                        <label>Business Type</label>
+                        <select id="obType">
+                            <option value="mobile_tire" ${APP.settings.businessType === 'mobile_tire' ? 'selected' : ''}>Mobile Tire Service</option>
+                            <option value="roadside" ${APP.settings.businessType === 'roadside' ? 'selected' : ''}>Roadside Assistance</option>
+                            <option value="mobile_mechanic" ${APP.settings.businessType === 'mobile_mechanic' ? 'selected' : ''}>Mobile Mechanic</option>
+                            <option value="general_mobile" ${APP.settings.businessType === 'general_mobile' ? 'selected' : ''}>General Mobile Service</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Base Location (where you operate from)</label>
+                        <input type="text" id="obBase" value="${escHtml(APP.settings.baseLocation)}" placeholder="e.g. East Hartford, CT">
+                    </div>
+                    <div class="form-row" style="grid-template-columns:1fr 1fr;">
+                        <div class="form-group">
+                            <label>Free Miles</label>
+                            <input type="number" id="obFreeMiles" value="${APP.settings.freeMiles}" min="0">
+                        </div>
+                        <div class="form-group">
+                            <label>Per Mile Rate ($)</label>
+                            <input type="number" id="obPerMile" value="${APP.settings.perMileRate}" step="0.50" min="0">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Google Review Link (optional)</label>
+                        <input type="url" id="obReview" value="${escHtml(APP.settings.reviewLink)}" placeholder="https://g.page/...">
+                    </div>
+                    <div style="display:flex;gap:12px;margin-top:20px;">
+                        <button class="btn btn-secondary" style="flex:1;" onclick="skipOnboarding()">Skip Setup</button>
+                        <button class="btn btn-primary" style="flex:1;" onclick="finishOnboarding()">
+                            <span class="material-icons">check</span> Finish Setup
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+    }
+
+    async function skipOnboarding() {
+        await settingsRef().update({ setupComplete: true });
+        APP.settings.setupComplete = true;
+        navigateTo('dashboard');
+        showToast('Setup skipped. You can configure everything in Settings.', 'info');
+    }
+
+    async function finishOnboarding() {
+        const name = document.getElementById('obName').value.trim();
+        if (!name) { showToast('Please enter a business name.', 'warning'); return; }
+        showLoading();
+        const updates = {
+            businessName: name,
+            phone: document.getElementById('obPhone').value.trim(),
+            businessType: document.getElementById('obType').value,
+            baseLocation: document.getElementById('obBase').value.trim(),
+            freeMiles: Number(document.getElementById('obFreeMiles').value) || 10,
+            perMileRate: Number(document.getElementById('obPerMile').value) || 3,
+            reviewLink: document.getElementById('obReview').value.trim(),
+            setupComplete: true
+        };
+        try {
+            await settingsRef().update(updates);
+            Object.assign(APP.settings, updates);
+            applyBranding();
+            navigateTo('dashboard');
+            showToast('Business setup complete!', 'success');
+        } catch (err) {
+            showToast('Error saving settings.', 'error');
+        }
+        hideLoading();
+    }
+
+    // ─── DASHBOARD ──────────────────────────────────────────────────────
+    async function renderDashboard() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = `<div class="view-container"><div class="view-header"><h2>Dashboard</h2><p style="color:var(--text-secondary);">${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</p></div><div id="dashContent"><div style="text-align:center;padding:40px;"><div class="spinner"></div><p style="margin-top:12px;color:var(--text-secondary);">Loading dashboard...</p></div></div></div>`;
+
+        try {
+            const ws = weekStart();
+            const ms = monthStart();
+            const [jobsSnap, expSnap, invSnap, invAllSnap] = await Promise.all([
+                userRef('jobs').orderBy('createdAt', 'desc').limit(100).get(),
+                userRef('expenses').orderBy('date', 'desc').limit(100).get(),
+                userRef('inventory').get(),
+                userRef('invoices').orderBy('createdAt', 'desc').limit(50).get()
+            ]);
+            const jobs = jobsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+            const expenses = expSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+            const inventory = invSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+            const invoices = invAllSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+            const weekJobs = jobs.filter(j => {
+                const d = j.createdAt?.toDate ? j.createdAt.toDate() : new Date(j.createdAt);
+                return d >= ws;
+            });
+            const completedWeek = weekJobs.filter(j => j.status === 'completed');
+            const weekRevenue = completedWeek.reduce((s, j) => s + (Number(j.finalPrice) || 0), 0);
+            const weekMaterials = completedWeek.reduce((s, j) => s + (Number(j.materialCost) || 0), 0);
+            const weekExpenses = expenses.filter(e => {
+                const d = e.date?.toDate ? e.date.toDate() : new Date(e.date);
+                return d >= ws;
+            }).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+            const monthExpenses = expenses.filter(e => {
+                const d = e.date?.toDate ? e.date.toDate() : new Date(e.date);
+                return d >= ms;
+            }).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+            const weekGross = weekRevenue - weekMaterials;
+            const weekNet = weekGross - weekExpenses;
+
+            const pending = jobs.filter(j => j.status === 'pending_payment' || j.status === 'scheduled').length;
+            const active = jobs.filter(j => j.status === 'in_progress').length;
+            const completed = jobs.filter(j => j.status === 'completed').length;
+            const lowStock = inventory.filter(i => (Number(i.quantity) || 0) <= (Number(i.lowStockThreshold) || 3)).length;
+            const unpaidInvoices = invoices.filter(i => i.status === 'unpaid');
+            const unpaidTotal = unpaidInvoices.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+
+            const recentJobs = jobs.slice(0, 5);
+
+            // Service breakdown
+            const serviceStats = {};
+            completedWeek.forEach(j => {
+                const svc = j.serviceType || 'Other';
+                if (!serviceStats[svc]) serviceStats[svc] = { count: 0, revenue: 0 };
+                serviceStats[svc].count++;
+                serviceStats[svc].revenue += Number(j.finalPrice) || 0;
+            });
+
+            const dc = document.getElementById('dashContent');
+            dc.innerHTML = `
+                <div class="dashboard-grid">
+                    <div class="card metric-card">
+                        <div class="metric-label">Weekly Revenue</div>
+                        <div class="metric-value" style="color:var(--success);">${money(weekRevenue)}</div>
+                        <div class="metric-sub">${completedWeek.length} completed jobs</div>
+                    </div>
+                    <div class="card metric-card">
+                        <div class="metric-label">Gross Profit</div>
+                        <div class="metric-value" style="color:var(--accent);">${money(weekGross)}</div>
+                        <div class="metric-sub">After materials</div>
+                    </div>
+                    <div class="card metric-card">
+                        <div class="metric-label">Net Profit</div>
+                        <div class="metric-value" style="color:${weekNet >= 0 ? 'var(--success)' : 'var(--danger)'};">${money(weekNet)}</div>
+                        <div class="metric-sub">After expenses</div>
+                    </div>
+                    <div class="card metric-card">
+                        <div class="metric-label">Expenses</div>
+                        <div class="metric-value" style="color:var(--warning);">${money(weekExpenses)}</div>
+                        <div class="metric-sub">This week · ${money(monthExpenses)} this month</div>
+                    </div>
+                </div>
+
+                <div class="dashboard-grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin-top:16px;">
+                    <div class="card metric-card" style="cursor:pointer;" onclick="navigateTo('jobs')">
+                        <div class="metric-label">Pending</div>
+                        <div class="metric-value">${pending}</div>
+                    </div>
+                    <div class="card metric-card" style="cursor:pointer;" onclick="navigateTo('jobs')">
+                        <div class="metric-label">Active</div>
+                        <div class="metric-value" style="color:var(--primary);">${active}</div>
+                    </div>
+                    <div class="card metric-card" style="cursor:pointer;" onclick="navigateTo('jobs')">
+                        <div class="metric-label">Completed</div>
+                        <div class="metric-value" style="color:var(--success);">${completed}</div>
+                    </div>
+                    <div class="card metric-card" style="cursor:pointer;" onclick="navigateTo('inventory')">
+                        <div class="metric-label">Low Stock</div>
+                        <div class="metric-value" style="color:${lowStock > 0 ? 'var(--danger)' : 'var(--text-secondary)'};">${lowStock}</div>
+                    </div>
+                </div>
+
+                ${unpaidInvoices.length > 0 ? `
+                <div class="card" style="margin-top:16px;border-left:3px solid var(--warning);">
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <div>
+                            <h4 style="color:var(--warning);"><span class="material-icons" style="font-size:18px;vertical-align:middle;">receipt_long</span> Outstanding Invoices</h4>
+                            <p style="color:var(--text-secondary);font-size:0.875rem;margin-top:4px;">${unpaidInvoices.length} unpaid · Total: ${money(unpaidTotal)}</p>
+                        </div>
+                        <button class="btn btn-sm btn-secondary" onclick="navigateTo('invoices')">View All</button>
+                    </div>
+                </div>` : ''}
+
+                <div class="card" style="margin-top:16px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                        <h3>Quick Actions</h3>
+                    </div>
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;">
+                        <button class="btn btn-primary" onclick="navigateTo('newjob')" style="font-size:0.85rem;"><span class="material-icons">add</span> New Job</button>
+                        <button class="btn btn-secondary" onclick="navigateTo('quotes')" style="font-size:0.85rem;"><span class="material-icons">calculate</span> Quick Quote</button>
+                        <button class="btn btn-secondary" onclick="navigateTo('inventory')" style="font-size:0.85rem;"><span class="material-icons">inventory_2</span> Stock</button>
+                        <button class="btn btn-secondary" onclick="navigateTo('expenses')" style="font-size:0.85rem;"><span class="material-icons">receipt</span> Expense</button>
+                    </div>
+                </div>
+
+                ${Object.keys(serviceStats).length > 0 ? `
+                <div class="card" style="margin-top:16px;">
+                    <h3 style="margin-bottom:12px;">Service Performance (This Week)</h3>
+                    ${Object.entries(serviceStats).sort((a,b) => b[1].revenue - a[1].revenue).map(([name, s]) => `
+                        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);">
+                            <span>${escHtml(name)}</span>
+                            <div style="text-align:right;">
+                                <span style="color:var(--success);font-weight:600;">${money(s.revenue)}</span>
+                                <span style="color:var(--text-secondary);font-size:0.8rem;margin-left:8px;">${s.count} jobs</span>
+                            </div>
+                        </div>`).join('')}
+                </div>` : ''}
+
+                <div class="card" style="margin-top:16px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                        <h3>Recent Jobs</h3>
+                        <button class="btn btn-sm btn-secondary" onclick="navigateTo('jobs')">View All</button>
+                    </div>
+                    ${recentJobs.length === 0 ? '<p class="empty-state-text">No jobs yet. Create your first job!</p>' :
+                    recentJobs.map(j => `
+                        <div class="list-item" onclick="viewJob('${j.id}')" style="cursor:pointer;">
+                            <div style="flex:1;">
+                                <div style="font-weight:600;">${escHtml(j.serviceType || 'Service')}</div>
+                                <div style="font-size:0.85rem;color:var(--text-secondary);">${escHtml(j.customerName || 'Walk-in')} · ${escHtml(j.location || '')}</div>
+                            </div>
+                            <div style="text-align:right;">
+                                <div style="font-weight:600;color:var(--success);">${money(j.finalPrice)}</div>
+                                <span class="badge badge-${statusBadge(j.status)}">${statusLabel(j.status)}</span>
+                            </div>
+                        </div>`).join('')}
+                </div>
+
+                ${APP.settings.reviewLink ? `
+                <div class="card" style="margin-top:16px;text-align:center;">
+                    <span class="material-icons" style="font-size:32px;color:var(--warning);">star</span>
+                    <h4 style="margin-top:8px;">Request a Review</h4>
+                    <p style="color:var(--text-secondary);font-size:0.875rem;margin-top:4px;">Send customers your review link after great service.</p>
+                    <button class="btn btn-primary" style="margin-top:12px;" onclick="generateReviewRequest()">
+                        <span class="material-icons">share</span> Generate Review Request
+                    </button>
+                </div>` : ''}
+            `;
+        } catch (err) {
+            console.error('Dashboard error:', err);
+            document.getElementById('dashContent').innerHTML = '<div class="card"><p style="color:var(--danger);">Error loading dashboard. Please try again.</p></div>';
+        }
+    }
+
+    function statusBadge(s) {
+        const map = { pending_payment: 'warning', scheduled: 'info', in_progress: 'primary', completed: 'success', canceled: 'danger' };
+        return map[s] || 'info';
+    }
+    function statusLabel(s) {
+        const map = { pending_payment: 'Pending Payment', scheduled: 'Scheduled', in_progress: 'In Progress', completed: 'Completed', canceled: 'Canceled' };
+        return map[s] || s;
+    }
+
+    // ─── JOBS LIST ──────────────────────────────────────────────────────
+    async function renderJobs() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = `
+        <div class="view-container">
+            <div class="view-header">
+                <h2>Jobs</h2>
+                <button class="btn btn-primary btn-sm" onclick="navigateTo('newjob')"><span class="material-icons">add</span> New Job</button>
+            </div>
+            <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+                <input type="text" id="jobSearch" class="search-input" placeholder="Search jobs..." style="flex:1;min-width:200px;">
+                <select id="jobStatusFilter" class="form-control" style="width:auto;">
+                    <option value="">All Status</option>
+                    <option value="pending_payment">Pending Payment</option>
+                    <option value="scheduled">Scheduled</option>
+                    <option value="in_progress">In Progress</option>
+                    <option value="completed">Completed</option>
+                    <option value="canceled">Canceled</option>
+                </select>
+            </div>
+            <div id="jobsList"><div style="text-align:center;padding:40px;"><div class="spinner"></div></div></div>
+        </div>`;
+
+        const snap = await userRef('jobs').orderBy('createdAt', 'desc').limit(200).get();
+        const jobs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        APP.cache.jobs = jobs;
+
+        function renderList(filter = '', status = '') {
+            const f = filter.toLowerCase();
+            const filtered = jobs.filter(j => {
+                if (status && j.status !== status) return false;
+                if (f) {
+                    const searchable = `${j.serviceType} ${j.customerName} ${j.location} ${j.customerPhone} ${j.notes}`.toLowerCase();
+                    return searchable.includes(f);
+                }
+                return true;
+            });
+            const el = document.getElementById('jobsList');
+            if (!el) return;
+            if (filtered.length === 0) {
+                el.innerHTML = '<div class="empty-state"><span class="material-icons" style="font-size:48px;color:var(--text-tertiary);">assignment</span><p>No jobs found</p></div>';
+                return;
+            }
+            el.innerHTML = filtered.map(j => `
+                <div class="card list-item" onclick="viewJob('${j.id}')" style="cursor:pointer;margin-bottom:10px;">
+                    <div style="flex:1;">
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <span class="material-icons" style="font-size:20px;color:var(--primary);">${getServiceIcon(j.serviceType)}</span>
+                            <span style="font-weight:600;">${escHtml(j.serviceType || 'Service')}</span>
+                            <span class="badge badge-${statusBadge(j.status)}" style="font-size:0.7rem;">${statusLabel(j.status)}</span>
+                        </div>
+                        <div style="font-size:0.85rem;color:var(--text-secondary);margin-top:4px;">
+                            ${escHtml(j.customerName || 'Walk-in')} · ${escHtml(j.location || 'No location')}
+                        </div>
+                        <div style="font-size:0.8rem;color:var(--text-tertiary);margin-top:2px;">${timeAgo(j.createdAt)}</div>
+                    </div>
+                    <div style="text-align:right;">
+                        <div style="font-weight:700;font-size:1.1rem;color:var(--success);">${money(j.finalPrice)}</div>
+                        ${j.materialCost > 0 ? `<div style="font-size:0.75rem;color:var(--text-tertiary);">Mat: ${money(j.materialCost)}</div>` : ''}
+                    </div>
+                </div>`).join('');
+        }
+
+        renderList();
+        document.getElementById('jobSearch')?.addEventListener('input', (e) => {
+            renderList(e.target.value, document.getElementById('jobStatusFilter')?.value);
+        });
+        document.getElementById('jobStatusFilter')?.addEventListener('change', (e) => {
+            renderList(document.getElementById('jobSearch')?.value, e.target.value);
+        });
+    }
+
+    function getServiceIcon(name) {
+        if (!name) return 'build';
+        const svc = (APP.settings?.services || []).find(s => s.name === name);
+        return svc?.icon || 'build';
+    }
+
+    // ─── JOB FORM (New/Edit) ────────────────────────────────────────────
+    function renderJobForm(editJob = null) {
+        const isEdit = !!editJob;
+        const j = editJob || {};
+        const services = (APP.settings?.services || []).filter(s => s.enabled);
+        const main = document.getElementById('mainContent');
+
+        main.innerHTML = `
+        <div class="view-container" style="max-width:640px;margin:0 auto;">
+            <div class="view-header">
+                <button class="btn btn-sm btn-secondary" onclick="navigateTo('jobs')"><span class="material-icons">arrow_back</span> Back</button>
+                <h2>${isEdit ? 'Edit Job' : 'New Job'}</h2>
+            </div>
+
+            <form id="jobForm" class="card">
+                <div class="form-group">
+                    <label>Service Type *</label>
+                    <select id="jfService" required>
+                        <option value="">Select a service...</option>
+                        ${services.map(s => `<option value="${escHtml(s.name)}" data-base="${s.basePrice}" data-minprofit="${s.minProfit}" data-permile="${s.perMile}" data-heavyduty="${s.heavyDuty}" data-tirerelated="${s.tireRelated}" ${j.serviceType === s.name ? 'selected' : ''}>${escHtml(s.name)}</option>`).join('')}
+                    </select>
+                </div>
+
+                <div class="form-row" style="grid-template-columns:1fr 1fr;">
+                    <div class="form-group">
+                        <label>Customer Name</label>
+                        <input type="text" id="jfCustomer" value="${escHtml(j.customerName || '')}" placeholder="Customer name">
+                    </div>
+                    <div class="form-group">
+                        <label>Customer Phone</label>
+                        <input type="tel" id="jfPhone" value="${escHtml(j.customerPhone || '')}" placeholder="(555) 123-4567">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Vehicle</label>
+                    <div class="form-row" style="grid-template-columns:1fr auto;">
+                        <input type="text" id="jfVehicle" value="${escHtml(j.vehicleType || '')}" placeholder="e.g. 2019 Honda Civic">
+                        <label class="toggle-label" style="white-space:nowrap;">
+                            <input type="checkbox" id="jfHeavyDuty" ${j.heavyDuty ? 'checked' : ''}>
+                            <span class="toggle"></span> Heavy Duty
+                        </label>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Location *</label>
+                    <div style="position:relative;">
+                        <input type="text" id="jfLocation" value="${escHtml(j.location || '')}" placeholder="Start typing an address or city..." required autocomplete="off">
+                        <div id="locationSuggestions" class="suggestions-dropdown" style="display:none;"></div>
+                    </div>
+                </div>
+
+                <div class="form-row" style="grid-template-columns:1fr 1fr;">
+                    <div class="form-group">
+                        <label>Miles from Base</label>
+                        <input type="number" id="jfMiles" value="${j.milesFromBase || 0}" min="0" step="1">
+                    </div>
+                    <div class="form-group">
+                        <label>Source</label>
+                        <select id="jfSource">
+                            <option value="direct" ${j.source === 'direct' ? 'selected' : ''}>Direct Call</option>
+                            <option value="referral" ${j.source === 'referral' ? 'selected' : ''}>Referral</option>
+                            <option value="google" ${j.source === 'google' ? 'selected' : ''}>Google</option>
+                            <option value="social" ${j.source === 'social' ? 'selected' : ''}>Social Media</option>
+                            <option value="repeat" ${j.source === 'repeat' ? 'selected' : ''}>Repeat Customer</option>
+                            <option value="other" ${j.source === 'other' ? 'selected' : ''}>Other</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div id="tireSection" style="display:none;">
+                    <h4 style="margin:16px 0 12px;color:var(--accent);"><span class="material-icons" style="font-size:18px;vertical-align:middle;">tire_repair</span> Tire Info</h4>
+                    <div class="form-row" style="grid-template-columns:1fr 1fr;">
+                        <div class="form-group">
+                            <label>Tire Size</label>
+                            <input type="text" id="jfTireSize" value="${escHtml(j.tireSize || '')}" placeholder="e.g. 225/65R17">
+                        </div>
+                        <div class="form-group">
+                            <label>Quantity</label>
+                            <input type="number" id="jfTireQty" value="${j.tireQty || 1}" min="1" max="20">
+                        </div>
+                    </div>
+                    <div id="inventoryMatch" style="display:none;" class="card" style="background:var(--bg-tertiary);padding:10px;margin-bottom:12px;"></div>
+                </div>
+
+                <h4 style="margin:20px 0 12px;color:var(--primary);"><span class="material-icons" style="font-size:18px;vertical-align:middle;">attach_money</span> Pricing</h4>
+
+                <div class="form-row" style="grid-template-columns:1fr 1fr;">
+                    <div class="form-group">
+                        <label>Material Cost ($)</label>
+                        <input type="number" id="jfMaterial" value="${j.materialCost || 0}" min="0" step="0.01">
+                    </div>
+                    <div class="form-group">
+                        <label>Status</label>
+                        <select id="jfStatus">
+                            <option value="scheduled" ${(j.status || 'scheduled') === 'scheduled' ? 'selected' : ''}>Scheduled</option>
+                            <option value="in_progress" ${j.status === 'in_progress' ? 'selected' : ''}>In Progress</option>
+                            <option value="completed" ${j.status === 'completed' ? 'selected' : ''}>Completed</option>
+                            <option value="pending_payment" ${j.status === 'pending_payment' ? 'selected' : ''}>Pending Payment</option>
+                            <option value="canceled" ${j.status === 'canceled' ? 'selected' : ''}>Canceled</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Custom Adjustment ($) <span style="color:var(--text-tertiary);font-size:0.8rem;">+ surcharge / - discount</span></label>
+                    <input type="number" id="jfAdjust" value="${j.customAdjustment || 0}" step="1">
+                </div>
+
+                <div class="form-row" style="grid-template-columns:1fr 1fr 1fr;">
+                    <label class="toggle-label"><input type="checkbox" id="jfEmergency" ${j.emergencyFee ? 'checked' : ''}><span class="toggle"></span> Emergency</label>
+                    <label class="toggle-label"><input type="checkbox" id="jfAfterHours" ${j.afterHoursFee ? 'checked' : ''}><span class="toggle"></span> After Hours</label>
+                    <label class="toggle-label"><input type="checkbox" id="jfSunday" ${j.sundayFee ? 'checked' : ''}><span class="toggle"></span> Sunday/Holiday</label>
+                </div>
+
+                <!-- Live Price Breakdown -->
+                <div id="priceBreakdown" class="price-breakdown" style="margin-top:20px;">
+                    <div class="price-row"><span>Base Price</span><span id="pbBase">$0.00</span></div>
+                    <div class="price-row"><span>Travel Charge</span><span id="pbTravel">$0.00</span></div>
+                    <div class="price-row" id="pbFeesRow" style="display:none;"><span>Fees</span><span id="pbFees">$0.00</span></div>
+                    <div class="price-row" id="pbAdjustRow" style="display:none;"><span>Adjustment</span><span id="pbAdjust">$0.00</span></div>
+                    <div class="price-row"><span>Material Cost</span><span id="pbMaterial">$0.00</span></div>
+                    <div class="price-row" style="border-top:1px solid var(--border);padding-top:8px;"><span>Min Profit Target</span><span id="pbMinProfit" style="color:var(--warning);">$0.00</span></div>
+                    <div class="price-row" style="font-weight:700;"><span>Suggested Price</span><span id="pbSuggested" style="color:var(--accent);">$0.00</span></div>
+                </div>
+
+                <div class="form-group" style="margin-top:16px;">
+                    <label>Final Price ($) *</label>
+                    <input type="number" id="jfFinal" value="${j.finalPrice || ''}" min="0" step="0.01" required style="font-size:1.2rem;font-weight:700;">
+                    <div id="priceWarning" class="warning-banner" style="display:none;">
+                        <span class="material-icons">warning</span>
+                        <span>Price is below minimum profit target. Are you sure?</span>
+                    </div>
+                </div>
+
+                <div class="price-breakdown" id="profitSummary" style="background:var(--bg-primary);margin-top:8px;">
+                    <div class="price-row" style="font-weight:700;"><span>Estimated Profit</span><span id="pbProfit" style="color:var(--success);">$0.00</span></div>
+                    <div class="price-row"><span>Profit Margin</span><span id="pbMargin">0%</span></div>
+                </div>
+
+                <div class="form-group" style="margin-top:16px;">
+                    <label>Notes</label>
+                    <textarea id="jfNotes" rows="3" placeholder="Job notes, special instructions...">${escHtml(j.notes || '')}</textarea>
+                </div>
+
+                <div style="display:flex;gap:12px;margin-top:20px;">
+                    <button type="button" class="btn btn-secondary" style="flex:1;" onclick="navigateTo('jobs')">Cancel</button>
+                    <button type="submit" class="btn btn-primary" style="flex:2;" id="saveJobBtn">
+                        <span class="material-icons">${isEdit ? 'save' : 'add'}</span> ${isEdit ? 'Update Job' : 'Create Job'}
+                    </button>
+                </div>
+            </form>
+        </div>`;
+
+        // Setup pricing engine watchers
+        const fields = ['jfService', 'jfMiles', 'jfMaterial', 'jfAdjust', 'jfEmergency', 'jfAfterHours', 'jfSunday', 'jfHeavyDuty', 'jfTireQty'];
+        fields.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('change', recalcPrice);
+            if (el) el.addEventListener('input', recalcPrice);
+        });
+        document.getElementById('jfFinal').addEventListener('input', checkPriceWarning);
+
+        // Service selection handler
+        document.getElementById('jfService').addEventListener('change', function() {
+            const opt = this.options[this.selectedIndex];
+            const tireRelated = opt.dataset?.tirerelated === 'true';
+            document.getElementById('tireSection').style.display = tireRelated ? 'block' : 'none';
+            recalcPrice();
+        });
+
+        // Location search
+        setupLocationSearch('jfLocation', 'locationSuggestions');
+
+        // Tire size inventory match
+        document.getElementById('jfTireSize')?.addEventListener('input', debounce(matchInventory, 400));
+
+        // Init price calc
+        if (isEdit) {
+            const opt = document.getElementById('jfService').options[document.getElementById('jfService').selectedIndex];
+            if (opt?.dataset?.tirerelated === 'true') document.getElementById('tireSection').style.display = 'block';
+        }
+        recalcPrice();
+
+        // Form submission
+        document.getElementById('jobForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const svc = document.getElementById('jfService').value;
+            if (!svc) { showToast('Please select a service type.', 'warning'); return; }
+            const loc = document.getElementById('jfLocation').value.trim();
+            if (!loc) { showToast('Please enter a location.', 'warning'); return; }
+            const finalPrice = Number(document.getElementById('jfFinal').value);
+            if (!finalPrice && finalPrice !== 0) { showToast('Please enter a final price.', 'warning'); return; }
+
+            // Profit protection check
+            const materialCost = Number(document.getElementById('jfMaterial').value) || 0;
+            const svcConfig = (APP.settings?.services || []).find(s => s.name === svc);
+            const minProfit = svcConfig?.minProfit || APP.settings?.minimumProfit || 25;
+            const minimumAllowed = materialCost + minProfit;
+            if (finalPrice < minimumAllowed) {
+                const confirmed = confirm(`Warning: Final price (${money(finalPrice)}) is below minimum profit target (${money(minimumAllowed)}).\n\nMaterial: ${money(materialCost)}\nMin Profit: ${money(minProfit)}\nMinimum Price: ${money(minimumAllowed)}\n\nProceed anyway?`);
+                if (!confirmed) return;
+            }
+
+            const btn = document.getElementById('saveJobBtn');
+            btn.disabled = true;
+            showLoading();
+
+            const jobData = {
+                serviceType: svc,
+                customerName: document.getElementById('jfCustomer').value.trim(),
+                customerPhone: document.getElementById('jfPhone').value.trim(),
+                vehicleType: document.getElementById('jfVehicle').value.trim(),
+                heavyDuty: document.getElementById('jfHeavyDuty').checked,
+                location: loc,
+                milesFromBase: Number(document.getElementById('jfMiles').value) || 0,
+                source: document.getElementById('jfSource').value,
+                materialCost: materialCost,
+                customAdjustment: Number(document.getElementById('jfAdjust').value) || 0,
+                emergencyFee: document.getElementById('jfEmergency').checked,
+                afterHoursFee: document.getElementById('jfAfterHours').checked,
+                sundayFee: document.getElementById('jfSunday').checked,
+                finalPrice: finalPrice,
+                suggestedPrice: Number(document.getElementById('pbSuggested')?.textContent?.replace(/[^0-9.-]/g, '')) || finalPrice,
+                status: document.getElementById('jfStatus').value,
+                notes: document.getElementById('jfNotes').value.trim(),
+                tireSize: document.getElementById('jfTireSize')?.value?.trim() || '',
+                tireQty: Number(document.getElementById('jfTireQty')?.value) || 0,
+                updatedAt: serverTimestamp()
+            };
+
+            try {
+                if (isEdit) {
+                    await userRef('jobs').doc(editJob.id).update(jobData);
+                    // Handle inventory deduction on completion
+                    if (jobData.status === 'completed' && editJob.status !== 'completed' && jobData.tireSize) {
+                        await deductInventory(jobData.tireSize, jobData.tireQty || 1);
+                    }
+                    showToast('Job updated!', 'success');
+                } else {
+                    jobData.createdAt = serverTimestamp();
+                    const ref = await userRef('jobs').add(jobData);
+                    // Auto-create customer if name provided
+                    if (jobData.customerName) {
+                        await upsertCustomer(jobData);
+                    }
+                    // Deduct inventory for completed tire jobs
+                    if (jobData.status === 'completed' && jobData.tireSize) {
+                        await deductInventory(jobData.tireSize, jobData.tireQty || 1);
+                    }
+                    showToast('Job created!', 'success');
+                }
+                navigateTo('jobs');
+            } catch (err) {
+                console.error('Save job error:', err);
+                showToast('Error saving job.', 'error');
+                btn.disabled = false;
+            }
+            hideLoading();
+        });
+    }
+
+    // ─── Pricing Engine ─────────────────────────────────────────────────
+    function recalcPrice() {
+        const svcEl = document.getElementById('jfService');
+        if (!svcEl) return;
+        const opt = svcEl.options[svcEl.selectedIndex];
+        const basePrice = Number(opt?.dataset?.base) || 0;
+        const minProfit = Number(opt?.dataset?.minprofit) || APP.settings?.minimumProfit || 25;
+        const miles = Number(document.getElementById('jfMiles')?.value) || 0;
+        const freeMiles = APP.settings?.freeMiles || 10;
+        const perMileRate = APP.settings?.perMileRate || 3;
+        const materialCost = Number(document.getElementById('jfMaterial')?.value) || 0;
+        const adjust = Number(document.getElementById('jfAdjust')?.value) || 0;
+        const isHeavy = document.getElementById('jfHeavyDuty')?.checked;
+        const heavyMult = isHeavy ? (APP.settings?.heavyDutyMultiplier || 1.5) : 1;
+
+        const travelCharge = Math.max(0, miles - freeMiles) * perMileRate;
+        let fees = 0;
+        if (document.getElementById('jfEmergency')?.checked) fees += APP.settings?.emergencyFee || 50;
+        if (document.getElementById('jfAfterHours')?.checked) fees += APP.settings?.afterHoursFee || 35;
+        if (document.getElementById('jfSunday')?.checked) fees += APP.settings?.sundayFee || 25;
+
+        const rawPrice = (basePrice * heavyMult) + travelCharge + adjust + fees;
+        const minimumAllowed = materialCost + minProfit;
+        const suggestedPrice = Math.max(rawPrice, minimumAllowed);
+
+        // Update UI
+        document.getElementById('pbBase').textContent = money(basePrice * heavyMult);
+        document.getElementById('pbTravel').textContent = money(travelCharge);
+        document.getElementById('pbFees').textContent = money(fees);
+        document.getElementById('pbFeesRow').style.display = fees > 0 ? 'flex' : 'none';
+        document.getElementById('pbAdjust').textContent = (adjust >= 0 ? '+' : '') + money(adjust);
+        document.getElementById('pbAdjustRow').style.display = adjust !== 0 ? 'flex' : 'none';
+        document.getElementById('pbMaterial').textContent = money(materialCost);
+        document.getElementById('pbMinProfit').textContent = money(minProfit);
+        document.getElementById('pbSuggested').textContent = money(suggestedPrice);
+
+        // Auto-fill final price if empty or matches previous suggested
+        const finalEl = document.getElementById('jfFinal');
+        if (!finalEl.value || finalEl.dataset.autoFilled === 'true') {
+            finalEl.value = suggestedPrice.toFixed(2);
+            finalEl.dataset.autoFilled = 'true';
+        }
+        finalEl.addEventListener('input', () => { finalEl.dataset.autoFilled = 'false'; }, { once: true });
+
+        checkPriceWarning();
+    }
+
+    function checkPriceWarning() {
+        const finalPrice = Number(document.getElementById('jfFinal')?.value) || 0;
+        const materialCost = Number(document.getElementById('jfMaterial')?.value) || 0;
+        const svcEl = document.getElementById('jfService');
+        const opt = svcEl?.options[svcEl.selectedIndex];
+        const minProfit = Number(opt?.dataset?.minprofit) || APP.settings?.minimumProfit || 25;
+        const minimumAllowed = materialCost + minProfit;
+        const profit = finalPrice - materialCost;
+        const margin = finalPrice > 0 ? (profit / finalPrice) * 100 : 0;
+
+        const warn = document.getElementById('priceWarning');
+        if (warn) warn.style.display = finalPrice < minimumAllowed && finalPrice > 0 ? 'flex' : 'none';
+
+        const profitEl = document.getElementById('pbProfit');
+        const marginEl = document.getElementById('pbMargin');
+        if (profitEl) {
+            profitEl.textContent = money(profit);
+            profitEl.style.color = profit >= minProfit ? 'var(--success)' : 'var(--danger)';
+        }
+        if (marginEl) {
+            marginEl.textContent = pct(margin);
+            marginEl.style.color = margin >= 20 ? 'var(--success)' : margin >= 10 ? 'var(--warning)' : 'var(--danger)';
+        }
+    }
+
+    // ─── Location Search ────────────────────────────────────────────────
+    function setupLocationSearch(inputId, suggestionsId) {
+        const input = document.getElementById(inputId);
+        const dropdown = document.getElementById(suggestionsId);
+        if (!input || !dropdown) return;
+
+        // Load recent/frequent locations
+        const areas = APP.settings?.serviceAreas || [];
+        const base = APP.settings?.baseLocation || '';
+        const suggestions = [...new Set([base, ...areas].filter(Boolean))];
+
+        let selectedIdx = -1;
+
+        input.addEventListener('focus', () => {
+            if (suggestions.length > 0 && !input.value) {
+                showSuggestions(suggestions);
+            }
+        });
+
+        input.addEventListener('input', () => {
+            const val = input.value.toLowerCase();
+            if (!val) { dropdown.style.display = 'none'; return; }
+            // Load saved locations from jobs cache for suggestions
+            loadLocationHistory().then(locs => {
+                const all = [...new Set([...suggestions, ...locs])];
+                const filtered = all.filter(l => l.toLowerCase().includes(val));
+                if (filtered.length > 0) showSuggestions(filtered);
+                else dropdown.style.display = 'none';
+            });
+        });
+
+        input.addEventListener('keydown', (e) => {
+            const items = dropdown.querySelectorAll('.suggestion-item');
+            if (e.key === 'ArrowDown') { e.preventDefault(); selectedIdx = Math.min(selectedIdx + 1, items.length - 1); highlightSuggestion(items); }
+            if (e.key === 'ArrowUp') { e.preventDefault(); selectedIdx = Math.max(selectedIdx - 1, -1); highlightSuggestion(items); }
+            if (e.key === 'Enter' && selectedIdx >= 0 && items[selectedIdx]) {
+                e.preventDefault(); input.value = items[selectedIdx].textContent; dropdown.style.display = 'none'; selectedIdx = -1;
+            }
+            if (e.key === 'Escape') { dropdown.style.display = 'none'; selectedIdx = -1; }
+        });
+
+        document.addEventListener('click', (e) => { if (!e.target.closest(`#${inputId}`) && !e.target.closest(`#${suggestionsId}`)) dropdown.style.display = 'none'; });
+
+        function showSuggestions(items) {
+            selectedIdx = -1;
+            dropdown.innerHTML = items.slice(0, 10).map(item => `<div class="suggestion-item">${escHtml(item)}</div>`).join('');
+            dropdown.style.display = 'block';
+            dropdown.querySelectorAll('.suggestion-item').forEach(el => {
+                el.addEventListener('click', () => { input.value = el.textContent; dropdown.style.display = 'none'; });
+            });
+        }
+
+        function highlightSuggestion(items) {
+            items.forEach((el, i) => el.classList.toggle('active', i === selectedIdx));
+        }
+    }
+
+    async function loadLocationHistory() {
+        try {
+            const snap = await userRef('jobs').orderBy('createdAt', 'desc').limit(50).get();
+            return [...new Set(snap.docs.map(d => d.data().location).filter(Boolean))];
+        } catch { return []; }
+    }
+
+    // ─── Inventory Match ────────────────────────────────────────────────
+    async function matchInventory() {
+        const size = normalizeTireSize(document.getElementById('jfTireSize')?.value || '');
+        if (!size) { document.getElementById('inventoryMatch').style.display = 'none'; return; }
+        try {
+            const snap = await userRef('inventory').get();
+            const matches = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+                .filter(i => normalizeTireSize(i.tireSize) === size && (Number(i.quantity) || 0) > 0);
+            const el = document.getElementById('inventoryMatch');
+            if (matches.length > 0) {
+                el.style.display = 'block';
+                el.innerHTML = `<div style="font-size:0.85rem;color:var(--accent);margin-bottom:8px;"><span class="material-icons" style="font-size:16px;vertical-align:middle;">check_circle</span> ${matches.length} matching tire(s) in stock</div>` +
+                    matches.map(m => `<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:0.85rem;"><span>${escHtml(m.brand || '')} ${escHtml(m.model || '')} (${escHtml(m.tireSize)})</span><span>Qty: ${m.quantity} · ${money(m.cost)}/ea</span></div>`).join('');
+            } else {
+                el.style.display = 'block';
+                el.innerHTML = `<div style="font-size:0.85rem;color:var(--warning);"><span class="material-icons" style="font-size:16px;vertical-align:middle;">warning</span> No matching tires in stock for size ${escHtml(size)}</div>`;
+            }
+        } catch { /* ignore */ }
+    }
+
+    function normalizeTireSize(s) {
+        if (!s) return '';
+        return s.replace(/\s+/g, '').replace(/[xX]/g, '/').replace(/[rR]/g, 'R').toUpperCase();
+    }
+
+    // ─── Inventory Deduction ────────────────────────────────────────────
+    async function deductInventory(tireSize, qty) {
+        const normalized = normalizeTireSize(tireSize);
+        if (!normalized || qty <= 0) return;
+        try {
+            const snap = await userRef('inventory').get();
+            const matches = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+                .filter(i => normalizeTireSize(i.tireSize) === normalized && (Number(i.quantity) || 0) > 0)
+                .sort((a, b) => (Number(a.quantity) || 0) - (Number(b.quantity) || 0));
+            let remaining = qty;
+            for (const item of matches) {
+                if (remaining <= 0) break;
+                const available = Number(item.quantity) || 0;
+                const deduct = Math.min(remaining, available);
+                await userRef('inventory').doc(item.id).update({
+                    quantity: available - deduct,
+                    updatedAt: serverTimestamp()
+                });
+                remaining -= deduct;
+            }
+            if (remaining > 0) {
+                showToast(`Inventory shortfall: ${remaining} tire(s) not in stock for ${tireSize}`, 'warning');
+            } else {
+                showToast(`Deducted ${qty} tire(s) from inventory.`, 'info');
+            }
+        } catch (err) {
+            console.error('Inventory deduction error:', err);
+        }
+    }
+
+    // ─── Customer Upsert ────────────────────────────────────────────────
+    async function upsertCustomer(jobData) {
+        if (!jobData.customerName) return;
+        try {
+            const snap = await userRef('customers').where('phone', '==', jobData.customerPhone || '').limit(1).get();
+            if (!snap.empty) {
+                const doc = snap.docs[0];
+                await userRef('customers').doc(doc.id).update({
+                    lastServiceDate: serverTimestamp(),
+                    updatedAt: serverTimestamp()
+                });
+            } else {
+                await userRef('customers').add({
+                    name: jobData.customerName,
+                    phone: jobData.customerPhone || '',
+                    email: '',
+                    source: jobData.source || 'direct',
+                    notes: '',
+                    lastServiceDate: serverTimestamp(),
+                    createdAt: serverTimestamp(),
+                    updatedAt: serverTimestamp()
+                });
+            }
+        } catch (err) { console.error('Customer upsert error:', err); }
+    }
+
+    // ─── View Job Detail ────────────────────────────────────────────────
+    async function viewJob(jobId) {
+        showLoading();
+        try {
+            const doc = await userRef('jobs').doc(jobId).get();
+            if (!doc.exists()) { showToast('Job not found.', 'error'); hideLoading(); return; }
+            const j = { id: doc.id, ...doc.data() };
+            const profit = (Number(j.finalPrice) || 0) - (Number(j.materialCost) || 0);
+            const margin = j.finalPrice > 0 ? (profit / j.finalPrice * 100) : 0;
+
+            openModal(j.serviceType || 'Job Detail', `
+                <div style="display:flex;flex-direction:column;gap:12px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <span class="badge badge-${statusBadge(j.status)}" style="font-size:0.85rem;">${statusLabel(j.status)}</span>
+                        <span style="color:var(--text-tertiary);font-size:0.85rem;">${timeAgo(j.createdAt)}</span>
+                    </div>
+                    <div class="price-breakdown">
+                        <div class="price-row"><span>Final Price</span><span style="font-weight:700;color:var(--success);font-size:1.2rem;">${money(j.finalPrice)}</span></div>
+                        <div class="price-row"><span>Material Cost</span><span>${money(j.materialCost)}</span></div>
+                        <div class="price-row"><span>Profit</span><span style="color:${profit >= 0 ? 'var(--success)' : 'var(--danger)'};">${money(profit)} (${pct(margin)})</span></div>
+                    </div>
+                    ${j.customerName ? `<div><strong>Customer:</strong> ${escHtml(j.customerName)} ${j.customerPhone ? `· <a href="tel:${escHtml(j.customerPhone)}" style="color:var(--accent);">${escHtml(j.customerPhone)}</a>` : ''}</div>` : ''}
+                    ${j.vehicleType ? `<div><strong>Vehicle:</strong> ${escHtml(j.vehicleType)} ${j.heavyDuty ? '<span class="badge badge-warning">Heavy Duty</span>' : ''}</div>` : ''}
+                    <div><strong>Location:</strong> ${escHtml(j.location || 'N/A')}</div>
+                    ${j.milesFromBase > 0 ? `<div><strong>Miles:</strong> ${j.milesFromBase} mi from base</div>` : ''}
+                    ${j.tireSize ? `<div><strong>Tire:</strong> ${escHtml(j.tireSize)} × ${j.tireQty || 1}</div>` : ''}
+                    ${j.notes ? `<div><strong>Notes:</strong> ${escHtml(j.notes)}</div>` : ''}
+                    <div style="font-size:0.8rem;color:var(--text-tertiary);">Source: ${escHtml(j.source || 'direct')}</div>
+                </div>`,
+                `<button class="btn btn-secondary" onclick="editJobById('${j.id}')"><span class="material-icons">edit</span> Edit</button>
+                <button class="btn btn-primary" onclick="createInvoiceFromJob('${j.id}')"><span class="material-icons">receipt</span> Invoice</button>
+                ${j.status !== 'completed' ? `<button class="btn btn-success" onclick="completeJob('${j.id}')"><span class="material-icons">check</span> Complete</button>` : ''}
+                <button class="btn btn-danger" onclick="deleteJob('${j.id}')"><span class="material-icons">delete</span></button>`
+            );
+        } catch (err) { showToast('Error loading job.', 'error'); }
+        hideLoading();
+    }
+
+    async function editJobById(id) {
+        closeModal();
+        showLoading();
+        const doc = await userRef('jobs').doc(id).get();
+        if (doc.exists()) renderJobForm({ id: doc.id, ...doc.data() });
+        hideLoading();
+    }
+
+    async function completeJob(id) {
+        try {
+            const doc = await userRef('jobs').doc(id).get();
+            const job = doc.data();
+            await userRef('jobs').doc(id).update({ status: 'completed', updatedAt: serverTimestamp() });
+            if (job.tireSize) await deductInventory(job.tireSize, job.tireQty || 1);
+            closeModal();
+            showToast('Job completed!', 'success');
+            navigateTo('jobs');
+        } catch (err) { showToast('Error completing job.', 'error'); }
+    }
+
+    async function deleteJob(id) {
+        if (!confirm('Are you sure you want to delete this job? This cannot be undone.')) return;
+        try {
+            await userRef('jobs').doc(id).delete();
+            closeModal();
+            showToast('Job deleted.', 'info');
+            navigateTo('jobs');
+        } catch (err) { showToast('Error deleting job.', 'error'); }
+    }
+
+    // ─── INVENTORY ──────────────────────────────────────────────────────
+    async function renderInventory() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = `
+        <div class="view-container">
+            <div class="view-header">
+                <h2>Inventory</h2>
+                <div style="display:flex;gap:8px;">
+                    <button class="btn btn-sm btn-secondary" onclick="bulkImportInventory()"><span class="material-icons">upload</span> Import</button>
+                    <button class="btn btn-sm btn-primary" onclick="showAddInventory()"><span class="material-icons">add</span> Add</button>
+                </div>
+            </div>
+            <input type="text" id="invSearch" class="search-input" placeholder="Search by size, brand, model..." style="margin-bottom:12px;">
+            <div id="rimChips" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;"></div>
+            <div id="invList"><div style="text-align:center;padding:40px;"><div class="spinner"></div></div></div>
+        </div>`;
+
+        const snap = await userRef('inventory').orderBy('tireSize').get();
+        const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        APP.cache.inventory = items;
+
+        // Rim size chips
+        const rimSizes = [...new Set(items.map(i => {
+            const m = (i.tireSize || '').match(/R(\d+)/i);
+            return m ? m[1] : null;
+        }).filter(Boolean))].sort((a, b) => Number(a) - Number(b));
+
+        const chipsEl = document.getElementById('rimChips');
+        chipsEl.innerHTML = `<span class="chip active" data-rim="">All</span>` + rimSizes.map(r => `<span class="chip" data-rim="${r}">R${r}</span>`).join('');
+
+        let activeRim = '';
+        chipsEl.querySelectorAll('.chip').forEach(c => {
+            c.addEventListener('click', () => {
+                chipsEl.querySelectorAll('.chip').forEach(x => x.classList.remove('active'));
+                c.classList.add('active');
+                activeRim = c.dataset.rim;
+                renderInvList(document.getElementById('invSearch')?.value, activeRim);
+            });
+        });
+
+        function renderInvList(search = '', rim = '') {
+            const f = search.toLowerCase();
+            const filtered = items.filter(i => {
+                if (rim) {
+                    const m = (i.tireSize || '').match(/R(\d+)/i);
+                    if (!m || m[1] !== rim) return false;
+                }
+                if (f) {
+                    const searchable = `${i.tireSize} ${i.brand} ${i.model} ${i.category} ${i.notes}`.toLowerCase();
+                    return searchable.includes(f);
+                }
+                return true;
+            });
+            const el = document.getElementById('invList');
+            if (!el) return;
+            if (filtered.length === 0) {
+                el.innerHTML = '<div class="empty-state"><span class="material-icons" style="font-size:48px;color:var(--text-tertiary);">inventory_2</span><p>No inventory items found</p></div>';
+                return;
+            }
+            el.innerHTML = filtered.map(i => {
+                const isLow = (Number(i.quantity) || 0) <= (Number(i.lowStockThreshold) || 3);
+                return `
+                <div class="card list-item" style="margin-bottom:10px;cursor:pointer;" onclick="viewInventoryItem('${i.id}')">
+                    <div style="flex:1;">
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <span style="font-weight:700;color:var(--accent);">${escHtml(i.tireSize || 'N/A')}</span>
+                            ${i.condition === 'used' ? '<span class="badge badge-warning" style="font-size:0.65rem;">Used</span>' : ''}
+                            ${isLow ? '<span class="badge badge-danger" style="font-size:0.65rem;">Low Stock</span>' : ''}
+                        </div>
+                        <div style="font-size:0.85rem;color:var(--text-secondary);">${escHtml(i.brand || '')} ${escHtml(i.model || '')}</div>
+                    </div>
+                    <div style="text-align:right;">
+                        <div style="font-weight:600;">Qty: <span style="color:${isLow ? 'var(--danger)' : 'var(--text-primary)'};">${i.quantity || 0}</span></div>
+                        <div style="font-size:0.8rem;color:var(--text-tertiary);">Cost: ${money(i.cost)} · Sell: ${money(i.sellPrice)}</div>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        renderInvList();
+        document.getElementById('invSearch')?.addEventListener('input', (e) => renderInvList(e.target.value, activeRim));
+    }
+
+    function showAddInventory(editItem = null) {
+        const isEdit = !!editItem;
+        const i = editItem || {};
+        openModal(isEdit ? 'Edit Inventory' : 'Add Inventory', `
+            <form id="invForm">
+                <div class="form-group"><label>Tire Size *</label><input type="text" id="ifSize" value="${escHtml(i.tireSize || '')}" placeholder="e.g. 225/65R17" required></div>
+                <div class="form-row" style="grid-template-columns:1fr 1fr;">
+                    <div class="form-group"><label>Brand</label><input type="text" id="ifBrand" value="${escHtml(i.brand || '')}" placeholder="Brand name"></div>
+                    <div class="form-group"><label>Model</label><input type="text" id="ifModel" value="${escHtml(i.model || '')}" placeholder="Model name"></div>
+                </div>
+                <div class="form-row" style="grid-template-columns:1fr 1fr 1fr;">
+                    <div class="form-group"><label>Quantity *</label><input type="number" id="ifQty" value="${i.quantity || 0}" min="0" required></div>
+                    <div class="form-group"><label>Cost ($)</label><input type="number" id="ifCost" value="${i.cost || 0}" min="0" step="0.01"></div>
+                    <div class="form-group"><label>Sell Price ($)</label><input type="number" id="ifSell" value="${i.sellPrice || 0}" min="0" step="0.01"></div>
+                </div>
+                <div class="form-row" style="grid-template-columns:1fr 1fr;">
+                    <div class="form-group"><label>Condition</label>
+                        <select id="ifCondition"><option value="new" ${i.condition === 'new' || !i.condition ? 'selected' : ''}>New</option><option value="used" ${i.condition === 'used' ? 'selected' : ''}>Used</option></select>
+                    </div>
+                    <div class="form-group"><label>Low Stock Alert</label><input type="number" id="ifLow" value="${i.lowStockThreshold || 3}" min="0"></div>
+                </div>
+                <div class="form-group"><label>Category</label><input type="text" id="ifCat" value="${escHtml(i.category || '')}" placeholder="e.g. All-Season, Winter"></div>
+                <div class="form-group"><label>Notes</label><textarea id="ifNotes" rows="2">${escHtml(i.notes || '')}</textarea></div>
+                <div style="display:flex;gap:12px;margin-top:16px;">
+                    <button type="button" class="btn btn-secondary" style="flex:1;" onclick="closeModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary" style="flex:1;">${isEdit ? 'Update' : 'Add Item'}</button>
+                </div>
+            </form>`,
+        );
+        document.getElementById('invForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const size = document.getElementById('ifSize').value.trim();
+            if (!size) { showToast('Tire size is required.', 'warning'); return; }
+            const data = {
+                tireSize: size,
+                brand: document.getElementById('ifBrand').value.trim(),
+                model: document.getElementById('ifModel').value.trim(),
+                quantity: Number(document.getElementById('ifQty').value) || 0,
+                cost: Number(document.getElementById('ifCost').value) || 0,
+                sellPrice: Number(document.getElementById('ifSell').value) || 0,
+                condition: document.getElementById('ifCondition').value,
+                lowStockThreshold: Number(document.getElementById('ifLow').value) || 3,
+                category: document.getElementById('ifCat').value.trim(),
+                notes: document.getElementById('ifNotes').value.trim(),
+                updatedAt: serverTimestamp()
+            };
+            try {
+                if (isEdit) {
+                    await userRef('inventory').doc(editItem.id).update(data);
+                    showToast('Item updated!', 'success');
+                } else {
+                    data.createdAt = serverTimestamp();
+                    await userRef('inventory').add(data);
+                    showToast('Item added!', 'success');
+                }
+                closeModal();
+                renderInventory();
+            } catch (err) { showToast('Error saving item.', 'error'); }
+        });
+    }
+
+    async function viewInventoryItem(id) {
+        const doc = await userRef('inventory').doc(id).get();
+        if (!doc.exists()) return;
+        const i = { id: doc.id, ...doc.data() };
+        const isLow = (Number(i.quantity) || 0) <= (Number(i.lowStockThreshold) || 3);
+        openModal(i.tireSize || 'Item Detail', `
+            <div style="display:flex;flex-direction:column;gap:10px;">
+                <div style="font-size:1.3rem;font-weight:700;color:var(--accent);">${escHtml(i.tireSize)}</div>
+                <div>${escHtml(i.brand || 'No brand')} ${escHtml(i.model || '')}</div>
+                <div class="price-breakdown">
+                    <div class="price-row"><span>Quantity</span><span style="color:${isLow ? 'var(--danger)' : 'var(--success)'};">${i.quantity || 0} ${isLow ? '⚠ LOW' : ''}</span></div>
+                    <div class="price-row"><span>Cost</span><span>${money(i.cost)}</span></div>
+                    <div class="price-row"><span>Sell Price</span><span>${money(i.sellPrice)}</span></div>
+                    <div class="price-row"><span>Condition</span><span>${i.condition || 'New'}</span></div>
+                    <div class="price-row"><span>Category</span><span>${escHtml(i.category || '—')}</span></div>
+                </div>
+                ${i.notes ? `<div><strong>Notes:</strong> ${escHtml(i.notes)}</div>` : ''}
+            </div>`,
+            `<button class="btn btn-secondary" onclick="editInventoryItem('${i.id}')"><span class="material-icons">edit</span> Edit</button>
+            <button class="btn btn-danger" onclick="deleteInventoryItem('${i.id}')"><span class="material-icons">delete</span> Delete</button>`
+        );
+    }
+
+    async function editInventoryItem(id) {
+        closeModal();
+        const doc = await userRef('inventory').doc(id).get();
+        if (doc.exists()) showAddInventory({ id: doc.id, ...doc.data() });
+    }
+
+    async function deleteInventoryItem(id) {
+        if (!confirm('Delete this inventory item?')) return;
+        try {
+            await userRef('inventory').doc(id).delete();
+            closeModal();
+            showToast('Item deleted.', 'info');
+            renderInventory();
+        } catch (err) { showToast('Error deleting item.', 'error'); }
+    }
+
+    function bulkImportInventory() {
+        openModal('Bulk Import Inventory', `
+            <p style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:12px;">
+                Paste tire data, one per line. Format: <code>SIZE | BRAND | MODEL | QTY | COST | SELL</code>
+            </p>
+            <textarea id="bulkData" rows="8" placeholder="225/65R17 | Goodyear | Assurance | 4 | 85 | 140&#10;245/75R16 | BFGoodrich | T/A KO2 | 2 | 120 | 200"></textarea>
+            <button class="btn btn-primary" style="margin-top:12px;width:100%;" onclick="processBulkImport()">
+                <span class="material-icons">upload</span> Import Items
+            </button>`);
+    }
+
+    async function processBulkImport() {
+        const raw = document.getElementById('bulkData')?.value?.trim();
+        if (!raw) { showToast('No data to import.', 'warning'); return; }
+        const lines = raw.split('\n').filter(l => l.trim());
+        let count = 0;
+        showLoading();
+        for (const line of lines) {
+            const parts = line.split('|').map(p => p.trim());
+            if (parts.length < 1 || !parts[0]) continue;
+            await userRef('inventory').add({
+                tireSize: parts[0] || '', brand: parts[1] || '', model: parts[2] || '',
+                quantity: Number(parts[3]) || 0, cost: Number(parts[4]) || 0, sellPrice: Number(parts[5]) || 0,
+                condition: 'new', lowStockThreshold: 3, category: '', notes: 'Bulk import',
+                createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+            });
+            count++;
+        }
+        hideLoading();
+        closeModal();
+        showToast(`Imported ${count} items!`, 'success');
+        renderInventory();
+    }
+
+    // ─── EXPENSES ───────────────────────────────────────────────────────
+    async function renderExpenses() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = `
+        <div class="view-container">
+            <div class="view-header">
+                <h2>Expenses</h2>
+                <button class="btn btn-sm btn-primary" onclick="showAddExpense()"><span class="material-icons">add</span> Add</button>
+            </div>
+            <div id="expSummary" class="card" style="margin-bottom:16px;"></div>
+            <div id="expList"><div style="text-align:center;padding:40px;"><div class="spinner"></div></div></div>
+        </div>`;
+
+        const snap = await userRef('expenses').orderBy('date', 'desc').limit(200).get();
+        const expenses = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const ws = weekStart(); const ms = monthStart();
+        const weekTotal = expenses.filter(e => { const d = e.date?.toDate ? e.date.toDate() : new Date(e.date); return d >= ws; }).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+        const monthTotal = expenses.filter(e => { const d = e.date?.toDate ? e.date.toDate() : new Date(e.date); return d >= ms; }).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+
+        document.getElementById('expSummary').innerHTML = `
+            <div style="display:flex;justify-content:space-around;text-align:center;">
+                <div><div style="color:var(--text-secondary);font-size:0.8rem;">This Week</div><div style="font-size:1.2rem;font-weight:700;color:var(--warning);">${money(weekTotal)}</div></div>
+                <div><div style="color:var(--text-secondary);font-size:0.8rem;">This Month</div><div style="font-size:1.2rem;font-weight:700;color:var(--warning);">${money(monthTotal)}</div></div>
+                <div><div style="color:var(--text-secondary);font-size:0.8rem;">Total Records</div><div style="font-size:1.2rem;font-weight:700;">${expenses.length}</div></div>
+            </div>`;
+
+        const el = document.getElementById('expList');
+        if (expenses.length === 0) {
+            el.innerHTML = '<div class="empty-state"><span class="material-icons" style="font-size:48px;color:var(--text-tertiary);">receipt</span><p>No expenses recorded yet</p></div>';
+            return;
+        }
+        el.innerHTML = expenses.map(e => `
+            <div class="card list-item" style="margin-bottom:10px;cursor:pointer;" onclick="viewExpense('${e.id}')">
+                <div style="flex:1;">
+                    <div style="font-weight:600;">${escHtml(e.name || 'Expense')}</div>
+                    <div style="font-size:0.85rem;color:var(--text-secondary);">${escHtml(e.category || 'Other')} · ${formatDateShort(e.date)}</div>
+                </div>
+                <div style="font-weight:700;color:var(--danger);">-${money(e.amount)}</div>
+            </div>`).join('');
+    }
+
+    function showAddExpense(editExp = null) {
+        const isEdit = !!editExp;
+        const e = editExp || {};
+        const cats = APP.settings?.expenseCategories || APP.defaultSettings.expenseCategories;
+        const dateVal = e.date ? (e.date.toDate ? e.date.toDate() : new Date(e.date)).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+        openModal(isEdit ? 'Edit Expense' : 'Add Expense', `
+            <form id="expForm">
+                <div class="form-group"><label>Name *</label><input type="text" id="efName" value="${escHtml(e.name || '')}" required placeholder="What was this expense for?"></div>
+                <div class="form-row" style="grid-template-columns:1fr 1fr;">
+                    <div class="form-group"><label>Amount ($) *</label><input type="number" id="efAmount" value="${e.amount || ''}" min="0" step="0.01" required></div>
+                    <div class="form-group"><label>Date</label><input type="date" id="efDate" value="${dateVal}"></div>
+                </div>
+                <div class="form-group"><label>Category</label>
+                    <select id="efCat">${cats.map(c => `<option value="${escHtml(c)}" ${e.category === c ? 'selected' : ''}>${escHtml(c)}</option>`).join('')}</select>
+                </div>
+                <div class="form-group"><label>Notes</label><textarea id="efNotes" rows="2">${escHtml(e.notes || '')}</textarea></div>
+                <label class="toggle-label" style="margin-bottom:16px;"><input type="checkbox" id="efRecurring" ${e.recurring ? 'checked' : ''}><span class="toggle"></span> Recurring expense</label>
+                <div style="display:flex;gap:12px;"><button type="button" class="btn btn-secondary" style="flex:1;" onclick="closeModal()">Cancel</button><button type="submit" class="btn btn-primary" style="flex:1;">${isEdit ? 'Update' : 'Add'}</button></div>
+            </form>`);
+        document.getElementById('expForm').addEventListener('submit', async (ev) => {
+            ev.preventDefault();
+            const data = {
+                name: document.getElementById('efName').value.trim(),
+                amount: Number(document.getElementById('efAmount').value) || 0,
+                date: Timestamp.fromDate(new Date(document.getElementById('efDate').value + 'T12:00:00')),
+                category: document.getElementById('efCat').value,
+                notes: document.getElementById('efNotes').value.trim(),
+                recurring: document.getElementById('efRecurring').checked,
+                updatedAt: serverTimestamp()
+            };
+            if (!data.name) { showToast('Name is required.', 'warning'); return; }
+            try {
+                if (isEdit) { await userRef('expenses').doc(editExp.id).update(data); }
+                else { data.createdAt = serverTimestamp(); await userRef('expenses').add(data); }
+                closeModal(); showToast(isEdit ? 'Expense updated!' : 'Expense added!', 'success'); renderExpenses();
+            } catch (err) { showToast('Error saving expense.', 'error'); }
+        });
+    }
+
+    async function viewExpense(id) {
+        const doc = await userRef('expenses').doc(id).get();
+        if (!doc.exists()) return;
+        const e = { id: doc.id, ...doc.data() };
+        openModal(e.name || 'Expense', `
+            <div class="price-breakdown">
+                <div class="price-row"><span>Amount</span><span style="color:var(--danger);font-weight:700;">${money(e.amount)}</span></div>
+                <div class="price-row"><span>Category</span><span>${escHtml(e.category)}</span></div>
+                <div class="price-row"><span>Date</span><span>${formatDate(e.date)}</span></div>
+                ${e.recurring ? '<div class="price-row"><span>Recurring</span><span style="color:var(--warning);">Yes</span></div>' : ''}
+            </div>
+            ${e.notes ? `<p style="margin-top:12px;color:var(--text-secondary);">${escHtml(e.notes)}</p>` : ''}`,
+            `<button class="btn btn-secondary" onclick="editExpenseById('${e.id}')"><span class="material-icons">edit</span> Edit</button>
+            <button class="btn btn-danger" onclick="deleteExpense('${e.id}')"><span class="material-icons">delete</span> Delete</button>`);
+    }
+    async function editExpenseById(id) { closeModal(); const doc = await userRef('expenses').doc(id).get(); if (doc.exists()) showAddExpense({ id: doc.id, ...doc.data() }); }
+    async function deleteExpense(id) { if (!confirm('Delete this expense?')) return; try { await userRef('expenses').doc(id).delete(); closeModal(); showToast('Deleted.', 'info'); renderExpenses(); } catch { showToast('Error.', 'error'); } }
+
+    // ─── CUSTOMERS ──────────────────────────────────────────────────────
+    async function renderCustomers() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = `
+        <div class="view-container">
+            <div class="view-header"><h2>Customers</h2><button class="btn btn-sm btn-primary" onclick="showAddCustomer()"><span class="material-icons">add</span> Add</button></div>
+            <input type="text" id="custSearch" class="search-input" placeholder="Search customers..." style="margin-bottom:16px;">
+            <div id="custList"><div style="text-align:center;padding:40px;"><div class="spinner"></div></div></div>
+        </div>`;
+
+        const snap = await userRef('customers').orderBy('name').get();
+        const customers = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+        // Calc lifetime value
+        const jobSnap = await userRef('jobs').where('status', '==', 'completed').get();
+        const jobs = jobSnap.docs.map(d => d.data());
+        const ltv = {};
+        jobs.forEach(j => {
+            if (j.customerPhone) { ltv[j.customerPhone] = (ltv[j.customerPhone] || 0) + (Number(j.finalPrice) || 0); }
+        });
+
+        function renderCustList(search = '') {
+            const f = search.toLowerCase();
+            const filtered = customers.filter(c => {
+                if (!f) return true;
+                return `${c.name} ${c.phone} ${c.email} ${c.notes}`.toLowerCase().includes(f);
+            });
+            const el = document.getElementById('custList');
+            if (!el) return;
+            if (filtered.length === 0) { el.innerHTML = '<div class="empty-state"><span class="material-icons" style="font-size:48px;color:var(--text-tertiary);">people</span><p>No customers found</p></div>'; return; }
+            el.innerHTML = filtered.map(c => {
+                const val = ltv[c.phone] || 0;
+                return `
+                <div class="card list-item" style="margin-bottom:10px;cursor:pointer;" onclick="viewCustomer('${c.id}')">
+                    <div style="flex:1;">
+                        <div style="font-weight:600;">${escHtml(c.name)}</div>
+                        <div style="font-size:0.85rem;color:var(--text-secondary);">${escHtml(c.phone || 'No phone')} ${c.email ? '· ' + escHtml(c.email) : ''}</div>
+                    </div>
+                    <div style="text-align:right;">
+                        ${val > 0 ? `<div style="font-weight:600;color:var(--success);">${money(val)}</div><div style="font-size:0.75rem;color:var(--text-tertiary);">lifetime</div>` : ''}
+                    </div>
+                </div>`;
+            }).join('');
+        }
+        renderCustList();
+        document.getElementById('custSearch')?.addEventListener('input', (e) => renderCustList(e.target.value));
+    }
+
+    function showAddCustomer(editCust = null) {
+        const isEdit = !!editCust;
+        const c = editCust || {};
+        openModal(isEdit ? 'Edit Customer' : 'Add Customer', `
+            <form id="custForm">
+                <div class="form-group"><label>Name *</label><input type="text" id="cfName" value="${escHtml(c.name || '')}" required></div>
+                <div class="form-row" style="grid-template-columns:1fr 1fr;">
+                    <div class="form-group"><label>Phone</label><input type="tel" id="cfPhone" value="${escHtml(c.phone || '')}"></div>
+                    <div class="form-group"><label>Email</label><input type="email" id="cfEmail" value="${escHtml(c.email || '')}"></div>
+                </div>
+                <div class="form-group"><label>Source</label><select id="cfSource"><option value="direct" ${c.source === 'direct' ? 'selected' : ''}>Direct</option><option value="referral" ${c.source === 'referral' ? 'selected' : ''}>Referral</option><option value="google" ${c.source === 'google' ? 'selected' : ''}>Google</option><option value="social" ${c.source === 'social' ? 'selected' : ''}>Social</option><option value="other" ${c.source === 'other' ? 'selected' : ''}>Other</option></select></div>
+                <div class="form-group"><label>Notes</label><textarea id="cfNotes" rows="2">${escHtml(c.notes || '')}</textarea></div>
+                <div style="display:flex;gap:12px;"><button type="button" class="btn btn-secondary" style="flex:1;" onclick="closeModal()">Cancel</button><button type="submit" class="btn btn-primary" style="flex:1;">${isEdit ? 'Update' : 'Add'}</button></div>
+            </form>`);
+        document.getElementById('custForm').addEventListener('submit', async (ev) => {
+            ev.preventDefault();
+            const data = {
+                name: document.getElementById('cfName').value.trim(),
+                phone: document.getElementById('cfPhone').value.trim(),
+                email: document.getElementById('cfEmail').value.trim(),
+                source: document.getElementById('cfSource').value,
+                notes: document.getElementById('cfNotes').value.trim(),
+                updatedAt: serverTimestamp()
+            };
+            if (!data.name) { showToast('Name is required.', 'warning'); return; }
+            try {
+                if (isEdit) { await userRef('customers').doc(editCust.id).update(data); }
+                else { data.createdAt = serverTimestamp(); data.lastServiceDate = null; await userRef('customers').add(data); }
+                closeModal(); showToast(isEdit ? 'Updated!' : 'Customer added!', 'success'); renderCustomers();
+            } catch { showToast('Error.', 'error'); }
+        });
+    }
+
+    async function viewCustomer(id) {
+        const doc = await userRef('customers').doc(id).get();
+        if (!doc.exists()) return;
+        const c = { id: doc.id, ...doc.data() };
+        // Get customer jobs
+        let jobsHtml = '';
+        if (c.phone) {
+            const jsnap = await userRef('jobs').where('customerPhone', '==', c.phone).orderBy('createdAt', 'desc').limit(10).get();
+            if (!jsnap.empty) {
+                jobsHtml = '<h4 style="margin-top:16px;margin-bottom:8px;">Job History</h4>' + jsnap.docs.map(d => {
+                    const j = d.data();
+                    return `<div class="list-item" style="padding:6px 0;"><span>${escHtml(j.serviceType)} · ${formatDateShort(j.createdAt)}</span><span style="color:var(--success);">${money(j.finalPrice)}</span></div>`;
+                }).join('');
+            }
+        }
+        openModal(c.name, `
+            <div style="display:flex;flex-direction:column;gap:8px;">
+                ${c.phone ? `<div><span class="material-icons" style="font-size:16px;vertical-align:middle;color:var(--accent);">phone</span> <a href="tel:${escHtml(c.phone)}" style="color:var(--accent);">${escHtml(c.phone)}</a></div>` : ''}
+                ${c.email ? `<div><span class="material-icons" style="font-size:16px;vertical-align:middle;color:var(--accent);">email</span> ${escHtml(c.email)}</div>` : ''}
+                <div style="font-size:0.85rem;color:var(--text-secondary);">Source: ${escHtml(c.source || 'direct')} · Last service: ${formatDate(c.lastServiceDate)}</div>
+                ${c.notes ? `<p style="color:var(--text-secondary);">${escHtml(c.notes)}</p>` : ''}
+                ${jobsHtml}
+            </div>`,
+            `<button class="btn btn-primary" onclick="closeModal();createJobForCustomer('${c.id}')"><span class="material-icons">add</span> New Job</button>
+            <button class="btn btn-secondary" onclick="editCustomerById('${c.id}')"><span class="material-icons">edit</span> Edit</button>
+            ${APP.settings?.reviewLink ? `<button class="btn btn-secondary" onclick="sendReviewToCustomer('${escHtml(c.name)}','${escHtml(c.phone)}')"><span class="material-icons">star</span> Review</button>` : ''}
+            <button class="btn btn-danger" onclick="deleteCustomer('${c.id}')"><span class="material-icons">delete</span></button>`);
+    }
+
+    async function createJobForCustomer(id) {
+        const doc = await userRef('customers').doc(id).get();
+        if (!doc.exists()) return;
+        const c = doc.data();
+        renderJobForm({ customerName: c.name, customerPhone: c.phone });
+    }
+    async function editCustomerById(id) { closeModal(); const doc = await userRef('customers').doc(id).get(); if (doc.exists()) showAddCustomer({ id: doc.id, ...doc.data() }); }
+    async function deleteCustomer(id) { if (!confirm('Delete this customer?')) return; try { await userRef('customers').doc(id).delete(); closeModal(); showToast('Deleted.', 'info'); renderCustomers(); } catch { showToast('Error.', 'error'); } }
+
+    // ─── QUOTES ─────────────────────────────────────────────────────────
+    async function renderQuotes() {
+        const main = document.getElementById('mainContent');
+        const services = (APP.settings?.services || []).filter(s => s.enabled);
+        main.innerHTML = `
+        <div class="view-container">
+            <div class="view-header"><h2>Quotes</h2></div>
+
+            <div class="card" style="margin-bottom:20px;">
+                <h3 style="margin-bottom:12px;"><span class="material-icons" style="font-size:20px;vertical-align:middle;color:var(--primary);">calculate</span> Quick Quote</h3>
+                <div class="form-group"><label>Service</label><select id="qqService">${services.map(s => `<option value="${escHtml(s.name)}" data-base="${s.basePrice}" data-minprofit="${s.minProfit}">${escHtml(s.name)}</option>`).join('')}</select></div>
+                <div class="form-row" style="grid-template-columns:1fr 1fr;">
+                    <div class="form-group"><label>Miles from Base</label><input type="number" id="qqMiles" value="0" min="0"></div>
+                    <div class="form-group"><label>Material Cost ($)</label><input type="number" id="qqMaterial" value="0" min="0" step="0.01"></div>
+                </div>
+                <div class="form-row" style="grid-template-columns:1fr 1fr 1fr;">
+                    <label class="toggle-label"><input type="checkbox" id="qqHeavy"><span class="toggle"></span> Heavy</label>
+                    <label class="toggle-label"><input type="checkbox" id="qqEmergency"><span class="toggle"></span> Emergency</label>
+                    <label class="toggle-label"><input type="checkbox" id="qqAfterHours"><span class="toggle"></span> After Hrs</label>
+                </div>
+                <div id="qqResult" class="price-breakdown" style="margin-top:16px;"></div>
+                <div style="display:flex;gap:12px;margin-top:12px;">
+                    <button class="btn btn-primary" style="flex:1;" onclick="calcQuickQuote()"><span class="material-icons">calculate</span> Calculate</button>
+                    <button class="btn btn-secondary" style="flex:1;" onclick="saveQuote()"><span class="material-icons">save</span> Save Quote</button>
+                </div>
+            </div>
+
+            <h3 style="margin-bottom:12px;">Saved Quotes</h3>
+            <div id="quotesList"><div style="text-align:center;padding:20px;"><div class="spinner"></div></div></div>
+        </div>`;
+
+        calcQuickQuote();
+        ['qqService', 'qqMiles', 'qqMaterial', 'qqHeavy', 'qqEmergency', 'qqAfterHours'].forEach(id => {
+            document.getElementById(id)?.addEventListener('change', calcQuickQuote);
+            document.getElementById(id)?.addEventListener('input', calcQuickQuote);
+        });
+
+        // Load saved quotes
+        const snap = await userRef('quotes').orderBy('createdAt', 'desc').limit(50).get();
+        const quotes = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const el = document.getElementById('quotesList');
+        if (quotes.length === 0) {
+            el.innerHTML = '<p class="empty-state-text" style="text-align:center;color:var(--text-tertiary);">No saved quotes yet.</p>';
+        } else {
+            el.innerHTML = quotes.map(q => `
+                <div class="card list-item" style="margin-bottom:10px;cursor:pointer;" onclick="viewQuote('${q.id}')">
+                    <div style="flex:1;">
+                        <div style="font-weight:600;">${escHtml(q.serviceType || 'Quote')}</div>
+                        <div style="font-size:0.85rem;color:var(--text-secondary);">${escHtml(q.customerName || 'No customer')} · ${formatDateShort(q.createdAt)}</div>
+                    </div>
+                    <div style="text-align:right;">
+                        <div style="font-weight:700;color:var(--accent);">${money(q.suggestedPrice)}</div>
+                        <span class="badge badge-${q.status === 'accepted' ? 'success' : q.status === 'declined' ? 'danger' : 'warning'}">${q.status || 'pending'}</span>
+                    </div>
+                </div>`).join('');
+        }
+    }
+
+    function calcQuickQuote() {
+        const svcEl = document.getElementById('qqService');
+        if (!svcEl) return;
+        const opt = svcEl.options[svcEl.selectedIndex];
+        const basePrice = Number(opt?.dataset?.base) || 0;
+        const minProfit = Number(opt?.dataset?.minprofit) || 25;
+        const miles = Number(document.getElementById('qqMiles')?.value) || 0;
+        const material = Number(document.getElementById('qqMaterial')?.value) || 0;
+        const heavy = document.getElementById('qqHeavy')?.checked;
+        const heavyMult = heavy ? (APP.settings?.heavyDutyMultiplier || 1.5) : 1;
+        const freeMiles = APP.settings?.freeMiles || 10;
+        const perMile = APP.settings?.perMileRate || 3;
+
+        const travel = Math.max(0, miles - freeMiles) * perMile;
+        let fees = 0;
+        if (document.getElementById('qqEmergency')?.checked) fees += APP.settings?.emergencyFee || 50;
+        if (document.getElementById('qqAfterHours')?.checked) fees += APP.settings?.afterHoursFee || 35;
+
+        const raw = (basePrice * heavyMult) + travel + fees;
+        const minAllowed = material + minProfit;
+        const suggested = Math.max(raw, minAllowed);
+        const profit = suggested - material;
+
+        APP.cache.lastQuote = { serviceType: svcEl.value, miles, material, heavy, suggested, basePrice, travel, fees, profit };
+
+        document.getElementById('qqResult').innerHTML = `
+            <div class="price-row"><span>Base Price</span><span>${money(basePrice * heavyMult)}</span></div>
+            <div class="price-row"><span>Travel</span><span>${money(travel)}</span></div>
+            ${fees > 0 ? `<div class="price-row"><span>Fees</span><span>${money(fees)}</span></div>` : ''}
+            <div class="price-row"><span>Materials</span><span>${money(material)}</span></div>
+            <div class="price-row" style="font-weight:700;font-size:1.1rem;border-top:1px solid var(--border);padding-top:8px;">
+                <span>Quote Price</span><span style="color:var(--accent);">${money(suggested)}</span>
+            </div>
+            <div class="price-row"><span>Est. Profit</span><span style="color:var(--success);">${money(profit)}</span></div>`;
+    }
+
+    async function saveQuote() {
+        const q = APP.cache.lastQuote;
+        if (!q) { calcQuickQuote(); }
+        const data = {
+            serviceType: q?.serviceType || document.getElementById('qqService')?.value,
+            customerName: '',
+            suggestedPrice: q?.suggested || 0,
+            materialCost: q?.material || 0,
+            miles: q?.miles || 0,
+            status: 'pending',
+            notes: '',
+            createdAt: serverTimestamp()
+        };
+        try {
+            await userRef('quotes').add(data);
+            showToast('Quote saved!', 'success');
+            renderQuotes();
+        } catch { showToast('Error saving quote.', 'error'); }
+    }
+
+    async function viewQuote(id) {
+        const doc = await userRef('quotes').doc(id).get();
+        if (!doc.exists()) return;
+        const q = { id: doc.id, ...doc.data() };
+        const quoteText = `Quote for ${q.serviceType}: ${money(q.suggestedPrice)}. Contact us to book!`;
+        openModal('Quote: ' + (q.serviceType || ''), `
+            <div class="price-breakdown">
+                <div class="price-row"><span>Service</span><span>${escHtml(q.serviceType)}</span></div>
+                <div class="price-row" style="font-weight:700;"><span>Price</span><span style="color:var(--accent);">${money(q.suggestedPrice)}</span></div>
+                <div class="price-row"><span>Status</span><span class="badge badge-${q.status === 'accepted' ? 'success' : q.status === 'declined' ? 'danger' : 'warning'}">${q.status}</span></div>
+            </div>
+            <div style="margin-top:16px;">
+                <label style="font-size:0.85rem;color:var(--text-secondary);">Share Text:</label>
+                <textarea id="quoteShareText" rows="2" style="margin-top:4px;">${escHtml(quoteText)}</textarea>
+            </div>`,
+            `<button class="btn btn-secondary" onclick="copyQuoteText()"><span class="material-icons">content_copy</span> Copy</button>
+            <button class="btn btn-primary" onclick="convertQuoteToJob('${q.id}')"><span class="material-icons">arrow_forward</span> Convert to Job</button>
+            <button class="btn btn-success" onclick="updateQuoteStatus('${q.id}','accepted')">Accept</button>
+            <button class="btn btn-danger" onclick="updateQuoteStatus('${q.id}','declined')">Decline</button>`);
+    }
+
+    function copyQuoteText() {
+        const text = document.getElementById('quoteShareText')?.value;
+        if (text) { navigator.clipboard.writeText(text).then(() => showToast('Copied!', 'success')).catch(() => showToast('Copy failed.', 'error')); }
+    }
+
+    async function convertQuoteToJob(id) {
+        const doc = await userRef('quotes').doc(id).get();
+        if (!doc.exists()) return;
+        const q = doc.data();
+        await userRef('quotes').doc(id).update({ status: 'accepted' });
+        closeModal();
+        renderJobForm({
+            serviceType: q.serviceType,
+            customerName: q.customerName || '',
+            materialCost: q.materialCost || 0,
+            finalPrice: q.suggestedPrice || 0
+        });
+    }
+
+    async function updateQuoteStatus(id, status) {
+        try {
+            await userRef('quotes').doc(id).update({ status });
+            closeModal();
+            showToast(`Quote ${status}.`, 'success');
+            renderQuotes();
+        } catch { showToast('Error.', 'error'); }
+    }
+
+    // ─── INVOICES ───────────────────────────────────────────────────────
+    async function renderInvoices() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = `
+        <div class="view-container">
+            <div class="view-header"><h2>Invoices</h2><button class="btn btn-sm btn-primary" onclick="showCreateInvoice()"><span class="material-icons">add</span> New</button></div>
+            <div id="invsList"><div style="text-align:center;padding:40px;"><div class="spinner"></div></div></div>
+        </div>`;
+
+        const snap = await userRef('invoices').orderBy('createdAt', 'desc').limit(100).get();
+        const invoices = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const el = document.getElementById('invsList');
+        if (invoices.length === 0) {
+            el.innerHTML = '<div class="empty-state"><span class="material-icons" style="font-size:48px;color:var(--text-tertiary);">receipt_long</span><p>No invoices yet</p></div>';
+            return;
+        }
+        el.innerHTML = invoices.map(inv => `
+            <div class="card list-item" style="margin-bottom:10px;cursor:pointer;" onclick="viewInvoice('${inv.id}')">
+                <div style="flex:1;">
+                    <div style="font-weight:600;">#${escHtml(inv.invoiceNumber || inv.id.slice(0, 6).toUpperCase())}</div>
+                    <div style="font-size:0.85rem;color:var(--text-secondary);">${escHtml(inv.customerName || 'Customer')} · ${formatDateShort(inv.createdAt)}</div>
+                </div>
+                <div style="text-align:right;">
+                    <div style="font-weight:700;color:var(--success);">${money(inv.amount)}</div>
+                    <span class="badge badge-${inv.status === 'paid' ? 'success' : 'warning'}">${inv.status || 'unpaid'}</span>
+                </div>
+            </div>`).join('');
+    }
+
+    async function createInvoiceFromJob(jobId) {
+        closeModal();
+        showLoading();
+        const doc = await userRef('jobs').doc(jobId).get();
+        if (!doc.exists()) { hideLoading(); return; }
+        const j = doc.data();
+        const invNum = 'INV-' + Date.now().toString(36).toUpperCase();
+        const data = {
+            invoiceNumber: invNum,
+            jobId: jobId,
+            customerName: j.customerName || '',
+            customerPhone: j.customerPhone || '',
+            serviceType: j.serviceType || '',
+            location: j.location || '',
+            tireSize: j.tireSize || '',
+            amount: Number(j.finalPrice) || 0,
+            materialCost: Number(j.materialCost) || 0,
+            notes: j.notes || '',
+            status: 'unpaid',
+            createdAt: serverTimestamp()
+        };
+        try {
+            const ref = await userRef('invoices').add(data);
+            hideLoading();
+            viewInvoice(ref.id);
+            showToast('Invoice created!', 'success');
+        } catch (err) {
+            hideLoading();
+            showToast('Error creating invoice.', 'error');
+        }
+    }
+
+    function showCreateInvoice() {
+        openModal('Create Invoice', `
+            <form id="newInvForm">
+                <div class="form-group"><label>Customer Name *</label><input type="text" id="niCust" required></div>
+                <div class="form-group"><label>Service</label><input type="text" id="niService"></div>
+                <div class="form-group"><label>Amount ($) *</label><input type="number" id="niAmount" min="0" step="0.01" required></div>
+                <div class="form-group"><label>Notes</label><textarea id="niNotes" rows="2"></textarea></div>
+                <div style="display:flex;gap:12px;"><button type="button" class="btn btn-secondary" style="flex:1;" onclick="closeModal()">Cancel</button><button type="submit" class="btn btn-primary" style="flex:1;">Create</button></div>
+            </form>`);
+        document.getElementById('newInvForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = {
+                invoiceNumber: 'INV-' + Date.now().toString(36).toUpperCase(),
+                customerName: document.getElementById('niCust').value.trim(),
+                serviceType: document.getElementById('niService').value.trim(),
+                amount: Number(document.getElementById('niAmount').value) || 0,
+                notes: document.getElementById('niNotes').value.trim(),
+                status: 'unpaid',
+                createdAt: serverTimestamp()
+            };
+            try { await userRef('invoices').add(data); closeModal(); showToast('Invoice created!', 'success'); renderInvoices(); }
+            catch { showToast('Error.', 'error'); }
+        });
+    }
+
+    async function viewInvoice(id) {
+        const doc = await userRef('invoices').doc(id).get();
+        if (!doc.exists()) return;
+        const inv = { id: doc.id, ...doc.data() };
+        const biz = APP.settings || {};
+        openModal('Invoice ' + (inv.invoiceNumber || ''), `
+            <div id="invoicePrintArea">
+                <div style="text-align:center;margin-bottom:24px;">
+                    ${biz.logoUrl ? `<img src="${escHtml(biz.logoUrl)}" style="max-height:60px;margin-bottom:8px;" alt="Logo">` : ''}
+                    <h2 style="color:var(--primary);">${escHtml(biz.businessName || 'Mobile Service OS')}</h2>
+                    ${biz.phone ? `<p style="color:var(--text-secondary);font-size:0.85rem;">${escHtml(biz.phone)}</p>` : ''}
+                </div>
+                <div style="display:flex;justify-content:space-between;margin-bottom:20px;">
+                    <div><strong>Invoice</strong> #${escHtml(inv.invoiceNumber || '')}<br><span style="font-size:0.85rem;color:var(--text-secondary);">${formatDate(inv.createdAt)}</span></div>
+                    <span class="badge badge-${inv.status === 'paid' ? 'success' : 'warning'}" style="height:fit-content;">${inv.status || 'unpaid'}</span>
+                </div>
+                <div class="price-breakdown">
+                    <div class="price-row"><span>Customer</span><span>${escHtml(inv.customerName || '—')}</span></div>
+                    ${inv.serviceType ? `<div class="price-row"><span>Service</span><span>${escHtml(inv.serviceType)}</span></div>` : ''}
+                    ${inv.location ? `<div class="price-row"><span>Location</span><span>${escHtml(inv.location)}</span></div>` : ''}
+                    ${inv.tireSize ? `<div class="price-row"><span>Tire</span><span>${escHtml(inv.tireSize)}</span></div>` : ''}
+                    ${inv.materialCost > 0 ? `<div class="price-row"><span>Materials</span><span>${money(inv.materialCost)}</span></div>` : ''}
+                    <div class="price-row" style="font-weight:700;font-size:1.2rem;border-top:2px solid var(--border);padding-top:12px;"><span>Total Due</span><span style="color:var(--success);">${money(inv.amount)}</span></div>
+                </div>
+                ${inv.notes ? `<p style="margin-top:12px;color:var(--text-secondary);font-size:0.875rem;">${escHtml(inv.notes)}</p>` : ''}
+                <p style="margin-top:20px;text-align:center;color:var(--text-tertiary);font-size:0.8rem;">${escHtml(biz.invoiceFooter || 'Thank you for your business!')}</p>
+            </div>`,
+            `<button class="btn btn-secondary" onclick="toggleInvoiceStatus('${inv.id}','${inv.status}')"><span class="material-icons">${inv.status === 'paid' ? 'money_off' : 'payments'}</span> ${inv.status === 'paid' ? 'Mark Unpaid' : 'Mark Paid'}</button>
+            <button class="btn btn-secondary" onclick="printInvoice()"><span class="material-icons">print</span> Print</button>
+            <button class="btn btn-secondary" onclick="copyInvoiceText('${inv.id}')"><span class="material-icons">content_copy</span> Copy</button>
+            <button class="btn btn-danger" onclick="deleteInvoice('${inv.id}')"><span class="material-icons">delete</span></button>`);
+    }
+
+    async function toggleInvoiceStatus(id, current) {
+        const newStatus = current === 'paid' ? 'unpaid' : 'paid';
+        try {
+            await userRef('invoices').doc(id).update({ status: newStatus });
+            closeModal();
+            showToast(`Invoice marked as ${newStatus}.`, 'success');
+            renderInvoices();
+        } catch { showToast('Error.', 'error'); }
+    }
+
+    function printInvoice() { window.print(); }
+
+    async function copyInvoiceText(id) {
+        const doc = await userRef('invoices').doc(id).get();
+        if (!doc.exists()) return;
+        const inv = doc.data();
+        const biz = APP.settings || {};
+        const text = `INVOICE #${inv.invoiceNumber}\n${biz.businessName}\n${biz.phone || ''}\n\nCustomer: ${inv.customerName}\nService: ${inv.serviceType || ''}\nAmount: ${money(inv.amount)}\nStatus: ${inv.status}\n\n${biz.invoiceFooter || 'Thank you!'}`;
+        navigator.clipboard.writeText(text).then(() => showToast('Invoice copied!', 'success')).catch(() => showToast('Copy failed.', 'error'));
+    }
+
+    async function deleteInvoice(id) {
+        if (!confirm('Delete this invoice?')) return;
+        try { await userRef('invoices').doc(id).delete(); closeModal(); showToast('Deleted.', 'info'); renderInvoices(); }
+        catch { showToast('Error.', 'error'); }
+    }
+
+    // ─── REVIEW REQUESTS ────────────────────────────────────────────────
+    function generateReviewRequest() {
+        const biz = APP.settings || {};
+        if (!biz.reviewLink) { showToast('Set your review link in Settings first.', 'warning'); return; }
+        const defaultMsg = `Hi! Thank you for choosing ${biz.businessName}! If you had a great experience, we'd really appreciate a quick review:\n${biz.reviewLink}\n\nThank you!`;
+        openModal('Review Request', `
+            <p style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:12px;">Customize and share your review request:</p>
+            <textarea id="reviewMsg" rows="5">${escHtml(defaultMsg)}</textarea>
+            <div style="display:flex;gap:12px;margin-top:16px;">
+                <button class="btn btn-primary" style="flex:1;" onclick="copyReviewMsg()"><span class="material-icons">content_copy</span> Copy</button>
+                <button class="btn btn-secondary" style="flex:1;" onclick="shareReviewMsg()"><span class="material-icons">share</span> Share</button>
+            </div>`);
+    }
+
+    function sendReviewToCustomer(name, phone) {
+        const biz = APP.settings || {};
+        const msg = `Hi ${name}! Thank you for choosing ${biz.businessName}! We'd love your feedback:\n${biz.reviewLink}`;
+        closeModal();
+        openModal('Review Request for ' + name, `
+            <textarea id="reviewMsg" rows="4">${escHtml(msg)}</textarea>
+            <div style="display:flex;gap:12px;margin-top:16px;">
+                <button class="btn btn-primary" style="flex:1;" onclick="copyReviewMsg()"><span class="material-icons">content_copy</span> Copy</button>
+                ${phone ? `<a class="btn btn-success" style="flex:1;text-decoration:none;text-align:center;" href="sms:${escHtml(phone)}?body=${encodeURIComponent(msg)}"><span class="material-icons">sms</span> SMS</a>` : ''}
+            </div>`);
+    }
+
+    function copyReviewMsg() {
+        const text = document.getElementById('reviewMsg')?.value;
+        if (text) navigator.clipboard.writeText(text).then(() => showToast('Copied!', 'success')).catch(() => showToast('Copy failed.', 'error'));
+    }
+
+    function shareReviewMsg() {
+        const text = document.getElementById('reviewMsg')?.value;
+        if (navigator.share && text) {
+            navigator.share({ text }).catch(() => {});
+        } else {
+            copyReviewMsg();
+        }
+    }
+
+    // ─── MORE MENU ──────────────────────────────────────────────────────
+    function renderMore() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = `
+        <div class="view-container">
+            <div class="view-header"><h2>More</h2></div>
+            <div style="display:flex;flex-direction:column;gap:10px;">
+                <div class="card list-item" style="cursor:pointer;" onclick="navigateTo('expenses')">
+                    <span class="material-icons" style="color:var(--warning);margin-right:12px;">receipt</span>
+                    <span style="font-weight:600;">Expenses</span>
+                    <span class="material-icons" style="margin-left:auto;color:var(--text-tertiary);">chevron_right</span>
+                </div>
+                <div class="card list-item" style="cursor:pointer;" onclick="navigateTo('customers')">
+                    <span class="material-icons" style="color:var(--accent);margin-right:12px;">people</span>
+                    <span style="font-weight:600;">Customers</span>
+                    <span class="material-icons" style="margin-left:auto;color:var(--text-tertiary);">chevron_right</span>
+                </div>
+                <div class="card list-item" style="cursor:pointer;" onclick="navigateTo('quotes')">
+                    <span class="material-icons" style="color:var(--primary);margin-right:12px;">calculate</span>
+                    <span style="font-weight:600;">Quotes</span>
+                    <span class="material-icons" style="margin-left:auto;color:var(--text-tertiary);">chevron_right</span>
+                </div>
+                <div class="card list-item" style="cursor:pointer;" onclick="navigateTo('invoices')">
+                    <span class="material-icons" style="color:var(--success);margin-right:12px;">receipt_long</span>
+                    <span style="font-weight:600;">Invoices</span>
+                    <span class="material-icons" style="margin-left:auto;color:var(--text-tertiary);">chevron_right</span>
+                </div>
+                <div class="card list-item" style="cursor:pointer;" onclick="navigateTo('settings')">
+                    <span class="material-icons" style="color:var(--text-secondary);margin-right:12px;">settings</span>
+                    <span style="font-weight:600;">Settings</span>
+                    <span class="material-icons" style="margin-left:auto;color:var(--text-tertiary);">chevron_right</span>
+                </div>
+                <div class="card list-item" style="cursor:pointer;" onclick="doSignOut()">
+                    <span class="material-icons" style="color:var(--danger);margin-right:12px;">logout</span>
+                    <span style="font-weight:600;color:var(--danger);">Sign Out</span>
+                </div>
+            </div>
+        </div>`;
+    }
+
+    // ─── SETTINGS ───────────────────────────────────────────────────────
+    function renderSettings() {
+        const s = APP.settings || {};
+        const main = document.getElementById('mainContent');
+        main.innerHTML = `
+        <div class="view-container" style="max-width:700px;margin:0 auto;">
+            <div class="view-header">
+                <button class="btn btn-sm btn-secondary" onclick="navigateTo('more')"><span class="material-icons">arrow_back</span> Back</button>
+                <h2>Settings</h2>
+            </div>
+
+            <div class="tabs" style="margin-bottom:20px;">
+                <button class="tab active" data-tab="business">Business</button>
+                <button class="tab" data-tab="pricing">Pricing</button>
+                <button class="tab" data-tab="services">Services</button>
+                <button class="tab" data-tab="other">Other</button>
+            </div>
+
+            <!-- Business Tab -->
+            <div class="tab-content active" id="tab-business">
+                <div class="card">
+                    <h3 style="margin-bottom:16px;">Business Profile</h3>
+                    <div class="form-group"><label>Business Name</label><input type="text" id="sBizName" value="${escHtml(s.businessName || '')}"></div>
+                    <div class="form-row" style="grid-template-columns:1fr 1fr;">
+                        <div class="form-group"><label>Phone</label><input type="tel" id="sBizPhone" value="${escHtml(s.phone || '')}"></div>
+                        <div class="form-group"><label>Email</label><input type="email" id="sBizEmail" value="${escHtml(s.email || '')}"></div>
+                    </div>
+                    <div class="form-group"><label>Base Location</label><input type="text" id="sBizBase" value="${escHtml(s.baseLocation || '')}"></div>
+                    <div class="form-group"><label>Logo URL</label><input type="url" id="sBizLogo" value="${escHtml(s.logoUrl || '')}" placeholder="https://..."></div>
+                    <div class="form-group"><label>Website</label><input type="url" id="sBizWeb" value="${escHtml(s.websiteLink || '')}"></div>
+                    <div class="form-group"><label>Business Type</label>
+                        <select id="sBizType">
+                            <option value="mobile_tire" ${s.businessType === 'mobile_tire' ? 'selected' : ''}>Mobile Tire Service</option>
+                            <option value="roadside" ${s.businessType === 'roadside' ? 'selected' : ''}>Roadside Assistance</option>
+                            <option value="mobile_mechanic" ${s.businessType === 'mobile_mechanic' ? 'selected' : ''}>Mobile Mechanic</option>
+                            <option value="general_mobile" ${s.businessType === 'general_mobile' ? 'selected' : ''}>General Mobile Service</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="card" style="margin-top:16px;">
+                    <h3 style="margin-bottom:16px;">Branding</h3>
+                    <div class="form-row" style="grid-template-columns:1fr 1fr;">
+                        <div class="form-group"><label>Primary Color</label><input type="color" id="sPrimary" value="${s.primaryColor || '#6c5ce7'}" style="height:48px;"></div>
+                        <div class="form-group"><label>Accent Color</label><input type="color" id="sAccent" value="${s.accentColor || '#00cec9'}" style="height:48px;"></div>
+                    </div>
+                </div>
+                <div class="card" style="margin-top:16px;">
+                    <h3 style="margin-bottom:16px;">Invoice Settings</h3>
+                    <div class="form-group"><label>Invoice Footer</label><input type="text" id="sInvFooter" value="${escHtml(s.invoiceFooter || '')}"></div>
+                    <div class="form-group"><label>Review Link</label><input type="url" id="sReview" value="${escHtml(s.reviewLink || '')}" placeholder="https://g.page/..."></div>
+                </div>
+            </div>
+
+            <!-- Pricing Tab -->
+            <div class="tab-content" id="tab-pricing">
+                <div class="card">
+                    <h3 style="margin-bottom:16px;">Mileage & Travel</h3>
+                    <div class="form-row" style="grid-template-columns:1fr 1fr;">
+                        <div class="form-group"><label>Free Miles</label><input type="number" id="sFreeMiles" value="${s.freeMiles || 10}" min="0"></div>
+                        <div class="form-group"><label>Per Mile Rate ($)</label><input type="number" id="sPerMile" value="${s.perMileRate || 3}" step="0.50" min="0"></div>
+                    </div>
+                </div>
+                <div class="card" style="margin-top:16px;">
+                    <h3 style="margin-bottom:16px;">Vehicle Multipliers</h3>
+                    <div class="form-row" style="grid-template-columns:1fr 1fr;">
+                        <div class="form-group"><label>Standard Multiplier</label><input type="number" id="sVehMult" value="${s.vehicleMultiplier || 1}" step="0.1" min="0.5"></div>
+                        <div class="form-group"><label>Heavy-Duty Multiplier</label><input type="number" id="sHeavyMult" value="${s.heavyDutyMultiplier || 1.5}" step="0.1" min="1"></div>
+                    </div>
+                </div>
+                <div class="card" style="margin-top:16px;">
+                    <h3 style="margin-bottom:16px;">Fees</h3>
+                    <div class="form-row" style="grid-template-columns:1fr 1fr;">
+                        <div class="form-group"><label>Emergency Fee ($)</label><input type="number" id="sEmergFee" value="${s.emergencyFee || 50}" min="0"></div>
+                        <div class="form-group"><label>After Hours Fee ($)</label><input type="number" id="sAfterFee" value="${s.afterHoursFee || 35}" min="0"></div>
+                    </div>
+                    <div class="form-row" style="grid-template-columns:1fr 1fr;">
+                        <div class="form-group"><label>Sunday Fee ($)</label><input type="number" id="sSunFee" value="${s.sundayFee || 25}" min="0"></div>
+                        <div class="form-group"><label>Holiday Fee ($)</label><input type="number" id="sHolFee" value="${s.holidayFee || 50}" min="0"></div>
+                    </div>
+                </div>
+                <div class="card" style="margin-top:16px;">
+                    <h3 style="margin-bottom:16px;">Profit Protection</h3>
+                    <div class="form-group"><label>Global Minimum Profit ($)</label><input type="number" id="sMinProfit" value="${s.minimumProfit || 25}" min="0"></div>
+                    <p style="color:var(--text-tertiary);font-size:0.8rem;">Per-service minimums override this in the Services tab.</p>
+                </div>
+            </div>
+
+            <!-- Services Tab -->
+            <div class="tab-content" id="tab-services">
+                <div class="card">
+                    <h3 style="margin-bottom:16px;">Service Configuration</h3>
+                    <div id="servicesList"></div>
+                    <button class="btn btn-secondary" style="margin-top:12px;width:100%;" onclick="addNewService()"><span class="material-icons">add</span> Add Service</button>
+                </div>
+            </div>
+
+            <!-- Other Tab -->
+            <div class="tab-content" id="tab-other">
+                <div class="card">
+                    <h3 style="margin-bottom:16px;">Expense Categories</h3>
+                    <div class="form-group">
+                        <label>Categories (comma separated)</label>
+                        <input type="text" id="sExpCats" value="${escHtml((s.expenseCategories || []).join(', '))}">
+                    </div>
+                </div>
+                <div class="card" style="margin-top:16px;">
+                    <h3 style="margin-bottom:16px;">Service Areas</h3>
+                    <div class="form-group">
+                        <label>Areas (comma separated)</label>
+                        <input type="text" id="sAreas" value="${escHtml((s.serviceAreas || []).join(', '))}">
+                    </div>
+                </div>
+                <div class="card" style="margin-top:16px;">
+                    <h3 style="margin-bottom:16px;">Account</h3>
+                    <p style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:12px;">Signed in as: ${escHtml(APP.user?.email)}</p>
+                    <p style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:12px;">Role: ${escHtml(s.role || 'owner')}</p>
+                    <button class="btn btn-danger" onclick="doSignOut()"><span class="material-icons">logout</span> Sign Out</button>
+                </div>
+                <div class="card" style="margin-top:16px;">
+                    <h3 style="margin-bottom:16px;">Data</h3>
+                    <button class="btn btn-secondary" onclick="exportData()" style="width:100%;"><span class="material-icons">download</span> Export All Data (JSON)</button>
+                </div>
+            </div>
+
+            <button class="btn btn-primary" style="width:100%;margin-top:24px;padding:16px;" onclick="saveSettings()">
+                <span class="material-icons">save</span> Save All Settings
+            </button>
+        </div>`;
+
+        // Tab switching
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById('tab-' + tab.dataset.tab)?.classList.add('active');
+            });
+        });
+
+        // Render services list
+        renderServicesConfig();
+    }
+
+    function renderServicesConfig() {
+        const services = APP.settings?.services || [];
+        const el = document.getElementById('servicesList');
+        if (!el) return;
+        el.innerHTML = services.map((s, i) => `
+            <div class="card" style="margin-bottom:10px;padding:12px;background:var(--bg-primary);">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <span class="material-icons" style="color:var(--primary);">${escHtml(s.icon || 'build')}</span>
+                        <strong>${escHtml(s.name)}</strong>
+                    </div>
+                    <label class="toggle-label"><input type="checkbox" class="svc-enabled" data-idx="${i}" ${s.enabled ? 'checked' : ''}><span class="toggle"></span></label>
+                </div>
+                <div class="form-row" style="grid-template-columns:1fr 1fr 1fr;gap:8px;">
+                    <div class="form-group" style="margin:0;"><label style="font-size:0.75rem;">Base $</label><input type="number" class="svc-base" data-idx="${i}" value="${s.basePrice || 0}" min="0" style="padding:6px 8px;font-size:0.85rem;"></div>
+                    <div class="form-group" style="margin:0;"><label style="font-size:0.75rem;">Min Profit $</label><input type="number" class="svc-minprofit" data-idx="${i}" value="${s.minProfit || 25}" min="0" style="padding:6px 8px;font-size:0.85rem;"></div>
+                    <div class="form-group" style="margin:0;"><label style="font-size:0.75rem;">Icon</label><input type="text" class="svc-icon" data-idx="${i}" value="${escHtml(s.icon || 'build')}" style="padding:6px 8px;font-size:0.85rem;"></div>
+                </div>
+                <div style="display:flex;gap:12px;margin-top:8px;">
+                    <label class="toggle-label" style="font-size:0.8rem;"><input type="checkbox" class="svc-permile" data-idx="${i}" ${s.perMile ? 'checked' : ''}><span class="toggle"></span> Per-mile</label>
+                    <label class="toggle-label" style="font-size:0.8rem;"><input type="checkbox" class="svc-heavy" data-idx="${i}" ${s.heavyDuty ? 'checked' : ''}><span class="toggle"></span> Heavy-duty</label>
+                    <label class="toggle-label" style="font-size:0.8rem;"><input type="checkbox" class="svc-tire" data-idx="${i}" ${s.tireRelated ? 'checked' : ''}><span class="toggle"></span> Tire</label>
+                    <button class="btn-icon" style="margin-left:auto;color:var(--danger);" onclick="removeService(${i})"><span class="material-icons">delete</span></button>
+                </div>
+            </div>`).join('');
+    }
+
+    function addNewService() {
+        APP.settings.services.push({ id: 's' + Date.now(), name: 'New Service', icon: 'build', basePrice: 50, minProfit: 25, enabled: true, perMile: true, heavyDuty: false, tireRelated: false });
+        renderServicesConfig();
+    }
+
+    function removeService(idx) {
+        if (!confirm('Remove this service?')) return;
+        APP.settings.services.splice(idx, 1);
+        renderServicesConfig();
+    }
+
+    async function saveSettings() {
+        showLoading();
+        // Collect services from DOM
+        const services = (APP.settings?.services || []).map((s, i) => ({
+            ...s,
+            enabled: document.querySelector(`.svc-enabled[data-idx="${i}"]`)?.checked ?? s.enabled,
+            basePrice: Number(document.querySelector(`.svc-base[data-idx="${i}"]`)?.value) || s.basePrice,
+            minProfit: Number(document.querySelector(`.svc-minprofit[data-idx="${i}"]`)?.value) || s.minProfit,
+            icon: document.querySelector(`.svc-icon[data-idx="${i}"]`)?.value || s.icon,
+            perMile: document.querySelector(`.svc-permile[data-idx="${i}"]`)?.checked ?? s.perMile,
+            heavyDuty: document.querySelector(`.svc-heavy[data-idx="${i}"]`)?.checked ?? s.heavyDuty,
+            tireRelated: document.querySelector(`.svc-tire[data-idx="${i}"]`)?.checked ?? s.tireRelated,
+        }));
+
+        const updates = {
+            businessName: document.getElementById('sBizName')?.value?.trim() || APP.settings.businessName,
+            phone: document.getElementById('sBizPhone')?.value?.trim() || '',
+            email: document.getElementById('sBizEmail')?.value?.trim() || '',
+            baseLocation: document.getElementById('sBizBase')?.value?.trim() || '',
+            logoUrl: document.getElementById('sBizLogo')?.value?.trim() || '',
+            websiteLink: document.getElementById('sBizWeb')?.value?.trim() || '',
+            businessType: document.getElementById('sBizType')?.value || 'mobile_tire',
+            primaryColor: document.getElementById('sPrimary')?.value || '#6c5ce7',
+            accentColor: document.getElementById('sAccent')?.value || '#00cec9',
+            invoiceFooter: document.getElementById('sInvFooter')?.value?.trim() || '',
+            reviewLink: document.getElementById('sReview')?.value?.trim() || '',
+            freeMiles: Number(document.getElementById('sFreeMiles')?.value) || 10,
+            perMileRate: Number(document.getElementById('sPerMile')?.value) || 3,
+            vehicleMultiplier: Number(document.getElementById('sVehMult')?.value) || 1,
+            heavyDutyMultiplier: Number(document.getElementById('sHeavyMult')?.value) || 1.5,
+            emergencyFee: Number(document.getElementById('sEmergFee')?.value) || 50,
+            afterHoursFee: Number(document.getElementById('sAfterFee')?.value) || 35,
+            sundayFee: Number(document.getElementById('sSunFee')?.value) || 25,
+            holidayFee: Number(document.getElementById('sHolFee')?.value) || 50,
+            minimumProfit: Number(document.getElementById('sMinProfit')?.value) || 25,
+            expenseCategories: (document.getElementById('sExpCats')?.value || '').split(',').map(c => c.trim()).filter(Boolean),
+            serviceAreas: (document.getElementById('sAreas')?.value || '').split(',').map(a => a.trim()).filter(Boolean),
+            services: services,
+            updatedAt: serverTimestamp()
+        };
+
+        try {
+            await settingsRef().update(updates);
+            Object.assign(APP.settings, updates);
+            applyBranding();
+            showToast('Settings saved!', 'success');
+        } catch (err) {
+            console.error('Save settings error:', err);
+            showToast('Error saving settings.', 'error');
+        }
+        hideLoading();
+    }
+
+    async function exportData() {
+        showLoading();
+        try {
+            const collections = ['jobs', 'inventory', 'expenses', 'customers', 'invoices', 'quotes'];
+            const data = { settings: APP.settings, exportDate: new Date().toISOString() };
+            for (const col of collections) {
+                const snap = await userRef(col).get();
+                data[col] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            }
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = `mobile-service-os-export-${new Date().toISOString().split('T')[0]}.json`;
+            a.click(); URL.revokeObjectURL(url);
+            showToast('Data exported!', 'success');
+        } catch (err) { showToast('Export failed.', 'error'); }
+        hideLoading();
+    }
+
+    // ─── Debounce Utility ───────────────────────────────────────────────
+    function debounce(fn, ms) {
+        let timer;
+        return function(...args) { clearTimeout(timer); timer = setTimeout(() => fn.apply(this, args), ms); };
+    }
+
+    // ─── Sign Out Helper (used by onclick in HTML) ────────────────────
+    function doSignOut() { signOut(auth); closeModal(); }
+
+    // ─── Expose Functions to Global Scope (required for onclick attrs) ──
+    // In a <script type="module">, functions are module-scoped.
+    // onclick="" attributes can only call window-level functions.
+    Object.assign(window, {
+        // Auth
+        showLoginForm, showRegisterForm, showForgotPasswordForm, doSignOut,
+        // Navigation
+        navigateTo, closeModal,
+        // Onboarding
+        skipOnboarding, finishOnboarding,
+        // Jobs
+        viewJob, editJobById, completeJob, deleteJob, createInvoiceFromJob,
+        // Inventory
+        showAddInventory, viewInventoryItem, editInventoryItem, deleteInventoryItem,
+        bulkImportInventory, processBulkImport,
+        // Expenses
+        showAddExpense, viewExpense, editExpenseById, deleteExpense,
+        // Customers
+        showAddCustomer, viewCustomer, editCustomerById, deleteCustomer,
+        createJobForCustomer, sendReviewToCustomer,
+        // Quotes
+        calcQuickQuote, saveQuote, viewQuote, convertQuoteToJob,
+        updateQuoteStatus, copyQuoteText,
+        // Invoices
+        showCreateInvoice, viewInvoice, toggleInvoiceStatus, printInvoice,
+        copyInvoiceText, deleteInvoice,
+        // Reviews
+        generateReviewRequest, copyReviewMsg, shareReviewMsg,
+        // Settings
+        saveSettings, addNewService, removeService, exportData,
+    });
+
+    // ─── App Init Complete ──────────────────────────────────────────────
+    console.log('Mobile Service OS loaded — Firebase modular SDK v10.');
+    </script>
+</body>
+</html>
