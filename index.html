@@ -1570,7 +1570,7 @@
        ======================================================================== */
 
     // ─── Firebase Modular SDK Imports ───────────────────────────────────
-    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+    import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
     import {
         getAuth,
         onAuthStateChanged,
@@ -1580,11 +1580,9 @@
         signInWithPopup,
         signOut,
         GoogleAuthProvider
-    } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
+    } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
     import {
-        initializeFirestore,
-        persistentLocalCache,
-        persistentMultipleTabManager,
+        getFirestore,
         collection,
         doc,
         getDoc,
@@ -1599,64 +1597,33 @@
         limit,
         serverTimestamp,
         Timestamp
-    } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+    } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
     // ─── Firebase Configuration ─────────────────────────────────────────
-    // REPLACE these placeholder values with your real Firebase project config.
-    // Find them at: Firebase Console → Project Settings → General → Your apps → Web app
     const firebaseConfig = {
-        apiKey:            "YOUR_API_KEY",
-        authDomain:        "YOUR_PROJECT.firebaseapp.com",
-        projectId:         "YOUR_PROJECT_ID",
-        storageBucket:     "YOUR_PROJECT.appspot.com",
-        messagingSenderId: "YOUR_SENDER_ID",
-        appId:             "YOUR_APP_ID"
+        apiKey: "AIzaSyDpe9pVejH1EFZmQYv04sgtZBoLxqM6lW0",
+        authDomain: "mobile-service-os.firebaseapp.com",
+        projectId: "mobile-service-os",
+        storageBucket: "mobile-service-os.firebasestorage.app",
+        messagingSenderId: "77527561910",
+        appId: "1:77527561910:web:4a0c65c0203d403f4f5817"
     };
 
-    // ─── Firebase Initialization (single call, fail-safe) ───────────────
-    let app, auth, db;
-    try {
-        const isPlaceholder = firebaseConfig.apiKey === "YOUR_API_KEY" || !firebaseConfig.apiKey;
-        if (isPlaceholder) {
-            throw new Error('FIREBASE_NOT_CONFIGURED');
-        }
-        app  = initializeApp(firebaseConfig);
-        auth = getAuth(app);
+    // ─── Firebase Initialization (safe — prevents duplicate init) ───────
+    const app = getApps().length === 0
+        ? initializeApp(firebaseConfig)
+        : getApps()[0];
 
-        // Initialize Firestore with multi-tab offline persistence
-        db = initializeFirestore(app, {
-            localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
-        });
+    const auth     = getAuth(app);
+    const db       = getFirestore(app);
+    const provider = new GoogleAuthProvider();
 
-        console.log('Firebase initialized successfully.');
-    } catch (initError) {
-        console.error('Firebase init failed:', initError);
-        // Show user-friendly error instead of crashing
-        const el = document.getElementById('authScreen');
-        if (el) {
-            const card = el.querySelector('.auth-card');
-            if (card) {
-                card.innerHTML = `
-                    <div style="text-align:center;padding:32px 20px;">
-                        <span class="material-icons" style="font-size:56px;color:var(--danger);">error_outline</span>
-                        <h2 style="margin-top:16px;color:var(--text-primary);">Firebase Not Configured</h2>
-                        <p style="margin-top:12px;color:var(--text-secondary);line-height:1.6;">
-                            This app requires a Firebase project to run.<br>
-                            Open <code>app.html</code> and replace the <code>firebaseConfig</code> placeholder values
-                            with your real Firebase project credentials.
-                        </p>
-                        <div style="margin-top:20px;padding:16px;background:var(--bg-tertiary);border-radius:var(--radius-md);text-align:left;font-family:monospace;font-size:0.8rem;color:var(--accent);overflow-x:auto;">
-                            apiKey: "your-real-key"<br>
-                            authDomain: "your-project.firebaseapp.com"<br>
-                            projectId: "your-project-id"<br>
-                            ...
-                        </div>
-                    </div>`;
-            }
-        }
-        // Halt execution — nothing below can work without Firebase
-        throw initError;
-    }
+    // Make available globally for debugging
+    window.firebaseApp  = app;
+    window.firebaseAuth = auth;
+    window.firebaseDB   = db;
+
+    console.log('Firebase initialized — project:', firebaseConfig.projectId);
 
     // ─── Firestore Helpers (modular SDK with compat-style chaining) ────
     // Wrapper that lets existing code call userRef('jobs').orderBy(...).limit(...).get()
@@ -1914,7 +1881,6 @@
 
     async function googleSignIn() {
         try {
-            const provider = new GoogleAuthProvider();
             const cred = await signInWithPopup(auth, provider);
             const settingsSnap = await settingsRef(cred.user.uid).get();
             if (!settingsSnap.exists()) {
