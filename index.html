@@ -651,14 +651,54 @@ let _app, _db, _auth;
 /* ────────────────────────────────────────────────────────────────────────────
    MULTI-TENANT FIRESTORE LAYER
 
-   Every read/write is scoped to users/{uid}/... — never to a global collection.
-   This is the single biggest architectural change vs. the original app.
+   Every read/write is scoped to businesses/{businessId}/... — the businessId
+   is resolved from the user's profile (users/{uid}.businessId) at sign-in
+   and cached in _businessIdByUid.
+
+   For users who haven't been migrated yet, businessId equals their uid
+   (preserving back-compat: businesses/{uid}/* is treated as the migrated
+   tenant). The migration function performs the data move and updates
+   users/{uid}.businessId atomically.
    ──────────────────────────────────────────────────────────────────────────── */
+
+// Runtime cache: uid → businessId. Populated by the auth listener after
+// reading the user profile. Helpers below check this map; if no entry,
+// they fall back to using uid as businessId (so unsigned data writes
+// during local-only mode still work).
+const _businessIdByUid = {};
+
+// Resolve the active business for a given uid. Falls back to uid for
+// back-compat with users who haven't synced their profile yet.
+function resolveBusinessId(uid) {
+  if (!uid) return null;
+  return _businessIdByUid[uid] || uid;
+}
+
+// Set the active business id for a uid (called from the auth listener
+// after profile loads). Idempotent.
+function setActiveBusinessId(uid, businessId) {
+  if (!uid || !businessId) return;
+  _businessIdByUid[uid] = businessId;
+}
+
+// User profile doc — still keyed by uid (billing, role, businessId here).
 const userDoc     = (uid) => (_db && uid) ? _db.collection("users").doc(uid) : null;
-const tJobsCol    = (uid) => (_db && uid) ? _db.collection("users").doc(uid).collection("jobs") : null;
-const tInvCol     = (uid) => (_db && uid) ? _db.collection("users").doc(uid).collection("inventory") : null;
-const tExpCol     = (uid) => (_db && uid) ? _db.collection("users").doc(uid).collection("expenses") : null;
-const tSettingDoc = (uid) => (_db && uid) ? _db.collection("users").doc(uid).collection("settings").doc("main") : null;
+
+// Business doc — for shared business data. Uses resolveBusinessId so
+// callers can pass uid (legacy) and get the right business automatically.
+const businessDoc = (uid) => {
+  const bid = resolveBusinessId(uid);
+  return (_db && bid) ? _db.collection("businesses").doc(bid) : null;
+};
+
+// Collection helpers — all rooted at businesses/{businessId}/...
+// Pre-migration, businessId === uid so reads/writes go to the same place
+// the migration target. Post-migration, they go to the new business doc.
+const tJobsCol    = (uid) => { const b = businessDoc(uid); return b ? b.collection("jobs") : null; };
+const tInvCol     = (uid) => { const b = businessDoc(uid); return b ? b.collection("inventory") : null; };
+const tExpCol     = (uid) => { const b = businessDoc(uid); return b ? b.collection("expenses") : null; };
+const tSettingDoc = (uid) => { const b = businessDoc(uid); return b ? b.collection("settings").doc("main") : null; };
+const tCounterDoc = (uid) => { const b = businessDoc(uid); return b ? b.collection("counters").doc("jobsByMonth") : null; };
 
 async function fbSet(col, id, data) {
   if (!col) return;
@@ -1668,6 +1708,13 @@ function OnboardingFlow({ user, onComplete }) {
         weeklyGoal:   Number(data.weeklyGoal) || 1200,
         defaultTargetProfit: Number(data.targetProfit) || 100,
       };
+      // Diagnostic log so silent failures can be traced from devtools
+      console.log("[onboarding] saving profile", {
+        uid: user && user.uid,
+        bizTypeId: settings.bizTypeId,
+        serviceAreas: settings.serviceAreas.length,
+        hasLogo: !!settings.brandLogo,
+      });
       // Persist locally so app doesn't bounce back to onboarding while we
       // wait for the server-side completion. The local write is also our
       // offline fallback if the user finishes onboarding without network.
@@ -1675,18 +1722,15 @@ function OnboardingFlow({ user, onComplete }) {
       if (_uid) persistTenant(KEYS.settings, _uid, settings);
       else      persist(KEYS.settings, settings); // local-only mode
 
+      // Track whether we successfully persisted to Firestore. If neither
+      // the Cloud Function NOR the direct fallback writes succeed, we MUST
+      // surface an error to the user — otherwise they think onboarding
+      // worked but on next login they'll bounce back to onboarding.
+      let saved = isLocalUser(user); // local-only mode counts as "saved"
+
       if (!isLocalUser(user) && _auth && _auth.currentUser) {
-        // Call the server endpoint that flips `onboarded: true` and writes
-        // settings with admin SDK. This is preferred over a direct Firestore
-        // write because:
-        //   1. The new strict rules forbid the client from setting billing
-        //      fields. The completeOnboarding function ONLY touches non-
-        //      billing fields, so it would work without admin SDK — but
-        //      having it server-side gives us a single audit point and lets
-        //      us add validation (e.g., business-name uniqueness) later
-        //      without a client release.
-        //   2. The settings sub-doc gets written atomically with the
-        //      profile flag flip. No half-onboarded state.
+        // Try Cloud Function first (preferred — server validation, atomic
+        // settings + profile writes, sets businessId + role atomically).
         try {
           const token = await _auth.currentUser.getIdToken();
           const endpoint = (CFG.stripe && CFG.stripe.checkoutEndpoint || "")
@@ -1706,11 +1750,23 @@ function OnboardingFlow({ user, onComplete }) {
                 defaultTargetProfit: settings.defaultTargetProfit,
               }),
             });
-            if (!res.ok) throw new Error("completeOnboarding failed: " + res.status);
+            if (!res.ok) {
+              const text = await res.text().catch(() => "");
+              throw new Error("completeOnboarding HTTP " + res.status + ": " + text);
+            }
+            const respData = await res.json().catch(() => ({}));
+            console.log("[onboarding] saved via Cloud Function", respData);
+            saved = true;
           } else {
-            // No completeOnboarding endpoint configured — fall back to
-            // direct write of non-billing fields only. Billing fields are
-            // server-managed by onUserCreate.
+            // No Cloud Function endpoint configured — go straight to fallback
+            throw new Error("no_endpoint_configured");
+          }
+        } catch (cfErr) {
+          console.warn("[onboarding] Cloud Function save failed, trying direct write:", cfErr.message);
+          // Direct-write fallback. This must NOT silently swallow errors —
+          // if rules block the write or network is offline, the user needs
+          // to know so they can retry rather than land in a broken state.
+          try {
             await userDoc(user.uid).set({
               businessName: settings.businessName,
               bizTypeId:    settings.bizTypeId,
@@ -1724,29 +1780,33 @@ function OnboardingFlow({ user, onComplete }) {
                 if (v == null) return;
                 flat[k] = typeof v === "object" ? JSON.stringify(v) : v;
               });
-              await tSettingDoc(user.uid).set(flat).catch(() => {});
+              await tSettingDoc(user.uid).set(flat);
             }
-          }
-        } catch (e) {
-          console.warn("Server onboarding completion failed; using direct write fallback:", e);
-          // Last-resort fallback: direct client write of non-billing fields
-          await userDoc(user.uid).set({
-            businessName: settings.businessName,
-            bizTypeId:    settings.bizTypeId,
-            onboarded:    true,
-            onboardedAt:  Date.now(),
-          }, { merge: true }).catch(() => {});
-          if (tSettingDoc(user.uid)) {
-            const flat = {};
-            Object.keys(settings).forEach(k => {
-              const v = settings[k];
-              if (v == null) return;
-              flat[k] = typeof v === "object" ? JSON.stringify(v) : v;
-            });
-            await tSettingDoc(user.uid).set(flat).catch(() => {});
+            console.log("[onboarding] saved via direct write fallback");
+            saved = true;
+          } catch (directErr) {
+            console.error("[onboarding] direct write ALSO failed:", directErr);
+            // Both paths failed. Surface to user.
+            window.toast && window.toast(
+              "Couldn't save your business info: " + (directErr.message || "network error") +
+              ". Your data is safe locally — please try again.",
+              "error", 8000
+            );
+            // Do NOT call onComplete() — keep user on the onboarding screen
+            // so they can retry. Local cache is preserved so their inputs
+            // aren't lost.
+            return;
           }
         }
       }
+
+      if (!saved) {
+        // Defensive: should be unreachable, but if we get here, don't
+        // pretend it worked.
+        window.toast && window.toast("Could not save business info. Please try again.", "error");
+        return;
+      }
+      console.log("[onboarding] complete, applying branding");
       applyBranding(settings);
       onComplete(settings);
     } finally { setBusy(false); }
@@ -3948,6 +4008,9 @@ function App() {
       // User CHANGED (A → B) or signed out (A → null). Wipe A's cache.
       if (prevUid && prevUid !== newUid) {
         wipeTenantLocalState(prevUid);
+        // Also clear businessId cache for A so any in-flight reads can't
+        // accidentally route to A's business after sign-out.
+        delete _businessIdByUid[prevUid];
       }
       prevUidRef.current = newUid;
 
@@ -3983,10 +4046,56 @@ function App() {
       // Run legacy migration once per user (no-op on subsequent logins)
       const mig = await migrateLegacyDataIfNeeded(user.uid);
       if (mig.migrated) window.toast && window.toast("Welcome — your existing data was imported", "success");
+
+      // Phase 1 multi-tenant: ensure user has a businessId. Lazy migration
+      // runs server-side (admin SDK can write to businesses/{bid} regardless
+      // of rules and atomically copy data). On subsequent sign-ins this is
+      // a fast no-op that just reports the existing businessId.
+      try {
+        const token = _auth.currentUser && (await _auth.currentUser.getIdToken());
+        if (token) {
+          const url = CFG.stripe.functionsBase + "/migrateUserToBusiness";
+          const resp = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+          });
+          if (resp.ok) {
+            const data = await resp.json();
+            console.log("[user→business migration]", data);
+            if (data.businessId) {
+              setActiveBusinessId(user.uid, data.businessId);
+              if (data.migrated) {
+                const r = data.result || {};
+                const counts = [
+                  r.jobs ? r.jobs + " jobs" : "",
+                  r.inventory ? r.inventory + " inventory" : "",
+                  r.expenses ? r.expenses + " expenses" : "",
+                ].filter(Boolean).join(", ");
+                window.toast && window.toast(
+                  "Set up your business workspace" + (counts ? " (" + counts + " imported)" : ""),
+                  "success", 5000
+                );
+              }
+            }
+          } else {
+            console.warn("[user→business migration] HTTP", resp.status);
+          }
+        }
+      } catch (err) {
+        console.warn("[user→business migration] failed:", err.message,
+                    "— continuing with uid as businessId fallback");
+        // Don't block sign-in; helpers fall back to using uid as businessId.
+      }
+
       // Listen to user profile doc for plan/subscription updates
       const unsubProfile = userDoc(user.uid).onSnapshot(snap => {
         if (snap && snap.exists) {
-          setProfile(snap.data());
+          const data = snap.data();
+          // Keep the businessId cache in sync from authoritative source.
+          // On first migration the cache was set above, but if Firestore
+          // has a different value (rare race), trust Firestore.
+          if (data.businessId) setActiveBusinessId(user.uid, data.businessId);
+          setProfile(data);
           setProfileReady(true);
         } else {
           // Doc doesn't exist — the onUserCreate Cloud Function should have
