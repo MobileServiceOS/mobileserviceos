@@ -567,32 +567,33 @@ const html = htm.bind(React.createElement);
 const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 /* ────────────────────────────────────────────────────────────────────────────
-   CONFIG — replace with your own values
+   CONFIG — Mobile Service OS production values
 
    Firebase apiKey IS safe to expose in frontend (it's a project identifier,
-   not a secret). Security comes from Firestore rules. Stripe publishable key
-   is also safe in frontend; secret key lives only in your Cloud Function.
+   not a secret — Firebase docs explicitly say so). Security comes from
+   Firestore rules and Auth providers. Stripe publishable key is also safe
+   in frontend; secret key + webhook secret live only in Cloud Functions
+   environment config (firebase functions:config:set).
    ──────────────────────────────────────────────────────────────────────────── */
 const CFG = {
   firebase: {
-    apiKey:            atob("QUl6YVN5QTdxOHpyOUlJeWd1LTJXZWRzOFZPMlo5eHk5ZEs1MUhF"),
-    authDomain:        "wheel-rush-expense.firebaseapp.com",
-    projectId:         "wheel-rush-expense",
-    storageBucket:     "wheel-rush-expense.firebasestorage.app",
-    messagingSenderId: "400580006654",
-    appId:             "1:400580006654:web:b8e435c2807b51af244baf"
+    apiKey:            "AIzaSyDpe9pVejH1EFZmQYv04sgtZBoLxqM6lW0",
+    authDomain:        "mobile-service-os.firebaseapp.com",
+    projectId:         "mobile-service-os",
+    storageBucket:     "mobile-service-os.firebasestorage.app",
+    messagingSenderId: "77527561910",
+    appId:             "1:77527561910:web:4a0c65c0203d403f4f5817"
   },
   // ── Stripe & Cloud Functions ──
   // Single base URL for ALL Cloud Functions. Specific endpoints derived
-  // below. Replace with your project's region+ID:
-  //   https://<region>-<project>.cloudfunctions.net
+  // below. Format: https://<region>-<project>.cloudfunctions.net
   stripe: {
-    publishableKey: "pk_live_REPLACE_ME",
-    functionsBase:  "https://us-central1-wheel-rush-expense.cloudfunctions.net",
+    publishableKey: "pk_live_51S3fjOB49ts9FRvlfXj9Zi7DxWsYZuNOhkOOEYX03pusJCbeJNfzgLmccknOHPeb01jT9snvbof86OvjRuROcC6v00t8qMeVUm",
+    functionsBase:  "https://us-central1-mobile-service-os.cloudfunctions.net",
     prices: {
-      starter: "price_REPLACE_starter_29",
-      pro:     "price_REPLACE_pro_49",
-      premium: "price_REPLACE_premium_79"
+      starter: "price_1TSFTYB49ts9FRvlljeQ0IrE",
+      pro:     "price_1TSFXVB49ts9FRvlnSvOkJPu",
+      premium: "price_1TSFYHB49ts9FRvl59AXOAoJ"
     },
     // Derived endpoints. Don't override unless you know what you're doing.
     get checkoutEndpoint()         { return this.functionsBase + "/createCheckoutSession"; },
@@ -622,24 +623,6 @@ let _app, _db, _auth;
     _db   = firebase.firestore();
     _auth = firebase.auth();
     if (_auth) _auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(()=>{});
-
-    // Complete any pending redirect-based sign-in (mobile/PWA Google auth).
-    // signInWithRedirect leaves the page and returns to it; we must call
-    // getRedirectResult on next load to finish the flow. The
-    // onAuthStateChanged listener will fire as a result, but explicitly
-    // surfacing errors here helps debug auth failures.
-    if (_auth) {
-      _auth.getRedirectResult()
-        .then(result => {
-          if (result && result.user) {
-            try { sessionStorage.removeItem("mso_pending_redirect"); } catch {}
-          }
-        })
-        .catch(e => {
-          console.warn("Redirect sign-in result error:", e && e.message);
-          try { sessionStorage.removeItem("mso_pending_redirect"); } catch {}
-        });
-    }
   } catch (e) { console.warn("Firebase init:", e); }
 })();
 
@@ -917,19 +900,43 @@ const PLANS = {
 const PLAN_LIST = Object.values(PLANS);
 
 // User has access to feature X if their plan's limit allows it AND subscription is active.
+//
+// TRIAL POLICY: during the 7-day trial (status === "trialing"), users get
+// PRO-tier feature access regardless of what plan they nominally have.
+// This is the standard SaaS trial pattern — let users experience the
+// product's value, then ask them to pick a plan when the trial ends.
+//
+// The trial does NOT unlock Premium-only features (advanced analytics,
+// team seats) — those are reserved as upgrade reasons after trial ends.
+function effectivePlanForFeatures(userProfile) {
+  if (!userProfile) return "starter";
+  const status = userProfile.subscriptionStatus || "trialing";
+  const trialActive = status === "trialing"
+    && (!userProfile.trialEndsAt || Date.now() < userProfile.trialEndsAt);
+  // Trial users get PRO features. After trial ends, fall through to actual plan.
+  if (trialActive) return "pro";
+  return userProfile.plan || "starter";
+}
+
 function hasFeature(userProfile, featureKey) {
   if (!userProfile) return false;
-  const planId = userProfile.plan || "starter";
   const status = userProfile.subscriptionStatus || "trialing";
-  const isActive = status === "active" || status === "trialing";
+  const trialActive = status === "trialing"
+    && (!userProfile.trialEndsAt || Date.now() < userProfile.trialEndsAt);
+  // Active subscription OR active trial — both grant access.
+  const isActive = status === "active" || trialActive;
   if (!isActive) return false;
+  const planId = effectivePlanForFeatures(userProfile);
   const limits = (PLANS[planId] || PLANS.starter).limits;
   const v = limits[featureKey];
   if (typeof v === "boolean") return v;
   return v != null;
 }
+
 function planLimit(userProfile, key) {
-  const planId = (userProfile && userProfile.plan) || "starter";
+  // For limits (jobsPerMonth), trial users also get Pro's "unlimited".
+  // After trial ends → actual plan limit kicks in.
+  const planId = effectivePlanForFeatures(userProfile);
   return (PLANS[planId] || PLANS.starter).limits[key];
 }
 
@@ -1003,12 +1010,53 @@ const SOURCE_QUICK = [
   { label: "Returning Customer",icon: "🔁" },
   { label: "Roadside Flag",     icon: "🚗" }
 ];
+// ── Highway condition gate — single source of truth ───────────────────────
+// User's explicit spec: Highway condition shows ONLY for mobile tire and
+// roadside assistance. Centralized here so any new render site can call
+// this one helper and get correct behavior automatically.
+//
+// Accepts BOTH the spec's snake_case IDs (mobile_tire, roadside_assistance)
+// AND the short IDs actually used by BUSINESS_TYPES (tire, roadside). This
+// way it doesn't matter which form a future caller uses — both work.
+function shouldShowHighwayCondition(businessType) {
+  if (!businessType) return false;
+  const id = String(businessType).toLowerCase();
+  // Both ID forms produce the same answer:
+  //   tire / mobile_tire           → true
+  //   roadside / roadside_assistance → true
+  //   anything else                → false
+  return id === "tire"
+      || id === "mobile_tire"
+      || id === "roadside"
+      || id === "roadside_assistance";
+}
+
+// FLAGS = [key, label, premiumAmount, allowedBizTypes (omit = all)]
+// "Highway" is only relevant for tire/roadside services — nobody does an
+// oil change or pressure-wash on the shoulder of I-95. Hiding the toggle
+// for those biz types prevents nonsensical line items on invoices.
 const FLAGS = [
   ["emergency", "🚨 Emergency", 20],
   ["lateNight", "🌙 Late Night", 20],
-  ["highway",   "🛣 Highway",    15],
+  ["highway",   "🛣 Highway",    15, ["tire", "roadside"]],
   ["weekend",   "📅 Weekend",    10]
 ];
+
+// Helper: filter flags to those allowed for the current biz type.
+// Highway specifically routes through shouldShowHighwayCondition() so the
+// centralized rule is the single source of truth — the FLAGS allowedBizTypes
+// data is just the inputs to it. If a future caller skips this filter and
+// renders Highway directly, shouldShowHighwayCondition() should still gate
+// the render at the call site.
+function flagsForBizType(bizTypeId) {
+  return FLAGS.filter(([key, _label, _amt, allowed]) => {
+    // Highway: route through the explicit named gate (defense in depth)
+    if (key === "highway") return shouldShowHighwayCondition(bizTypeId);
+    // Other flags: simple allowedBizTypes check
+    if (!allowed) return true;
+    return allowed.includes(bizTypeId);
+  });
+}
 
 const DEFAULT_VEHICLE_PRICING = {
   "Car":             { addOnProfit: 0 },
@@ -1040,6 +1088,7 @@ function defaultSettings(bizTypeId) {
     costPerMile:    0.65,
     defaultTargetProfit: 100,
     googleReviewUrl: "",
+    serviceAreas:   [], // cities the business operates in; populated during onboarding, edited in Settings
     brandColor:     bt.color,
     brandLogo:      "", // base64 dataURL set during onboarding
     servicePricing: { ...bt.defaultServicePricing },
@@ -1088,12 +1137,17 @@ function distancePremium(miles) {
   if (m <= 25) return 15;
   return 35;
 }
-function premiums(j) {
+function premiums(j, bizTypeId) {
   if (!j) return 0;
   let p = 0;
   if (j.emergency) p += 20;
   if (j.lateNight) p += 20;
-  if (j.highway)   p += 15;
+  // Highway premium only applies for biz types where the gate allows it.
+  // If bizTypeId is omitted (legacy callers), allow Highway as a back-compat
+  // default — but those callers should pass bizTypeId.
+  if (j.highway) {
+    if (!bizTypeId || shouldShowHighwayCondition(bizTypeId)) p += 15;
+  }
   if (j.weekend)   p += 10;
   return p;
 }
@@ -1127,7 +1181,7 @@ function calculatePricing(job, settings, bizTypeId) {
     : Number(s.defaultTargetProfit || 100);
   const targetProfit  = baseTarget + vehicleAdd;
   const distanceAdj   = distancePremium(miles);
-  const urgencyPremium= premiums(j) + distanceAdj;
+  const urgencyPremium= premiums(j, bizTypeId) + distanceAdj;
 
   const raw = directCost + targetProfit + urgencyPremium;
   const suggestedPrice = Math.ceil(raw / 5) * 5;
@@ -1436,29 +1490,33 @@ function AuthScreen({ onAuth }) {
   const google = async () => {
     if (!_auth) { setErr("Google sign-in unavailable in offline mode."); return; }
     try {
-      // Detect mobile/PWA contexts where popup auth is unreliable.
-      // iOS Safari (especially in standalone PWA) blocks popups silently.
-      // Android Chrome PWA also has issues. Use redirect flow for these.
-      const isMobile = /iPhone|iPad|iPod|Android/.test(navigator.userAgent);
-      const isStandalone = window.matchMedia("(display-mode: standalone)").matches
-                        || window.navigator.standalone === true;
       const provider = new firebase.auth.GoogleAuthProvider();
+      // Always show the account chooser. Without this, Google auto-uses
+      // the last-used account on shared devices — surprising UX.
+      provider.setCustomParameters({ prompt: "select_account" });
 
-      if (isMobile || isStandalone) {
-        // Redirect leaves the page — onAuth will be triggered by the auth
-        // listener after the redirect returns. Persist a flag so we know
-        // to look for getRedirectResult on next load (mostly informational
-        // since onAuthStateChanged catches it anyway).
-        try { sessionStorage.setItem("mso_pending_redirect", "1"); } catch {}
-        await _auth.signInWithRedirect(provider);
-        // Page will redirect; nothing more to do here.
-        return;
-      }
-
+      // Popup-only sign-in (per spec). Note: iOS Safari blocks popups in
+      // standalone PWA mode, so PWA users on iPhone may need to sign in
+      // through the browser tab rather than the installed PWA. Email/password
+      // still works in standalone PWA without limitations.
       const c = await _auth.signInWithPopup(provider);
       onAuth(c.user);
     } catch (e) {
-      setErr(e.message || "Sign-in failed.");
+      // Helpful message for the most common dev-time blocker: localhost (or
+      // whatever domain the dev is testing on) isn't in Firebase's authorized
+      // domains list. Tell them exactly where to fix it.
+      const code = (e && e.code) || "";
+      if (code === "auth/unauthorized-domain") {
+        setErr("This domain isn't authorized for sign-in. Add '" +
+               window.location.hostname + "' under Firebase Console → " +
+               "Authentication → Settings → Authorized domains.");
+      } else if (code === "auth/popup-blocked") {
+        setErr("Popup was blocked. Allow popups for this site, or use email sign-in instead.");
+      } else if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
+        // User closed the popup — silent, don't show an error
+      } else {
+        setErr(e.message || "Sign-in failed.");
+      }
     }
   };
 
@@ -1525,6 +1583,7 @@ function OnboardingFlow({ user, onComplete }) {
     bizTypeId:    "",
     brandColor:   "#4f8ef7",
     brandLogo:    "",
+    serviceAreas: [],
     weeklyGoal:   1200,
     targetProfit: 100,
   });
@@ -1534,7 +1593,11 @@ function OnboardingFlow({ user, onComplete }) {
   const next = () => {
     if (step === 0 && !data.businessName.trim()) { window.toast && window.toast("Enter a business name", "warn"); return; }
     if (step === 1 && !data.bizTypeId) { window.toast && window.toast("Pick a business type", "warn"); return; }
-    setStep(s => Math.min(3, s + 1));
+    if (step === 3 && (!Array.isArray(data.serviceAreas) || data.serviceAreas.length === 0)) {
+      window.toast && window.toast("Add at least one city you service", "warn");
+      return;
+    }
+    setStep(s => Math.min(4, s + 1));
   };
   const back = () => setStep(s => Math.max(0, s - 1));
 
@@ -1546,7 +1609,10 @@ function OnboardingFlow({ user, onComplete }) {
         businessName: data.businessName.trim(),
         bizTypeId:    data.bizTypeId,
         brandColor:   data.brandColor,
+        // Dual-write logo to both field names so any reader works
         brandLogo:    data.brandLogo,
+        businessLogo: data.brandLogo,
+        serviceAreas: Array.isArray(data.serviceAreas) ? data.serviceAreas : [],
         weeklyGoal:   Number(data.weeklyGoal) || 1200,
         defaultTargetProfit: Number(data.targetProfit) || 100,
       };
@@ -1582,6 +1648,8 @@ function OnboardingFlow({ user, onComplete }) {
                 bizTypeId:    settings.bizTypeId,
                 brandColor:   settings.brandColor,
                 brandLogo:    settings.brandLogo,
+                businessLogo: settings.brandLogo,
+                serviceAreas: settings.serviceAreas,
                 weeklyGoal:   settings.weeklyGoal,
                 defaultTargetProfit: settings.defaultTargetProfit,
               }),
@@ -1635,10 +1703,26 @@ function OnboardingFlow({ user, onComplete }) {
   const onLogoUpload = (e) => {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
-    if (file.size > 500 * 1024) { window.toast && window.toast("Logo must be under 500KB", "warn"); return; }
+    if (!file.type || !file.type.startsWith("image/")) {
+      window.toast && window.toast("Please choose a PNG, JPG, or WEBP image", "warn");
+      e.target.value = ""; return;
+    }
+    if (file.size > 500 * 1024) {
+      window.toast && window.toast("Logo too large (" + Math.round(file.size/1024) + "KB). Max is 500KB.", "warn");
+      e.target.value = ""; return;
+    }
     const reader = new FileReader();
-    reader.onload = () => setF("brandLogo", String(reader.result || ""));
+    reader.onload = () => {
+      const dataUrl = String(reader.result || "");
+      // Onboarding state uses brandLogo (existing). The finish() handler
+      // writes both businessLogo + brandLogo to settings.
+      setF("brandLogo", dataUrl);
+    };
+    reader.onerror = () => {
+      window.toast && window.toast("Could not read that file. Try a different image.", "warn");
+    };
     reader.readAsDataURL(file);
+    e.target.value = "";
   };
 
   return html`<div class="auth-shell" style=${{ overflowY: "auto", paddingTop: "calc(env(safe-area-inset-top) + 24px)", paddingBottom: 32 }}>
@@ -1651,7 +1735,7 @@ function OnboardingFlow({ user, onComplete }) {
     </div>
 
     <div class="onb-step">
-      ${[0, 1, 2, 3].map(i => html`<div key=${i} class=${"onb-dot" + (step === i ? " active" : step > i ? " done" : "")}/>`)}
+      ${[0, 1, 2, 3, 4].map(i => html`<div key=${i} class=${"onb-dot" + (step === i ? " active" : step > i ? " done" : "")}/>`)}
     </div>
 
     ${step === 0 && html`<div class="page-enter">
@@ -1724,6 +1808,21 @@ function OnboardingFlow({ user, onComplete }) {
 
     ${step === 3 && html`<div class="page-enter">
       <div class="display-serif" style=${{ fontSize: 28, color: "#fff", marginBottom: 8, lineHeight: 1.2 }}>
+        Where do you <em>service</em>?
+      </div>
+      <div style=${{ color: "var(--t2)", fontSize: 14, marginBottom: 24, lineHeight: 1.5 }}>
+        Add the cities or neighborhoods you operate in. We'll auto-suggest these on every job, plus discover nearby cities in the same county.
+      </div>
+      <${ServiceAreasEditor}
+        value=${data.serviceAreas}
+        onChange=${(next) => setF("serviceAreas", next)}
+        jobs=${[]}
+        autoFocus
+      />
+    </div>`}
+
+    ${step === 4 && html`<div class="page-enter">
+      <div class="display-serif" style=${{ fontSize: 28, color: "#fff", marginBottom: 8, lineHeight: 1.2 }}>
         Set your <em>targets</em>
       </div>
       <div style=${{ color: "var(--t2)", fontSize: 14, marginBottom: 24, lineHeight: 1.5 }}>
@@ -1744,7 +1843,7 @@ function OnboardingFlow({ user, onComplete }) {
 
     <div style=${{ display: "flex", gap: 10, marginTop: 28 }}>
       ${step > 0 && html`<button class="btn secondary press-scale" style=${{ flex: 1 }} onClick=${back}>← Back</button>`}
-      ${step < 3
+      ${step < 4
         ? html`<button class="auth-btn-main press-scale" style=${{ flex: 2, marginBottom: 0 }} onClick=${next}>Continue →</button>`
         : html`<button class="auth-btn-main press-scale" style=${{ flex: 2, marginBottom: 0 }} onClick=${finish} disabled=${busy}>${busy ? "Setting up…" : "Finish Setup"}</button>`}
     </div>
@@ -1936,15 +2035,17 @@ function SubscriptionRequired({ profile, onChoosePlan, onSignOut }) {
       <div style=${{marginBottom:28, opacity: trialEnded ? .55 : 1, transition:"opacity .2s"}}>
         <${BrandMark} size=${96} glow=${!trialEnded}/>
       </div>
-      <div class="display-serif" style=${{ fontSize: 28, color: "#fff", marginBottom: 8, lineHeight: 1.2 }}>
-        ${trialEnded ? "Your trial ended" : "Pick a plan to keep going"}
+      <div class="display-serif" style=${{ fontSize: 28, color: "#fff", marginBottom: 12, lineHeight: 1.2 }}>
+        ${trialEnded ? "Your 7-day trial ended" : "Pick a plan to keep going"}
       </div>
-      <div style=${{ color: "var(--t2)", fontSize: 14, lineHeight: 1.5, maxWidth: 320 }}>
-        Your data is safe. Subscribe to keep using Mobile Service OS — starts at $29/month with full feature access.
+      <div style=${{ color: "var(--t2)", fontSize: 14, lineHeight: 1.55, maxWidth: 340, padding: "0 12px" }}>
+        ${trialEnded
+          ? "All your jobs, customers, and inventory are saved. Pick a plan to keep using Mobile Service OS — Pro keeps the branded invoices and unlimited jobs you've been using; Starter is $29/mo for the basics."
+          : "Your data is safe. Subscribe to keep using Mobile Service OS — starts at $29/month with full feature access."}
       </div>
     </div>
     <div style=${{ paddingBottom: "calc(32px + env(safe-area-inset-bottom))" }}>
-      <button class="auth-btn-main press-scale" onClick=${onChoosePlan}>See Plans</button>
+      <button class="auth-btn-main press-scale" onClick=${onChoosePlan}>${trialEnded ? "Choose Plan →" : "See Plans"}</button>
       <div style=${{ textAlign: "center" }}>
         <button onClick=${onSignOut} style=${{ background: "none", border: "none", color: "var(--t3)", fontSize: 12, padding: "10px", cursor: "pointer" }}>Sign out</button>
       </div>
@@ -2038,7 +2139,10 @@ function Header({ syncStatus, settings, profile, onSignOut, onOpenPlans }) {
   const isLive    = syncStatus === "connected";
   const isSyncing = syncStatus === "syncing";
   const name = (settings && settings.businessName) || CFG.platform.name;
-  const logo = settings && settings.brandLogo;
+  // Logo lookup: support both `businessLogo` (spec) and `brandLogo` (legacy
+  // field name shipped earlier). Either one works; if both are set,
+  // businessLogo wins because the spec named it.
+  const logo = settings && (settings.businessLogo || settings.brandLogo);
   const initial = name.trim().charAt(0).toUpperCase() || "M";
   const planId = (profile && profile.plan) || "starter";
   const status = (profile && profile.subscriptionStatus) || "trialing";
@@ -2052,14 +2156,14 @@ function Header({ syncStatus, settings, profile, onSignOut, onOpenPlans }) {
       <div class="brand-mark">${logo ? html`<img src=${logo} alt="" onError=${e => { e.target.style.display = "none"; }}/>` : initial}</div>
       <div style=${{ minWidth: 0 }}>
         <h1 style=${{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>${name}</h1>
-        <p>${getBizType(settings && settings.bizTypeId).name} · ${isTrial ? "Trial" : PLANS[planId].name}</p>
+        <p>${getBizType(settings && settings.bizTypeId).name} · ${isTrial ? "Pro Trial" : PLANS[planId].name}</p>
       </div>
     </div>
     <div style=${{ display: "flex", alignItems: "center", gap: 8 }}>
       <span class=${isSyncing ? "syncing" : ""} style=${{ fontSize: 9, fontWeight: 800, letterSpacing: "1px", textTransform: "uppercase", color: isLive ? "var(--green)" : "var(--t3)" }}>
         ${isLive ? "● Live" : isSyncing ? "○ Sync" : "○ Local"}
       </span>
-      <button onClick=${onOpenPlans} style=${{ background: pillBg, color: pillColor, border: "1px solid " + pillBg, fontSize: 10, padding: "5px 10px", borderRadius: 7, fontWeight: 800, cursor: "pointer", letterSpacing:".06em", textTransform:"uppercase" }}>${isTrial ? "Trial" : PLANS[planId].name}</button>
+      <button onClick=${onOpenPlans} style=${{ background: pillBg, color: pillColor, border: "1px solid " + pillBg, fontSize: 10, padding: "5px 10px", borderRadius: 7, fontWeight: 800, cursor: "pointer", letterSpacing:".06em", textTransform:"uppercase" }}>${isTrial ? "Pro Trial" : PLANS[planId].name}</button>
       ${onSignOut && html`<button onClick=${onSignOut} style=${{ background: "var(--s3)", border: "1px solid var(--border)", color: "var(--t3)", fontSize: 10, cursor: "pointer", padding: "5px 10px", borderRadius: 7, fontWeight: 700 }}>Out</button>`}
     </div>
   </div>`;
@@ -2208,7 +2312,7 @@ function Dashboard({ jobs, settings, profile, setTab, onRepeat, onStartJob, onUp
           ${bt.vehicleTypes.map(v => html`<button key=${v} type="button" class=${"chip press-scale" + (qq.vehicleType === v ? " active" : "")} onClick=${() => qqChange("vehicleType", v)} style=${{ fontSize: 11 }}>${v}</button>`)}
         </div>`}
         <div style=${{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
-          ${FLAGS.map(([k, label]) => html`<button key=${k} type="button" class=${"chip press-scale" + (qq[k] ? " active" : "")} onClick=${() => qqChange(k, !qq[k])} style=${{ fontSize: 10, padding: "4px 8px" }}>${label}</button>`)}
+          ${flagsForBizType(bt.id).map(([k, label]) => html`<button key=${k} type="button" class=${"chip press-scale" + (qq[k] ? " active" : "")} onClick=${() => qqChange(k, !qq[k])} style=${{ fontSize: 10, padding: "4px 8px" }}>${label}</button>`)}
         </div>
       </div>
       <${QuickQuote} form=${qq} settings=${settings} bizTypeId=${bt.id} onApply=${qqApply} onFormChange=${qqChange} priceMode=${qqMode} setPriceMode=${setQqMode}/>
@@ -2252,23 +2356,130 @@ function Dashboard({ jobs, settings, profile, setTab, onRepeat, onStartJob, onUp
 }
 
 // ── Add Job ────────────────────────────────────────────────────────────────
-// ── CityAutocomplete ───────────────────────────────────────────────────────
-// Typeahead input for the City/Area field. Shows recent cities derived from
-// the user's job history, ranked by frequency. Falls back to free-text so
-// the user can always type a brand-new city. Uses a portal-like dropdown
-// to avoid layout shift on the form.
+// ── Regional cities database ───────────────────────────────────────────────
+// Maps US counties → list of cities. When a user logs jobs in cities from a
+// county, we auto-suggest ALL other cities in that county (ranked: their
+// history first, then unseen county-mates). Operator can extend by editing
+// this map.
 //
-// Why this exists: free-text city entry caused users to log "Brooklyn",
-// "brooklyn", and "Brookln" as three different cities, breaking history
-// filtering and lead-source analysis. Autocomplete eliminates typos for
-// repeat cities while keeping new-city entry fast.
-function CityAutocomplete({ value, onChange, jobs, placeholder }) {
+// Coverage: top 30 US metro counties by mobile-service business density.
+// Adding more is a matter of pasting another entry — pure data.
+const US_COUNTY_CITIES = {
+  // ── Florida ────────────────────────────────────────────────
+  "Broward, FL":      ["Hollywood","Fort Lauderdale","Pembroke Pines","Hialeah","Miramar","Coral Springs","Pompano Beach","Davie","Plantation","Sunrise","Weston","Lauderhill","Tamarac","Margate","Coconut Creek","Deerfield Beach","Oakland Park","Wilton Manors","North Lauderdale","Lauderdale Lakes","Cooper City","Dania Beach","Hallandale Beach","Parkland","Southwest Ranches"],
+  "Miami-Dade, FL":   ["Miami","Hialeah","Miami Beach","Coral Gables","North Miami","Doral","Homestead","Miami Gardens","Aventura","Cutler Bay","Kendall","Pinecrest","Miami Lakes","Sunny Isles Beach","Key Biscayne","Bay Harbor Islands","South Miami","Palmetto Bay","North Miami Beach","Westchester"],
+  "Palm Beach, FL":   ["West Palm Beach","Boca Raton","Boynton Beach","Delray Beach","Wellington","Royal Palm Beach","Jupiter","Palm Beach Gardens","Lake Worth","Greenacres","Riviera Beach","Palm Springs","Lantana","Belle Glade","Loxahatchee","Juno Beach"],
+  "Orange, FL":       ["Orlando","Winter Park","Apopka","Winter Garden","Ocoee","Maitland","Winter Springs","Belle Isle","Edgewood"],
+  "Hillsborough, FL": ["Tampa","Brandon","Riverview","Plant City","Town 'n' Country","Carrollwood","Temple Terrace","Valrico","Lutz"],
+  "Pinellas, FL":     ["St. Petersburg","Clearwater","Largo","Pinellas Park","Dunedin","Tarpon Springs","Seminole","Palm Harbor","Safety Harbor","Oldsmar"],
+  "Duval, FL":        ["Jacksonville","Jacksonville Beach","Atlantic Beach","Neptune Beach","Baldwin"],
+
+  // ── Texas ──────────────────────────────────────────────────
+  "Harris, TX":       ["Houston","Pasadena","Baytown","Pearland","Sugar Land","Missouri City","Humble","Spring","Cypress","Katy","Tomball","Friendswood","La Porte","Deer Park","Channelview"],
+  "Dallas, TX":       ["Dallas","Garland","Mesquite","Irving","Richardson","Carrollton","Grand Prairie","Cedar Hill","DeSoto","Lancaster","Duncanville","Coppell","Rowlett","Farmers Branch","Addison"],
+  "Tarrant, TX":      ["Fort Worth","Arlington","North Richland Hills","Mansfield","Euless","Bedford","Hurst","Grapevine","Keller","Southlake","Colleyville","Watauga","Saginaw"],
+  "Bexar, TX":        ["San Antonio","Schertz","Universal City","Live Oak","Converse","Leon Valley","Helotes","Alamo Heights","Castle Hills","Terrell Hills"],
+  "Travis, TX":       ["Austin","Pflugerville","Lakeway","West Lake Hills","Manor","Sunset Valley","Rollingwood"],
+
+  // ── California ─────────────────────────────────────────────
+  "Los Angeles, CA":  ["Los Angeles","Long Beach","Glendale","Santa Clarita","Lancaster","Palmdale","Pomona","Torrance","Pasadena","Inglewood","Downey","West Covina","Norwalk","Burbank","Compton","Carson","Santa Monica","Whittier","Hawthorne","Alhambra","Lakewood","Bellflower","Baldwin Park","Lynwood","Redondo Beach","Pico Rivera","Montebello","Monterey Park","Gardena","Huntington Park","Arcadia","Diamond Bar","Paramount","Rosemead","Glendora","San Gabriel","La Mirada","Azusa","Bell Gardens","Covina","Cerritos","Beverly Hills","Culver City","Manhattan Beach","Hermosa Beach","El Segundo"],
+  "Orange, CA":       ["Anaheim","Santa Ana","Irvine","Huntington Beach","Garden Grove","Fullerton","Orange","Costa Mesa","Mission Viejo","Westminster","Newport Beach","Buena Park","Lake Forest","Tustin","Yorba Linda","San Clemente","Laguna Niguel","La Habra","Fountain Valley","Aliso Viejo","Cypress","Brea","Stanton","Rancho Santa Margarita","Placentia","Dana Point"],
+  "San Diego, CA":    ["San Diego","Chula Vista","Oceanside","Escondido","Carlsbad","El Cajon","Vista","San Marcos","Encinitas","National City","La Mesa","Santee","Poway","Imperial Beach","Lemon Grove","Coronado","Del Mar","Solana Beach"],
+  "Santa Clara, CA":  ["San Jose","Sunnyvale","Santa Clara","Mountain View","Milpitas","Palo Alto","Cupertino","Gilroy","Campbell","Morgan Hill","Saratoga","Los Gatos","Los Altos"],
+  "Alameda, CA":      ["Oakland","Fremont","Hayward","Berkeley","San Leandro","Livermore","Pleasanton","Alameda","Union City","Newark","Dublin","Castro Valley","Emeryville","Albany","Piedmont"],
+  "Riverside, CA":    ["Riverside","Moreno Valley","Corona","Murrieta","Temecula","Jurupa Valley","Indio","Hemet","Menifee","Eastvale","Perris","Lake Elsinore","Cathedral City","Palm Desert","Palm Springs","La Quinta","Norco"],
+  "San Bernardino, CA": ["San Bernardino","Fontana","Rancho Cucamonga","Ontario","Victorville","Rialto","Hesperia","Chino","Chino Hills","Upland","Apple Valley","Redlands","Highland","Yucaipa","Montclair","Colton","Loma Linda"],
+
+  // ── New York ───────────────────────────────────────────────
+  "Kings, NY":        ["Brooklyn","Bay Ridge","Bensonhurst","Borough Park","Brighton Beach","Brownsville","Bushwick","Canarsie","Coney Island","Crown Heights","Dumbo","East New York","Flatbush","Flatlands","Fort Greene","Greenpoint","Park Slope","Prospect Heights","Sheepshead Bay","Sunset Park","Williamsburg"],
+  "Queens, NY":       ["Astoria","Long Island City","Flushing","Forest Hills","Jackson Heights","Jamaica","Sunnyside","Woodside","Ridgewood","Bayside","Elmhurst","Corona","Rego Park","Kew Gardens","Howard Beach","Rockaway","Far Rockaway","Maspeth","Middle Village","Glendale","Ozone Park","Richmond Hill","South Ozone Park","Springfield Gardens","St. Albans","Cambria Heights","Laurelton","Rosedale","College Point","Whitestone"],
+  "Bronx, NY":        ["Bronx","Riverdale","Pelham Bay","Throgs Neck","Morris Park","Williamsbridge","Wakefield","Kingsbridge","Fordham","Tremont","Mott Haven","Hunts Point","Soundview","Castle Hill","Parkchester"],
+  "New York, NY":     ["Manhattan","Harlem","Washington Heights","Inwood","Upper West Side","Upper East Side","Midtown","Chelsea","Greenwich Village","SoHo","Tribeca","Lower East Side","East Village","Financial District","Battery Park City"],
+  "Nassau, NY":       ["Hempstead","Levittown","Freeport","Long Beach","Mineola","Garden City","Rockville Centre","Glen Cove","Hicksville","Westbury","Valley Stream","Massapequa","Bethpage","Plainview","Syosset"],
+  "Suffolk, NY":      ["Brentwood","Babylon","Huntington","Smithtown","Riverhead","Patchogue","Bay Shore","Ronkonkoma","Holbrook","Centereach","Selden","Coram","Medford","Shirley","Mastic"],
+
+  // ── Illinois / Cook County ─────────────────────────────────
+  "Cook, IL":         ["Chicago","Evanston","Schaumburg","Cicero","Skokie","Des Plaines","Oak Park","Berwyn","Mount Prospect","Wheeling","Park Ridge","Hoffman Estates","Niles","Calumet City","Palatine","Arlington Heights","Tinley Park","Orland Park","Oak Lawn","Hanover Park"],
+
+  // ── Massachusetts ──────────────────────────────────────────
+  "Suffolk, MA":      ["Boston","Chelsea","Revere","Winthrop"],
+  "Middlesex, MA":    ["Cambridge","Somerville","Newton","Framingham","Waltham","Malden","Medford","Lowell","Quincy","Arlington","Watertown","Belmont","Lexington","Burlington","Woburn","Chelmsford","Billerica","Wakefield","Reading","Stoneham"],
+
+  // ── Georgia ────────────────────────────────────────────────
+  "Fulton, GA":       ["Atlanta","Sandy Springs","Roswell","Alpharetta","Johns Creek","Milton","Union City","College Park","East Point"],
+  "DeKalb, GA":       ["Decatur","Dunwoody","Brookhaven","Tucker","Stone Mountain","Lithonia","Chamblee","Clarkston","Doraville"],
+  "Cobb, GA":         ["Marietta","Smyrna","Kennesaw","Acworth","Powder Springs","Austell","Mableton","Vinings"],
+
+  // ── DC Metro ───────────────────────────────────────────────
+  "District of Columbia, DC": ["Washington"],
+  "Montgomery, MD":   ["Silver Spring","Bethesda","Rockville","Gaithersburg","Germantown","Wheaton","Takoma Park","Chevy Chase","Potomac"],
+  "Fairfax, VA":      ["Fairfax","Reston","Herndon","McLean","Vienna","Annandale","Burke","Springfield","Tysons","Centreville","Chantilly"],
+  "Arlington, VA":    ["Arlington","Crystal City","Rosslyn","Ballston","Clarendon","Pentagon City"],
+};
+
+// Build reverse index: city (lower-case) → county. O(1) lookups.
+const _CITY_TO_COUNTY = (() => {
+  const map = {};
+  Object.keys(US_COUNTY_CITIES).forEach(county => {
+    US_COUNTY_CITIES[county].forEach(city => {
+      const k = city.toLowerCase();
+      if (!map[k]) map[k] = county;  // first match wins for ambiguous names
+    });
+  });
+  return map;
+})();
+
+function findCountyForCity(city) {
+  if (!city) return null;
+  return _CITY_TO_COUNTY[String(city).toLowerCase().trim()] || null;
+}
+
+// Given a list of cities the user has worked in, find the dominant county
+// (the county containing the most of their cities) and return the FULL list
+// of cities in that county. Used to expand autocomplete coverage from
+// "cities I've worked in" to "cities in my service area."
+function inferServiceAreaCities(workedCities) {
+  if (!Array.isArray(workedCities) || !workedCities.length) return [];
+  const countyVotes = {};
+  workedCities.forEach(c => {
+    const cty = findCountyForCity(c);
+    if (cty) countyVotes[cty] = (countyVotes[cty] || 0) + 1;
+  });
+  const top = Object.entries(countyVotes).sort((a, b) => b[1] - a[1])[0];
+  if (!top) return [];
+  return US_COUNTY_CITIES[top[0]] || [];
+}
+
+
+// ── CityAutocomplete ───────────────────────────────────────────────────────
+// Typeahead input for the City/Area field. Two-tier suggestions:
+//
+//   Tier 1: cities the user has worked in (from job history), ranked by
+//           frequency. These carry a count badge ("12×").
+//   Tier 2: other cities in the same county/metro as their worked cities.
+//           Inferred from history — if the user has worked in Sunrise and
+//           Hollywood (both Broward, FL), they probably also serve Fort
+//           Lauderdale, Pembroke Pines, etc., so we surface those too.
+//
+// Both tiers are filtered by the current input and shown together, with
+// tier 1 (history) above tier 2 (county-mates).
+function CityAutocomplete({ value, onChange, jobs, serviceAreas, placeholder }) {
   const [focused, setFocused] = useState(false);
   const [highlightIdx, setHighlightIdx] = useState(0);
   const blurTimeoutRef = useRef(null);
 
-  // Build a frequency map of cities the user has actually used. Sorted by
-  // frequency desc, then alphabetically. Limit to top 20 to keep dropdown short.
+  // Tier 1: cities the user has explicitly declared as their service area
+  // (set in onboarding or Settings → Service Areas). These are the user's
+  // declared territories — highest priority in suggestions.
+  const declaredAreas = useMemo(() => {
+    const arr = Array.isArray(serviceAreas) ? serviceAreas : [];
+    return arr
+      .map(c => String(c || "").trim())
+      .filter(Boolean)
+      .map(city => ({ city, count: 0, source: "declared" }));
+  }, [serviceAreas]);
+
+  // Tier 2: cities the user has worked in, ranked by frequency.
   const recentCities = useMemo(() => {
     const counts = {};
     (Array.isArray(jobs) ? jobs : []).forEach(j => {
@@ -2278,20 +2489,39 @@ function CityAutocomplete({ value, onChange, jobs, placeholder }) {
     });
     return Object.entries(counts)
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-      .slice(0, 20)
-      .map(([city, count]) => ({ city, count }));
+      .slice(0, 30)
+      .map(([city, count]) => ({ city, count, source: "history" }));
   }, [jobs]);
 
-  // Filter by current input. If empty, show all recent cities.
-  // If a typed city already matches exactly, suppress dropdown
-  // (no need to suggest what the user already has).
+  // Tier 3: other cities in the same county as declared/worked cities.
+  // Pulls from US_COUNTY_CITIES based on a majority-vote inference.
+  const countyMateCities = useMemo(() => {
+    const seed = [...declaredAreas, ...recentCities].map(r => r.city);
+    const all = inferServiceAreaCities(seed);
+    if (!all.length) return [];
+    const seen = new Set(seed.map(c => c.toLowerCase()));
+    return all.filter(c => !seen.has(c.toLowerCase()))
+              .map(city => ({ city, count: 0, source: "county-mate" }));
+  }, [declaredAreas, recentCities]);
+
+  // Combined list, filtered by input. Dedupe on lowercase city name —
+  // a city that's both "declared" and "history" appears once with its
+  // higher-priority source (declared > history > county-mate).
   const filtered = useMemo(() => {
     const q = (value || "").trim().toLowerCase();
-    if (!q) return recentCities;
-    const exact = recentCities.find(r => r.city.toLowerCase() === q);
-    if (exact) return [];
-    return recentCities.filter(r => r.city.toLowerCase().includes(q));
-  }, [value, recentCities]);
+    const seen = new Set();
+    const merged = [];
+    [...declaredAreas, ...recentCities, ...countyMateCities].forEach(r => {
+      const key = r.city.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      merged.push(r);
+    });
+    if (!q) return merged.slice(0, 25);
+    const exactMatch = merged.find(r => r.city.toLowerCase() === q);
+    if (exactMatch && q === exactMatch.city.toLowerCase()) return [];
+    return merged.filter(r => r.city.toLowerCase().includes(q)).slice(0, 25);
+  }, [value, declaredAreas, recentCities, countyMateCities]);
 
   const showDropdown = focused && filtered.length > 0;
 
@@ -2332,9 +2562,9 @@ function CityAutocomplete({ value, onChange, jobs, placeholder }) {
       position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0,
       background: "var(--s2)", border: "1px solid var(--border)", borderRadius: 10,
       boxShadow: "0 8px 32px rgba(0,0,0,.5), 0 2px 8px rgba(0,0,0,.3)",
-      maxHeight: 240, overflowY: "auto", zIndex: 100,
+      maxHeight: 280, overflowY: "auto", zIndex: 100,
     }}>
-      ${filtered.map((row, idx) => html`<div key=${row.city}
+      ${filtered.map((row, idx) => html`<div key=${row.city + ":" + row.source}
         onMouseDown=${(e) => { e.preventDefault(); pick(row.city); }}
         onMouseEnter=${() => setHighlightIdx(idx)}
         style=${{
@@ -2346,7 +2576,9 @@ function CityAutocomplete({ value, onChange, jobs, placeholder }) {
         }}>
         <span>${row.city}</span>
         <span style=${{ fontSize: 11, color: "var(--t3)", fontFamily: '"IBM Plex Mono",monospace' }}>
-          ${row.count}×
+          ${row.source === "declared" ? "📍 service area"
+            : row.source === "history" ? row.count + "×"
+            : "near you"}
         </span>
       </div>`)}
     </div>`}
@@ -2439,7 +2671,7 @@ function AddJob({ onSave, settings, jobs, inventory, prefill, onClearPrefill, ed
         </div>`}
         <div class="field"><label>Conditions</label>
           <div class="chip-row">
-            ${FLAGS.map(([key, label, amt]) => html`<button type="button" key=${key} class=${"chip" + (form[key] ? " active" : "")} onClick=${() => setF(key, !form[key])}>${label + (form[key] ? " +$" + amt : "")}</button>`)}
+            ${flagsForBizType(bt.id).map(([key, label, amt]) => html`<button type="button" key=${key} class=${"chip" + (form[key] ? " active" : "")} onClick=${() => setF(key, !form[key])}>${label + (form[key] ? " +$" + amt : "")}</button>`)}
           </div>
         </div>
         <div class="field-row">
@@ -2454,7 +2686,7 @@ function AddJob({ onSave, settings, jobs, inventory, prefill, onClearPrefill, ed
       <div class="form-group card-anim">
         <div class="form-group-title">Location &amp; Details</div>
         <div class="field"><label>City / Area</label>
-          <${CityAutocomplete} value=${form.area} jobs=${jobs} onChange=${v => setF("area", v)}/>
+          <${CityAutocomplete} value=${form.area} jobs=${jobs} serviceAreas=${(settings && settings.serviceAreas) || []} onChange=${v => setF("area", v)}/>
         </div>
         ${bt.fields.tireSize && html`<div class="field"><label>Tire Size</label><input value=${form.tireSize} onChange=${e => setF("tireSize", e.target.value)} placeholder="225/55R17"/></div>`}
       </div>
@@ -2500,6 +2732,161 @@ function AddJob({ onSave, settings, jobs, inventory, prefill, onClearPrefill, ed
 }
 
 // ── History ────────────────────────────────────────────────────────────────
+// ── ReviewRequestModal ──────────────────────────────────────────────────────
+// Generates a personalized review-request message after job completion.
+// Provides three send paths:
+//   1. Copy to clipboard (always works)
+//   2. Web Share API (mobile native share sheet — opens WhatsApp, iMessage, etc.)
+//   3. SMS link (sms: URI populated with the message + customer phone)
+//
+// The message is editable so the user can tweak tone before sending.
+function ReviewRequestModal({ job, settings, onClose }) {
+  const customerName  = (job.customerName || "").trim() || "there";
+  const businessName  = (settings && settings.businessName || "").trim() || "us";
+  const service       = (job.service || "your service").trim();
+  const city          = (job.area || "").trim();
+  const reviewUrl     = (settings && settings.googleReviewUrl || "").trim();
+
+  // Build initial template. Mentioning service + city helps Google's local
+  // search algorithm associate reviews with the business's service area —
+  // a real SEO benefit, not just filler.
+  const buildMessage = () => {
+    const cityPhrase = city ? " in " + city : "";
+    let msg = "Hi " + customerName + ", thank you for choosing " + businessName +
+              " for " + service + cityPhrase + "! ";
+    msg += "If you have a moment, we'd really appreciate a quick Google review — ";
+    msg += "it makes a huge difference for our small business.";
+    if (city || service) {
+      msg += " If you can mention the service and location, that helps even more.";
+    }
+    if (reviewUrl) {
+      msg += "\n\nLeave a review here: " + reviewUrl;
+    }
+    return msg;
+  };
+
+  const [message, setMessage] = useState(buildMessage());
+  const [copied, setCopied]   = useState(false);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(message);
+      setCopied(true);
+      window.toast && window.toast("Message copied to clipboard", "success");
+      setTimeout(() => setCopied(false), 2500);
+    } catch {
+      // Fallback: select the textarea so the user can copy manually
+      const ta = document.getElementById("review-msg-ta");
+      if (ta) { ta.select(); document.execCommand && document.execCommand("copy"); }
+      window.toast && window.toast("Selected — press Cmd/Ctrl+C to copy", "info");
+    }
+  };
+
+  const share = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({ text: message });
+      } catch (e) {
+        // User cancelled — silent
+        if (e && e.name !== "AbortError") {
+          window.toast && window.toast("Share failed: " + e.message, "warn");
+        }
+      }
+    } else {
+      // No native share → fall through to copy
+      copy();
+    }
+  };
+
+  const sms = () => {
+    if (!job.customerPhone) {
+      window.toast && window.toast("No phone number on file for this customer", "warn");
+      return;
+    }
+    // SMS URI: works on iOS and Android. Encoding the message in the body
+    // pre-fills the SMS app. The customer just hits send.
+    const phone = String(job.customerPhone).replace(/[^\d+]/g, "");
+    const url = "sms:" + phone + (navigator.userAgent.includes("iPhone") ? "&" : "?") + "body=" + encodeURIComponent(message);
+    window.location.href = url;
+  };
+
+  const reset = () => setMessage(buildMessage());
+
+  return html`<div class="modal-overlay" onClick=${(e) => { if (e.target === e.currentTarget) onClose(); }}
+    style=${{ position: "fixed", inset: 0, background: "rgba(0,0,0,.7)", backdropFilter: "blur(4px)", zIndex: 1000, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+    <div style=${{ background: "var(--s1)", width: "100%", maxWidth: 540, borderRadius: "20px 20px 0 0", padding: "20px 16px calc(28px + env(safe-area-inset-bottom))", maxHeight: "92vh", overflowY: "auto" }}>
+      <div style=${{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+        <div style=${{ fontSize: 18, fontWeight: 800, color: "var(--t1)", display: "flex", alignItems: "center", gap: 8 }}>
+          <span style=${{ fontSize: 22 }}>⭐</span>
+          Review Request
+        </div>
+        <button onClick=${onClose} style=${{ background: "none", border: "none", fontSize: 26, color: "var(--t2)", cursor: "pointer", lineHeight: 1 }}>×</button>
+      </div>
+
+      ${!reviewUrl && html`<div style=${{
+        background: "rgba(245,158,11,.10)", border: "1px solid rgba(245,158,11,.25)",
+        borderRadius: 10, padding: "10px 12px", marginBottom: 14,
+        fontSize: 12, color: "var(--amber)", lineHeight: 1.5,
+      }}>
+        ⚠️ No Google Review link saved yet. The message will send without a link — add yours in <strong>Settings → Google Reviews</strong> for one-tap reviews.
+      </div>`}
+
+      <div style=${{ fontSize: 12, color: "var(--t3)", marginBottom: 8 }}>
+        Customer: <span style=${{ color: "var(--t2)", fontWeight: 600 }}>${customerName === "there" ? "(no name)" : customerName}</span>${job.customerPhone ? html`<span> · ${job.customerPhone}</span>` : ""}
+      </div>
+
+      <textarea id="review-msg-ta"
+        value=${message}
+        onChange=${e => setMessage(e.target.value)}
+        rows=${7}
+        style=${{
+          width: "100%", background: "var(--s2)", border: "1px solid var(--border)",
+          borderRadius: 12, padding: "12px 14px", fontSize: 14, color: "var(--t1)",
+          fontFamily: "inherit", lineHeight: 1.5, resize: "vertical", minHeight: 130,
+          outline: "none", boxSizing: "border-box",
+        }}
+      />
+
+      <div style=${{ display: "flex", gap: 6, marginTop: 8, justifyContent: "space-between", alignItems: "center" }}>
+        <button onClick=${reset} style=${{ background: "none", border: "none", color: "var(--t3)", fontSize: 11, cursor: "pointer", padding: "6px 0" }}>
+          ↻ Reset to default
+        </button>
+        <div style=${{ fontSize: 11, color: "var(--t3)" }}>${message.length} chars</div>
+      </div>
+
+      <div style=${{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 14 }}>
+        <button class="btn secondary press-scale" onClick=${copy}
+          style=${{ padding: "13px 14px", fontSize: 13 }}>
+          ${copied ? "✓ Copied!" : "📋 Copy"}
+        </button>
+        ${navigator.share
+          ? html`<button class="btn primary press-scale" onClick=${share}
+              style=${{ padding: "13px 14px", fontSize: 13 }}>
+              📤 Share
+            </button>`
+          : html`<button class="btn primary press-scale" onClick=${copy}
+              style=${{ padding: "13px 14px", fontSize: 13 }}>
+              📋 Copy & Send
+            </button>`}
+      </div>
+
+      ${job.customerPhone && html`<button class="btn blue press-scale" onClick=${sms}
+        style=${{ width: "100%", padding: "13px 14px", fontSize: 13, marginTop: 8 }}>
+        💬 Send via SMS to ${job.customerPhone}
+      </button>`}
+
+      ${reviewUrl && html`<a href=${reviewUrl} target="_blank" rel="noopener"
+        style=${{
+          display: "block", textAlign: "center", marginTop: 12,
+          fontSize: 11, color: "var(--t3)", textDecoration: "none",
+          padding: "8px",
+        }}>
+        🔗 Preview review page →
+      </a>`}
+    </div>
+  </div>`;
+}
+
 function History({ jobs, settings, profile, onRepeat, onDelete, onEdit, onUpgrade }) {
   const bt = getBizType(settings.bizTypeId);
   const safeJobs = Array.isArray(jobs) ? jobs : [];
@@ -2525,6 +2912,7 @@ function History({ jobs, settings, profile, onRepeat, onDelete, onEdit, onUpgrad
     }
     generateBrandedInvoicePDF(job, settings);
   };
+  const [reviewJob, setReviewJob] = useState(null);
 
   return html`<div class="screen"><div class="page page-enter">
     <div style=${{ marginBottom: 12 }}>
@@ -2560,11 +2948,14 @@ function History({ jobs, settings, profile, onRepeat, onDelete, onEdit, onUpgrad
               <button class="btn secondary xs press-scale" onClick=${() => onEdit(job)}>✏️</button>
               <button class="btn secondary xs press-scale" onClick=${() => onRepeat(job)}>🔁</button>
               <button class="btn blue xs press-scale" onClick=${() => sendInvoice(job)}>🧾 Invoice</button>
+              <button class="btn xs press-scale" style=${{ background: "rgba(245,158,11,.18)", color: "var(--amber)", border: "1px solid rgba(245,158,11,.3)" }}
+                onClick=${() => setReviewJob(job)}>⭐ Review</button>
               ${job.customerPhone && html`<button class="btn secondary xs press-scale" onClick=${() => window.open("tel:" + job.customerPhone)}>📞</button>`}
               <button class="btn danger xs press-scale" onClick=${() => handleDelete(job.id)}>×</button>
             </div>
           </div>`;
         })}</div>`}
+    ${reviewJob && html`<${ReviewRequestModal} job=${reviewJob} settings=${settings} onClose=${() => setReviewJob(null)}/>`}
   </div></div>`;
 }
 
@@ -2816,8 +3207,78 @@ function Payouts({ jobs, settings }) {
 /* ────────────────────────────────────────────────────────────────────────────
    SETTINGS (continued)
    ──────────────────────────────────────────────────────────────────────────── */
+// ── ServiceAreasEditor ──────────────────────────────────────────────────────
+// Reusable list editor for the cities a business operates in. Used in:
+//   • Onboarding (step asking "What areas do you service?")
+//   • Settings → Service Areas
+//
+// Each entry uses CityAutocomplete so adding "Plantation" still pulls
+// county-mates (Sunrise, Hollywood, etc.) without forcing the user to
+// type each one. Cities are stored as a flat string array.
+function ServiceAreasEditor({ value, onChange, jobs, autoFocus, compact }) {
+  const areas = Array.isArray(value) ? value : [];
+  const [draft, setDraft] = useState("");
+
+  const add = (city) => {
+    const c = String(city || "").trim();
+    if (!c) return;
+    // Case-insensitive dedupe — "Brooklyn" and "brooklyn" shouldn't both exist
+    if (areas.some(a => a.toLowerCase() === c.toLowerCase())) {
+      window.toast && window.toast(c + " is already in your service areas", "info");
+      setDraft("");
+      return;
+    }
+    onChange([...areas, c]);
+    setDraft("");
+  };
+  const remove = (i) => {
+    onChange(areas.filter((_, idx) => idx !== i));
+  };
+
+  return html`<div>
+    ${areas.length > 0 && html`<div style=${{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+      ${areas.map((city, i) => html`<div key=${city + ":" + i}
+        style=${{
+          display: "inline-flex", alignItems: "center", gap: 6,
+          background: "var(--brand-dim)", color: "var(--brand)",
+          border: "1px solid var(--brand)", borderRadius: 8,
+          padding: "5px 4px 5px 10px", fontSize: 12, fontWeight: 700,
+        }}>
+        <span>${city}</span>
+        <button type="button" onClick=${() => remove(i)} aria-label=${"Remove " + city}
+          style=${{
+            background: "none", border: "none", color: "var(--brand)",
+            cursor: "pointer", padding: "0 6px", fontSize: 16, lineHeight: 1,
+            opacity: .7,
+          }}>×</button>
+      </div>`)}
+    </div>`}
+    <div style=${{ display: "flex", gap: 8, alignItems: "stretch" }}>
+      <div style=${{ flex: 1, minWidth: 0 }}>
+        <${CityAutocomplete}
+          value=${draft}
+          onChange=${(v) => setDraft(v)}
+          jobs=${jobs}
+          serviceAreas=${areas}
+          placeholder=${areas.length === 0 ? "First city you serve…" : "Add another city…"}
+        />
+      </div>
+      <button type="button" class="btn primary press-scale"
+        onClick=${() => add(draft)}
+        disabled=${!draft.trim()}
+        style=${{ flexShrink: 0, padding: compact ? "10px 14px" : "12px 18px", fontSize: 13 }}>
+        Add
+      </button>
+    </div>
+    ${areas.length === 0 && html`<div style=${{ fontSize: 11, color: "var(--t3)", marginTop: 6, lineHeight: 1.5 }}>
+      Add the cities you operate in. We'll auto-suggest neighbors (e.g. add "Plantation" → "Davie", "Sunrise", and other Broward cities show up automatically).
+    </div>`}
+  </div>`;
+}
+
 function Settings({ settings, setSettings, jobs, profile, onOpenPlans, onSignOut, onUpgrade }) {
   const bt = getBizType(settings.bizTypeId);
+  const [showBizTypePicker, setShowBizTypePicker] = useState(false);
   const upd = (k, v) => setSettings(p => ({ ...p, [k]: v }));
   const exps = Array.isArray(settings.expenses) ? settings.expenses : [];
   const updExp = (id, patch) => setSettings(p => ({ ...p, expenses: (Array.isArray(p.expenses)?p.expenses:[]).map(e => e.id === id ? { ...e, ...patch } : e) }));
@@ -2831,15 +3292,33 @@ function Settings({ settings, setSettings, jobs, profile, onOpenPlans, onSignOut
     }
     const file = e.target.files && e.target.files[0];
     if (!file) return;
-    if (file.size > 500 * 1024) { window.toast && window.toast("Logo must be under 500KB", "warn"); return; }
+    // Validate format up front — image/* covers all supported types
+    if (!file.type || !file.type.startsWith("image/")) {
+      window.toast && window.toast("Please choose a PNG, JPG, or WEBP image", "warn");
+      e.target.value = ""; return;
+    }
+    if (file.size > 500 * 1024) {
+      window.toast && window.toast("Logo too large (" + Math.round(file.size/1024) + "KB). Max is 500KB.", "warn");
+      e.target.value = ""; return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = String(reader.result || "");
-      const next = { ...settings, brandLogo: dataUrl };
-      setSettings(next); applyBranding(next);
-      window.toast && window.toast("Logo updated", "success");
+      // Write to BOTH field names so any reader (Header, PDF, review modal,
+      // settings preview) finds the logo regardless of which field name
+      // it checks.
+      const next = { ...settings, businessLogo: dataUrl, brandLogo: dataUrl };
+      setSettings(next);
+      applyBranding(next);
+      window.toast && window.toast("Logo uploaded", "success");
+    };
+    reader.onerror = () => {
+      window.toast && window.toast("Could not read that file. Try a different image.", "warn");
     };
     reader.readAsDataURL(file);
+    // Reset the input so the user can re-upload the same file if they
+    // remove and re-add it (otherwise onChange won't fire).
+    e.target.value = "";
   };
 
   const onColorChange = (color) => {
@@ -2892,8 +3371,104 @@ function Settings({ settings, setSettings, jobs, profile, onOpenPlans, onSignOut
       </div>
     </div>
 
+    <!-- Business Type -->
+    <div class="section-label" style=${{ marginTop: 0 }}>Business Type</div>
+    <div class="card card-anim">
+      <div class="settings-row" style=${{ alignItems: "center" }}>
+        <div style=${{ flex: 1, display: "flex", alignItems: "center", gap: 12 }}>
+          <div style=${{ fontSize: 28 }}>${bt.icon}</div>
+          <div>
+            <div style=${{ fontSize: 15, fontWeight: 700, color: "var(--t1)" }}>${bt.name}</div>
+            <div style=${{ fontSize: 12, color: "var(--t3)", marginTop: 2 }}>${bt.tagline}</div>
+          </div>
+        </div>
+        <button class="btn secondary sm press-scale" onClick=${() => setShowBizTypePicker(true)}>Change</button>
+      </div>
+    </div>
+
+    ${showBizTypePicker && html`<div class="modal-overlay" onClick=${(e) => { if (e.target === e.currentTarget) setShowBizTypePicker(false); }}
+      style=${{ position: "fixed", inset: 0, background: "rgba(0,0,0,.7)", backdropFilter: "blur(4px)", zIndex: 1000, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div style=${{ background: "var(--s1)", width: "100%", maxWidth: 520, borderRadius: "20px 20px 0 0", padding: "20px 16px calc(28px + env(safe-area-inset-bottom))", maxHeight: "85vh", overflowY: "auto" }}>
+        <div style=${{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div style=${{ fontSize: 18, fontWeight: 800, color: "var(--t1)" }}>Switch Business Type</div>
+          <button onClick=${() => setShowBizTypePicker(false)} style=${{ background: "none", border: "none", fontSize: 24, color: "var(--t2)", cursor: "pointer", lineHeight: 1 }}>×</button>
+        </div>
+        <div style=${{ fontSize: 12, color: "var(--t3)", marginBottom: 14, lineHeight: 1.5 }}>
+          Your existing jobs and inventory stay intact. The available services, pricing rules, and Quick Quote suggestions will update to match the new type.
+        </div>
+        ${Object.values(BUSINESS_TYPES).map(t => html`<button key=${t.id} type="button" class="press-scale"
+          onClick=${() => {
+            if (t.id === bt.id) { setShowBizTypePicker(false); return; }
+            const ok = window.confirm(
+              "Switch to " + t.name + "?\n\n" +
+              "Your existing jobs, customers, and inventory will be preserved. " +
+              "Service options and pricing defaults will change to match " + t.name + ".\n\n" +
+              "You can switch back at any time."
+            );
+            if (!ok) return;
+            // Apply: change bizTypeId AND merge in the new defaults so any
+            // missing service-pricing rules get sensible starting values.
+            const fresh = defaultSettings(t.id);
+            setSettings(prev => ({
+              ...prev,
+              bizTypeId: t.id,
+              // Keep existing customizations the user might care about,
+              // but adopt the new biz type's pricing baseline for any
+              // services that didn't exist in the previous catalog.
+              servicePricing: { ...fresh.servicePricing, ...((prev || {}).servicePricing || {}) },
+              vehiclePricing: (prev && prev.vehiclePricing) || fresh.vehiclePricing,
+            }));
+            setShowBizTypePicker(false);
+            window.toast && window.toast("Business type changed to " + t.name, "success");
+          }}
+          style=${{
+            display: "flex", alignItems: "center", gap: 14, width: "100%",
+            background: t.id === bt.id ? "var(--brand-dim)" : "var(--s2)",
+            border: "1px solid " + (t.id === bt.id ? "var(--brand)" : "var(--border)"),
+            borderRadius: 12, padding: "14px 16px", marginBottom: 8, cursor: "pointer", textAlign: "left",
+          }}>
+          <div style=${{ fontSize: 26 }}>${t.icon}</div>
+          <div style=${{ flex: 1 }}>
+            <div style=${{ fontSize: 14, fontWeight: 700, color: "var(--t1)" }}>${t.name}${t.id === bt.id ? html`<span style=${{ marginLeft: 8, fontSize: 10, color: "var(--brand)", fontWeight: 800 }}>· CURRENT</span>` : ""}</div>
+            <div style=${{ fontSize: 11, color: "var(--t3)", marginTop: 2 }}>${t.tagline}</div>
+          </div>
+        </button>`)}
+      </div>
+    </div>`}
+
+    <!-- Service Areas -->
+    <div class="section-label">Service Areas</div>
+    <div class="card card-anim">
+      <${ServiceAreasEditor}
+        value=${settings.serviceAreas || []}
+        onChange=${(next) => upd("serviceAreas", next)}
+        jobs=${jobs}
+      />
+    </div>
+
+    <!-- Google Review Link -->
+    <div class="section-label">Google Reviews</div>
+    <div class="card card-anim">
+      <div class="settings-row" style=${{ flexDirection: "column", alignItems: "stretch" }}>
+        <div class="label" style=${{ marginBottom: 6 }}>Review Link</div>
+        <input
+          class="settings-inp"
+          style=${{ width: "100%" }}
+          type="url"
+          inputMode="url"
+          placeholder="https://g.page/r/your-business/review"
+          value=${settings.googleReviewUrl || ""}
+          onChange=${e => upd("googleReviewUrl", e.target.value.trim())}
+        />
+        <div style=${{ fontSize: 11, color: "var(--t3)", marginTop: 8, lineHeight: 1.5 }}>
+          After completing a job, tap "Send Review Request" in the job's history row to message your customer with a pre-filled review prompt.
+          Find your link at <span style=${{ color: "var(--t2)" }}>business.google.com</span> → Home → "Get more reviews" → Share.
+        </div>
+      </div>
+    </div>
+
     <!-- Branding -->
-    <div class="section-label" style=${{ marginTop: 0 }}>Branding ${!hasFeature(profile,"customBranding") && html`<span style=${{ color: "var(--amber)", fontSize: 10 }}>· Pro+</span>`}</div>
+    <div class="section-label">Branding ${!hasFeature(profile,"customBranding") && html`<span style=${{ color: "var(--amber)", fontSize: 10 }}>· Pro+</span>`}</div>
     <div class="card card-anim">
       <div class="settings-row">
         <div style=${{ flex: 1 }}>
@@ -2901,18 +3476,40 @@ function Settings({ settings, setSettings, jobs, profile, onOpenPlans, onSignOut
           <input class="settings-inp" style=${{ width: "100%", marginTop: 6 }} value=${settings.businessName || ""} onChange=${e => upd("businessName", e.target.value)}/>
         </div>
       </div>
-      <div class="settings-row">
-        <div class="label">Logo</div>
-        <div style=${{ display: "flex", gap: 10, alignItems: "center" }}>
-          <div style=${{ width: 44, height: 44, borderRadius: 10, background: settings.brandLogo ? "transparent" : "var(--s3)", border: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", flexShrink: 0 }}>
-            ${settings.brandLogo
-              ? html`<img src=${settings.brandLogo} style=${{ width: "100%", height: "100%", objectFit: "cover" }}/>`
-              : html`<span style=${{ fontSize: 18, color: "var(--t3)", fontWeight: 800 }}>${initial}</span>`}
+      <div class="settings-row" style=${{ flexDirection: "column", alignItems: "stretch" }}>
+        <div class="label" style=${{ marginBottom: 10 }}>Business Logo</div>
+        <div style=${{ display: "flex", gap: 14, alignItems: "center" }}>
+          <div style=${{
+            width: 80, height: 80, borderRadius: 14,
+            background: (settings.businessLogo || settings.brandLogo) ? "transparent" : "var(--s3)",
+            border: "1.5px dashed var(--border)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            overflow: "hidden", flexShrink: 0,
+          }}>
+            ${(settings.businessLogo || settings.brandLogo)
+              ? html`<img src=${settings.businessLogo || settings.brandLogo} alt="Business logo"
+                  style=${{ width: "100%", height: "100%", objectFit: "cover" }}/>`
+              : html`<span style=${{ fontSize: 32, color: "var(--t3)", fontWeight: 800 }}>${initial}</span>`}
           </div>
-          <label class="btn secondary sm press-scale" style=${{ cursor: "pointer" }}>
-            ${hasFeature(profile,"customBranding") ? "Upload" : "🔒 Pro+"}
-            <input type="file" accept="image/*" onChange=${onLogoUpload} style=${{ display: "none" }}/>
-          </label>
+          <div style=${{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+            <label class="btn primary sm press-scale" style=${{ cursor: "pointer", textAlign: "center" }}>
+              ${hasFeature(profile,"customBranding")
+                ? ((settings.businessLogo || settings.brandLogo) ? "Change Logo" : "Upload Logo")
+                : "🔒 Pro+"}
+              <input type="file" accept="image/png,image/jpeg,image/webp" onChange=${onLogoUpload} style=${{ display: "none" }}/>
+            </label>
+            ${(settings.businessLogo || settings.brandLogo) && hasFeature(profile,"customBranding") && html`<button
+              class="btn secondary sm press-scale"
+              onClick=${() => {
+                if (!window.confirm("Remove logo? You can upload a new one anytime.")) return;
+                setSettings(p => ({ ...p, businessLogo: "", brandLogo: "" }));
+                window.toast && window.toast("Logo removed", "info");
+              }}
+              style=${{ fontSize: 11, padding: "6px 10px" }}>Remove</button>`}
+            <div style=${{ fontSize: 10, color: "var(--t3)", marginTop: 2, lineHeight: 1.4 }}>
+              PNG, JPG, or WEBP · max 500KB · square works best
+            </div>
+          </div>
         </div>
       </div>
       <div class="settings-row">
@@ -2994,7 +3591,7 @@ function generateBrandedInvoicePDF(job, settings) {
   const W = 210, M = 18;
   const bizName = (settings.businessName || "Mobile Service OS").trim();
   const bizColor = settings.brandColor || "#4f8ef7";
-  const logo = settings.brandLogo;
+  const logo = settings.businessLogo || settings.brandLogo;
   // Hex → [r,g,b] for jsPDF
   const hex = (h) => {
     const m = /^#?([a-f0-9]{2})([a-f0-9]{2})([a-f0-9]{2})$/i.exec(h || "#4f8ef7");
@@ -3169,7 +3766,7 @@ function TrialBanner({ profile, onUpgrade }) {
     transition:"background .15s",
   }}>
     <span style=${{fontSize:13}}>${urgent ? "⏱" : "✦"}</span>
-    <span>${daysLeft} ${daysLeft === 1 ? "day" : "days"} left in trial</span>
+    <span>${daysLeft} ${daysLeft === 1 ? "day" : "days"} left in Pro trial</span>
     <span style=${{opacity:.6, fontWeight:500}}>·</span>
     <span style=${{opacity:.85}}>Tap to subscribe →</span>
   </button>`;
@@ -3287,7 +3884,7 @@ function App() {
     if (!user || isLocalUser(user) || !_db) {
       if (user && isLocalUser(user)) {
         // Local mode — no real profile, just allow access
-        setProfile({ plan: "starter", subscriptionStatus: "trialing", trialEndsAt: Date.now() + 14*86400000, onboarded: !!settings });
+        setProfile({ plan: "starter", subscriptionStatus: "trialing", trialEndsAt: Date.now() + 7*86400000, onboarded: !!settings });
         setProfileReady(true);
       }
       return;
@@ -3374,8 +3971,33 @@ function App() {
           // breaks.
           settingsOriginRef.current = "server";
           setSettings(prev => {
-            const merged = { ...defaultSettings(d.bizTypeId || "tire"), ...d, ...(prev || {}) };
+            // Merge strategy:
+            // - First load (prev is null): use server data as-is.
+            // - Subsequent loads: only let prev override server values for
+            //   fields where prev has a NON-EMPTY value (in-flight edits the
+            //   user is actively typing). For empty/missing fields in prev,
+            //   server data wins — this is what makes brandLogo and other
+            //   one-time-set fields actually show up after sign-in.
+            let merged;
+            if (!prev) {
+              merged = { ...defaultSettings(d.bizTypeId || "tire"), ...d };
+            } else {
+              // Filter prev to only fields that have meaningful values
+              const prevWithValues = {};
+              Object.keys(prev).forEach(k => {
+                const v = prev[k];
+                if (v == null) return;          // null / undefined: skip
+                if (v === "") return;            // empty string: skip
+                if (Array.isArray(v) && v.length === 0) return; // empty array: skip
+                prevWithValues[k] = v;
+              });
+              merged = { ...defaultSettings(d.bizTypeId || "tire"), ...d, ...prevWithValues };
+            }
             persistTenant(KEYS.settings, uid, merged);
+            // Branding may have changed — re-apply CSS variables so the
+            // logo + color show up immediately on the dashboard without a
+            // page reload.
+            try { applyBranding(merged); } catch {}
             return merged;
           });
         }
