@@ -9,9 +9,26 @@
   <meta name="apple-mobile-web-app-title" content="Mobile Service OS" />
   <meta name="theme-color" content="#050505" />
   <meta name="description" content="The operating system for mobile businesses. Track jobs, manage inventory, and run profitable mobile service operations from your phone." />
-  <link rel="manifest" href="./manifest.webmanifest" />
-  <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
-  <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+
+  <!-- Open Graph / iMessage / Twitter / iOS share-sheet preview ─────────────
+       iOS pulls the share-sheet preview image from og:image first, then falls
+       back to apple-touch-icon. Without og:image, iOS may show a cached image
+       from a previous deploy. ?v=mso2 cache-busts any prior cached version. -->
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Mobile Service OS" />
+  <meta property="og:description" content="The operating system for mobile businesses." />
+  <meta property="og:image" content="./icon-512.png?v=mso2" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="Mobile Service OS" />
+  <meta name="twitter:description" content="The operating system for mobile businesses." />
+  <meta name="twitter:image" content="./icon-512.png?v=mso2" />
+
+  <link rel="manifest" href="./manifest.webmanifest?v=mso2" />
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg?v=mso2" />
+  <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png?v=mso2" />
+  <link rel="icon" type="image/png" sizes="512x512" href="./icon-512.png?v=mso2" />
+  <link rel="apple-touch-icon" href="./apple-touch-icon.png?v=mso2" />
+  <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png?v=mso2" />
   <title>Mobile Service OS — The Operating System for Mobile Businesses</title>
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Geist:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -3996,143 +4013,246 @@ function App() {
   // the write loop where every server snapshot triggers a re-write.
   const settingsOriginRef = useRef("local");
 
+  // FREEZE FIX guards: ensure migration + profile listener setup runs at
+  // most once per uid. Without these, Firebase token refreshes (which can
+  // produce a new `user` object with the same uid) would re-run setup and
+  // leak Firestore listeners.
+  const initializedUidRef    = useRef(null);
+  const migrationRunningRef  = useRef(false);
+  const profileUnsubRef      = useRef(null);
+
   useEffect(() => {
     if (!_auth) {
       // Local-only fallback so dev still works without Firebase
       setUser(null); setAuthReady(true); setSyncStatus("local"); return;
     }
     const unsub = _auth.onAuthStateChanged(u => {
-      const prevUid = prevUidRef.current;
-      const newUid  = u ? u.uid : null;
+      try {
+        const prevUid = prevUidRef.current;
+        const newUid  = u ? u.uid : null;
+        console.log("AUTH STATE", newUid);
 
-      // User CHANGED (A → B) or signed out (A → null). Wipe A's cache.
-      if (prevUid && prevUid !== newUid) {
-        wipeTenantLocalState(prevUid);
-        // Also clear businessId cache for A so any in-flight reads can't
-        // accidentally route to A's business after sign-out.
-        delete _businessIdByUid[prevUid];
-      }
-      prevUidRef.current = newUid;
+        // FREEZE FIX: Firebase fires onAuthStateChanged multiple times during
+        // sign-in (initial null → user → token refresh → ...). Each fire
+        // produces a new `u` object reference, even when uid is unchanged.
+        // Calling setUser(u) every time creates a new dependency value for
+        // downstream effects → they re-run → leak listeners → freeze.
+        // Only update React state when the uid ACTUALLY changes.
+        if (prevUid === newUid) {
+          // Same user, just a token refresh. Mark auth ready and bail.
+          setAuthReady(true);
+          return;
+        }
 
-      // Persist last-known UID so the NEXT app boot knows whose tenant cache
-      // to hydrate from. Without this, a fresh boot loads from "anon" key
-      // (empty) until Firestore syncs — a brief blank-screen flicker, which
-      // is what we want from a privacy standpoint anyway.
-      if (newUid) setLastUid(newUid);
-      else        try { localStorage.removeItem(KEYS.lastUid); } catch {}
+        // User CHANGED (A → B) or signed out (A → null). Wipe A's cache.
+        if (prevUid && prevUid !== newUid) {
+          wipeTenantLocalState(prevUid);
+          // Also clear businessId cache for A so any in-flight reads can't
+          // accidentally route to A's business after sign-out.
+          delete _businessIdByUid[prevUid];
+        }
+        prevUidRef.current = newUid;
 
-      setUser(u || null);
-      setAuthReady(true);
-      if (!u) {
-        setProfile(null);
-        setProfileReady(true);
+        // Persist last-known UID so the NEXT app boot knows whose tenant
+        // cache to hydrate from. localStorage can throw (quota / private
+        // browsing) — wrap so it doesn't break sign-in.
+        try {
+          if (newUid) setLastUid(newUid);
+          else localStorage.removeItem(KEYS.lastUid);
+        } catch (storageErr) {
+          console.warn("localStorage write failed:", storageErr.message);
+        }
+
+        setUser(u || null);
+        setAuthReady(true);
+        if (!u) {
+          setProfile(null);
+          setProfileReady(true);
+        }
+      } catch (err) {
+        // Any unexpected error in the auth handler should NOT freeze the
+        // app. Log, mark ready, surface a toast, and keep going so user
+        // can sign out / retry.
+        console.error("Auth listener error:", err);
+        setAuthReady(true);
+        window.toast && window.toast("Sign-in error: " + (err.message || "unknown"), "error");
       }
     });
     return () => unsub();
   }, [wipeTenantLocalState]);
 
   // ── Migrate legacy + load profile on first login ───────────────────────
+  // Uses uid (string) as the dep, NOT the user object — Firebase token
+  // refreshes produce new user object refs even when uid is unchanged.
+  // Without this, the effect re-runs on every refresh and leaks listeners.
   useEffect(() => {
-    if (!user || isLocalUser(user) || !_db) {
+    const uid = user && !isLocalUser(user) ? user.uid : null;
+
+    if (!user || !_db) {
+      // No real user OR no db — local-only mode
       if (user && isLocalUser(user)) {
-        // Local mode — no real profile, just allow access
         setProfile({ plan: "starter", subscriptionStatus: "trialing", trialEndsAt: Date.now() + 7*86400000, onboarded: !!settings });
         setProfileReady(true);
       }
       return;
     }
-    (async () => {
-      setProfileReady(false);
-      // Run legacy migration once per user (no-op on subsequent logins)
-      const mig = await migrateLegacyDataIfNeeded(user.uid);
-      if (mig.migrated) window.toast && window.toast("Welcome — your existing data was imported", "success");
 
-      // Phase 1 multi-tenant: ensure user has a businessId. Lazy migration
-      // runs server-side (admin SDK can write to businesses/{bid} regardless
-      // of rules and atomically copy data). On subsequent sign-ins this is
-      // a fast no-op that just reports the existing businessId.
+    if (!uid) return;
+
+    // FREEZE FIX: short-circuit if we've already set up for this uid.
+    // Without this guard, every Firebase token refresh re-runs the whole
+    // setup, including spawning a new onSnapshot listener — and the
+    // previous one was never properly cleaned up because its unsub was
+    // returned from inside an async IIFE (where React can't see it).
+    if (initializedUidRef.current === uid) {
+      console.log("LOADING PROFILE", uid, "(already initialized — skipping)");
+      return;
+    }
+    console.log("LOADING PROFILE", uid);
+    initializedUidRef.current = uid;
+
+    let cancelled = false;
+
+    (async () => {
       try {
-        const token = _auth.currentUser && (await _auth.currentUser.getIdToken());
-        if (token) {
-          const url = CFG.stripe.functionsBase + "/migrateUserToBusiness";
-          const resp = await fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
-          });
-          if (resp.ok) {
-            const data = await resp.json();
-            console.log("[user→business migration]", data);
-            if (data.businessId) {
-              setActiveBusinessId(user.uid, data.businessId);
-              if (data.migrated) {
-                const r = data.result || {};
-                const counts = [
-                  r.jobs ? r.jobs + " jobs" : "",
-                  r.inventory ? r.inventory + " inventory" : "",
-                  r.expenses ? r.expenses + " expenses" : "",
-                ].filter(Boolean).join(", ");
-                window.toast && window.toast(
-                  "Set up your business workspace" + (counts ? " (" + counts + " imported)" : ""),
-                  "success", 5000
-                );
+        setProfileReady(false);
+
+        // ── 1. Legacy migration (idempotent inside the function) ─────
+        try {
+          const mig = await migrateLegacyDataIfNeeded(uid);
+          if (cancelled) return;
+          if (mig.migrated) window.toast && window.toast("Welcome — your existing data was imported", "success");
+        } catch (err) {
+          console.warn("Legacy migration error (non-fatal):", err.message);
+        }
+
+        // ── 2. User → Business migration (server-side, idempotent) ───
+        // FREEZE FIX: guard against concurrent invocations. Even though
+        // initializedUidRef short-circuits the effect itself, a single
+        // long-running migration call could collide with React Strict
+        // Mode double-mount in dev. The flag is a belt + suspenders.
+        if (migrationRunningRef.current) {
+          console.log("MIGRATION SKIP (already running)");
+        } else {
+          migrationRunningRef.current = true;
+          try {
+            console.log("MIGRATION START", uid);
+            const token = _auth.currentUser && (await _auth.currentUser.getIdToken());
+            if (token) {
+              const url = CFG.stripe.functionsBase + "/migrateUserToBusiness";
+              const resp = await fetch(url, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+              });
+              if (cancelled) return;
+              if (resp.ok) {
+                const data = await resp.json();
+                console.log("MIGRATION COMPLETE", data);
+                if (data.businessId) {
+                  setActiveBusinessId(uid, data.businessId);
+                  console.log("BUSINESS ID", data.businessId);
+                  if (data.migrated) {
+                    const r = data.result || {};
+                    const counts = [
+                      r.jobs ? r.jobs + " jobs" : "",
+                      r.inventory ? r.inventory + " inventory" : "",
+                      r.expenses ? r.expenses + " expenses" : "",
+                    ].filter(Boolean).join(", ");
+                    window.toast && window.toast(
+                      "Set up your business workspace" + (counts ? " (" + counts + " imported)" : ""),
+                      "success", 5000
+                    );
+                  }
+                }
+              } else {
+                console.warn("MIGRATION SKIP — HTTP", resp.status);
               }
             }
-          } else {
-            console.warn("[user→business migration] HTTP", resp.status);
+          } catch (migErr) {
+            console.warn("Migration failed (continuing with uid as businessId):", migErr.message);
+          } finally {
+            migrationRunningRef.current = false;
           }
         }
-      } catch (err) {
-        console.warn("[user→business migration] failed:", err.message,
-                    "— continuing with uid as businessId fallback");
-        // Don't block sign-in; helpers fall back to using uid as businessId.
-      }
 
-      // Listen to user profile doc for plan/subscription updates
-      const unsubProfile = userDoc(user.uid).onSnapshot(snap => {
-        if (snap && snap.exists) {
-          const data = snap.data();
-          // Keep the businessId cache in sync from authoritative source.
-          // On first migration the cache was set above, but if Firestore
-          // has a different value (rare race), trust Firestore.
-          if (data.businessId) setActiveBusinessId(user.uid, data.businessId);
-          setProfile(data);
-          setProfileReady(true);
-        } else {
-          // Doc doesn't exist — the onUserCreate Cloud Function should have
-          // created it on signup, but it hasn't run yet (or failed). We do
-          // NOT write billing fields from the client (rules block it, and
-          // we want to keep billing server-authoritative). Instead we wait
-          // briefly and retry the read; the trigger usually completes in
-          // <2 seconds.
-          //
-          // If after several seconds we still don't see a doc, we surface
-          // an error rather than silently spinning forever.
-          let retries = 0;
-          const retry = () => {
-            retries++;
-            if (retries > 10) {
-              console.error("Profile doc still missing after retries — onUserCreate trigger may have failed");
-              window.toast && window.toast("Account setup incomplete. Refresh to retry.", "error", 6000);
+        if (cancelled) return;
+
+        // ── 3. Profile listener (single subscription per uid) ────────
+        // FREEZE FIX: store the unsub in a ref so the effect cleanup
+        // function (returned synchronously from useEffect, NOT from
+        // inside this async IIFE) can reach it.
+        try {
+          // Defensive: if a listener somehow got attached previously, kill it.
+          if (profileUnsubRef.current) {
+            profileUnsubRef.current();
+            profileUnsubRef.current = null;
+          }
+          profileUnsubRef.current = userDoc(uid).onSnapshot(snap => {
+            try {
+              if (snap && snap.exists) {
+                const data = snap.data();
+                console.log("SNAPSHOT PROFILE RECEIVED", { hasBusinessId: !!data.businessId, plan: data.plan, status: data.subscriptionStatus });
+                if (data.businessId) setActiveBusinessId(uid, data.businessId);
+                setProfile(data);
+                setProfileReady(true);
+              } else {
+                // Doc doesn't exist yet — onUserCreate trigger pending. Retry briefly.
+                let retries = 0;
+                const retry = () => {
+                  retries++;
+                  if (retries > 10 || cancelled) {
+                    console.error("Profile doc still missing — onUserCreate may have failed");
+                    if (!cancelled) {
+                      window.toast && window.toast("Account setup incomplete. Refresh to retry.", "error", 6000);
+                      setProfileReady(true);
+                    }
+                    return;
+                  }
+                  setTimeout(() => {
+                    if (cancelled) return;
+                    userDoc(uid).get().then(s => { if (!s.exists) retry(); }).catch(retry);
+                  }, 1500);
+                };
+                retry();
+              }
+            } catch (snapErr) {
+              console.error("Snapshot handler error:", snapErr);
               setProfileReady(true);
-              return;
             }
-            // The onSnapshot will fire again automatically when the doc is
-            // created — this retry is just a safety net to surface errors.
-            setTimeout(() => {
-              userDoc(user.uid).get().then(s => {
-                if (!s.exists) retry();
-              }).catch(retry);
-            }, 1500);
-          };
-          retry();
+          }, listenerErr => {
+            console.warn("Profile listener error:", listenerErr.message);
+            setProfileReady(true);
+          });
+        } catch (subErr) {
+          console.error("Profile listener setup failed:", subErr);
+          setProfileReady(true);
         }
-      }, e => {
-        console.warn(e);
+      } catch (outerErr) {
+        console.error("Profile load fatal error:", outerErr);
         setProfileReady(true);
-      });
-      return () => unsubProfile();
+        window.toast && window.toast("Could not load your profile: " + (outerErr.message || "unknown error") + ". Try refreshing.", "error", 8000);
+      }
     })();
-  }, [user]);
+
+    // Cleanup: this DOES reach React because it's returned synchronously
+    // from useEffect (not from inside the async IIFE). Reset the per-uid
+    // init guard if uid changes so the next user can initialize cleanly.
+    return () => {
+      cancelled = true;
+      if (profileUnsubRef.current) {
+        profileUnsubRef.current();
+        profileUnsubRef.current = null;
+      }
+      // Only reset the init guard if the EFFECT is being torn down for a
+      // different uid. Same-uid teardown (StrictMode) shouldn't reset.
+      // We can detect this by checking if user prop has actually changed
+      // by the time cleanup runs. Conservative: reset always — re-init is
+      // cheap thanks to the migrationRunningRef guard above.
+      if (initializedUidRef.current === uid) {
+        initializedUidRef.current = null;
+      }
+    };
+  }, [user && user.uid, _db]);
 
   // ── Tenant-scoped Firestore listeners ──────────────────────────────────
   useEffect(() => {
