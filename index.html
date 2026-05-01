@@ -329,6 +329,28 @@
     box-shadow:0 0 0 3px var(--gold-dim);
     background:rgba(30,25,18,.7);
   }
+
+  /* ── Input visibility safety net ───────────────────────────────────────
+     Defensive baseline so typed text is always readable, even on inputs
+     without an explicit class. Browser autofill is the worst offender —
+     it forces white-on-white in some Chrome/Edge versions. The
+     -webkit-text-fill-color override fixes that. */
+  input, textarea, select {
+    color: #f0f0fa;
+    caret-color: #ffffff;
+  }
+  input::placeholder, textarea::placeholder {
+    color: rgba(240, 240, 250, 0.42);
+  }
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  input:-webkit-autofill:active {
+    -webkit-text-fill-color: #f0f0fa !important;
+    -webkit-box-shadow: 0 0 0 1000px rgba(20, 18, 12, 0.95) inset !important;
+    transition: background-color 5000s ease-in-out 0s;
+    caret-color: #ffffff !important;
+  }
   /* Primary CTA on auth surfaces — gold gradient, not blue. Matches the
      "luxury front door" feel before users land in the blue workshop. */
   .auth-btn-main {
@@ -1010,25 +1032,55 @@ const SOURCE_QUICK = [
   { label: "Returning Customer",icon: "🔁" },
   { label: "Roadside Flag",     icon: "🚗" }
 ];
+// ── Business type normalization ────────────────────────────────────────────
+// Single map: any input form (short ID, snake_case, human-readable label)
+// → canonical short ID matching BUSINESS_TYPES keys. Used at every
+// boundary where biz type might come from external data (Firestore docs
+// written by older clients, URL params, deep links, etc.).
+//
+// Returns the canonical SHORT ID (tire, mechanic, ...) — that's what
+// BUSINESS_TYPES[id] uses as keys, so all internal lookups stay simple.
+// The longer snake_case names from the spec map to the same short IDs.
+function normalizeBusinessType(type) {
+  const t = String(type || "").toLowerCase().trim().replace(/-/g, "_");
+  const map = {
+    "tire": "tire",
+    "mobile_tire": "tire",
+    "mobile tire": "tire",
+    "roadside": "roadside",
+    "roadside_assistance": "roadside",
+    "roadside assistance": "roadside",
+    "mechanic": "mechanic",
+    "mobile_mechanic": "mechanic",
+    "mobile mechanic": "mechanic",
+    "detailer": "detailer",
+    "detailing": "detailer",
+    "mobile_detailing": "detailer",
+    "mobile detailing": "detailer",
+    "car_wash": "detailer",         // map car wash to detailer (closest existing biz type)
+    "mobile_car_wash": "detailer",
+    "mobile car wash": "detailer",
+    "oil": "oil",
+    "oil_change": "oil",
+    "mobile_oil_change": "oil",
+    "mobile oil change": "oil",
+    "pressure": "pressure",
+    "pressure_washing": "pressure",
+    "pressure washing": "pressure",
+  };
+  return map[t] || t || "tire";
+}
+
 // ── Highway condition gate — single source of truth ───────────────────────
 // User's explicit spec: Highway condition shows ONLY for mobile tire and
 // roadside assistance. Centralized here so any new render site can call
 // this one helper and get correct behavior automatically.
 //
-// Accepts BOTH the spec's snake_case IDs (mobile_tire, roadside_assistance)
-// AND the short IDs actually used by BUSINESS_TYPES (tire, roadside). This
-// way it doesn't matter which form a future caller uses — both work.
+// Routes through normalizeBusinessType() so it accepts ANY input form:
+// "tire", "mobile_tire", "Mobile Tire", "TIRE" — all behave identically.
 function shouldShowHighwayCondition(businessType) {
-  if (!businessType) return false;
-  const id = String(businessType).toLowerCase();
-  // Both ID forms produce the same answer:
-  //   tire / mobile_tire           → true
-  //   roadside / roadside_assistance → true
-  //   anything else                → false
-  return id === "tire"
-      || id === "mobile_tire"
-      || id === "roadside"
-      || id === "roadside_assistance";
+  const id = normalizeBusinessType(businessType);
+  return id === "tire" || id === "roadside";
 }
 
 // FLAGS = [key, label, premiumAmount, allowedBizTypes (omit = all)]
@@ -2139,10 +2191,9 @@ function Header({ syncStatus, settings, profile, onSignOut, onOpenPlans }) {
   const isLive    = syncStatus === "connected";
   const isSyncing = syncStatus === "syncing";
   const name = (settings && settings.businessName) || CFG.platform.name;
-  // Logo lookup: support both `businessLogo` (spec) and `brandLogo` (legacy
-  // field name shipped earlier). Either one works; if both are set,
-  // businessLogo wins because the spec named it.
-  const logo = settings && (settings.businessLogo || settings.brandLogo);
+  // Logo lookup: single helper checks settings + userProfile, both naming
+  // conventions. See getBusinessLogo() for the priority chain.
+  const logo = getBusinessLogo(settings, profile);
   const initial = name.trim().charAt(0).toUpperCase() || "M";
   const planId = (profile && profile.plan) || "starter";
   const status = (profile && profile.subscriptionStatus) || "trialing";
@@ -2910,7 +2961,7 @@ function History({ jobs, settings, profile, onRepeat, onDelete, onEdit, onUpgrad
       showUpgradePrompt("pdfInvoices", onUpgrade);
       return;
     }
-    generateBrandedInvoicePDF(job, settings);
+    generateBrandedInvoicePDF(job, settings, profile);
   };
   const [reviewJob, setReviewJob] = useState(null);
 
@@ -3406,17 +3457,23 @@ function Settings({ settings, setSettings, jobs, profile, onOpenPlans, onSignOut
               "You can switch back at any time."
             );
             if (!ok) return;
-            // Apply: change bizTypeId AND merge in the new defaults so any
-            // missing service-pricing rules get sensible starting values.
+            // FREEZE FIX: drop the previous biz type's per-service pricing
+            // entirely and use the new type's defaults. The previous
+            // implementation did a deep merge of old prices into the new
+            // catalog — this caused stale keys (e.g., "Patch" from tire) to
+            // linger when switching to mechanic, which AddJob would then
+            // try to render against the new bt.services list (which doesn't
+            // include "Patch"), causing slow re-renders / occasional crashes.
+            //
+            // Vehicle pricing IS preserved across switches because vehicle
+            // types (Car, SUV, Van) overlap across all biz types.
             const fresh = defaultSettings(t.id);
             setSettings(prev => ({
               ...prev,
-              bizTypeId: t.id,
-              // Keep existing customizations the user might care about,
-              // but adopt the new biz type's pricing baseline for any
-              // services that didn't exist in the previous catalog.
-              servicePricing: { ...fresh.servicePricing, ...((prev || {}).servicePricing || {}) },
+              bizTypeId:      normalizeBusinessType(t.id),
+              servicePricing: { ...fresh.servicePricing },
               vehiclePricing: (prev && prev.vehiclePricing) || fresh.vehiclePricing,
+              brandColor:     (prev && prev.brandColor) || t.color,
             }));
             setShowBizTypePicker(false);
             window.toast && window.toast("Business type changed to " + t.name, "success");
@@ -3584,14 +3641,47 @@ function Settings({ settings, setSettings, jobs, profile, onOpenPlans, onSignOut
 /* ────────────────────────────────────────────────────────────────────────────
    BRANDED INVOICE PDF — uses user's logo + color
    ──────────────────────────────────────────────────────────────────────────── */
-function generateBrandedInvoicePDF(job, settings) {
+
+// ── Logo lookup helpers (used by PDF + Header + Review modal) ──────────────
+// getBusinessLogo: priority chain matching the user spec exactly.
+//   1. settings.businessLogo  (current spec field name)
+//   2. settings.brandLogo     (legacy field name from earlier rounds)
+//   3. userProfile.businessLogo
+//   4. userProfile.brandLogo
+//   → ""  (caller renders fallback)
+function getBusinessLogo(settings, userProfile) {
+  return (
+    (settings && settings.businessLogo) ||
+    (settings && settings.brandLogo) ||
+    (userProfile && userProfile.businessLogo) ||
+    (userProfile && userProfile.brandLogo) ||
+    ""
+  );
+}
+
+// detectImageFormat: returns the format string jsPDF.addImage() expects,
+// derived from the data URL prefix. Returns null for unrecognized input —
+// caller treats null as "use fallback rendering".
+function detectImageFormat(dataUrl) {
+  if (!dataUrl || typeof dataUrl !== "string") return null;
+  if (dataUrl.startsWith("data:image/png"))  return "PNG";
+  if (dataUrl.startsWith("data:image/jpeg")) return "JPEG";
+  if (dataUrl.startsWith("data:image/jpg"))  return "JPEG";
+  if (dataUrl.startsWith("data:image/webp")) return "WEBP";
+  return null;
+}
+
+function generateBrandedInvoicePDF(job, settings, userProfile) {
   const jsPDF = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
   if (!jsPDF) { window.toast && window.toast("PDF library not loaded", "error"); return null; }
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const W = 210, M = 18;
   const bizName = (settings.businessName || "Mobile Service OS").trim();
   const bizColor = settings.brandColor || "#4f8ef7";
-  const logo = settings.businessLogo || settings.brandLogo;
+  const logo = getBusinessLogo(settings, userProfile);
+  if (logo) {
+    console.log("Invoice logo found", { length: logo.length });
+  }
   // Hex → [r,g,b] for jsPDF
   const hex = (h) => {
     const m = /^#?([a-f0-9]{2})([a-f0-9]{2})([a-f0-9]{2})$/i.exec(h || "#4f8ef7");
@@ -3609,26 +3699,25 @@ function generateBrandedInvoicePDF(job, settings) {
   doc.setFillColor(...NAVY);  doc.rect(0, 0, W, 44, "F");
   doc.setFillColor(...BRAND); doc.rect(0, 44, W, 3, "F");
 
-  // Logo or initial — detect format from data URL prefix so we don't pass a
-  // PNG-typed JPEG to jsPDF (which silently produces garbage).
+  // Logo or initial — use detectImageFormat() to derive jsPDF format from the
+  // data URL prefix. We don't trust a PNG-typed JPEG (silently produces
+  // garbage in jsPDF). Any failure → graceful fallback to initial block.
   let logoOk = false;
   if (logo) {
-    try {
-      // dataURL format: "data:image/<format>;base64,...."
-      const m = /^data:image\/([a-z]+);base64,/i.exec(logo);
-      const fmt = m ? m[1].toUpperCase() : null;
-      // jsPDF supports PNG, JPEG, JPG, WEBP (since 2.x), GIF
-      const SUPPORTED = ["PNG", "JPEG", "JPG", "WEBP", "GIF"];
-      if (fmt && SUPPORTED.includes(fmt)) {
-        doc.addImage(logo, fmt === "JPG" ? "JPEG" : fmt, M, 8, 24, 24);
+    const logoFormat = detectImageFormat(logo);
+    console.log("Invoice logo format", logoFormat);
+    if (logoFormat) {
+      try {
+        doc.addImage(logo, logoFormat, M, 8, 24, 24);
         logoOk = true;
+      } catch (err) {
+        console.warn("Invoice logo render failed; using fallback", err && err.message);
+        logoOk = false;
       }
-    } catch (e) {
-      console.warn("PDF logo render failed; falling back to initial:", e && e.message);
-      logoOk = false;
     }
   }
   if (!logoOk) {
+    console.log("Invoice logo fallback used");
     doc.setFillColor(...BRAND);
     doc.roundedRect(M, 8, 24, 24, 4, 4, "F");
     doc.setFont("helvetica","bold");
