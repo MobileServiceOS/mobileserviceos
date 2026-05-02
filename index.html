@@ -12,23 +12,25 @@
 
   <!-- Open Graph / iMessage / Twitter / iOS share-sheet preview ─────────────
        iOS pulls the share-sheet preview image from og:image first, then falls
-       back to apple-touch-icon. Without og:image, iOS may show a cached image
-       from a previous deploy. ?v=mso2 cache-busts any prior cached version. -->
+       back to apple-touch-icon. Filenames are versioned (-v2) rather than
+       using query strings, because iOS Safari ignores query params on PWA
+       icons in some versions — a fresh URL path is the only reliable cache
+       buster. -->
   <meta property="og:type" content="website" />
   <meta property="og:title" content="Mobile Service OS" />
   <meta property="og:description" content="The operating system for mobile businesses." />
-  <meta property="og:image" content="./icon-512.png?v=mso2" />
+  <meta property="og:image" content="./icon-512-v2.png" />
   <meta name="twitter:card" content="summary" />
   <meta name="twitter:title" content="Mobile Service OS" />
   <meta name="twitter:description" content="The operating system for mobile businesses." />
-  <meta name="twitter:image" content="./icon-512.png?v=mso2" />
+  <meta name="twitter:image" content="./icon-512-v2.png" />
 
-  <link rel="manifest" href="./manifest.webmanifest?v=mso2" />
-  <link rel="icon" type="image/svg+xml" href="./favicon.svg?v=mso2" />
-  <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png?v=mso2" />
-  <link rel="icon" type="image/png" sizes="512x512" href="./icon-512.png?v=mso2" />
-  <link rel="apple-touch-icon" href="./apple-touch-icon.png?v=mso2" />
-  <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png?v=mso2" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" type="image/svg+xml" href="./favicon-v2.svg" />
+  <link rel="icon" type="image/png" sizes="192x192" href="./icon-192-v2.png" />
+  <link rel="icon" type="image/png" sizes="512x512" href="./icon-512-v2.png" />
+  <link rel="apple-touch-icon" href="./apple-touch-icon-v2.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon-v2.png" />
   <title>Mobile Service OS — The Operating System for Mobile Businesses</title>
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Geist:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -661,7 +663,18 @@ let _app, _db, _auth;
     _app  = firebase.apps.length ? firebase.apps[0] : firebase.initializeApp(CFG.firebase);
     _db   = firebase.firestore();
     _auth = firebase.auth();
-    if (_auth) _auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(()=>{});
+    if (_auth) {
+      // setPersistence to LOCAL means the session survives page refresh
+      // (saved to localStorage). On Safari iOS in private mode and certain
+      // corporate environments, LOCAL persistence is blocked and Firebase
+      // silently downgrades to NONE — meaning the user gets signed out on
+      // every refresh. We log this so it's diagnosable, but don't block:
+      // the app still works, just with degraded UX.
+      _auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL)
+        .catch(err => {
+          console.warn("Auth persistence LOCAL not supported (sessions won't survive refresh):", err && err.message);
+        });
+    }
   } catch (e) { console.warn("Firebase init:", e); }
 })();
 
@@ -728,20 +741,77 @@ async function fbSet(col, id, data) {
     clean[k] = v;
   });
   clean.id = String(id);
-  try { await col.doc(String(id)).set(clean); } catch (e) { console.warn("fbSet:", e); }
+  try {
+    await col.doc(String(id)).set(clean);
+  } catch (e) {
+    console.warn("fbSet:", e);
+    // Surface permission errors — they indicate a config/rules problem that
+    // won't self-heal. Network errors stay silent because Firestore SDK
+    // retries them automatically and the optimistic local state covers UX.
+    const code = e && (e.code || "");
+    if (code === "permission-denied" || /permission/i.test(e.message || "")) {
+      window.toast && window.toast(
+        "Sync error: permission denied. Refresh to reconnect.",
+        "warn", 4000
+      );
+    }
+  }
 }
 async function fbDel(col, id) {
   if (!col) return;
-  try { await col.doc(String(id)).delete(); } catch (e) {}
+  try {
+    await col.doc(String(id)).delete();
+  } catch (e) {
+    console.warn("fbDel:", e);
+    const code = e && (e.code || "");
+    if (code === "permission-denied" || /permission/i.test(e.message || "")) {
+      window.toast && window.toast(
+        "Sync error: could not delete. Refresh to reconnect.",
+        "warn", 4000
+      );
+    }
+  }
 }
 function fbListen(col, cb) {
   if (!col) { cb([]); return () => {}; }
   return col.onSnapshot(
     s => cb(s.docs.map(d => ({ ...d.data(), id: d.id }))),
-    e => console.warn("fbListen error (keeping local state):", e)
+    e => {
+      console.warn("fbListen error (keeping local state):", e);
+      const code = e && (e.code || "");
+      if (code === "permission-denied" || /permission/i.test(e.message || "")) {
+        // Persistent permission error — likely membership doc missing or
+        // rules misconfigured. Surface so user knows what to do.
+        window.toast && window.toast(
+          "Can't load your data — permission denied. Try refreshing.",
+          "warn", 5000
+        );
+      }
+    }
   );
 }
 const isLocalUser = u => !u || u.uid === "local";
+
+// Shallow-equal check for profile docs. Used by the profile snapshot
+// listener to skip setState when Firestore fires a snapshot for a metadata-
+// only change (e.g., hasPendingWrites flipping). Comparing the fields that
+// actually drive UI/auth behavior is enough; we don't deep-compare because
+// profile is flat. Returns true if all interesting fields match.
+function shallowEqualProfile(a, b) {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  const keys = [
+    "businessId", "role", "plan", "subscriptionStatus",
+    "trialEndsAt", "currentPeriodEnd", "cancelAtPeriodEnd",
+    "stripeCustomerId", "stripeSubscriptionId",
+    "onboarded", "businessName", "bizTypeId",
+    "migrationComplete",
+  ];
+  for (const k of keys) {
+    if (a[k] !== b[k]) return false;
+  }
+  return true;
+}
 
 /* ────────────────────────────────────────────────────────────────────────────
    ONE-TIME LEGACY MIGRATION
@@ -990,8 +1060,10 @@ const PLAN_LIST = Object.values(PLANS);
 function effectivePlanForFeatures(userProfile) {
   if (!userProfile) return "starter";
   const status = userProfile.subscriptionStatus || "trialing";
+  // Trial active when now is at or before trialEndsAt. Standardized with
+  // server (functions-index.js: now > trialEndsAt = expired) and the gate.
   const trialActive = status === "trialing"
-    && (!userProfile.trialEndsAt || Date.now() < userProfile.trialEndsAt);
+    && (!userProfile.trialEndsAt || Date.now() <= userProfile.trialEndsAt);
   // Trial users get PRO features. After trial ends, fall through to actual plan.
   if (trialActive) return "pro";
   return userProfile.plan || "starter";
@@ -1001,7 +1073,7 @@ function hasFeature(userProfile, featureKey) {
   if (!userProfile) return false;
   const status = userProfile.subscriptionStatus || "trialing";
   const trialActive = status === "trialing"
-    && (!userProfile.trialEndsAt || Date.now() < userProfile.trialEndsAt);
+    && (!userProfile.trialEndsAt || Date.now() <= userProfile.trialEndsAt);
   // Active subscription OR active trial — both grant access.
   const isActive = status === "active" || trialActive;
   if (!isActive) return false;
@@ -1581,14 +1653,23 @@ function AuthScreen({ onAuth }) {
     setBusy(true); setErr("");
     try {
       if (!_auth) {
-        // Local-only fallback so dev still works without Firebase
+        // Local-only fallback so dev still works without Firebase.
+        // No real auth listener, so we manually push the user state.
         onAuth({ uid: "local", email, displayName: email.split("@")[0] });
         return;
       }
-      const c = mode === "login"
-        ? await _auth.signInWithEmailAndPassword(email, pass)
-        : await _auth.createUserWithEmailAndPassword(email, pass);
-      onAuth(c.user);
+      // Real auth path: trigger Firebase auth, then DO NOTHING.
+      // onAuthStateChanged is the single source of truth for user state —
+      // calling onAuth(c.user) here would set the user state once, then the
+      // listener would fire and set it again with a different object ref,
+      // producing a redundant render. By awaiting and returning silently,
+      // we let the listener handle it cleanly.
+      if (mode === "login") {
+        await _auth.signInWithEmailAndPassword(email, pass);
+      } else {
+        await _auth.createUserWithEmailAndPassword(email, pass);
+      }
+      // Don't call onAuth — the listener will handle it.
     } catch (e) {
       setErr(e.message || "Auth failed.");
     } finally {
@@ -1608,8 +1689,10 @@ function AuthScreen({ onAuth }) {
       // standalone PWA mode, so PWA users on iPhone may need to sign in
       // through the browser tab rather than the installed PWA. Email/password
       // still works in standalone PWA without limitations.
-      const c = await _auth.signInWithPopup(provider);
-      onAuth(c.user);
+      //
+      // Same as submit() above: don't call onAuth() — let the auth listener
+      // be the single source of truth.
+      await _auth.signInWithPopup(provider);
     } catch (e) {
       // Helpful message for the most common dev-time blocker: localhost (or
       // whatever domain the dev is testing on) isn't in Firebase's authorized
@@ -3822,7 +3905,10 @@ function generateBrandedInvoicePDF(job, settings, userProfile) {
   doc.setFont("helvetica","bold"); doc.setFontSize(7); doc.setTextColor(...BRAND);
   doc.text("BILL TO", M, y);
   doc.setFont("helvetica","bold"); doc.setFontSize(14); doc.setTextColor(...NEAR);
-  doc.text(job.customerName || "Customer", M, y + 8);
+  // Cap display name at 35 chars so long pasted names don't overflow the
+  // invoice header. The full name is preserved on the job record itself.
+  const displayName = String(job.customerName || "Customer").slice(0, 35);
+  doc.text(displayName, M, y + 8);
   if (job.customerPhone) {
     doc.setFont("helvetica","normal"); doc.setFontSize(9.5); doc.setTextColor(...GRAY);
     doc.text(String(job.customerPhone), M, y + 16);
@@ -3901,7 +3987,14 @@ function generateBrandedInvoicePDF(job, settings, userProfile) {
   doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.setTextColor(175, 200, 225);
   doc.text("Mobile service. Done right.", W / 2, fy + 20, { align: "center" });
 
-  const fname = (job.customerName || "Job").replace(/\s+/g, "-");
+  // Sanitize filename: replace whitespace AND illegal filename chars
+  // (/, \, :, *, ?, ", <, >, |, control chars). Without this, customers
+  // with names like "Smith/Jones" produce an unsavable filename on iOS
+  // and Windows. Cap at 50 chars to keep the filename reasonable.
+  const fname = String(job.customerName || "Job")
+    .replace(/[\s\/\\:*?"<>|\x00-\x1f]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 50) || "Job";
   doc.save("Invoice-" + (job.date || "").replace(/-/g, "") + "-" + fname + ".pdf");
   return doc;
 }
@@ -4030,7 +4123,6 @@ function App() {
       try {
         const prevUid = prevUidRef.current;
         const newUid  = u ? u.uid : null;
-        console.log("AUTH STATE", newUid);
 
         // FREEZE FIX: Firebase fires onAuthStateChanged multiple times during
         // sign-in (initial null → user → token refresh → ...). Each fire
@@ -4039,10 +4131,13 @@ function App() {
         // downstream effects → they re-run → leak listeners → freeze.
         // Only update React state when the uid ACTUALLY changes.
         if (prevUid === newUid) {
-          // Same user, just a token refresh. Mark auth ready and bail.
+          // Same user, just a token refresh. No log (avoids appearing as
+          // an AUTH STATE loop in console). Mark auth ready and bail.
           setAuthReady(true);
           return;
         }
+        // Real transition — worth logging.
+        console.log("AUTH STATE", newUid);
 
         // User CHANGED (A → B) or signed out (A → null). Wipe A's cache.
         if (prevUid && prevUid !== newUid) {
@@ -4050,6 +4145,31 @@ function App() {
           // Also clear businessId cache for A so any in-flight reads can't
           // accidentally route to A's business after sign-out.
           delete _businessIdByUid[prevUid];
+          // Clear the per-uid init guard so the next user (or A signing
+          // back in) can initialize cleanly. This is the ONLY place this
+          // ref should be cleared — clearing it elsewhere (e.g., effect
+          // cleanup) caused the migration to re-fire on every effect
+          // tear-down, producing AUTH STATE / LOADING PROFILE log spam.
+          initializedUidRef.current = null;
+          migrationRunningRef.current = false;
+          if (profileUnsubRef.current) {
+            try { profileUnsubRef.current(); } catch {}
+            profileUnsubRef.current = null;
+          }
+        } else if (newUid && !prevUid) {
+          // First sign-in this session. Check if cached tenant state
+          // (hydrated at App mount from lastUid in localStorage) belongs
+          // to a DIFFERENT user. If so, wipe it before the new user's
+          // listeners populate fresh data — without this wipe, the new
+          // user would briefly see the old user's jobs/inventory/expenses
+          // until the Firestore snapshots arrive.
+          let cachedUid = null;
+          try { cachedUid = lastUid(); } catch {}
+          if (cachedUid && cachedUid !== newUid) {
+            console.log("Stale cache from prior user; wiping", { cachedUid, newUid });
+            wipeTenantLocalState(cachedUid);
+            delete _businessIdByUid[cachedUid];
+          }
         }
         prevUidRef.current = newUid;
 
@@ -4193,7 +4313,14 @@ function App() {
                 const data = snap.data();
                 console.log("SNAPSHOT PROFILE RECEIVED", { hasBusinessId: !!data.businessId, plan: data.plan, status: data.subscriptionStatus });
                 if (data.businessId) setActiveBusinessId(uid, data.businessId);
-                setProfile(data);
+                // Avoid setProfile when data is unchanged. Firestore can
+                // fire snapshots for metadata-only changes (e.g., hasPendingWrites
+                // toggling), and if we setProfile every time, dependent renders
+                // run unnecessarily. Use functional updater + shallow-equal.
+                setProfile(prev => {
+                  if (prev && shallowEqualProfile(prev, data)) return prev;
+                  return data;
+                });
                 setProfileReady(true);
               } else {
                 // Doc doesn't exist yet — onUserCreate trigger pending. Retry briefly.
@@ -4235,26 +4362,35 @@ function App() {
     })();
 
     // Cleanup: this DOES reach React because it's returned synchronously
-    // from useEffect (not from inside the async IIFE). Reset the per-uid
-    // init guard if uid changes so the next user can initialize cleanly.
+    // from useEffect (not from inside the async IIFE).
+    //
+    // CRITICAL: do NOT reset initializedUidRef here. Previous code did, which
+    // meant that any time the effect was torn down and re-run for the SAME
+    // uid (which can happen for many reasons in React 18 — HMR, Suspense,
+    // even subtle ref-equality issues with the dep array), migration would
+    // run again. This produced the "AUTH STATE / LOADING PROFILE repeating"
+    // log spam users reported.
+    //
+    // The init ref is cleared in exactly two places:
+    //   1. The auth listener when it sees a uid change (line ~4102)
+    //   2. Explicit sign-out (handled by the wipe path)
+    // That's the ONLY correct lifecycle for a per-uid one-time guard.
     return () => {
       cancelled = true;
       if (profileUnsubRef.current) {
         profileUnsubRef.current();
         profileUnsubRef.current = null;
       }
-      // Only reset the init guard if the EFFECT is being torn down for a
-      // different uid. Same-uid teardown (StrictMode) shouldn't reset.
-      // We can detect this by checking if user prop has actually changed
-      // by the time cleanup runs. Conservative: reset always — re-init is
-      // cheap thanks to the migrationRunningRef guard above.
-      if (initializedUidRef.current === uid) {
-        initializedUidRef.current = null;
-      }
+      // Intentionally do NOT touch initializedUidRef here.
     };
   }, [user && user.uid, _db]);
 
   // ── Tenant-scoped Firestore listeners ──────────────────────────────────
+  // Dep is uid + onboarded primitive — both stable. Previous version used
+  // [user, profile && profile.onboarded] which would re-run any time the
+  // user OBJECT changed, even if uid was the same. That tore down all four
+  // listeners (jobs/inv/expenses/settings) and re-established them, briefly
+  // dropping tenant state and creating wasted network traffic.
   useEffect(() => {
     if (!user || isLocalUser(user) || !_db || !profile || !profile.onboarded) return;
     const uid = user.uid;
@@ -4290,23 +4426,42 @@ function App() {
           settingsOriginRef.current = "server";
           setSettings(prev => {
             // Merge strategy:
-            // - First load (prev is null): use server data as-is.
-            // - Subsequent loads: only let prev override server values for
-            //   fields where prev has a NON-EMPTY value (in-flight edits the
-            //   user is actively typing). For empty/missing fields in prev,
-            //   server data wins — this is what makes brandLogo and other
-            //   one-time-set fields actually show up after sign-in.
+            //
+            // SERVER-WINS fields (atomic edits — once saved on server, that
+            // value IS the truth; prev's stale localStorage value should
+            // not override): brandLogo, businessLogo, brandColor, bizTypeId,
+            // serviceAreas, googleReviewUrl. These are "click to change"
+            // values — there's no in-flight typing state for them.
+            //
+            // PREV-WINS fields (in-flight text edits — user could still
+            // be typing when the server snapshot arrives, and snapping their
+            // input back to the saved value mid-keystroke is jarring):
+            // businessName, weeklyGoal, taxRate, etc.
+            //
+            // Without this distinction, ANY non-empty prev value clobbered
+            // server data — which meant a freshly-uploaded logo (in server)
+            // never displayed because the cached old logo (in prev) won.
+            const SERVER_WINS = new Set([
+              "brandLogo", "businessLogo",
+              "brandColor",
+              "bizTypeId",
+              "serviceAreas",
+              "googleReviewUrl",
+              "servicePricing",  // user picks a service in the UI; not text-typed
+              "vehiclePricing",
+            ]);
             let merged;
             if (!prev) {
               merged = { ...defaultSettings(d.bizTypeId || "tire"), ...d };
             } else {
-              // Filter prev to only fields that have meaningful values
               const prevWithValues = {};
               Object.keys(prev).forEach(k => {
+                // Server-wins fields: skip prev, let d (server) take precedence
+                if (SERVER_WINS.has(k)) return;
                 const v = prev[k];
-                if (v == null) return;          // null / undefined: skip
-                if (v === "") return;            // empty string: skip
-                if (Array.isArray(v) && v.length === 0) return; // empty array: skip
+                if (v == null) return;
+                if (v === "") return;
+                if (Array.isArray(v) && v.length === 0) return;
                 prevWithValues[k] = v;
               });
               merged = { ...defaultSettings(d.bizTypeId || "tire"), ...d, ...prevWithValues };
@@ -4318,11 +4473,49 @@ function App() {
             try { applyBranding(merged); } catch {}
             return merged;
           });
+        } else {
+          // Settings doc doesn't exist yet — could be brand-new user whose
+          // migration is still in flight, or onboarding that hasn't synced
+          // settings to the new business path yet.
+          //
+          // Without this branch, `settings` stays null → app shows the
+          // spinner forever. With it, we populate defaults from the user's
+          // bizTypeId (read from profile) so the app renders, and the
+          // first server write will arrive shortly with the real values.
+          //
+          // CRITICAL: mark origin as "server" so the persist effect does
+          // NOT immediately write these defaults back to Firestore. If we
+          // wrote them, the server snapshot would fire again with the data
+          // we wrote → another setSettings → and any subsequent state churn
+          // could cycle. The user's first real edit will write normally.
+          settingsOriginRef.current = "server";
+          setSettings(prev => {
+            if (prev) return prev; // we already have something, keep it
+            const fallbackBiz = (profile && profile.bizTypeId) || "tire";
+            const fallback = defaultSettings(fallbackBiz);
+            console.log("[settings] doc missing — using defaults for", fallbackBiz);
+            return fallback;
+          });
         }
-      }, () => {});
+      }, err => {
+        // Snapshot listener error. Surface persistent failures so user knows.
+        console.warn("[settings listener] error:", err && err.message);
+        const code = err && (err.code || "");
+        if (code === "permission-denied" || /permission/i.test(err.message || "")) {
+          window.toast && window.toast(
+            "Can't sync settings — refresh to reconnect.",
+            "warn", 5000
+          );
+        }
+        // Populate defaults so the app doesn't freeze. Mark origin as
+        // "server" to prevent the persist effect from writing these
+        // defaults back to Firestore (which would just fail again).
+        settingsOriginRef.current = "server";
+        setSettings(prev => prev || defaultSettings("tire"));
+      });
     }
     return () => { u1(); u2(); u3(); u4(); };
-  }, [user, profile && profile.onboarded]);
+  }, [user && user.uid, !!(profile && profile.onboarded)]);
 
   // ── Persist settings (debounced) ──────────────────────────────────────
   // Only writes back to Firestore when settings changed due to a LOCAL
@@ -4339,14 +4532,47 @@ function App() {
     }
 
     if (user && !isLocalUser(user) && tSettingDoc(user.uid)) {
-      const t = setTimeout(() => {
+      const t = setTimeout(async () => {
         const flat = {};
         Object.keys(settings).forEach(k => {
           const v = settings[k];
           if (v == null) return;
           flat[k] = typeof v === "object" ? JSON.stringify(v) : v;
         });
-        tSettingDoc(user.uid).set(flat).catch(() => {});
+        try {
+          await tSettingDoc(user.uid).set(flat);
+        } catch (err) {
+          // Don't swallow silently. Most common failure modes:
+          //   1. PERMISSION_DENIED right after sign-in if membership doc
+          //      hasn't propagated yet — migration creates members/{uid} but
+          //      Firestore may take a beat. Retry once after 1.5s.
+          //   2. PERMISSION_DENIED persistent — rules problem. Surface so
+          //      user knows to retry / refresh.
+          //   3. Network failure — surface, user retries.
+          const code = err && (err.code || "");
+          const isPermDenied = code === "permission-denied" || /permission/i.test(err.message || "");
+          if (isPermDenied) {
+            console.warn("[settings persist] permission denied; retrying in 1.5s (likely membership not yet propagated)");
+            setTimeout(async () => {
+              try {
+                await tSettingDoc(user.uid).set(flat);
+                console.log("[settings persist] retry succeeded");
+              } catch (retryErr) {
+                console.error("[settings persist] retry FAILED:", retryErr);
+                window.toast && window.toast(
+                  "Couldn't save settings. Refresh and try again.",
+                  "warn", 5000
+                );
+              }
+            }, 1500);
+          } else {
+            console.error("[settings persist] save failed:", err);
+            window.toast && window.toast(
+              "Settings save failed: " + (err.message || "network error"),
+              "warn", 5000
+            );
+          }
+        }
       }, 1000);
       return () => clearTimeout(t);
     }
@@ -4573,6 +4799,7 @@ function App() {
   const handleRepeat   = useCallback(job => { setPrefill(job); setTab("add"); }, []);
   const handleEdit     = useCallback(job => { setEditJob(job); setTab("add"); }, []);
   const handleStartJob = useCallback(qq => { setPrefill({ ...EMPTY_JOB((settings||{}).bizTypeId), ...qq }); setTab("add"); }, [settings]);
+  const handleLocalAuth = useCallback(u => setUser(u), []);
   const signOut = useCallback(() => { if (_auth) _auth.signOut().catch(() => {}); }, []);
 
   // ── Loading ──────────────────────────────────────────────────────────
@@ -4583,7 +4810,7 @@ function App() {
   }
 
   // ── Not signed in ────────────────────────────────────────────────────
-  if (!user) return html`<${AuthScreen} onAuth=${u => setUser(u)}/>`;
+  if (!user) return html`<${AuthScreen} onAuth=${handleLocalAuth}/>`;
 
   // ── Wait for profile ─────────────────────────────────────────────────
   if (!profileReady) {
@@ -4606,7 +4833,12 @@ function App() {
 
   // ── Subscription check ────────────────────────────────────────────────
   const status = profile.subscriptionStatus || "trialing";
-  const isActive = status === "active" || (status === "trialing" && (!profile.trialEndsAt || Date.now() < profile.trialEndsAt));
+  // Trial expiry uses Date.now() <= trialEndsAt for active. Matches server
+  // (functions-index.js: Date.now() > effectiveTrialEndsAt = expired) and
+  // SubscriptionRequired's trialEnded check. Inconsistency here previously
+  // gave a 1ms window where the gate said "expired" but the message
+  // component said "still going."
+  const isActive = status === "active" || (status === "trialing" && (!profile.trialEndsAt || Date.now() <= profile.trialEndsAt));
   if (!isActive) {
     return html`<${SubscriptionRequired} profile=${profile}
       onChoosePlan=${() => setShowPlans(true)}
