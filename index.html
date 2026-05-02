@@ -730,6 +730,137 @@ const tExpCol     = (uid) => { const b = businessDoc(uid); return b ? b.collecti
 const tSettingDoc = (uid) => { const b = businessDoc(uid); return b ? b.collection("settings").doc("main") : null; };
 const tCounterDoc = (uid) => { const b = businessDoc(uid); return b ? b.collection("counters").doc("jobsByMonth") : null; };
 
+// ── Onboarding bootstrap helpers ──────────────────────────────────────────
+
+// normalizeBusinessType: normalize free-form bizTypeId → canonical id.
+// Accepts "tire", "tires", "Tire Service" → "tire". If we don't have a
+// known mapping, return the string trimmed (won't break existing data).
+function normalizeBusinessType(t) {
+  const raw = String(t || "").trim().toLowerCase();
+  if (!raw) return "";
+  // Direct hits first (most common case — onboarding picker outputs these)
+  const KNOWN = new Set(["tire", "auto", "mechanic", "detail", "wash",
+    "lockout", "locksmith", "tow", "towing", "fuel", "battery", "lube",
+    "oil", "glass", "paint", "general", "other"]);
+  if (KNOWN.has(raw)) return raw;
+  // Common variants
+  if (/tire/.test(raw)) return "tire";
+  if (/lock/.test(raw)) return "lockout";
+  if (/tow/.test(raw))  return "tow";
+  if (/auto|mech/.test(raw)) return "mechanic";
+  if (/detail|wash/.test(raw)) return "detail";
+  return raw.slice(0, 40);
+}
+
+// completeOnboardingProfile: client-side bootstrap of users/{uid} +
+// businesses/{bid} + businesses/{bid}/members/{uid} in a single batch.
+//
+// Rules (firestore.rules) allow this when:
+//   - bid == auth.uid (self-bootstrap pattern), AND
+//   - business doc has ownerId == auth.uid, AND
+//   - member doc has role == "owner"
+//
+// For first-time users we use uid as the businessId. For users who already
+// have a businessId stored, we reuse it (idempotent re-onboarding).
+//
+// Returns { businessId, role }. Throws with full Firebase error code on
+// failure so the caller can surface it to the user.
+async function completeOnboardingProfile(onboardingData) {
+  if (!_auth || !_db) throw new Error("Firebase not initialized");
+  const authUser = _auth.currentUser;
+  if (!authUser) throw new Error("No authenticated user");
+
+  const uid   = authUser.uid;
+  const email = authUser.email || "";
+
+  const userRef = _db.collection("users").doc(uid);
+  const existingUserSnap = await userRef.get();
+  const existingUser = existingUserSnap.exists ? existingUserSnap.data() : null;
+
+  // Resolve businessId. For first-time users, use uid (rules require this
+  // for self-bootstrap). For users who already have one, reuse it so we
+  // don't strand orphaned data.
+  const businessId = existingUser && existingUser.businessId
+    ? existingUser.businessId
+    : uid;
+
+  // serverTimestamp() is the canonical "now" — server clock, not client.
+  const now = firebase.firestore.FieldValue.serverTimestamp();
+
+  const normalizedType = normalizeBusinessType(
+    onboardingData.businessType || onboardingData.bizTypeId
+  );
+
+  const businessPayload = {
+    ownerId:        (existingUser && existingUser.ownerId) || uid,
+    businessName:   String(onboardingData.businessName || "").trim().slice(0, 80),
+    businessType:   normalizedType,
+    bizTypeId:      normalizedType,
+    phone:          String(onboardingData.phone || "").slice(0, 30),
+    businessLogo:   onboardingData.businessLogo || onboardingData.brandLogo || "",
+    brandLogo:      onboardingData.businessLogo || onboardingData.brandLogo || "",
+    googleReviewUrl: String(onboardingData.googleReviewUrl || "").slice(0, 500),
+    serviceAreas:   Array.isArray(onboardingData.serviceAreas)
+      ? onboardingData.serviceAreas.map(c => String(c || "").trim().slice(0, 60)).filter(Boolean).slice(0, 100)
+      : [],
+    updatedAt: now,
+  };
+
+  const userPayload = {
+    uid,
+    email,
+    businessId,
+    role:      (existingUser && existingUser.role) || "owner",
+    onboarded: true,
+    updatedAt: now,
+  };
+
+  // First-time bootstrap: stamp createdAt only.
+  //
+  // We do NOT seed billing fields (plan, subscriptionStatus, trialEndsAt)
+  // from the client — even though Round 16's permissive rules would now
+  // allow it. Stripe webhook + onUserCreate are the source of truth for
+  // billing. The frontend doesn't need to race to set them; the profile
+  // listener will pick them up once onUserCreate has run (or once the
+  // user completes a Stripe checkout).
+  if (!existingUserSnap.exists) {
+    userPayload.createdAt = now;
+    businessPayload.createdAt = now;
+    // Business doc gets sensible defaults so plan-cap checks have something
+    // to read while waiting for Stripe webhook to mirror the real plan.
+    businessPayload.plan = "starter";
+    businessPayload.subscriptionStatus = "trialing";
+  }
+
+  console.log("ONBOARDING SAVE START", { uid, businessId, hasExistingUser: !!existingUser });
+
+  const batch = _db.batch();
+  // Order doesn't matter for the batch itself (committed atomically), but
+  // we do it in dependency order for readability.
+  batch.set(_db.collection("businesses").doc(businessId), businessPayload, { merge: true });
+  batch.set(
+    _db.collection("businesses").doc(businessId).collection("members").doc(uid),
+    {
+      uid,
+      email,
+      role:    (existingUser && existingUser.role) || "owner",
+      joinedAt: now,
+      updatedAt: now,
+    },
+    { merge: true }
+  );
+  batch.set(userRef, userPayload, { merge: true });
+
+  await batch.commit();
+
+  // Cache the businessId so the rest of the app routes correctly without
+  // waiting for the profile listener to fire.
+  setActiveBusinessId(uid, businessId);
+
+  console.log("ONBOARDING SAVE COMPLETE", { uid, businessId });
+  return { businessId, role: userPayload.role };
+}
+
 async function fbSet(col, id, data) {
   if (!col) return;
   const clean = {};
@@ -772,23 +903,66 @@ async function fbDel(col, id) {
     }
   }
 }
+// ── Global listener registry ──────────────────────────────────────────────
+// Every onSnapshot listener registers here so we can:
+//   1. Stop all listeners atomically on sign-out
+//   2. Stop all listeners on a fatal permission-denied (which Firestore
+//      otherwise retries indefinitely, spamming console + wasting reads)
+//   3. Audit how many listeners are alive (debugging leaks)
+const _activeListeners = new Set();
+function registerListener(unsub) {
+  if (typeof unsub === "function") _activeListeners.add(unsub);
+  return unsub;
+}
+function unregisterListener(unsub) {
+  if (typeof unsub === "function") _activeListeners.delete(unsub);
+}
+function stopAllListeners() {
+  const count = _activeListeners.size;
+  _activeListeners.forEach(fn => { try { fn(); } catch {} });
+  _activeListeners.clear();
+  if (count > 0) console.log("[listeners] stopped", count, "active listeners");
+}
+// Expose for devtools debugging
+if (typeof window !== "undefined") window.__activeListeners = _activeListeners;
+
 function fbListen(col, cb) {
   if (!col) { cb([]); return () => {}; }
-  return col.onSnapshot(
+  let unsub = null;
+  let detached = false;
+  const detach = () => {
+    if (detached) return;
+    detached = true;
+    if (unsub) {
+      try { unsub(); } catch {}
+      unregisterListener(unsub);
+      unsub = null;
+    }
+  };
+  unsub = col.onSnapshot(
     s => cb(s.docs.map(d => ({ ...d.data(), id: d.id }))),
     e => {
-      console.warn("fbListen error (keeping local state):", e);
+      console.warn("fbListen error:", e);
       const code = e && (e.code || "");
-      if (code === "permission-denied" || /permission/i.test(e.message || "")) {
-        // Persistent permission error — likely membership doc missing or
-        // rules misconfigured. Surface so user knows what to do.
+      const isPermDenied = code === "permission-denied" || /permission/i.test(e.message || "");
+      if (isPermDenied) {
+        // CRITICAL: detach the listener. Firestore's onSnapshot will retry
+        // permission-denied indefinitely, generating console spam and
+        // burning quota. Detach here so the user sees one error, not 100.
+        // Reattaching requires a sign-out / sign-in or rule-fix + page reload.
+        detach();
         window.toast && window.toast(
-          "Can't load your data — permission denied. Try refreshing.",
-          "warn", 5000
+          "Can't load your data — permission denied. Try signing out and back in.",
+          "warn", 6000
         );
       }
+      // Other errors (network, unavailable): keep listener alive — Firestore
+      // retries network errors automatically and that's the right behavior.
     }
   );
+  registerListener(unsub);
+  // Return a wrapped unsub so callers can detach + we keep the registry clean
+  return () => detach();
 }
 const isLocalUser = u => !u || u.uid === "local";
 
@@ -1808,102 +1982,72 @@ function OnboardingFlow({ user, onComplete }) {
         weeklyGoal:   Number(data.weeklyGoal) || 1200,
         defaultTargetProfit: Number(data.targetProfit) || 100,
       };
-      // Diagnostic log so silent failures can be traced from devtools
       console.log("[onboarding] saving profile", {
         uid: user && user.uid,
         bizTypeId: settings.bizTypeId,
         serviceAreas: settings.serviceAreas.length,
         hasLogo: !!settings.brandLogo,
       });
-      // Persist locally so app doesn't bounce back to onboarding while we
-      // wait for the server-side completion. The local write is also our
-      // offline fallback if the user finishes onboarding without network.
+      // Persist locally so the inputs survive errors / page reloads.
       const _uid = user && user.uid;
       if (_uid) persistTenant(KEYS.settings, _uid, settings);
-      else      persist(KEYS.settings, settings); // local-only mode
+      else      persist(KEYS.settings, settings);
 
-      // Track whether we successfully persisted to Firestore. If neither
-      // the Cloud Function NOR the direct fallback writes succeed, we MUST
-      // surface an error to the user — otherwise they think onboarding
-      // worked but on next login they'll bounce back to onboarding.
-      let saved = isLocalUser(user); // local-only mode counts as "saved"
-
-      if (!isLocalUser(user) && _auth && _auth.currentUser) {
-        // Try Cloud Function first (preferred — server validation, atomic
-        // settings + profile writes, sets businessId + role atomically).
-        try {
-          const token = await _auth.currentUser.getIdToken();
-          const endpoint = (CFG.stripe && CFG.stripe.checkoutEndpoint || "")
-            .replace(/createCheckoutSession\/?$/, "completeOnboarding");
-          if (endpoint && endpoint !== CFG.stripe.checkoutEndpoint) {
-            const res = await fetch(endpoint, {
-              method: "POST",
-              headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
-              body: JSON.stringify({
-                businessName: settings.businessName,
-                bizTypeId:    settings.bizTypeId,
-                brandColor:   settings.brandColor,
-                brandLogo:    settings.brandLogo,
-                businessLogo: settings.brandLogo,
-                serviceAreas: settings.serviceAreas,
-                weeklyGoal:   settings.weeklyGoal,
-                defaultTargetProfit: settings.defaultTargetProfit,
-              }),
-            });
-            if (!res.ok) {
-              const text = await res.text().catch(() => "");
-              throw new Error("completeOnboarding HTTP " + res.status + ": " + text);
-            }
-            const respData = await res.json().catch(() => ({}));
-            console.log("[onboarding] saved via Cloud Function", respData);
-            saved = true;
-          } else {
-            // No Cloud Function endpoint configured — go straight to fallback
-            throw new Error("no_endpoint_configured");
-          }
-        } catch (cfErr) {
-          console.warn("[onboarding] Cloud Function save failed, trying direct write:", cfErr.message);
-          // Direct-write fallback. This must NOT silently swallow errors —
-          // if rules block the write or network is offline, the user needs
-          // to know so they can retry rather than land in a broken state.
-          try {
-            await userDoc(user.uid).set({
-              businessName: settings.businessName,
-              bizTypeId:    settings.bizTypeId,
-              onboarded:    true,
-              onboardedAt:  Date.now(),
-            }, { merge: true });
-            if (tSettingDoc(user.uid)) {
-              const flat = {};
-              Object.keys(settings).forEach(k => {
-                const v = settings[k];
-                if (v == null) return;
-                flat[k] = typeof v === "object" ? JSON.stringify(v) : v;
-              });
-              await tSettingDoc(user.uid).set(flat);
-            }
-            console.log("[onboarding] saved via direct write fallback");
-            saved = true;
-          } catch (directErr) {
-            console.error("[onboarding] direct write ALSO failed:", directErr);
-            // Both paths failed. Surface to user.
-            window.toast && window.toast(
-              "Couldn't save your business info: " + (directErr.message || "network error") +
-              ". Your data is safe locally — please try again.",
-              "error", 8000
-            );
-            // Do NOT call onComplete() — keep user on the onboarding screen
-            // so they can retry. Local cache is preserved so their inputs
-            // aren't lost.
-            return;
-          }
-        }
+      if (isLocalUser(user)) {
+        // Local-only mode: nothing more to do, just complete.
+        console.log("[onboarding] complete (local-only)");
+        applyBranding(settings);
+        onComplete(settings);
+        return;
       }
 
-      if (!saved) {
-        // Defensive: should be unreachable, but if we get here, don't
-        // pretend it worked.
-        window.toast && window.toast("Could not save business info. Please try again.", "error");
+      // Real-user path: client-side bootstrap. Creates business doc +
+      // member doc + user doc atomically, then writes settings.
+      try {
+        const result = await completeOnboardingProfile({
+          businessName:   settings.businessName,
+          bizTypeId:      settings.bizTypeId,
+          businessType:   settings.bizTypeId,
+          phone:          data.phone || "",
+          businessLogo:   settings.businessLogo,
+          brandLogo:      settings.brandLogo,
+          googleReviewUrl: data.googleReviewUrl || "",
+          serviceAreas:   settings.serviceAreas,
+        });
+        console.log("[onboarding] bootstrap complete", result);
+
+        // Settings doc gets written AFTER the bootstrap so the membership
+        // doc exists by the time the rules-check runs against settings.
+        const businessId = result.businessId;
+        const settingsRef = _db.collection("businesses").doc(businessId)
+          .collection("settings").doc("main");
+        const flat = {};
+        Object.keys(settings).forEach(k => {
+          const v = settings[k];
+          if (v == null) return;
+          flat[k] = typeof v === "object" ? JSON.stringify(v) : v;
+        });
+        // Add brand-related fields to the settings doc (not the business doc)
+        // so the existing settings listener picks them up.
+        flat.brandColor    = settings.brandColor;
+        flat.weeklyGoal    = settings.weeklyGoal;
+        flat.defaultTargetProfit = settings.defaultTargetProfit;
+        await settingsRef.set(flat, { merge: true });
+        console.log("[onboarding] settings written");
+      } catch (err) {
+        // Surface the full Firebase error so the user knows what to do
+        // and we can debug remotely from their console screenshot.
+        const code = (err && err.code) || "";
+        const msg  = (err && err.message) || String(err);
+        console.error("[onboarding] save failed:", { code, msg, err });
+        window.toast && window.toast(
+          "Couldn't save your business info: " + msg +
+            (code ? " (" + code + ")" : "") +
+            ". Your data is safe locally — please try again.",
+          "error", 8000
+        );
+        // Don't call onComplete — keep them on the onboarding screen so
+        // they can retry. Inputs preserved in localStorage.
         return;
       }
       console.log("[onboarding] complete, applying branding");
@@ -4087,6 +4231,10 @@ function App() {
   // Even if a wipe somehow misses, User B's state hydrates from B's
   // namespace, never from A's.
   const wipeTenantLocalState = useCallback((uidToWipe) => {
+    // Stop any active Firestore listeners FIRST, before nulling state.
+    // If listeners fire AFTER we null state, they'd repopulate it with
+    // the previous user's data right when we're trying to clear it.
+    stopAllListeners();
     // Clear current React state
     setJobs([]); setInventory([]); setExpenses([]); setSettings(null);
     // Clear A's tenant cache from localStorage
@@ -4247,11 +4395,29 @@ function App() {
         }
 
         // ── 2. User → Business migration (server-side, idempotent) ───
-        // FREEZE FIX: guard against concurrent invocations. Even though
-        // initializedUidRef short-circuits the effect itself, a single
-        // long-running migration call could collide with React Strict
-        // Mode double-mount in dev. The flag is a belt + suspenders.
-        if (migrationRunningRef.current) {
+        // For brand-new users with no profile doc yet, there's no legacy
+        // data to migrate — skip the RPC. The frontend will create the
+        // business + member + user docs during onboarding (see
+        // completeOnboardingProfile).
+        //
+        // For users with an existing profile, the RPC validates that
+        // business doc + member doc exist and re-bootstraps if not.
+        let probeUserExists = false;
+        try {
+          const probeSnap = await userDoc(uid).get();
+          probeUserExists = probeSnap.exists;
+        } catch (probeErr) {
+          // Permission denied here would be wrong (rules allow read self),
+          // but if it happens, just proceed — the RPC has its own guards.
+          console.warn("Profile doc probe failed (continuing):", probeErr.message);
+        }
+        if (cancelled) return;
+        if (!probeUserExists) {
+          console.log("MIGRATION SKIP — fresh user, will bootstrap during onboarding");
+          // Mark businessId cache to uid so subsequent reads route correctly
+          // even before onboarding completes.
+          setActiveBusinessId(uid, uid);
+        } else if (migrationRunningRef.current) {
           console.log("MIGRATION SKIP (already running)");
         } else {
           migrationRunningRef.current = true;
@@ -4323,33 +4489,48 @@ function App() {
                 });
                 setProfileReady(true);
               } else {
-                // Doc doesn't exist yet — onUserCreate trigger pending. Retry briefly.
-                let retries = 0;
-                const retry = () => {
-                  retries++;
-                  if (retries > 10 || cancelled) {
-                    console.error("Profile doc still missing — onUserCreate may have failed");
-                    if (!cancelled) {
-                      window.toast && window.toast("Account setup incomplete. Refresh to retry.", "error", 6000);
-                      setProfileReady(true);
-                    }
-                    return;
-                  }
-                  setTimeout(() => {
-                    if (cancelled) return;
-                    userDoc(uid).get().then(s => { if (!s.exists) retry(); }).catch(retry);
-                  }, 1500);
-                };
-                retry();
+                // Doc doesn't exist yet. With client-side bootstrap (Round 15),
+                // this is the normal state for fresh signups: the user doc
+                // only gets created during onboarding finish() →
+                // completeOnboardingProfile(). Set a stub profile so the
+                // app routes to OnboardingFlow rather than waiting on
+                // onUserCreate (which we no longer rely on for fresh users).
+                console.log("Profile doc absent — using stub for onboarding entry");
+                setProfile(prev => prev || {
+                  uid,
+                  plan: "starter",
+                  subscriptionStatus: "trialing",
+                  trialEndsAt: Date.now() + 7 * 86400000,
+                  onboarded: false,
+                });
+                setProfileReady(true);
               }
             } catch (snapErr) {
               console.error("Snapshot handler error:", snapErr);
               setProfileReady(true);
             }
           }, listenerErr => {
-            console.warn("Profile listener error:", listenerErr.message);
+            console.warn("Profile listener error:", listenerErr && listenerErr.message);
             setProfileReady(true);
+            const code = listenerErr && (listenerErr.code || "");
+            const isPermDenied = code === "permission-denied" ||
+              /permission/i.test((listenerErr && listenerErr.message) || "");
+            if (isPermDenied) {
+              // Detach to stop Firestore's automatic retry loop. Without this
+              // we'd see continuous permission-denied retries in the console.
+              if (profileUnsubRef.current) {
+                try { profileUnsubRef.current(); } catch {}
+                unregisterListener(profileUnsubRef.current);
+                profileUnsubRef.current = null;
+              }
+              window.toast && window.toast(
+                "Profile access denied — try signing out and back in.",
+                "error", 8000
+              );
+            }
           });
+          // Track in global registry so sign-out's stopAllListeners() reaches it
+          registerListener(profileUnsubRef.current);
         } catch (subErr) {
           console.error("Profile listener setup failed:", subErr);
           setProfileReady(true);
@@ -4409,7 +4590,18 @@ function App() {
     });
     let u4 = () => {};
     if (tSettingDoc(user.uid)) {
-      u4 = tSettingDoc(user.uid).onSnapshot(snap => {
+      let settingsUnsub = null;
+      let settingsDetached = false;
+      const detachSettings = () => {
+        if (settingsDetached) return;
+        settingsDetached = true;
+        if (settingsUnsub) {
+          try { settingsUnsub(); } catch {}
+          unregisterListener(settingsUnsub);
+          settingsUnsub = null;
+        }
+      };
+      settingsUnsub = tSettingDoc(user.uid).onSnapshot(snap => {
         if (snap && snap.exists) {
           const d = snap.data();
           // Re-hydrate stringified fields
@@ -4502,9 +4694,13 @@ function App() {
         console.warn("[settings listener] error:", err && err.message);
         const code = err && (err.code || "");
         if (code === "permission-denied" || /permission/i.test(err.message || "")) {
+          // Detach to stop Firestore's retry loop. Same fix as fbListen and
+          // profile listener — without this, every minute we'd burn another
+          // permission-denied retry.
+          detachSettings();
           window.toast && window.toast(
-            "Can't sync settings — refresh to reconnect.",
-            "warn", 5000
+            "Settings access denied — sign out and back in to reconnect.",
+            "warn", 6000
           );
         }
         // Populate defaults so the app doesn't freeze. Mark origin as
@@ -4513,6 +4709,8 @@ function App() {
         settingsOriginRef.current = "server";
         setSettings(prev => prev || defaultSettings("tire"));
       });
+      registerListener(settingsUnsub);
+      u4 = detachSettings;
     }
     return () => { u1(); u2(); u3(); u4(); };
   }, [user && user.uid, !!(profile && profile.onboarded)]);
