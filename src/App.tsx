@@ -17,7 +17,7 @@ import { InstallBanner } from '@/components/InstallBanner';
 import { JobSuccessPanel } from '@/components/JobSuccessPanel';
 import { JobDetailModal } from '@/components/JobDetailModal';
 import { addToast } from '@/lib/toast';
-import { applyBrandColors, haptic, planInventoryDeduction, uid } from '@/lib/utils';
+import { applyBrandColors, haptic, planInventoryDeduction, r2, uid } from '@/lib/utils';
 import { generateInvoicePDF } from '@/lib/invoice';
 import { openReviewSMS } from '@/lib/review';
 import { APP_LOGO, DEFAULT_SETTINGS, EMPTY_JOB } from '@/lib/defaults';
@@ -325,9 +325,17 @@ function AuthenticatedApp({ user }: { user: User }) {
             }
           }
           finalJob.inventoryDeductions = plan.deductions;
+          // Tire cost MUST always be deducted from profit. When pulling from
+          // inventory, the deduction's actual cost is the source of truth and
+          // overrides any user-entered tireCost (which may have been left blank
+          // or typed in the wrong field). Authoritative cost = sum of
+          // (per-unit inventory cost × qty taken) across the deduction plan.
           if (plan.deductions.length) {
-            const totalCost = plan.deductions.reduce((t, d) => t + Number(d.cost || 0) * Number(d.qty || 0), 0);
-            if (!Number(finalJob.tireCost || 0)) finalJob.tireCost = totalCost;
+            const totalCost = plan.deductions.reduce(
+              (t, d) => t + Number(d.cost || 0) * Number(d.qty || 0),
+              0
+            );
+            finalJob.tireCost = r2(totalCost);
           }
         }
 
@@ -505,6 +513,7 @@ function AuthenticatedApp({ user }: { user: User }) {
         {tab === 'add' && (
           <AddJob
             settings={settings}
+            inventory={inventory}
             prefill={prefillJob}
             editJob={editJob}
             saving={saving}

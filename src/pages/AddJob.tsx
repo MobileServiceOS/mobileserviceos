@@ -9,12 +9,13 @@ import {
   PAYMENT_STATUSES,
   TIRE_SOURCES,
 } from '@/lib/defaults';
-import type { Job, JobStatus, PaymentStatus, Settings, TireSource } from '@/types';
-import { calcQuote, haptic, jobGrossProfit, money, serviceIcon, uid } from '@/lib/utils';
+import type { InventoryItem, Job, JobStatus, PaymentStatus, Settings, TireSource } from '@/types';
+import { calcQuote, haptic, jobGrossProfit, money, planInventoryDeduction, r2, serviceIcon, uid } from '@/lib/utils';
 import { addToast } from '@/lib/toast';
 
 interface Props {
   settings: Settings;
+  inventory: InventoryItem[];
   prefill: Partial<Job> | null;
   editJob: Job | null;
   saving: boolean;
@@ -22,7 +23,7 @@ interface Props {
   onClearPrefill: () => void;
 }
 
-export function AddJob({ settings, prefill, editJob, saving, onSave, onClearPrefill }: Props) {
+export function AddJob({ settings, inventory, prefill, editJob, saving, onSave, onClearPrefill }: Props) {
   const { brand } = useBrand();
   const enabledServices = useMemo(() => {
     const sp = settings.servicePricing || DEFAULT_SERVICE_PRICING;
@@ -54,6 +55,30 @@ export function AddJob({ settings, prefill, editJob, saving, onSave, onClearPref
   const svcs = enabledServices.length ? enabledServices : Object.keys(DEFAULT_SERVICE_PRICING);
   const vehs = Object.keys(settings.vehiclePricing || DEFAULT_VEHICLE_PRICING);
   const quote = useMemo(() => calcQuote(form, settings), [form, settings]);
+
+  // When pulling from inventory, the authoritative tire cost is the inventory
+  // deduction total, NOT whatever the user typed. Compute it for live preview
+  // so the profit display reflects what saveJob() will actually persist.
+  const inventoryPlan = useMemo(() => {
+    if (form.tireSource !== 'Inventory' || !form.tireSize || !Number(form.qty || 0)) return null;
+    return planInventoryDeduction(form.tireSize, Number(form.qty), inventory);
+  }, [form.tireSource, form.tireSize, form.qty, inventory]);
+
+  const effectiveTireCost = useMemo(() => {
+    if (inventoryPlan && inventoryPlan.deductions.length) {
+      return r2(
+        inventoryPlan.deductions.reduce((t, d) => t + Number(d.cost || 0) * Number(d.qty || 0), 0)
+      );
+    }
+    return Number(form.tireCost || 0);
+  }, [inventoryPlan, form.tireCost]);
+
+  // Job used for live profit preview — overrides user-typed tireCost when an
+  // inventory deduction plan exists, matching the saveJob() behavior exactly.
+  const previewJob: Job = useMemo(
+    () => (inventoryPlan && inventoryPlan.deductions.length ? { ...form, tireCost: effectiveTireCost } : form),
+    [form, inventoryPlan, effectiveTireCost]
+  );
 
   const handleSave = (addAnother: boolean) => {
     if (!form.revenue && form.status !== 'Pending') {
@@ -169,14 +194,36 @@ export function AddJob({ settings, prefill, editJob, saving, onSave, onClearPref
             />
           </div>
           <div className="field">
-            <label>Tire Cost ($)</label>
+            <label>
+              Tire Cost ($)
+              {inventoryPlan && inventoryPlan.deductions.length ? (
+                <span style={{ marginLeft: 8, color: 'var(--brand-primary)', fontWeight: 700 }}>
+                  · auto from inventory
+                </span>
+              ) : null}
+            </label>
             <input
               type="number"
               inputMode="decimal"
-              value={form.tireCost as number | string}
+              value={
+                inventoryPlan && inventoryPlan.deductions.length
+                  ? effectiveTireCost
+                  : (form.tireCost as number | string)
+              }
               onChange={(e) => ch('tireCost', e.target.value)}
               placeholder="0"
+              disabled={!!(inventoryPlan && inventoryPlan.deductions.length)}
+              style={
+                inventoryPlan && inventoryPlan.deductions.length
+                  ? { opacity: 0.7, cursor: 'not-allowed' }
+                  : undefined
+              }
             />
+            {inventoryPlan && inventoryPlan.shortfall > 0 ? (
+              <div style={{ fontSize: 11, color: 'var(--amber)', marginTop: 4 }}>
+                Short {inventoryPlan.shortfall} of {form.tireSize} in stock
+              </div>
+            ) : null}
           </div>
         </div>
         <div className="field-row">
@@ -205,8 +252,13 @@ export function AddJob({ settings, prefill, editJob, saving, onSave, onClearPref
           <div style={{ padding: '10px 0', fontSize: 12, color: 'var(--t2)' }}>
             Profit:{' '}
             <span className="value green" style={{ fontSize: 14 }}>
-              {money(jobGrossProfit(form, settings))}
+              {money(jobGrossProfit(previewJob, settings))}
             </span>
+            {inventoryPlan && inventoryPlan.deductions.length ? (
+              <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--t3)' }}>
+                (tire cost {money(effectiveTireCost)} from inventory)
+              </span>
+            ) : null}
           </div>
         )}
       </div>
