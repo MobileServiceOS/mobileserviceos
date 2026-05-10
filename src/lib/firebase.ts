@@ -26,14 +26,44 @@ import { getStorage, ref as storageRef, uploadBytes, getDownloadURL, type Fireba
 
 const env = (import.meta as ImportMeta & { env: Record<string, string | undefined> }).env;
 
+// Production Firebase config for the `mobile-service-os` project.
+// Web API keys are public-by-design (security comes from Auth domain allowlist
+// + Firestore Security Rules), so committing them is the standard practice.
+//
+// Env vars (set in GitHub Actions secrets or .env.local) optionally override
+// these at build time, but only when explicitly non-empty — useful for
+// white-label deploys that target a different Firebase project without
+// touching this file.
+const HARDCODED_CFG = {
+  apiKey: 'AIzaSyDpe9pVejH1EFZmQYv04sgtZBoLxqM6lW0',
+  authDomain: 'mobile-service-os.firebaseapp.com',
+  projectId: 'mobile-service-os',
+  storageBucket: 'mobile-service-os.firebasestorage.app',
+  messagingSenderId: '77527561910',
+  appId: '1:77527561910:web:4a0c65c0203d403f4f5817',
+} as const;
+
+function pick(envVal: string | undefined, fallback: string): string {
+  // Empty string from unset CI secret should NOT win over the hardcoded value.
+  return envVal && envVal.trim() ? envVal.trim() : fallback;
+}
+
 const FB_CFG = {
-  apiKey: env.VITE_FIREBASE_API_KEY || atob('QUl6YVN5QTdxOHpyOUlJeWd1LTJXZWRzOFZPMlo5eHk5ZEs1MUhF'),
-  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || 'wheel-rush-expense.firebaseapp.com',
-  projectId: env.VITE_FIREBASE_PROJECT_ID || 'wheel-rush-expense',
-  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || 'wheel-rush-expense.firebasestorage.app',
-  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || '400580006654',
-  appId: env.VITE_FIREBASE_APP_ID || '1:400580006654:web:b8e435c2807b51af244baf',
+  apiKey: pick(env.VITE_FIREBASE_API_KEY, HARDCODED_CFG.apiKey),
+  authDomain: pick(env.VITE_FIREBASE_AUTH_DOMAIN, HARDCODED_CFG.authDomain),
+  projectId: pick(env.VITE_FIREBASE_PROJECT_ID, HARDCODED_CFG.projectId),
+  storageBucket: pick(env.VITE_FIREBASE_STORAGE_BUCKET, HARDCODED_CFG.storageBucket),
+  messagingSenderId: pick(env.VITE_FIREBASE_MESSAGING_SENDER_ID, HARDCODED_CFG.messagingSenderId),
+  appId: pick(env.VITE_FIREBASE_APP_ID, HARDCODED_CFG.appId),
 };
+
+// One-line confirmation in the browser console so you can verify the deployed
+// build is pointing at the right project.
+if (typeof window !== 'undefined') {
+  console.info(
+    `[firebase] project=${FB_CFG.projectId} authDomain=${FB_CFG.authDomain}`
+  );
+}
 
 let app: FirebaseApp | undefined;
 let _db: Firestore | undefined;
