@@ -3,8 +3,18 @@ dist
 dist-ssr
 *.local
 .DS_Store
+
+# Env files: ignore secrets/local dev files, but DO commit .env.production
+# (Firebase web API keys are public-by-design — security comes from Auth domain
+# allowlist + Firestore rules, not from hiding the key.)
 .env
 .env.local
+.env.development
+.env.development.local
+.env.production.local
+!.env.production
+!.env.example
+
 .vscode/*
 !.vscode/extensions.json
 .idea
