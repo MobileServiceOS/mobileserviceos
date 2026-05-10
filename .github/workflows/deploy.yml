@@ -61,18 +61,24 @@ jobs:
 
       - name: Build
         env:
-          # Pin the Vite base path so it matches the GitHub Pages project URL,
-          # regardless of any local override in vite.config.ts.
+          # Pin the Vite base path to match the GitHub Pages project URL.
           VITE_BASE_PATH: /mobileserviceos/
-          # Firebase config — set these as repo secrets to use a dedicated project.
-          # Missing secrets are fine: src/lib/firebase.ts has a working fallback.
-          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
-          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
-          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
-          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
-          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
-          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
-        run: npm run build
+        run: |
+          # Firebase config lives in .env.production (committed). For private
+          # white-label deploys, set repo secrets and they override at build time.
+          # Empty secrets are filtered out so .env.production stays authoritative.
+          if [ -n "${{ secrets.VITE_FIREBASE_API_KEY }}" ]; then
+            echo "VITE_FIREBASE_API_KEY=${{ secrets.VITE_FIREBASE_API_KEY }}" >> .env.production.local
+            echo "VITE_FIREBASE_AUTH_DOMAIN=${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}" >> .env.production.local
+            echo "VITE_FIREBASE_PROJECT_ID=${{ secrets.VITE_FIREBASE_PROJECT_ID }}" >> .env.production.local
+            echo "VITE_FIREBASE_STORAGE_BUCKET=${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}" >> .env.production.local
+            echo "VITE_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}" >> .env.production.local
+            echo "VITE_FIREBASE_APP_ID=${{ secrets.VITE_FIREBASE_APP_ID }}" >> .env.production.local
+            echo "Using Firebase config from repo secrets."
+          else
+            echo "Using Firebase config from .env.production (committed)."
+          fi
+          npm run build
 
       # GitHub Pages disables Jekyll only when .nojekyll is at the published root.
       # Vite copies public/.nojekyll into dist automatically — verify and re-create
@@ -92,6 +98,13 @@ jobs:
           test -d dist/icons || { echo "::error::icons folder missing"; exit 1; }
           if ! grep -q '/mobileserviceos/' dist/index.html; then
             echo "::error::dist/index.html has no /mobileserviceos/ asset references — check Vite base path"
+            exit 1
+          fi
+          # Verify the bundled JS embeds the correct Firebase project. Vite
+          # inlines `import.meta.env.VITE_*` at build time, so the project ID
+          # appears as a string literal in the bundle.
+          if ! grep -rq 'mobile-service-os' dist/assets/ 2>/dev/null; then
+            echo "::error::Bundled JS does not contain 'mobile-service-os' — Firebase config did not get baked in"
             exit 1
           fi
           echo "Build verification passed."
