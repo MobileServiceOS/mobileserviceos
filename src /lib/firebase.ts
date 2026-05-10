@@ -1,255 +1,316 @@
-import { initializeApp, type FirebaseApp } from 'firebase/app';
-import {
-  getAuth,
-  setPersistence,
-  browserLocalPersistence,
-  type Auth,
-} from 'firebase/auth';
-import {
-  initializeFirestore,
-  CACHE_SIZE_UNLIMITED,
-  persistentLocalCache,
-  persistentMultipleTabManager,
-  memoryLocalCache,
-  collection,
-  doc,
-  setDoc,
-  deleteDoc,
-  onSnapshot,
-  type Firestore,
-  type CollectionReference,
-  type DocumentData,
-  type QuerySnapshot,
-  type QueryDocumentSnapshot,
-} from 'firebase/firestore';
-import { getStorage, ref as storageRef, uploadBytes, getDownloadURL, type FirebaseStorage } from 'firebase/storage';
-
-const env = (import.meta as ImportMeta & { env: Record<string, string | undefined> }).env;
-
-// Production Firebase config for the `mobile-service-os` project.
-// Web API keys are public-by-design (security comes from Auth domain allowlist
-// + Firestore Security Rules), so committing them is the standard practice.
-//
-// Env vars (set in GitHub Actions secrets or .env.local) optionally override
-// these at build time, but only when explicitly non-empty — useful for
-// white-label deploys that target a different Firebase project without
-// touching this file.
-const HARDCODED_CFG = {
-  apiKey: 'AIzaSyDpe9pVejH1EFZmQYv04sgtZBoLxqM6lW0',
-  authDomain: 'mobile-service-os.firebaseapp.com',
-  projectId: 'mobile-service-os',
-  storageBucket: 'mobile-service-os.firebasestorage.app',
-  messagingSenderId: '77527561910',
-  appId: '1:77527561910:web:4a0c65c0203d403f4f5817',
-} as const;
-
-function pick(envVal: string | undefined, fallback: string): string {
-  // Empty string from unset CI secret should NOT win over the hardcoded value.
-  return envVal && envVal.trim() ? envVal.trim() : fallback;
-}
-
-const FB_CFG = {
-  apiKey: pick(env.VITE_FIREBASE_API_KEY, HARDCODED_CFG.apiKey),
-  authDomain: pick(env.VITE_FIREBASE_AUTH_DOMAIN, HARDCODED_CFG.authDomain),
-  projectId: pick(env.VITE_FIREBASE_PROJECT_ID, HARDCODED_CFG.projectId),
-  storageBucket: pick(env.VITE_FIREBASE_STORAGE_BUCKET, HARDCODED_CFG.storageBucket),
-  messagingSenderId: pick(env.VITE_FIREBASE_MESSAGING_SENDER_ID, HARDCODED_CFG.messagingSenderId),
-  appId: pick(env.VITE_FIREBASE_APP_ID, HARDCODED_CFG.appId),
-};
-
-// One-line confirmation in the browser console so you can verify the deployed
-// build is pointing at the right project.
-if (typeof window !== 'undefined') {
-  console.info(
-    `[firebase] project=${FB_CFG.projectId} authDomain=${FB_CFG.authDomain}`
-  );
-}
-
-let app: FirebaseApp | undefined;
-let _db: Firestore | undefined;
-let _auth: Auth | undefined;
-let _storage: FirebaseStorage | undefined;
-let initError: Error | null = null;
-
-function safeInit() {
-  try {
-    app = initializeApp(FB_CFG);
-  } catch (e) {
-    initError = e as Error;
-    console.error('[firebase] app init failed:', e);
-    return;
-  }
-
-  // Firestore — try persistent cache, fall back if IndexedDB unavailable (Safari private, embedded webviews, etc.)
-  try {
-    _db = initializeFirestore(app, {
-      localCache: persistentLocalCache({
-        tabManager: persistentMultipleTabManager(),
-        cacheSizeBytes: CACHE_SIZE_UNLIMITED,
-      }),
-    });
-  } catch (e) {
-    console.warn('[firebase] persistent cache unavailable, falling back to memory:', e);
-    try {
-      _db = initializeFirestore(app, { localCache: memoryLocalCache() });
-    } catch (e2) {
-      try {
-        _db = initializeFirestore(app, {});
-      } catch (e3) {
-        console.error('[firebase] firestore init failed entirely:', e3);
-      }
-    }
-  }
-
-  try {
-    _auth = getAuth(app);
-    setPersistence(_auth, browserLocalPersistence).catch((e) => {
-      console.warn('[firebase] auth persistence failed (non-fatal):', e);
-    });
-  } catch (e) {
-    console.error('[firebase] auth init failed:', e);
-    initError = initError || (e as Error);
-  }
-
-  try {
-    _storage = getStorage(app);
-  } catch (e) {
-    console.warn('[firebase] storage init failed (non-fatal):', e);
-  }
-}
-
-safeInit();
-
-export { app, _db, _auth, _storage, initError };
-
-export const scopedCol = (
-  bId: string,
-  name: string
-): CollectionReference<DocumentData> | null => (_db ? collection(_db, `businesses/${bId}/${name}`) : null);
+import { SERVICE_PHRASES } from '@/lib/defaults';
 
 /**
- * Write a doc to a scoped collection. Throws on real Firestore errors so the
- * caller can show a toast / mark sync as failed.
+ * Build a review-request SMS body.
  *
- * Important: when the device is offline, Firestore's persistent cache resolves
- * setDoc successfully and queues the write — that is NOT an error. Real errors
- * here come from permission denials, malformed data, or network timeouts after
- * the cache layer.
+ * Format matches the spec:
+ *   "Thanks for choosing [Business Name]. If you have a moment, a quick
+ *    review mentioning [service] in [city, state] would really help our
+ *    local business."
+ *
+ * `location` may be a plain city ("Hollywood"), a pre-combined label
+ * ("Hollywood, FL"), or empty. Pass an optional `state` to append ", ST"
+ * when location doesn't already contain a comma.
  */
-export async function fbSet(
-  col: CollectionReference<DocumentData> | null,
-  id: string,
-  data: Record<string, unknown> | object
-): Promise<void> {
-  if (!col) throw new Error('Firestore not initialized');
-  const src = data as Record<string, unknown>;
-  const clean: Record<string, unknown> = {};
-  Object.keys(src).forEach((k) => {
-    const v = src[k];
-    if (v === undefined) return;
-    if (v === null) {
-      clean[k] = null;
-      return;
-    }
-    if (typeof v === 'object') {
-      clean[k] = JSON.stringify(v);
-      return;
-    }
-    clean[k] = v;
-  });
-  clean.id = String(id);
-  try {
-    await setDoc(doc(col, String(id)), clean, { merge: true });
-  } catch (e) {
-    console.error('[firebase] fbSet failed:', { path: col.path, id, error: e });
-    throw e;
-  }
-}
-
-export async function fbDelete(col: CollectionReference<DocumentData> | null, id: string): Promise<void> {
-  if (!col) throw new Error('Firestore not initialized');
-  try {
-    await deleteDoc(doc(col, String(id)));
-  } catch (e) {
-    console.error('[firebase] fbDelete failed:', { path: col.path, id, error: e });
-    throw e;
-  }
-}
-
-/**
- * Listen to a collection. The optional onError callback lets the caller flip
- * sync status to "sync_failed" when permission denials or network errors
- * happen — silently ignoring listener errors leaves the UI looking "synced"
- * while data is actually frozen.
- */
-export function fbListen(
-  col: CollectionReference<DocumentData> | null,
-  cb: (docs: Array<Record<string, unknown> & { id: string }>) => void,
-  onError?: (e: Error) => void
-): () => void {
-  if (!col) {
-    cb([]);
-    return () => {};
-  }
-  return onSnapshot(
-    col,
-    (s: QuerySnapshot<DocumentData>) =>
-      cb(s.docs.map((d: QueryDocumentSnapshot<DocumentData>) => ({ ...d.data(), id: d.id }))),
-    (e: Error) => {
-      console.error('[firebase] fbListen error on', col.path, ':', e);
-      if (onError) onError(e);
-    }
+export function buildReviewMsg(
+  url: string,
+  customerName: string,
+  service: string,
+  location: string,
+  brandName: string,
+  state?: string
+): string {
+  const name = (customerName || '').trim();
+  const greet = name ? 'Hi ' + name + ',' : 'Hi,';
+  const svc = SERVICE_PHRASES[service] || (service ? service.toLowerCase() : 'tire service');
+  let loc = (location || '').trim();
+  const st = (state || '').trim();
+  if (loc && st && !loc.includes(',')) loc = `${loc}, ${st}`;
+  if (!loc) loc = 'your area';
+  const biz = brandName || 'our team';
+  return (
+    greet +
+    ' thanks for choosing ' +
+    biz +
+    '. If you have a moment, a quick review mentioning ' +
+    svc +
+    ' in ' +
+    loc +
+    ' would really help our local business:\n\n' +
+    url
   );
 }
 
-/**
- * Bulk delete every doc in a collection. Used by Inventory's "Delete All".
- * Returns the count actually deleted; throws if any single delete fails after
- * a few retries.
- */
-export async function fbDeleteAll(
-  col: CollectionReference<DocumentData> | null,
-  ids: string[]
-): Promise<number> {
-  if (!col || !ids.length) return 0;
-  let deleted = 0;
-  const errors: unknown[] = [];
-  for (const id of ids) {
-    try {
-      await deleteDoc(doc(col, String(id)));
-      deleted++;
-    } catch (e) {
-      console.error('[firebase] fbDeleteAll item failed:', { path: col.path, id, error: e });
-      errors.push(e);
-    }
+export function openReviewSMS(
+  phone: string,
+  url: string,
+  customerName: string,
+  service: string,
+  location: string,
+  brandName: string,
+  state?: string
+): void {
+  const msg = encodeURIComponent(buildReviewMsg(url, customerName, service, location, brandName, state));
+  const ph = (phone || '').replace(/\D/g, '');
+  window.open(ph ? `sms:${ph}?body=${msg}` : `sms:?body=${msg}`);
+}
+
+import type { Job, Settings, InventoryItem, InventoryDeduction, PaymentStatus, QuoteForm, QuoteResult } from '@/types';
+import { DEFAULT_SERVICE_PRICING, DEFAULT_VEHICLE_PRICING, TIRE_MATERIAL_SERVICES, SERVICE_ICONS } from '@/lib/defaults';
+
+export function uid(): string {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID().replace(/-/g, '').slice(0, 16);
   }
-  if (errors.length) {
-    throw new Error(
-      `Failed to delete ${errors.length} of ${ids.length} items — see console for details`
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+}
+
+export function r2(n: number | string | null | undefined): number {
+  return Math.round((Number(n || 0) + Number.EPSILON) * 100) / 100;
+}
+
+export function money(n: number | string | null | undefined): string {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(n || 0));
+}
+
+export function clamp(n: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, n));
+}
+
+export function fmtDate(d: string): string {
+  try {
+    return new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  } catch {
+    return d || '';
+  }
+}
+
+export function haptic(ms = 10): void {
+  try {
+    if (navigator.vibrate) navigator.vibrate(ms);
+  } catch {
+    /* noop */
+  }
+}
+
+export function isValidHex(h: unknown): boolean {
+  return typeof h === 'string' && /^#[0-9a-fA-F]{6}$/.test(h);
+}
+
+export function applyBrandColors(primary: string, accent: string): void {
+  const root = document.documentElement;
+  const p = isValidHex(primary) ? primary : '#c8a44a';
+  const a = isValidHex(accent) ? accent : '#e5c770';
+  root.style.setProperty('--brand-primary', p);
+  root.style.setProperty('--brand-accent', a);
+  const pR = parseInt(p.slice(1, 3), 16),
+    pG = parseInt(p.slice(3, 5), 16),
+    pB = parseInt(p.slice(5, 7), 16);
+  root.style.setProperty('--brand-primary-dim', `rgba(${pR},${pG},${pB},.12)`);
+  root.style.setProperty('--brand-primary-glow', `rgba(${pR},${pG},${pB},.25)`);
+  const aR = parseInt(a.slice(1, 3), 16),
+    aG = parseInt(a.slice(3, 5), 16),
+    aB = parseInt(a.slice(5, 7), 16);
+  root.style.setProperty('--brand-accent-dim', `rgba(${aR},${aG},${aB},.12)`);
+  root.style.setProperty('--brand-accent-glow', `rgba(${aR},${aG},${aB},.3)`);
+}
+
+export function getWeekStart(d: string): string {
+  const dt = new Date(d + 'T12:00:00');
+  const day = dt.getDay();
+  dt.setDate(dt.getDate() - (day >= 5 ? day - 5 : day + 2));
+  return dt.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+}
+
+export function jobDirectCost(j: Job, s: Settings): number {
+  const miles = Number(j.miles || 0);
+  const freeMiles = Number((s as Settings & { freeMilesIncluded?: number }).freeMilesIncluded || 0);
+  const chargeable = Math.max(0, miles - freeMiles);
+  return r2(
+    chargeable * Number(s.costPerMile || 0.65) +
+      Number(j.tireCost || 0) +
+      Number(j.materialCost || j.miscCost || 0)
+  );
+}
+
+export function jobGrossProfit(j: Job, s: Settings): number {
+  return r2(Number(j.revenue || 0) - jobDirectCost(j, s));
+}
+
+export function monthlyFixed(s: Settings): number {
+  const exps = Array.isArray(s.expenses) ? s.expenses : [];
+  return exps.filter((e) => e.active).reduce((t, e) => t + Number(e.amount || 0), 0);
+}
+
+export interface WeekSummary {
+  revenue: number;
+  directCosts: number;
+  grossProfit: number;
+  net: number;
+  fixed: number;
+}
+
+export function weekSummary(wj: Job[], s: Settings): WeekSummary {
+  const jobs = Array.isArray(wj) ? wj : [];
+  const rev = r2(jobs.reduce((t, j) => t + Number(j.revenue || 0), 0));
+  const dc = r2(jobs.reduce((t, j) => t + jobDirectCost(j, s), 0));
+  const gp = r2(rev - dc);
+  return { revenue: rev, directCosts: dc, grossProfit: gp, net: gp, fixed: 0 };
+}
+
+export interface MonthSummary {
+  revenue: number;
+  tireCosts: number;
+  miscCosts: number;
+  travelCosts: number;
+  directCosts: number;
+  grossProfit: number;
+  fixed: number;
+  net: number;
+}
+
+export function monthSummary(mj: Job[], s: Settings): MonthSummary {
+  const jobs = Array.isArray(mj) ? mj : [];
+  const freeMiles = Number((s as Settings & { freeMilesIncluded?: number }).freeMilesIncluded || 0);
+  const perMile = Number(s.costPerMile || 0.65);
+  const rev = r2(jobs.reduce((t, j) => t + Number(j.revenue || 0), 0));
+  const tc = r2(jobs.reduce((t, j) => t + Number(j.tireCost || 0), 0));
+  const mc = r2(jobs.reduce((t, j) => t + Number(j.materialCost || j.miscCost || 0), 0));
+  const trav = r2(
+    jobs.reduce((t, j) => t + Math.max(0, Number(j.miles || 0) - freeMiles) * perMile, 0)
+  );
+  const dc = r2(tc + mc + trav);
+  const gp = r2(rev - dc);
+  const fix = monthlyFixed(s);
+  return {
+    revenue: rev,
+    tireCosts: tc,
+    miscCosts: mc,
+    travelCosts: trav,
+    directCosts: dc,
+    grossProfit: gp,
+    fixed: fix,
+    net: r2(gp - fix),
+  };
+}
+
+export function normalizeTireSize(s: string): string {
+  if (!s) return '';
+  const m = String(s).match(/(\d{3})\s*[\/\-\s]+\s*(\d{2,3})\s*[\/\-\s]*\s*R?\s*(\d{2})/i);
+  return m ? m[1] + '/' + m[2] + 'R' + m[3] : '';
+}
+
+export function isTireMaterialService(svc: string): boolean {
+  return TIRE_MATERIAL_SERVICES.includes(svc);
+}
+
+export function sanitizeInvItem(i: Partial<InventoryItem>): InventoryItem {
+  return {
+    id: i.id || uid(),
+    size: i.size || '',
+    qty: Math.max(0, Number(i.qty || 0)),
+    cost: Number(i.cost || 0),
+    notes: i.notes || '',
+    condition: i.condition || 'New',
+    brand: i.brand || '',
+    model: i.model || '',
+  };
+}
+
+export interface DeductionPlan {
+  deductions: InventoryDeduction[];
+  shortfall: number;
+}
+
+export function planInventoryDeduction(size: string, qtyNeeded: number, inv: InventoryItem[]): DeductionPlan {
+  const norm = normalizeTireSize(size);
+  if (!norm || qtyNeeded <= 0) return { deductions: [], shortfall: qtyNeeded };
+  const cands = (inv || [])
+    .filter((i) => normalizeTireSize(i.size) === norm && Number(i.qty || 0) > 0)
+    .sort(
+      (a, b) =>
+        (a.condition === 'New' ? 0 : 1) - (b.condition === 'New' ? 0 : 1) ||
+        Number(b.qty) - Number(a.qty)
     );
+  let rem = qtyNeeded;
+  const deds: InventoryDeduction[] = [];
+  for (const item of cands) {
+    if (rem <= 0) break;
+    const take = Math.min(rem, Number(item.qty || 0));
+    deds.push({ id: item.id, size: item.size, qty: take, cost: Number(item.cost || 0) });
+    rem -= take;
   }
-  return deleted;
+  return { deductions: deds, shortfall: Math.max(0, rem) };
 }
 
-export async function uploadLogo(businessId: string, file: File): Promise<string | null> {
-  if (!_storage || !businessId || !file) return null;
-  if (file.size > 5 * 1024 * 1024) throw new Error('Logo must be under 5MB');
-  const ext = (file.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g, '');
-  const ref = storageRef(_storage, `businesses/${businessId}/branding/logo.${ext || 'png'}`);
-  await uploadBytes(ref, file, { contentType: file.type });
-  return await getDownloadURL(ref);
+export function paymentPillClass(ps: string): string {
+  switch (ps) {
+    case 'Paid':
+      return 'green';
+    case 'Pending Payment':
+      return 'gold';
+    case 'Partial Payment':
+      return 'orange';
+    case 'Cancelled':
+      return 'red';
+    default:
+      return 'green';
+  }
 }
 
-export async function uploadReceipt(
-  businessId: string,
-  jobId: string,
-  file: File
-): Promise<string | null> {
-  if (!_storage || !businessId || !jobId || !file) return null;
-  if (file.size > 8 * 1024 * 1024) throw new Error('Receipt must be under 8MB');
-  const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
-  const path = `businesses/${businessId}/receipts/${jobId}-${Date.now()}.${ext}`;
-  const ref = storageRef(_storage, path);
-  await uploadBytes(ref, file, { contentType: file.type || 'image/jpeg' });
-  return await getDownloadURL(ref);
+export function resolvePaymentStatus(job: Job): PaymentStatus {
+  if (job.paymentStatus) return job.paymentStatus;
+  if (job.status === 'Cancelled') return 'Cancelled';
+  return 'Paid';
+}
+
+export function serviceIcon(svc: string): string {
+  return SERVICE_ICONS[svc] || '🛞';
+}
+
+export function calcQuote(form: QuoteForm, settings: Settings): QuoteResult {
+  const sp = settings.servicePricing || DEFAULT_SERVICE_PRICING;
+  const vp = settings.vehiclePricing || DEFAULT_VEHICLE_PRICING;
+  const sd = sp[form.service] || { basePrice: 100, minProfit: 80, enabled: true };
+  const vd = vp[form.vehicleType] || { addOnProfit: 0 };
+  const tc = Number(form.tireCost || 0) * Number(form.qty || 1);
+  const mc = Number(form.materialCost || form.miscCost || 0);
+  // Travel cost mirrors jobDirectCost: free miles are subtracted before charging.
+  // suggestedPrice = directCosts + targetProfit must produce a quote whose
+  // actual profit equals targetProfit, which only holds when both sides use the
+  // same travel formula.
+  const freeMiles = Number((settings as Settings & { freeMilesIncluded?: number }).freeMilesIncluded || 0);
+  const chargeable = Math.max(0, Number(form.miles || 0) - freeMiles);
+  const miles = chargeable * Number(settings.costPerMile || 0.65);
+  const dc = tc + mc + miles;
+  const tp = Number(sd.minProfit || 0) + Number(vd.addOnProfit || 0);
+  let sug = Math.ceil((dc + tp) / 5) * 5;
+  if (form.emergency) sug += 30;
+  if (form.lateNight) sug += 25;
+  if (form.highway) sug += 20;
+  if (form.weekend) sug += 15;
+  sug = Math.max(sug, Number(sd.basePrice || 0));
+  return {
+    suggested: sug,
+    premium: Math.ceil((sug * 1.25) / 5) * 5,
+    directCosts: dc,
+    targetProfit: tp,
+  };
+}
+
+export function friendlyAuthError(err: { code?: string; message?: string }): string {
+  const c = err?.code || '';
+  const map: Record<string, string> = {
+    'auth/invalid-email': 'That email address looks invalid.',
+    'auth/user-disabled': 'This account has been disabled.',
+    'auth/user-not-found': 'No account found for that email.',
+    'auth/wrong-password': 'Incorrect password — try again or reset.',
+    'auth/invalid-credential': "Email or password didn't match.",
+    'auth/email-already-in-use': 'An account already exists for that email.',
+    'auth/weak-password': 'Password must be at least 6 characters.',
+    'auth/too-many-requests': 'Too many attempts — try again in a few minutes.',
+    'auth/network-request-failed': 'Network issue — check your connection.',
+    'auth/popup-closed-by-user': 'Sign-in was cancelled.',
+  };
+  return map[c] || err?.message || 'Something went wrong. Please try again.';
 }
