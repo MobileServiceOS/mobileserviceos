@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Mobile Service OS</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <script>
+    // GitHub Pages SPA fallback: capture deep-link path, redirect to app root.
+    (function () {
+      try {
+        var path = location.pathname + location.search + location.hash;
+        sessionStorage.setItem('msos_redirect', path);
+      } catch (e) {}
+      var segments = location.pathname.split('/').filter(Boolean);
+      var base = segments.length ? '/' + segments[0] + '/' : '/';
+      location.replace(base);
+    })();
+  </script>
+</head>
+<body>
+  <noscript>
+    <p style="font-family:system-ui,sans-serif;text-align:center;margin-top:40px">
+      Mobile Service OS requires JavaScript.
+      <a href="./">Reload</a>
+    </p>
+  </noscript>
+</body>
+</html>

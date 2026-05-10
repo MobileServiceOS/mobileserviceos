@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Mobile Service OS" />
+  <meta name="theme-color" content="#0B0B0B" />
+  <meta name="description" content="Mobile Service OS — operating system for mobile tire and roadside assistance businesses." />
+  <title>Mobile Service OS — Mobile Tire &amp; Roadside</title>
+
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16.png" />
+  <link rel="shortcut icon" href="icons/favicon.ico" />
+  <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png" />
+  <link rel="apple-touch-icon" sizes="152x152" href="icons/icon-152.png" />
+  <link rel="apple-touch-icon" sizes="144x144" href="icons/icon-144.png" />
+
+  <script>
+    // SPA-fallback restore: 404.html stashes the original path here for deep-link refreshes
+    (function () {
+      try {
+        var r = sessionStorage.getItem('msos_redirect');
+        if (r) {
+          sessionStorage.removeItem('msos_redirect');
+          if (r !== location.pathname + location.search + location.hash) {
+            history.replaceState(null, '', r);
+          }
+        }
+      } catch (e) {}
+    })();
+  </script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <div id="root">
+    <div style="position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#0a0a0f;z-index:1">
+      <img src="icons/icon-rounded-192.png" alt="Mobile Service OS" style="width:88px;height:88px;border-radius:20px;box-shadow:0 8px 30px rgba(200,164,74,.18),0 0 0 1px rgba(200,164,74,.15)" />
+      <div style="margin-top:18px;color:#f0f0fa;font-family:'IBM Plex Sans',sans-serif;font-size:15px;font-weight:700;letter-spacing:.5px">Mobile Service OS</div>
+      <div style="margin-top:4px;color:#44445a;font-family:'IBM Plex Sans',sans-serif;font-size:11px;font-weight:600">Loading…</div>
+    </div>
+  </div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+</html>

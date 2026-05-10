@@ -1,0 +1,29 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function userBusinessId() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.businessId;
+    }
+
+    function isMemberOfBusiness(businessId) {
+      return request.auth != null && userBusinessId() == businessId;
+    }
+
+    // Branding assets: logo etc.
+    match /businesses/{businessId}/branding/{file=**} {
+      allow read: if true;
+      allow write: if isMemberOfBusiness(businessId)
+                   && request.resource.size < 5 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*');
+    }
+
+    match /businesses/{businessId}/{path=**} {
+      allow read, write: if isMemberOfBusiness(businessId);
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
