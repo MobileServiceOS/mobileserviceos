@@ -130,7 +130,7 @@ export function Onboarding({ settings, onComplete }: Props) {
               <div className="onboarding-step-sub">This appears on invoices and review requests.</div>
               <div className="field">
                 <label>Business name *</label>
-                <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} placeholder="Wheel Rush" />
+                <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} placeholder="Your business name" />
               </div>
               <div className="field">
                 <label>Logo (optional)</label>
@@ -180,7 +180,7 @@ export function Onboarding({ settings, onComplete }: Props) {
               />
               <div className="field" style={{ marginTop: 14 }}>
                 <label>Other service cities (optional)</label>
-                <input value={serviceCitiesText} onChange={(e) => setServiceCitiesText(e.target.value)} placeholder="Hollywood, Hialeah, Miramar" />
+                <input value={serviceCitiesText} onChange={(e) => setServiceCitiesText(e.target.value)} placeholder="e.g. additional cities you serve" />
                 <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 4 }}>Comma-separated. Used in invoices and review requests.</div>
               </div>
               <div className="field">
