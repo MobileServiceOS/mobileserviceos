@@ -27,6 +27,8 @@ import {
   ref as storageRef,
   uploadBytes,
   getDownloadURL,
+  deleteObject,
+  listAll,
   type FirebaseStorage,
 } from 'firebase/storage';
 
@@ -143,13 +145,69 @@ export function fbListen(
   );
 }
 
+/**
+ * Accepted logo image formats. JPEG, PNG, and WEBP are universally renderable
+ * in PDF (after base64 conversion) and in browsers. SVG is rejected because
+ * jsPDF can't rasterize it reliably and Firebase Storage doesn't sanitize it.
+ */
+const LOGO_ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+const LOGO_ACCEPTED_EXTS = ['png', 'jpg', 'jpeg', 'webp'];
+
+/**
+ * Upload a logo image for the given business.
+ *
+ * The file is stored under `businesses/{businessId}/branding/logo.{ext}`.
+ * Each upload overwrites the same key for the matching extension, so the
+ * tenant always has at most one logo per extension. Returns the public
+ * downloadable URL on success.
+ *
+ * Throws on validation failure so the UI can show a useful error toast.
+ */
 export async function uploadLogo(businessId: string, file: File): Promise<string | null> {
   if (!_storage || !businessId || !file) return null;
   if (file.size > 5 * 1024 * 1024) throw new Error('Logo must be under 5MB');
-  const ext = (file.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g, '');
-  const ref = storageRef(_storage, `businesses/${businessId}/branding/logo.${ext || 'png'}`);
-  await uploadBytes(ref, file, { contentType: file.type });
+
+  // Validate type — reject SVG and other formats up front instead of letting
+  // the user upload something that won't render on the PDF.
+  const lcType = (file.type || '').toLowerCase();
+  const ext = (file.name.split('.').pop() || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const typeOk = LOGO_ACCEPTED_TYPES.includes(lcType) || LOGO_ACCEPTED_EXTS.includes(ext);
+  if (!typeOk) {
+    throw new Error('Logo must be a PNG, JPG, or WEBP image');
+  }
+
+  // Normalize extension so we can find this file later for deletion.
+  const safeExt = LOGO_ACCEPTED_EXTS.includes(ext) ? ext : (lcType === 'image/webp' ? 'webp' : lcType === 'image/png' ? 'png' : 'jpg');
+  const path = `businesses/${businessId}/branding/logo.${safeExt}`;
+  const ref = storageRef(_storage, path);
+  await uploadBytes(ref, file, { contentType: file.type || 'image/png' });
   return await getDownloadURL(ref);
+}
+
+/**
+ * Delete ALL logo files for this business from Firebase Storage.
+ *
+ * We list everything under `branding/` and delete each so we don't leave
+ * stale `logo.png` and `logo.jpg` behind after a format swap. Best-effort —
+ * individual delete failures are logged and skipped so a partial failure
+ * doesn't leave the brand record pointing at a deleted file.
+ */
+export async function deleteLogo(businessId: string): Promise<void> {
+  if (!_storage || !businessId) return;
+  try {
+    const folderRef = storageRef(_storage, `businesses/${businessId}/branding`);
+    const listing = await listAll(folderRef);
+    await Promise.all(
+      listing.items.map((item) =>
+        deleteObject(item).catch((e) => {
+          console.warn('[firebase] deleteLogo: failed to delete', item.fullPath, e);
+        })
+      )
+    );
+  } catch (e) {
+    // If listing itself fails (e.g. nothing was ever uploaded), don't surface.
+    console.warn('[firebase] deleteLogo: listAll failed', e);
+  }
 }
 
 export async function uploadReceipt(

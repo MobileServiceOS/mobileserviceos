@@ -3,9 +3,9 @@ import type { Settings as SettingsT, ServicePricing, VehiclePricing, Brand, Mult
 import { useBrand } from '@/context/BrandContext';
 import { CityStateSelect } from '@/components/CityStateSelect';
 import { addToast } from '@/lib/toast';
-import { uploadLogo, _auth } from '@/lib/firebase';
+import { uploadLogo, deleteLogo, _auth } from '@/lib/firebase';
 import { signOut, updatePassword } from 'firebase/auth';
-import { APP_LOGO, DEFAULT_MULTI_TIRE } from '@/lib/defaults';
+import { DEFAULT_MULTI_TIRE } from '@/lib/defaults';
 import { money } from '@/lib/utils';
 
 interface Props {
@@ -31,6 +31,7 @@ function BrandSection() {
   const { brand, businessId, updateBrand } = useBrand();
   const [draft, setDraft] = useState<Brand>(brand);
   const [logoUploading, setLogoUploading] = useState(false);
+  const [logoRemoving, setLogoRemoving] = useState(false);
   const [busy, setBusy] = useState(false);
   const logoInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -53,6 +54,23 @@ function BrandSection() {
     } finally { setLogoUploading(false); }
   };
 
+  const handleRemoveLogo = async () => {
+    if (!businessId) { addToast('Sign in required', 'warn'); return; }
+    if (!draft.logoUrl) return;
+    if (!window.confirm('Remove your business logo? Invoices will fall back to your business name only.')) return;
+    setLogoRemoving(true);
+    try {
+      // Clear the URL in brand settings first so the UI updates immediately,
+      // then delete the storage objects in the background.
+      await updateBrand({ logoUrl: '' });
+      set('logoUrl', '');
+      await deleteLogo(businessId);
+      addToast('Logo removed', 'success');
+    } catch (e) {
+      addToast((e as Error).message || 'Remove failed', 'error');
+    } finally { setLogoRemoving(false); }
+  };
+
   const save = async () => {
     setBusy(true);
     try {
@@ -63,20 +81,94 @@ function BrandSection() {
     } finally { setBusy(false); }
   };
 
+  const hasLogo = Boolean(draft.logoUrl);
+
   return (
     <div className="form-group card-anim">
       <div className="form-group-title">Brand</div>
+
+      {/* ── Logo block ── premium preview on dark background so the owner sees
+           the logo the way it will look on invoices/PDFs (which use dark hero). */}
       <div className="field">
-        <label>Logo</label>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <img src={draft.logoUrl || APP_LOGO} alt="" style={{ width: 56, height: 56, borderRadius: 12, objectFit: 'contain', background: 'var(--s3)' }} />
-          <input ref={logoInputRef} type="file" accept="image/*" style={{ display: 'none' }}
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) handleLogo(f); if (logoInputRef.current) logoInputRef.current.value = ''; }} />
-          <button className="btn sm secondary" onClick={() => logoInputRef.current?.click()} disabled={logoUploading}>
-            {logoUploading ? 'Uploading…' : 'Upload logo'}
-          </button>
+        <label>Business logo</label>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 14,
+          padding: 14,
+          background: 'linear-gradient(160deg, #0a0b10 0%, #141620 100%)',
+          border: '1px solid var(--border)',
+          borderRadius: 12,
+        }}>
+          {/* Preview tile — matches the proportions used on the invoice */}
+          <div style={{
+            width: 72,
+            height: 72,
+            borderRadius: 10,
+            background: hasLogo ? '#fff' : 'rgba(255,255,255,.04)',
+            border: '1px solid rgba(255,255,255,.08)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+            overflow: 'hidden',
+          }}>
+            {hasLogo ? (
+              <img
+                src={draft.logoUrl}
+                alt="Business logo preview"
+                style={{ maxWidth: '88%', maxHeight: '88%', objectFit: 'contain' }}
+                onError={(e) => {
+                  // If the URL is broken, hide the image and let the fallback show
+                  (e.currentTarget as HTMLImageElement).style.display = 'none';
+                }}
+              />
+            ) : (
+              <span style={{ fontSize: 9, fontWeight: 800, color: 'rgba(255,255,255,.5)', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                No logo
+              </span>
+            )}
+          </div>
+
+          {/* Action buttons */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <input
+                ref={logoInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                style={{ display: 'none' }}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handleLogo(f);
+                  if (logoInputRef.current) logoInputRef.current.value = '';
+                }}
+              />
+              <button
+                className="btn sm secondary"
+                onClick={() => logoInputRef.current?.click()}
+                disabled={logoUploading || logoRemoving}
+              >
+                {logoUploading ? 'Uploading…' : hasLogo ? 'Change logo' : 'Upload logo'}
+              </button>
+              {hasLogo && (
+                <button
+                  className="btn sm secondary"
+                  onClick={handleRemoveLogo}
+                  disabled={logoUploading || logoRemoving}
+                  style={{ color: 'var(--red)' }}
+                >
+                  {logoRemoving ? 'Removing…' : 'Remove'}
+                </button>
+              )}
+            </div>
+            <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 8, lineHeight: 1.4 }}>
+              PNG, JPG, or WEBP · max 5MB · square or wide logos work best
+            </div>
+          </div>
         </div>
       </div>
+
       <div className="field">
         <label>Business name</label>
         <input value={draft.businessName} onChange={(e) => set('businessName', e.target.value)} />
@@ -270,16 +362,16 @@ function PricingSection({ settings, onSave }: Props) {
 }
 
 /**
- * Invoice line-item display style.
+ * Invoice line-item display style picker.
  *
- *   • Transparent Line Items (default) — breaks replacement/installation jobs
- *     into "Tire" + "Mobile Service & Dispatch" + "Mounting & Balancing".
- *     Travel cost is computed internally for profit math but never shown as
- *     a separate fee on the customer's invoice.
+ *   • Transparent Line Items (default) — splits replacement/installation jobs
+ *     into Tire / Mobile Service & Dispatch / Mounting & Balancing. Travel
+ *     cost is absorbed into Mobile Service & Dispatch, never shown as a
+ *     separate fee.
  *   • Single-Line Service — prints the service as one combined line item.
  *
- * Internal pricing logic (suggested price, profit, payouts, dashboard) is
- * not affected by this setting — only the customer-facing PDF rendering.
+ * Internal pricing math is unaffected by this setting. It only controls how
+ * line items render on the customer's PDF.
  */
 function InvoiceStyleSection({ settings, onSave }: Props) {
   const current: 'transparent' | 'single' =
@@ -393,11 +485,6 @@ function InvoiceStyleSection({ settings, onSave }: Props) {
 
 /**
  * Edit replacement multipliers and flat installation prices.
- *
- * Why this section exists: a 4-tire job isn't 4× the labor of a 1-tire job —
- * you only set up the truck once. Replacement multipliers let owners encode
- * their actual labor scaling. Installation prices cover the customer-supplied-
- * tires scenario where the whole charge is labor.
  */
 function MultiTirePricingSection({ settings, onSave }: Props) {
   const current: MultiTirePricing = settings.multiTirePricing || DEFAULT_MULTI_TIRE;

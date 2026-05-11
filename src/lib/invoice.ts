@@ -22,25 +22,7 @@ export interface InvoiceLineItem {
   amount: number;
 }
 
-// ── Line-item builder ──────────────────────────────────────
-// This is the heart of the new transparent-pricing invoice. The function is
-// pure (no side effects, no PDF rendering) so we can unit-test it and call it
-// from anywhere — invoice PDF, on-screen preview, email summaries, etc.
-//
-// Constraints, derived from the spec:
-//   • Travel cost is NEVER shown as a line item. It's used internally only.
-//   • The lines must sum to `revenue` exactly — we balance any rounding into
-//     the dispatch line which is the most generic of the three.
-//   • Tire Replacement (transparent) → 3 lines: Tire, Mobile Service & Dispatch,
-//     Mounting & Balancing
-//   • Tire Installation (transparent) → 2 lines: Mobile Service & Dispatch,
-//     Mounting & Balancing  (customer supplies tire, so no Tire line)
-//   • Flat repair / other services / single style → 1 line: the service name
-//
-// Split heuristic: of the non-tire revenue, dispatch gets ~55%, mounting ~45%.
-// This mirrors the spec example (revenue $170, tire $50 → $65 dispatch + $55
-// mounting). The dispatch share is intentionally a bit larger because it
-// absorbs the hidden travel cost.
+// ── Line-item builder (transparent pricing) ────────────────
 
 const DEFAULT_DISPATCH_LABEL = 'Mobile Service & Dispatch';
 const DEFAULT_MOUNTING_LABEL = 'Mounting & Balancing';
@@ -58,24 +40,18 @@ export function buildInvoiceLines(job: Job, settings: Settings): InvoiceLineItem
   const tireCost = r2(Number(job.tireCost || 0));
   const qty = Math.max(1, Math.floor(Number(job.qty) || 1));
 
-  // Single-line mode (or any non-replacement/installation service in
-  // transparent mode) keeps the simpler format.
   if (style === 'single' || (!isReplacement(job.service) && !isInstallation(job.service))) {
     return [{ label: job.service || 'Service', qty, amount: revenue }];
   }
 
-  // ── Replacement: Tire + Dispatch + Mounting ──
   if (isReplacement(job.service)) {
-    const tireLine = Math.min(tireCost, revenue); // never let tire line exceed total
+    const tireLine = Math.min(tireCost, revenue);
     const remainder = r2(revenue - tireLine);
-    // Split the non-tire amount: ~55% dispatch, ~45% mounting.
     let dispatchLine = Math.round(remainder * 0.55);
     let mountingLine = r2(remainder - dispatchLine);
-    // Defensive: if revenue is tiny / weird, fall back to single line.
     if (remainder <= 0 || dispatchLine < 0 || mountingLine < 0) {
       return [{ label: job.service, qty, amount: revenue }];
     }
-    // Push tiny rounding remainders into dispatch so the lines sum exactly.
     const sumCheck = r2(tireLine + dispatchLine + mountingLine);
     const drift = r2(revenue - sumCheck);
     if (drift !== 0) dispatchLine = r2(dispatchLine + drift);
@@ -86,9 +62,6 @@ export function buildInvoiceLines(job: Job, settings: Settings): InvoiceLineItem
     ];
   }
 
-  // ── Installation (customer-supplied tires): Dispatch + Mounting ──
-  // No tire line since the customer brought the tires. The whole revenue
-  // is labor + dispatch, split 55/45.
   if (isInstallation(job.service)) {
     let dispatchLine = Math.round(revenue * 0.55);
     let mountingLine = r2(revenue - dispatchLine);
@@ -104,8 +77,67 @@ export function buildInvoiceLines(job: Job, settings: Settings): InvoiceLineItem
     ];
   }
 
-  // Unreachable, but TypeScript wants a return.
   return [{ label: job.service, qty, amount: revenue }];
+}
+
+// ── Logo prefetch ──────────────────────────────────────────
+//
+// jsPDF's `addImage` accepts a base64 data URL or a pre-loaded HTMLImageElement.
+// It does NOT fetch HTTPS URLs synchronously, so passing a Firebase Storage URL
+// directly causes silent failure (image just doesn't render). The fix is to
+// fetch the binary, read it as a base64 data URL, then hand that to addImage.
+//
+// CORS: Firebase Storage `getDownloadURL()` returns URLs with the
+// `firebasestorage.googleapis.com` host which serves CORS-enabled responses by
+// default for download URLs. If a tenant has a custom CORS config that blocks
+// us, the catch will skip the logo without breaking the invoice.
+
+interface PreloadedLogo {
+  dataUrl: string;
+  mime: 'PNG' | 'JPEG' | 'WEBP';
+  /** Natural width/height in px so we can size the logo proportionally. */
+  width: number;
+  height: number;
+}
+
+function inferMime(url: string, blob: Blob): 'PNG' | 'JPEG' | 'WEBP' {
+  const lc = (blob.type || '').toLowerCase();
+  if (lc.includes('webp')) return 'WEBP';
+  if (lc.includes('png')) return 'PNG';
+  if (lc.includes('jpeg') || lc.includes('jpg')) return 'JPEG';
+  // Fallback to URL extension
+  const noQs = url.split('?')[0].toLowerCase();
+  if (noQs.endsWith('.webp')) return 'WEBP';
+  if (noQs.endsWith('.png')) return 'PNG';
+  return 'JPEG';
+}
+
+async function preloadLogo(url: string): Promise<PreloadedLogo | null> {
+  if (!url) return null;
+  try {
+    const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    const mime = inferMime(url, blob);
+    // Convert to base64 data URL
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(blob);
+    });
+    // Probe natural dimensions so we can preserve aspect ratio on the PDF
+    const dims = await new Promise<{ w: number; h: number }>((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve({ w: img.naturalWidth || 100, h: img.naturalHeight || 100 });
+      img.onerror = () => resolve({ w: 100, h: 100 });
+      img.src = dataUrl;
+    });
+    return { dataUrl, mime, width: dims.w, height: dims.h };
+  } catch (e) {
+    console.warn('[invoice] logo preload failed:', e);
+    return null;
+  }
 }
 
 // ── Color + helpers ────────────────────────────────────────
@@ -137,26 +169,76 @@ function locationLine(job: Job): string {
 }
 
 /**
+ * Render the logo block in the hero header and return the x offset that
+ * subsequent text should use. Falls back gracefully to text-only layout
+ * when no logo is configured or the preload failed.
+ *
+ * Logo box: 28mm × 28mm bounding region. The image is scaled to fit while
+ * preserving aspect ratio so wide logos don't look squashed.
+ */
+function renderLogoBlock(
+  doc: jsPDF,
+  logo: PreloadedLogo | null,
+  marginX: number,
+  topY: number
+): number {
+  const BOX = 28;
+  const NO_LOGO_TEXT_X = marginX;
+  if (!logo) return NO_LOGO_TEXT_X;
+
+  // Fit the image into BOX × BOX while preserving aspect ratio.
+  const aspect = logo.width / Math.max(1, logo.height);
+  let w = BOX;
+  let h = BOX;
+  if (aspect > 1) {
+    // Landscape — width is the limit, scale height down
+    h = BOX / aspect;
+  } else if (aspect < 1) {
+    // Portrait — height is the limit, scale width down
+    w = BOX * aspect;
+  }
+  // Center the image inside its bounding box
+  const x = marginX + (BOX - w) / 2;
+  const y = topY + (BOX - h) / 2;
+
+  try {
+    doc.addImage(logo.dataUrl, logo.mime, x, y, w, h, undefined, 'FAST');
+    return marginX + BOX + 6; // give 6mm gap before the business name
+  } catch (e) {
+    console.warn('[invoice] addImage failed despite preload:', e);
+    return NO_LOGO_TEXT_X;
+  }
+}
+
+/**
  * Generate a premium, mobile-business-themed invoice PDF for the tenant.
  *
- * All branded text comes from the `brand` argument (businesses/{uid}/settings/
- * main). The SaaS platform name is NEVER printed on a tenant invoice.
- *
- * Travel cost is computed internally for profit math but is NOT shown as a
- * line item — it's absorbed into the "Mobile Service & Dispatch" line.
+ * Async: the function awaits a logo preload before drawing the PDF so the
+ * tenant's logo always appears (when one is configured). If the logo can't
+ * be loaded for any reason — network, CORS, deleted — the invoice falls
+ * back to a text-only header automatically.
  */
-export function generateInvoicePDF(job: Job, settings: Settings, brand: Brand): InvoiceResult | null {
+export async function generateInvoicePDF(
+  job: Job,
+  settings: Settings,
+  brand: Brand
+): Promise<InvoiceResult | null> {
   if (!jsPDF) {
     alert('PDF library not loaded.');
     return null;
   }
 
+  // Resolve tenant identity once. We never leak the SaaS platform name.
   const tenantName = (brand.businessName || '').trim() || 'Mobile Tire & Roadside Service';
   const tenantTagline = [
     (brand.businessType || '').trim() || 'Mobile Tire & Roadside',
     (brand.serviceArea || '').trim(),
   ].filter(Boolean).join(' · ');
   const tenantContact = [brand.phone, brand.email, brand.website].filter(Boolean).join('   ·   ');
+
+  // Kick off the logo preload BEFORE we build the document. Even if it fails
+  // we still produce a valid PDF — just without the logo.
+  const logo = await preloadLogo((brand.logoUrl || '').trim());
 
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const W = 210;
@@ -184,19 +266,11 @@ export function generateInvoicePDF(job: Job, settings: Settings, brand: Brand): 
   doc.setFillColor(...accent);
   doc.rect(0, heroH, W, 1.5, 'F');
 
-  let textX = M;
-  if (brand.logoUrl) {
-    try {
-      doc.addImage(brand.logoUrl, 'PNG', M, 12, 26, 26);
-      textX = M + 32;
-    } catch {
-      try {
-        doc.addImage(brand.logoUrl, 'JPEG', M, 12, 26, 26);
-        textX = M + 32;
-      } catch { /* skip */ }
-    }
-  }
+  // Logo — renders only when we successfully preloaded it; no broken-image
+  // placeholders if the URL is empty or the fetch failed.
+  const textX = renderLogoBlock(doc, logo, M, 12);
 
+  // Business name (large) — adjust font size if no logo so it has room to breathe
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(22);
   doc.setTextColor(...WHITE);
@@ -283,12 +357,8 @@ export function generateInvoicePDF(job: Job, settings: Settings, brand: Brand): 
   y += panelH + 12;
 
   // ── Service line items ──
-  // Build the line items from the new pure function. This is where the
-  // transparent-pricing magic happens — but the PDF rendering below is
-  // agnostic to whether we got 1, 2, or 3 lines.
   const lines = buildInvoiceLines(job, settings);
 
-  // Table head
   doc.setFillColor(...INK);
   doc.rect(M, y, CONTENT_W, 9, 'F');
   doc.setFont('helvetica', 'bold');
@@ -299,7 +369,6 @@ export function generateInvoicePDF(job: Job, settings: Settings, brand: Brand): 
   doc.text('AMOUNT', M + CONTENT_W - 4, y + 6, { align: 'right' });
   y += 13;
 
-  // Each line item
   for (let i = 0; i < lines.length; i++) {
     const li = lines[i];
     doc.setFont('helvetica', 'normal');
@@ -318,7 +387,6 @@ export function generateInvoicePDF(job: Job, settings: Settings, brand: Brand): 
 
     y += 7;
 
-    // Hairline between line items (not after the last one)
     if (i < lines.length - 1) {
       doc.setDrawColor(...HAIRLINE);
       doc.setLineWidth(0.2);
@@ -327,7 +395,6 @@ export function generateInvoicePDF(job: Job, settings: Settings, brand: Brand): 
     }
   }
 
-  // Closing hairline under the table
   y += 4;
   doc.setDrawColor(...HAIRLINE);
   doc.setLineWidth(0.3);
