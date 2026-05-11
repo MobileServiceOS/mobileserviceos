@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
 import { _auth, _db, scopedCol, fbDelete, fbListen, fbSet, initError } from '@/lib/firebase';
 import { BrandProvider, useBrand } from '@/context/BrandContext';
-import { MembershipProvider } from '@/context/MembershipContext';
 import { AuthScreen } from '@/pages/AuthScreen';
 import { Dashboard } from '@/pages/Dashboard';
 import { AddJob } from '@/pages/AddJob';
@@ -368,7 +367,9 @@ function AuthenticatedApp({ user }: { user: User }) {
   }, [businessId, jobs]);
 
   const handleGenerateInvoice = useCallback(async (j: Job) => {
-    const result = generateInvoicePDF(j, settings, brand);
+    // generateInvoicePDF is async — it preloads the tenant logo as a base64
+    // data URL before drawing the PDF so jsPDF can render it. Must await.
+    const result = await generateInvoicePDF(j, settings, brand);
     if (!result || !businessId) return;
     const jobsCol = scopedCol(businessId, 'jobs');
     const updated: Job = {
@@ -541,7 +542,7 @@ function AuthenticatedApp({ user }: { user: User }) {
   }
 
   return (
-    <MembershipProvider settings={settings}>
+    <>
       <Header syncStatus={syncStatus} onSignOut={onSignOut} />
       <main className="main-content">{tabContent}</main>
       <nav className="bottom-nav">
@@ -581,7 +582,7 @@ function AuthenticatedApp({ user }: { user: User }) {
       )}
       <InstallBanner />
       <ToastHost />
-    </MembershipProvider>
+    </>
   );
 }
 
