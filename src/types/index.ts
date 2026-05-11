@@ -105,6 +105,12 @@ export interface Job {
   city?: string;
   state?: string;
   fullLocationLabel?: string;
+  /**
+   * UID of the team member who created this job. Used by Firestore rules to
+   * let technicians edit jobs they personally created. Owners and admins
+   * can always edit regardless of this field.
+   */
+  createdByUid?: string;
 }
 
 export interface Settings {
@@ -127,7 +133,7 @@ export interface Settings {
   tireRepairTargetProfit?: number;
   tireReplacementTargetProfit?: number;
 
-  // ── Multi-tire pricing (nested object — utils.ts reads it this shape) ──
+  // ── Multi-tire pricing (nested object — utils.ts reads this shape) ──
   multiTirePricing?: MultiTirePricing;
 
   // ── Invoice rendering style ──
@@ -142,60 +148,17 @@ export interface Settings {
   featureFlags?: FeatureFlags;
 }
 
-/**
- * Multi-tire pricing controls.
- *
- * `replacementMultipliers.{two,three,four}` scales target profit when
- * replacing multiple tires (sub-linear by default — labor is more efficient
- * per-tire when already on-site).
- *
- * `installationByQuantity.{one,two,three,four}` is the flat labor charge
- * when the customer supplies the tires. The 4-tire $220 default is the
- * industry anchor for mobile install.
- */
 export interface MultiTirePricing {
-  replacementMultipliers: {
-    two: number;
-    three: number;
-    four: number;
-  };
-  installationByQuantity: {
-    one: number;
-    two: number;
-    three: number;
-    four: number;
-  };
+  replacementMultipliers: { two: number; three: number; four: number };
+  installationByQuantity: { one: number; two: number; three: number; four: number };
 }
 
-/**
- * Plan tier for a business. Drives team-management gating; does NOT replace
- * the fine-grained per-role permissions in `lib/permissions.ts`.
- *   • core — solo operator, 1 user, all core features
- *   • pro  — multi-user team access + advanced reports
- */
 export type Plan = 'core' | 'pro';
-
 export type SubscriptionStatus = 'trialing' | 'active' | 'inactive';
-
-/**
- * Role of a member within a business.
- *   • owner      — full access; at least one must always exist per business
- *   • admin      — full operational access except billing + can't remove owner
- *   • technician — field worker; limited to job logging + quoting, no
- *                  financials, no settings
- */
 export type Role = 'owner' | 'admin' | 'technician';
-
 export type MemberStatus = 'active' | 'invited' | 'disabled';
 
-/**
- * Document at `businesses/{businessId}/members/{uid}`.
- *
- * For pending invites the uid may be a placeholder until the invitee signs up,
- * at which point the accept-invite flow swaps it for the real auth uid.
- * `permissions` is an OPTIONAL per-user override on top of the role defaults
- * — leave undefined for standard role-based access.
- */
+/** Document at `businesses/{businessId}/members/{uid}`. */
 export interface MemberDoc {
   uid: string;
   email: string;
@@ -209,14 +172,6 @@ export interface MemberDoc {
   assignedBusinessId: string;
 }
 
-/**
- * Per-user/per-business permission set. Use through `getPermissions()` in
- * `lib/permissions.ts` rather than constructing directly — the helper
- * applies role defaults, plan caps, and business overrides.
- *
- * All permissions default to FALSE so a missing/invalid role can never
- * accidentally grant access.
- */
 export interface Permissions {
   canViewFinancials: boolean;
   canViewRevenue: boolean;
@@ -239,7 +194,6 @@ export interface Permissions {
   canManageBilling: boolean;
 }
 
-/** Feature flag bag — tenant-level toggles. */
 export interface FeatureFlags {
   advancedReports?: boolean;
   prioritySupport?: boolean;
