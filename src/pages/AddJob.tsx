@@ -5,7 +5,7 @@ import {
   LEAD_SOURCES, PAYMENT_METHODS, PAYMENT_STATUSES, TIRE_MATERIAL_SERVICES, TIRE_SOURCES,
 } from '@/lib/defaults';
 import { computeBreakdown } from '@/lib/pricing';
-import { calcQuote, money, normalizeTireSize, planInventoryDeduction, serviceIcon } from '@/lib/utils';
+import { calcQuote, money, normalizeTireSize, planInventoryDeduction, r2, serviceIcon } from '@/lib/utils';
 import { addToast } from '@/lib/toast';
 import { uploadReceipt } from '@/lib/firebase';
 import { useBrand } from '@/context/BrandContext';
@@ -22,22 +22,58 @@ interface Props {
   onSaveAndNew: () => Promise<void> | void;
 }
 
+/**
+ * AddJob — pricing-first layout.
+ *
+ * Top card "Pricing" contains the complete set of inputs that affect the
+ * quote (service, vehicle, miles, tire cost, material cost, qty, surcharges)
+ * alongside the live Suggested/Premium price tiles, breakdown, and Start Job
+ * CTA. Everything else (customer details, tire source/details, lead/payment,
+ * notes) lives below as data-entry that doesn't affect price.
+ *
+ * Key behaviors:
+ *   • Tire cost field is hidden for Flat Repair / TPMS / Rotation unless the
+ *     operator explicitly opts in via "+ Add tire cost"
+ *   • Revenue auto-fills from Suggested price unless manually overridden
+ *   • Once Revenue is manually edited, auto-fill stops until the user taps
+ *     a price tile to re-engage it
+ *   • Confirm Revenue & Profit section at the bottom shows actual profit
+ *     against whatever revenue the user committed to
+ */
 export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledFromQuote, onSave, onSaveAndNew }: Props) {
-  const { businessId } = useBrand();
+  const { businessId, brand } = useBrand();
+
   const enabledServices = useMemo(() => {
     const sp = settings.servicePricing || DEFAULT_SERVICE_PRICING;
     return Object.keys(sp).filter((k) => sp[k] && sp[k].enabled !== false);
   }, [settings.servicePricing]);
 
-  const vehicles = useMemo(() => Object.keys(settings.vehiclePricing || DEFAULT_VEHICLE_PRICING), [settings.vehiclePricing]);
+  const vehicles = useMemo(
+    () => Object.keys(settings.vehiclePricing || DEFAULT_VEHICLE_PRICING),
+    [settings.vehiclePricing]
+  );
 
   const set = <K extends keyof Job>(k: K, v: Job[K]) => setJob({ ...job, [k]: v });
 
   const needsTireDetails = TIRE_MATERIAL_SERVICES.includes(job.service);
   const tireSource = (job.tireSource || 'Inventory') as TireSource;
 
-  // Live quote that updates with every relevant change. This drives both the
-  // pricing summary at the top and the suggested-price auto-fill below.
+  // Services where tire cost is irrelevant by default. Operators can still
+  // opt in if a flat repair turns into a replacement mid-job.
+  const tireCostRelevantByDefault = (svc: string) =>
+    svc !== 'Flat Tire Repair' && svc !== 'Tire Rotation' && svc !== 'TPMS Service';
+  const [showTireCost, setShowTireCost] = useState<boolean>(tireCostRelevantByDefault(job.service));
+  useEffect(() => {
+    const shouldShow = tireCostRelevantByDefault(job.service);
+    setShowTireCost(shouldShow);
+    if (!shouldShow && Number(job.tireCost || 0) > 0) {
+      set('tireCost', 0);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job.service]);
+
+  // Live quote — drives the price tiles, breakdown, and the auto-filled
+  // Revenue value below.
   const quote = useMemo(
     () => calcQuote({
       service: job.service, vehicleType: job.vehicleType,
@@ -52,9 +88,10 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
   );
 
   const [pricingMode, setPricingMode] = useState<'suggested' | 'premium'>('suggested');
-  // Track whether the user has manually edited revenue. Once they do, stop
-  // auto-filling so we don't blow away their override every time they tweak
-  // a chip below.
+
+  // Revenue lock — once the user types a custom revenue, stop auto-filling
+  // until they tap a price tile to re-engage. This is the right call when
+  // people are negotiating on-site and want to lock a price.
   const revenueLockedRef = useRef<boolean>(Boolean(isEditing && job.revenue));
 
   const onRevenueChange = (value: string) => {
@@ -62,8 +99,7 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
     set('revenue', value);
   };
 
-  // Auto-fill revenue from the live quote when the user hasn't overridden it.
-  // Runs on every quote change, but is a no-op once the user types a value.
+  // Auto-fill revenue from the live quote when the user hasn't overridden.
   useEffect(() => {
     if (isEditing) return;
     if (revenueLockedRef.current) return;
@@ -76,7 +112,7 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
 
   const acceptPrice = (mode: 'suggested' | 'premium') => {
     setPricingMode(mode);
-    revenueLockedRef.current = false; // re-engage auto-fill at the new price
+    revenueLockedRef.current = false;
     const target = mode === 'premium' ? quote.premium : quote.suggested;
     set('revenue', target);
   };
@@ -99,7 +135,6 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
   }, [job.tirePurchasePrice, tireSource]);
 
   // Default state to brand state on new jobs
-  const { brand } = useBrand();
   useEffect(() => {
     if (!isEditing && !job.state && brand.state) {
       setJob({
@@ -114,6 +149,15 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
   }, [brand.state]);
 
   const breakdown = useMemo(() => computeBreakdown(job, settings), [job, settings]);
+
+  // Travel cost computed locally for the breakdown row (calcQuote folds it
+  // into directCosts internally, so we recompute it here for display).
+  const travelCostDisplay = useMemo(() => {
+    const miles = Number(job.miles) || 0;
+    const freeMiles = Number(settings.freeMilesIncluded || 0);
+    const chargeable = Math.max(0, miles - freeMiles);
+    return r2(chargeable * Number(settings.costPerMile || 0.65));
+  }, [job.miles, settings.freeMilesIncluded, settings.costPerMile]);
 
   // Inventory plan preview (so user sees deductions before save)
   const inventoryPlan = useMemo(() => {
@@ -143,20 +187,122 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
     }
   };
 
+  const surchargeChips = [
+    { key: 'emergency', label: '🚨 Emergency' },
+    { key: 'lateNight', label: '🌙 Late Night' },
+    { key: 'highway', label: '🛣 Highway' },
+    { key: 'weekend', label: '📅 Weekend' },
+  ] as const;
+
+  const activePrice = pricingMode === 'premium' ? quote.premium : quote.suggested;
+  const revenueOverridden =
+    revenueLockedRef.current && Number(job.revenue || 0) !== activePrice;
+
   return (
     <div className="page page-enter">
       {prefilledFromQuote && !isEditing && (
         <div className="info-banner card-anim">
-          Pre-filled from Quick Quote · Adjust details below
+          Pre-filled from Quick Quote · Adjust below
         </div>
       )}
 
-      {/* ── Pricing summary — always first so the operator can see the
-            suggested/premium price and target profit before filling out
-            any details. Updates live as Service / Vehicle / Miles / Tire
-            cost change below. ───────────────────────────────────────── */}
+      {/* ════════════════════════════════════════════════════════
+           PRICING CARD — top of the page, contains everything
+           that affects price. Operators can quote a job from
+           this card alone without scrolling.
+          ════════════════════════════════════════════════════════ */}
       <div className="form-group card-anim pricing-summary">
         <div className="form-group-title">Pricing</div>
+
+        {/* Service + Vehicle */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+          <div className="field" style={{ marginBottom: 0 }}>
+            <label>Service</label>
+            <select value={job.service} onChange={(e) => set('service', e.target.value)}>
+              {enabledServices.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          <div className="field" style={{ marginBottom: 0 }}>
+            <label>Vehicle</label>
+            <select value={job.vehicleType} onChange={(e) => set('vehicleType', e.target.value)}>
+              {vehicles.map((v) => <option key={v} value={v}>{v}</option>)}
+            </select>
+          </div>
+        </div>
+
+        {/* Numeric inputs row — width adapts to whether tire cost is showing.
+            Material is always shown (patches, valve stems, sensors apply to
+            every service type). Qty is always shown. Miles always relevant. */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: showTireCost ? '1fr 1fr 1fr 1fr' : '1fr 1fr 1fr',
+            gap: 10,
+            marginBottom: 10,
+          }}
+        >
+          <div className="field" style={{ marginBottom: 0 }}>
+            <label>Miles</label>
+            <input
+              type="number" inputMode="decimal"
+              value={job.miles ?? ''} onChange={(e) => set('miles', e.target.value)}
+              placeholder="0"
+            />
+          </div>
+          {showTireCost && (
+            <div className="field" style={{ marginBottom: 0 }}>
+              <label>Tire $</label>
+              <input
+                type="number" inputMode="decimal"
+                value={job.tireCost ?? ''} onChange={(e) => set('tireCost', e.target.value)}
+                placeholder="0"
+              />
+            </div>
+          )}
+          <div className="field" style={{ marginBottom: 0 }}>
+            <label>Material $</label>
+            <input
+              type="number" inputMode="decimal"
+              value={job.materialCost ?? ''} onChange={(e) => set('materialCost', e.target.value)}
+              placeholder="0"
+            />
+          </div>
+          <div className="field" style={{ marginBottom: 0 }}>
+            <label>Qty</label>
+            <input
+              type="number" inputMode="numeric"
+              value={job.qty ?? ''} onChange={(e) => set('qty', e.target.value)}
+              placeholder="1"
+            />
+          </div>
+        </div>
+
+        {/* Inline opt-in for tire cost on services where it's normally hidden */}
+        {!showTireCost && (
+          <button
+            type="button"
+            className="qq-tire-toggle"
+            onClick={() => setShowTireCost(true)}
+          >
+            + Add tire cost
+          </button>
+        )}
+
+        {/* Surcharge chips */}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+          {surchargeChips.map(({ key, label }) => (
+            <button
+              key={key}
+              type="button"
+              className={'chip sm' + (job[key] ? ' active' : '')}
+              onClick={() => set(key, !job[key])}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Suggested / Premium tiles */}
         <div className="qq-pricing-row">
           <div
             className={'qq-price-tile' + (pricingMode === 'suggested' ? ' active' : '')}
@@ -180,23 +326,32 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
           </div>
         </div>
 
-        <div className="pricing-mini-breakdown">
-          <div className="pricing-mini-row">
-            <span>Direct cost</span>
-            <span className="num">{money(quote.directCosts)}</span>
+        {/* Clean stacked breakdown — one row per component */}
+        <div className="qq-breakdown">
+          {showTireCost && (
+            <div className="qq-breakdown-row">
+              <span>Tire cost{Number(job.qty || 0) > 1 ? ` (× ${job.qty})` : ''}</span>
+              <span className="num">{money(Number(job.tireCost || 0) * Number(job.qty || 1))}</span>
+            </div>
+          )}
+          <div className="qq-breakdown-row">
+            <span>Material cost</span>
+            <span className="num">{money(Number(job.materialCost || 0))}</span>
           </div>
-          <div className="pricing-mini-row">
+          <div className="qq-breakdown-row">
             <span>
-              Travel ({Number(job.miles || 0)} mi
-              {Number(settings.freeMilesIncluded || 0)
-                ? `, ${settings.freeMilesIncluded} free`
-                : ''})
+              Travel ({Number(job.miles) || 0} mi
+              {Number(settings.freeMilesIncluded || 0) ? `, ${settings.freeMilesIncluded} free` : ''})
             </span>
-            <span className="num">{money(quote.directCosts - Number(job.tireCost || 0) - Number(job.materialCost || job.miscCost || 0))}</span>
+            <span className="num">{money(travelCostDisplay)}</span>
           </div>
-          <div className="pricing-mini-row total">
+          <div className="qq-breakdown-row">
             <span>Target profit</span>
             <span className="num green">{money(quote.targetProfit)}</span>
+          </div>
+          <div className="qq-breakdown-row total">
+            <span>Suggested price</span>
+            <span className="num">{money(activePrice)}</span>
           </div>
         </div>
 
@@ -205,41 +360,19 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
           className="cta-btn press-scale qq-cta"
           onClick={() => acceptPrice(pricingMode)}
         >
-          Start Job at {money(pricingMode === 'premium' ? quote.premium : quote.suggested)} →
+          Start Job at {money(activePrice)} →
         </button>
 
-        {revenueLockedRef.current && Number(job.revenue || 0) !== (pricingMode === 'premium' ? quote.premium : quote.suggested) && (
+        {revenueOverridden && (
           <div className="pricing-override-note">
             Revenue manually set to {money(job.revenue)} · tap a price tile to reset
           </div>
         )}
       </div>
 
-      <div className="form-group card-anim">
-        <div className="form-group-title">Service</div>
-        <div className="chip-grid">
-          {enabledServices.map((s) => (
-            <button
-              key={s} className={'chip' + (job.service === s ? ' active' : '')}
-              onClick={() => set('service', s)}
-              type="button"
-            >
-              <span style={{ marginRight: 6 }}>{serviceIcon(s)}</span>{s}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="form-group card-anim">
-        <div className="form-group-title">Vehicle</div>
-        <div className="chip-grid">
-          {vehicles.map((v) => (
-            <button key={v} className={'chip' + (job.vehicleType === v ? ' active' : '')}
-              onClick={() => set('vehicleType', v)} type="button">{v}</button>
-          ))}
-        </div>
-      </div>
-
+      {/* ════════════════════════════════════════════════════════
+           CUSTOMER — data only, doesn't affect price
+          ════════════════════════════════════════════════════════ */}
       <div className="form-group card-anim">
         <div className="form-group-title">Customer</div>
         <div className="field-row">
@@ -261,18 +394,16 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
         />
       </div>
 
+      {/* ════════════════════════════════════════════════════════
+           TIRE DETAILS — size + source (data only, tire $ is in
+           the Pricing card above)
+          ════════════════════════════════════════════════════════ */}
       {needsTireDetails && (
         <div className="form-group card-anim">
           <div className="form-group-title">Tire Details</div>
-          <div className="field-row">
-            <div className="field">
-              <label>Size</label>
-              <input value={job.tireSize} onChange={(e) => set('tireSize', e.target.value)} placeholder="225/65R17" />
-            </div>
-            <div className="field">
-              <label>Qty</label>
-              <input type="number" inputMode="numeric" value={job.qty} onChange={(e) => set('qty', e.target.value)} />
-            </div>
+          <div className="field">
+            <label>Size</label>
+            <input value={job.tireSize} onChange={(e) => set('tireSize', e.target.value)} placeholder="225/65R17" />
           </div>
           <div className="field">
             <label>Tire source</label>
@@ -347,35 +478,11 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
         </div>
       )}
 
+      {/* ════════════════════════════════════════════════════════
+           LEAD & PAYMENT — administrative, no pricing impact
+          ════════════════════════════════════════════════════════ */}
       <div className="form-group card-anim">
-        <div className="form-group-title">Job & Travel</div>
-        <div className="field-row">
-          <div className="field">
-            <label>Miles to job</label>
-            <input type="number" inputMode="decimal" value={job.miles} onChange={(e) => set('miles', e.target.value)} placeholder="0" />
-          </div>
-          <div className="field">
-            <label>Material $</label>
-            <input type="number" inputMode="decimal" value={job.materialCost} onChange={(e) => set('materialCost', e.target.value)} placeholder="0" />
-          </div>
-        </div>
-        <div className="field" style={{ marginTop: 6 }}>
-          <label>Surcharges</label>
-          <div className="chip-grid">
-            {([
-              ['emergency', '🚨 Emergency'],
-              ['lateNight', '🌙 Late Night'],
-              ['highway', '🛣 Highway'],
-              ['weekend', '📅 Weekend'],
-            ] as const).map(([k, l]) => (
-              <button key={k} type="button" className={'chip' + (job[k] ? ' active' : '')} onClick={() => set(k, !job[k])}>{l}</button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="form-group card-anim">
-        <div className="form-group-title">Lead & Payment</div>
+        <div className="form-group-title">Lead &amp; Payment</div>
         <div className="field">
           <label>Lead source</label>
           <div className="chip-grid">
@@ -410,13 +517,16 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
         </div>
       </div>
 
+      {/* ════════════════════════════════════════════════════════
+           CONFIRM REVENUE & PROFIT — final commit, shows actual
+           profit based on whatever revenue the user committed to.
+          ════════════════════════════════════════════════════════ */}
       <div className="form-group card-anim">
         <div className="form-group-title">Confirm Revenue &amp; Profit</div>
         <div className="field">
           <label>Revenue charged ($)</label>
           <input
-            type="number"
-            inputMode="decimal"
+            type="number" inputMode="decimal"
             value={job.revenue}
             onChange={(e) => onRevenueChange(e.target.value)}
             placeholder="0"
@@ -429,7 +539,10 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
 
         <div className="pricing-breakdown">
           <div className="pricing-breakdown-row"><span>Revenue</span><span className="num green">{money(breakdown.revenue)}</span></div>
-          <div className="pricing-breakdown-row"><span>Tire cost</span><span className="num red">-{money(breakdown.tireCost)}</span></div>
+          <div className="pricing-breakdown-row">
+            <span>Tire cost{breakdown.quantity > 1 ? ` · ${breakdown.quantity} tires` : ''}</span>
+            <span className="num red">-{money(breakdown.tireCost)}</span>
+          </div>
           <div className="pricing-breakdown-row"><span>Material cost</span><span className="num red">-{money(breakdown.materialCost)}</span></div>
           <div className="pricing-breakdown-row">
             <span>Travel ({breakdown.travelMiles} mi{breakdown.freeMilesIncluded ? `, ${breakdown.freeMilesIncluded} free` : ''})</span>
