@@ -2,26 +2,63 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
 
-    function userBusinessId() {
-      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.businessId;
+    function isSignedIn() {
+      return request.auth != null;
     }
 
-    function isMemberOfBusiness(businessId) {
-      return request.auth != null && userBusinessId() == businessId;
+    // Owner-by-convention: businessId == auth.uid. Used during bootstrap so
+    // logo uploads work BEFORE users/{uid}.businessId is written. This is
+    // the same model the Firestore rules use — keep them aligned.
+    function isOwnerByConvention(businessId) {
+      return isSignedIn() && request.auth.uid == businessId;
     }
 
-    // Branding assets: logo etc.
+    // Teammate access: their user doc points at this business.
+    function hasUserBusinessLink(businessId) {
+      return isSignedIn()
+        && firestore.exists(/databases/(default)/documents/users/$(request.auth.uid))
+        && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.businessId == businessId;
+    }
+
+    // Member doc check — used to grant access to teammates the owner added.
+    function hasMemberDoc(businessId) {
+      return isSignedIn()
+        && firestore.exists(/databases/(default)/documents/businesses/$(businessId)/members/$(request.auth.uid));
+    }
+
+    function canAccessBusiness(businessId) {
+      return isOwnerByConvention(businessId)
+        || hasUserBusinessLink(businessId)
+        || hasMemberDoc(businessId);
+    }
+
+    // Image content-type gate. Reused by all image-writing paths below.
+    function isAllowedImage() {
+      return request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/(png|jpeg|jpg|webp)');
+    }
+
+    // ── Branding (logo) ──────────────────────────────────
+    // Logos are read by anyone (so they can render on shareable invoices)
+    // but only the owner/members can write.
     match /businesses/{businessId}/branding/{file=**} {
       allow read: if true;
-      allow write: if isMemberOfBusiness(businessId)
-                   && request.resource.size < 5 * 1024 * 1024
-                   && request.resource.contentType.matches('image/.*');
+      allow write: if canAccessBusiness(businessId) && isAllowedImage();
     }
 
+    // ── Receipts (expense/job receipts) ──────────────────
+    // Private — only the business itself can read its own receipts.
+    match /businesses/{businessId}/receipts/{file=**} {
+      allow read, write: if canAccessBusiness(businessId)
+                            && (request.resource == null || request.resource.size < 8 * 1024 * 1024);
+    }
+
+    // Any other business-scoped path — same access model, same size cap.
     match /businesses/{businessId}/{path=**} {
-      allow read, write: if isMemberOfBusiness(businessId);
+      allow read, write: if canAccessBusiness(businessId);
     }
 
+    // Default deny everything else.
     match /{allPaths=**} {
       allow read, write: if false;
     }

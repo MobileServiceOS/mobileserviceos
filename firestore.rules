@@ -1,0 +1,79 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwnUser(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Owner-by-convention: businessId == auth.uid. Makes the bootstrap flow
+    // work without a chicken-and-egg lookup — the owner can create their
+    // own business doc and members doc and settings doc BEFORE users/{uid}
+    // .businessId has been read by any rule.
+    function isOwnerByConvention(businessId) {
+      return isSignedIn() && request.auth.uid == businessId;
+    }
+
+    // Teammate access via users/{uid}.businessId link
+    function hasUserBusinessLink(businessId) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.businessId == businessId;
+    }
+
+    // Teammate access via explicit members doc
+    function hasMemberDoc(businessId) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/businesses/$(businessId)/members/$(request.auth.uid));
+    }
+
+    function canAccessBusiness(businessId) {
+      return isOwnerByConvention(businessId)
+        || hasUserBusinessLink(businessId)
+        || hasMemberDoc(businessId);
+    }
+
+    // ── users/{uid} ─────────────────────────────────────
+    match /users/{userId} {
+      allow read, write: if isOwnUser(userId);
+    }
+
+    // ── businesses/{businessId} ────────────────────────
+    match /businesses/{businessId} {
+      allow read:   if canAccessBusiness(businessId);
+      allow create: if isOwnerByConvention(businessId);
+      allow update: if canAccessBusiness(businessId);
+      allow delete: if false;
+
+      match /members/{memberUid} {
+        allow read:   if isOwnUser(memberUid) || isOwnerByConvention(businessId);
+        allow create: if isOwnerByConvention(businessId);
+        allow update: if isOwnerByConvention(businessId);
+        allow delete: if isOwnerByConvention(businessId);
+      }
+
+      match /settings/{settingId} {
+        allow read, write: if canAccessBusiness(businessId);
+      }
+
+      // All other business-scoped collections (jobs, inventory, expenses,
+      // invoices, operational_settings, customers, etc.)
+      match /{collection}/{docId} {
+        allow read, write: if canAccessBusiness(businessId);
+      }
+
+      match /{collection}/{docId}/{rest=**} {
+        allow read, write: if canAccessBusiness(businessId);
+      }
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
