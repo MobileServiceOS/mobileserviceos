@@ -120,51 +120,137 @@ export interface Settings {
   costPerMile: number;
   defaultTargetProfit: number;
   invoiceTaxRate: number;
-  /**
-   * Customer-facing invoice line-item layout.
-   *   • 'transparent' (default) — break replacement jobs into Tire / Mobile
-   *     Service & Dispatch / Mounting & Balancing. Travel cost is absorbed
-   *     into the dispatch line rather than shown as a separate fee.
-   *   • 'single'     — print the service as one combined line item.
-   *
-   * Internal pricing math (suggested price, profit, dashboard, payouts) is
-   * unaffected by this setting. It only controls how line items render on
-   * the customer's PDF.
-   */
-  invoicePricingStyle?: 'transparent' | 'single';
   servicePricing: Record<string, ServicePricing>;
   vehiclePricing: Record<string, VehiclePricing>;
   expenses: Expense[];
   freeMilesIncluded?: number;
   tireRepairTargetProfit?: number;
   tireReplacementTargetProfit?: number;
-  multiTirePricing?: MultiTirePricing;
+
+  /**
+   * Plan tier. `core` = solo operator, `pro` = team-enabled.
+   * Drives feature gating and team-size limits. Future Stripe integration
+   * will set this from a webhook; for now it's manually set or defaults to
+   * `core` for new tenants.
+   */
+  plan?: Plan;
+
+  /**
+   * Subscription lifecycle status. Placeholder for future Stripe integration.
+   * `trialing` = on free trial, `active` = paying, `inactive` = canceled or
+   * never subscribed. Does NOT lock any features today — purely informational
+   * until paywall is wired.
+   */
+  subscriptionStatus?: SubscriptionStatus;
+
+  /**
+   * ISO date when the trial ends. Placeholder for future use.
+   */
+  trialEndsAt?: string;
+
+  /**
+   * Maximum team members allowed under the current plan.
+   *   • Core: 1 (owner only)
+   *   • Pro:  5 by default
+   * Owner can be added without consuming a seat.
+   */
+  maxUsers?: number;
+
+  /**
+   * Toggle that lets technicians override the suggested revenue on a job
+   * they're working. Off by default — protects margins. Owner can flip it
+   * on per business in Settings.
+   */
+  allowTechnicianPriceOverride?: boolean;
+
+  /**
+   * Feature flag bag. Placeholders only — actual gating is enforced by the
+   * permissions helper. Stored here so it can be toggled per-tenant later.
+   */
+  featureFlags?: FeatureFlags;
 }
 
 /**
- * Pricing controls for multi-tire jobs.
- *
- * `replacementMultipliers` scales the target profit when REPLACING 2-4 tires
- * in one job. Sub-linear by default because labor is more efficient per-tire
- * when you're already on-site.
- *
- * `installationByQuantity` is a flat labor price for installing customer-
- * supplied tires (mount/balance/install). Tire cost is $0 in this scenario.
- *
- * Quantities >4 fall back to the 4-tire value.
+ * Plan tier for a business. The plan controls coarse-grained feature
+ * availability (team management, multiple users) but does NOT replace the
+ * fine-grained per-role permissions in `permissions.ts`.
  */
-export interface MultiTirePricing {
-  replacementMultipliers: {
-    two: number;
-    three: number;
-    four: number;
-  };
-  installationByQuantity: {
-    one: number;
-    two: number;
-    three: number;
-    four: number;
-  };
+export type Plan = 'core' | 'pro';
+
+export type SubscriptionStatus = 'trialing' | 'active' | 'inactive';
+
+/**
+ * Role of a member within a business.
+ *   • `owner`      — full access, cannot be removed if last owner
+ *   • `admin`      — full operational access, cannot remove owner
+ *   • `technician` — field worker; limited to job logging + quoting,
+ *                    no financials, no settings
+ */
+export type Role = 'owner' | 'admin' | 'technician';
+
+export type MemberStatus = 'active' | 'invited' | 'disabled';
+
+/**
+ * Document stored at `businesses/{businessId}/members/{uid}`.
+ *
+ * For invited users who haven't signed up yet, `uid` is the pending invite
+ * key (typically a generated id), `email` is the inviter-supplied address,
+ * and `status` is 'invited'. When the user signs up with that email, the
+ * accept flow swaps the placeholder uid for the real auth uid.
+ *
+ * `permissions` is OPTIONAL — when present, it overrides the role default.
+ * Most members use role defaults; the override is for fine-tuning per-user.
+ */
+export interface MemberDoc {
+  uid: string;
+  email: string;
+  displayName?: string;
+  role: Role;
+  status: MemberStatus;
+  invitedBy?: string;   // uid of the inviter
+  invitedAt?: string;   // ISO
+  joinedAt?: string;    // ISO — set when invite is accepted
+  permissions?: Partial<Permissions>;
+  assignedBusinessId: string;
+}
+
+/**
+ * Per-user/per-business permission set. Use through `getPermissions()` in
+ * `lib/permissions.ts` rather than constructing directly — the helper
+ * applies role defaults, business plan, and feature flags.
+ *
+ * All permissions default to FALSE so a missing/invalid role can never
+ * accidentally grant access.
+ */
+export interface Permissions {
+  canViewFinancials: boolean;
+  canViewRevenue: boolean;
+  canViewProfit: boolean;
+  canManageExpenses: boolean;
+  canManageInventory: boolean;
+  canEditPricingSettings: boolean;
+  canViewPricingSettings: boolean;
+  canUsePricingEngine: boolean;
+  canOverrideJobPrice: boolean;
+  canManageTeam: boolean;
+  canEditBusinessSettings: boolean;
+  canUploadLogo: boolean;
+  canGenerateInvoices: boolean;
+  canSendReviews: boolean;
+  canCreateJobs: boolean;
+  canEditJobs: boolean;
+  canDeleteJobs: boolean;
+  canViewAdvancedReports: boolean;
+  canManageBilling: boolean;
+}
+
+/**
+ * Feature flags — tenant-level toggles. Empty bag for now; populated as we
+ * add experimental features.
+ */
+export interface FeatureFlags {
+  advancedReports?: boolean;
+  prioritySupport?: boolean;
 }
 
 export interface QuoteForm {

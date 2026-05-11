@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Settings as SettingsT, ServicePricing, VehiclePricing, Brand, MultiTirePricing } from '@/types';
+import type { Settings as SettingsT, ServicePricing, VehiclePricing, Brand } from '@/types';
 import { useBrand } from '@/context/BrandContext';
 import { CityStateSelect } from '@/components/CityStateSelect';
 import { addToast } from '@/lib/toast';
-import { uploadLogo, deleteLogo, _auth } from '@/lib/firebase';
+import { uploadLogo, _auth } from '@/lib/firebase';
 import { signOut, updatePassword } from 'firebase/auth';
-import { DEFAULT_MULTI_TIRE } from '@/lib/defaults';
+import { APP_LOGO } from '@/lib/defaults';
 import { money } from '@/lib/utils';
 
 interface Props {
@@ -19,9 +19,9 @@ export function Settings({ settings, onSave }: Props) {
       <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 14 }}>Settings</div>
       <BrandSection />
       <BusinessSection settings={settings} onSave={onSave} />
-      <InvoiceStyleSection settings={settings} onSave={onSave} />
+      <PlanSection settings={settings} />
+      <TeamPlaceholderSection settings={settings} />
       <PricingSection settings={settings} onSave={onSave} />
-      <MultiTirePricingSection settings={settings} onSave={onSave} />
       <AccountSection />
     </div>
   );
@@ -31,7 +31,6 @@ function BrandSection() {
   const { brand, businessId, updateBrand } = useBrand();
   const [draft, setDraft] = useState<Brand>(brand);
   const [logoUploading, setLogoUploading] = useState(false);
-  const [logoRemoving, setLogoRemoving] = useState(false);
   const [busy, setBusy] = useState(false);
   const logoInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -54,23 +53,6 @@ function BrandSection() {
     } finally { setLogoUploading(false); }
   };
 
-  const handleRemoveLogo = async () => {
-    if (!businessId) { addToast('Sign in required', 'warn'); return; }
-    if (!draft.logoUrl) return;
-    if (!window.confirm('Remove your business logo? Invoices will fall back to your business name only.')) return;
-    setLogoRemoving(true);
-    try {
-      // Clear the URL in brand settings first so the UI updates immediately,
-      // then delete the storage objects in the background.
-      await updateBrand({ logoUrl: '' });
-      set('logoUrl', '');
-      await deleteLogo(businessId);
-      addToast('Logo removed', 'success');
-    } catch (e) {
-      addToast((e as Error).message || 'Remove failed', 'error');
-    } finally { setLogoRemoving(false); }
-  };
-
   const save = async () => {
     setBusy(true);
     try {
@@ -81,94 +63,20 @@ function BrandSection() {
     } finally { setBusy(false); }
   };
 
-  const hasLogo = Boolean(draft.logoUrl);
-
   return (
     <div className="form-group card-anim">
       <div className="form-group-title">Brand</div>
-
-      {/* ── Logo block ── premium preview on dark background so the owner sees
-           the logo the way it will look on invoices/PDFs (which use dark hero). */}
       <div className="field">
-        <label>Business logo</label>
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 14,
-          padding: 14,
-          background: 'linear-gradient(160deg, #0a0b10 0%, #141620 100%)',
-          border: '1px solid var(--border)',
-          borderRadius: 12,
-        }}>
-          {/* Preview tile — matches the proportions used on the invoice */}
-          <div style={{
-            width: 72,
-            height: 72,
-            borderRadius: 10,
-            background: hasLogo ? '#fff' : 'rgba(255,255,255,.04)',
-            border: '1px solid rgba(255,255,255,.08)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0,
-            overflow: 'hidden',
-          }}>
-            {hasLogo ? (
-              <img
-                src={draft.logoUrl}
-                alt="Business logo preview"
-                style={{ maxWidth: '88%', maxHeight: '88%', objectFit: 'contain' }}
-                onError={(e) => {
-                  // If the URL is broken, hide the image and let the fallback show
-                  (e.currentTarget as HTMLImageElement).style.display = 'none';
-                }}
-              />
-            ) : (
-              <span style={{ fontSize: 9, fontWeight: 800, color: 'rgba(255,255,255,.5)', textTransform: 'uppercase', letterSpacing: '1px' }}>
-                No logo
-              </span>
-            )}
-          </div>
-
-          {/* Action buttons */}
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <input
-                ref={logoInputRef}
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                style={{ display: 'none' }}
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) handleLogo(f);
-                  if (logoInputRef.current) logoInputRef.current.value = '';
-                }}
-              />
-              <button
-                className="btn sm secondary"
-                onClick={() => logoInputRef.current?.click()}
-                disabled={logoUploading || logoRemoving}
-              >
-                {logoUploading ? 'Uploading…' : hasLogo ? 'Change logo' : 'Upload logo'}
-              </button>
-              {hasLogo && (
-                <button
-                  className="btn sm secondary"
-                  onClick={handleRemoveLogo}
-                  disabled={logoUploading || logoRemoving}
-                  style={{ color: 'var(--red)' }}
-                >
-                  {logoRemoving ? 'Removing…' : 'Remove'}
-                </button>
-              )}
-            </div>
-            <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 8, lineHeight: 1.4 }}>
-              PNG, JPG, or WEBP · max 5MB · square or wide logos work best
-            </div>
-          </div>
+        <label>Logo</label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <img src={draft.logoUrl || APP_LOGO} alt="" style={{ width: 56, height: 56, borderRadius: 12, objectFit: 'contain', background: 'var(--s3)' }} />
+          <input ref={logoInputRef} type="file" accept="image/*" style={{ display: 'none' }}
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) handleLogo(f); if (logoInputRef.current) logoInputRef.current.value = ''; }} />
+          <button className="btn sm secondary" onClick={() => logoInputRef.current?.click()} disabled={logoUploading}>
+            {logoUploading ? 'Uploading…' : 'Upload logo'}
+          </button>
         </div>
       </div>
-
       <div className="field">
         <label>Business name</label>
         <input value={draft.businessName} onChange={(e) => set('businessName', e.target.value)} />
@@ -295,7 +203,32 @@ function BusinessSection({ settings, onSave }: Props) {
       <label style={{ fontSize: 12, display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
         <input type="checkbox" checked={draft.owner2Active} onChange={(e) => set('owner2Active', e.target.checked)} /> Active
       </label>
-      {dirty && <button className="btn primary" onClick={save}>Save Business</button>}
+
+      {/* ── Technician permissions (only visible / meaningful on Pro, but
+            we show it on Core too so the owner can pre-configure before
+            inviting their first technician). ──────────────────── */}
+      <div style={{
+        marginTop: 4, padding: 10, background: 'var(--s2)',
+        border: '1px solid var(--border)', borderRadius: 8,
+      }}>
+        <label style={{ fontSize: 12, display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={Boolean(draft.allowTechnicianPriceOverride)}
+            onChange={(e) => set('allowTechnicianPriceOverride', e.target.checked)}
+            style={{ marginTop: 2 }}
+          />
+          <div>
+            <div style={{ fontWeight: 700, color: 'var(--t1)' }}>Allow technicians to override job price</div>
+            <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 3, lineHeight: 1.5 }}>
+              When off, technicians can only use the system-suggested price. When on, they can
+              manually adjust revenue on the jobs they log. Pricing settings stay owner-only either way.
+            </div>
+          </div>
+        </label>
+      </div>
+
+      {dirty && <button className="btn primary" onClick={save} style={{ marginTop: 12 }}>Save Business</button>}
     </div>
   );
 }
@@ -362,245 +295,108 @@ function PricingSection({ settings, onSave }: Props) {
 }
 
 /**
- * Invoice line-item display style picker.
+ * Read-only plan display. Shows current tier + status + a stub upgrade button
+ * that's intentionally disabled — Stripe wiring lands in a future batch.
  *
- *   • Transparent Line Items (default) — splits replacement/installation jobs
- *     into Tire / Mobile Service & Dispatch / Mounting & Balancing. Travel
- *     cost is absorbed into Mobile Service & Dispatch, never shown as a
- *     separate fee.
- *   • Single-Line Service — prints the service as one combined line item.
- *
- * Internal pricing math is unaffected by this setting. It only controls how
- * line items render on the customer's PDF.
+ * Owners can manually flip `plan` to 'pro' in Firestore for testing the
+ * team-management UI; the proper upgrade flow comes later.
  */
-function InvoiceStyleSection({ settings, onSave }: Props) {
-  const current: 'transparent' | 'single' =
-    settings.invoicePricingStyle === 'single' ? 'single' : 'transparent';
-  const [draft, setDraft] = useState<'transparent' | 'single'>(current);
-  const [dirty, setDirty] = useState(false);
-
-  useEffect(() => {
-    const v = settings.invoicePricingStyle === 'single' ? 'single' : 'transparent';
-    setDraft(v);
-    setDirty(false);
-  }, [settings.invoicePricingStyle]);
-
-  const select = (v: 'transparent' | 'single') => {
-    setDraft(v);
-    setDirty(v !== current);
-  };
-
-  const save = async () => {
-    try {
-      await onSave({ invoicePricingStyle: draft });
-      setDirty(false);
-      addToast('Invoice style saved', 'success');
-    } catch { /* toast handled in caller */ }
-  };
+function PlanSection({ settings }: { settings: SettingsT }) {
+  const plan: 'core' | 'pro' = settings.plan === 'pro' ? 'pro' : 'core';
+  const isPro = plan === 'pro';
 
   return (
     <div className="form-group card-anim">
-      <div className="form-group-title">Invoice Display Style</div>
-      <div style={{ fontSize: 11, color: 'var(--t3)', marginBottom: 12, lineHeight: 1.5 }}>
-        Choose how line items appear on customer invoices. This only affects the PDF —
-        your internal pricing, profit, and dashboard math are unchanged.
+      <div className="form-group-title">Plan</div>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        gap: 12, padding: 12, background: 'var(--s2)',
+        border: '1px solid var(--border)', borderRadius: 10,
+      }}>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--t1)' }}>
+              {isPro ? 'Pro Plan' : 'Core Plan'}
+            </span>
+            <span style={{
+              fontSize: 9, fontWeight: 800, color: isPro ? 'var(--brand-primary)' : 'var(--t3)',
+              textTransform: 'uppercase', letterSpacing: '1px',
+              padding: '2px 7px', borderRadius: 99,
+              background: isPro ? 'rgba(200,164,74,.1)' : 'var(--s3)',
+              border: `1px solid ${isPro ? 'rgba(200,164,74,.3)' : 'var(--border)'}`,
+            }}>
+              {isPro ? 'Active' : 'Solo'}
+            </span>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 4, lineHeight: 1.5 }}>
+            {isPro
+              ? 'Multi-user team access · advanced reporting · priority support'
+              : 'Solo operator · 1 user · all core features included'}
+          </div>
+        </div>
+        {!isPro && (
+          <button
+            className="btn sm secondary"
+            disabled
+            title="Stripe checkout coming soon"
+            style={{ flexShrink: 0, opacity: 0.6 }}
+          >
+            Upgrade
+          </button>
+        )}
       </div>
-
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={() => select('transparent')}
-        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && select('transparent')}
-        style={{
-          border: '1px solid ' + (draft === 'transparent' ? 'var(--brand-primary)' : 'var(--border)'),
-          background: draft === 'transparent' ? 'rgba(200,164,74,.06)' : 'var(--s1)',
-          borderRadius: 10, padding: 12, marginBottom: 10, cursor: 'pointer',
-          transition: 'border-color .15s ease, background .15s ease',
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--t1)' }}>Transparent Line Items</span>
-          {draft === 'transparent' && <span style={{ fontSize: 10, fontWeight: 800, color: 'var(--brand-primary)', textTransform: 'uppercase', letterSpacing: '1px' }}>Active</span>}
-        </div>
-        <div style={{ fontSize: 11, color: 'var(--t3)', marginBottom: 8 }}>
-          Professional 3-line breakdown for replacement jobs.
-        </div>
-        <div style={{ background: 'var(--s2)', borderRadius: 6, padding: '8px 10px', fontSize: 11, color: 'var(--t2)', fontFamily: 'ui-monospace,Menlo,monospace' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span>Tire</span><span style={{ color: 'var(--t1)' }}>$50</span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span>Mobile Service &amp; Dispatch</span><span style={{ color: 'var(--t1)' }}>$65</span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span>Mounting &amp; Balancing</span><span style={{ color: 'var(--t1)' }}>$55</span>
-          </div>
-          <div style={{ borderTop: '1px solid var(--border)', marginTop: 5, paddingTop: 5, display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: 'var(--t1)' }}>
-            <span>TOTAL</span><span>$170</span>
-          </div>
-        </div>
+      <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 8 }}>
+        Subscription billing is not yet wired. Future paywall will use Stripe.
       </div>
-
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={() => select('single')}
-        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && select('single')}
-        style={{
-          border: '1px solid ' + (draft === 'single' ? 'var(--brand-primary)' : 'var(--border)'),
-          background: draft === 'single' ? 'rgba(200,164,74,.06)' : 'var(--s1)',
-          borderRadius: 10, padding: 12, marginBottom: 10, cursor: 'pointer',
-          transition: 'border-color .15s ease, background .15s ease',
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--t1)' }}>Single-Line Service</span>
-          {draft === 'single' && <span style={{ fontSize: 10, fontWeight: 800, color: 'var(--brand-primary)', textTransform: 'uppercase', letterSpacing: '1px' }}>Active</span>}
-        </div>
-        <div style={{ fontSize: 11, color: 'var(--t3)', marginBottom: 8 }}>
-          One combined line per service.
-        </div>
-        <div style={{ background: 'var(--s2)', borderRadius: 6, padding: '8px 10px', fontSize: 11, color: 'var(--t2)', fontFamily: 'ui-monospace,Menlo,monospace' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span>Tire Replacement</span><span style={{ color: 'var(--t1)' }}>$170</span>
-          </div>
-          <div style={{ borderTop: '1px solid var(--border)', marginTop: 5, paddingTop: 5, display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: 'var(--t1)' }}>
-            <span>TOTAL</span><span>$170</span>
-          </div>
-        </div>
-      </div>
-
-      <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 4, lineHeight: 1.5 }}>
-        Flat tire repairs and other simple services always print as a single line regardless of this setting.
-      </div>
-
-      {dirty && (
-        <button className="btn primary" onClick={save} style={{ marginTop: 12, width: '100%' }}>
-          Save Invoice Style
-        </button>
-      )}
     </div>
   );
 }
 
 /**
- * Edit replacement multipliers and flat installation prices.
+ * Team Management placeholder. Renders as locked on Core, and as a "coming
+ * soon" stub on Pro — the actual invite/role/disable UI lands in batch 3.
+ *
+ * Why ship a placeholder now? Two reasons:
+ *   1. It anchors the new section's position in Settings so the navigation
+ *      muscle memory is set before the real UI lands.
+ *   2. Core users see the Pro feature in context, which is the right
+ *      conversion surface for the upgrade button above.
  */
-function MultiTirePricingSection({ settings, onSave }: Props) {
-  const current: MultiTirePricing = settings.multiTirePricing || DEFAULT_MULTI_TIRE;
-  const [draft, setDraft] = useState<MultiTirePricing>(current);
-  const [dirty, setDirty] = useState(false);
-
-  useEffect(() => {
-    setDraft(settings.multiTirePricing || DEFAULT_MULTI_TIRE);
-    setDirty(false);
-  }, [settings.multiTirePricing]);
-
-  const setMult = (key: 'two' | 'three' | 'four', v: number) => {
-    setDraft((d) => ({ ...d, replacementMultipliers: { ...d.replacementMultipliers, [key]: v } }));
-    setDirty(true);
-  };
-  const setInstall = (key: 'one' | 'two' | 'three' | 'four', v: number) => {
-    setDraft((d) => ({ ...d, installationByQuantity: { ...d.installationByQuantity, [key]: v } }));
-    setDirty(true);
-  };
-
-  const resetDefaults = () => {
-    setDraft(DEFAULT_MULTI_TIRE);
-    setDirty(true);
-  };
-
-  const save = async () => {
-    try {
-      await onSave({ multiTirePricing: draft });
-      setDirty(false);
-      addToast('Multi-tire pricing saved', 'success');
-    } catch { /* toast handled in caller */ }
-  };
-
-  const baseReplacementProfit = Number(
-    settings.servicePricing?.['Tire Replacement']?.minProfit
-      ?? settings.tireReplacementTargetProfit
-      ?? 110
-  );
+function TeamPlaceholderSection({ settings }: { settings: SettingsT }) {
+  const isPro = settings.plan === 'pro';
 
   return (
     <div className="form-group card-anim">
-      <div className="form-group-title">Multi-Tire Pricing</div>
-      <div style={{ fontSize: 11, color: 'var(--t3)', marginBottom: 12, lineHeight: 1.5 }}>
-        Pricing controls for jobs with more than 1 tire. Replacement multipliers scale your target
-        profit when replacing multiple tires. Installation prices are flat labor charges when the
-        customer supplies their own tires.
-      </div>
-
-      <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 8 }}>
-        Tire Replacement Multipliers
-      </div>
-      <div style={{ fontSize: 11, color: 'var(--t3)', marginBottom: 10 }}>
-        Base target profit: <strong style={{ color: 'var(--t1)' }}>{money(baseReplacementProfit)}</strong>
-      </div>
-      <div className="field-row">
-        <div className="field" style={{ marginBottom: 0 }}>
-          <label>2 tires ×</label>
-          <input type="number" inputMode="decimal" step="0.1" value={draft.replacementMultipliers.two}
-            onChange={(e) => setMult('two', Number(e.target.value))} />
-          <div style={{ fontSize: 10, color: 'var(--brand-primary)', fontWeight: 700, marginTop: 4 }}>
-            → {money(baseReplacementProfit * Number(draft.replacementMultipliers.two || 0))} profit
+      <div className="form-group-title">Team Management</div>
+      {isPro ? (
+        <div style={{
+          padding: 14, background: 'var(--s2)', border: '1px dashed var(--border2)',
+          borderRadius: 10, textAlign: 'center',
+        }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--t1)', marginBottom: 4 }}>
+            Team management coming soon
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--t3)', lineHeight: 1.5 }}>
+            Invite admins and technicians, manage roles, and control what your team can see.
           </div>
         </div>
-        <div className="field" style={{ marginBottom: 0 }}>
-          <label>3 tires ×</label>
-          <input type="number" inputMode="decimal" step="0.1" value={draft.replacementMultipliers.three}
-            onChange={(e) => setMult('three', Number(e.target.value))} />
-          <div style={{ fontSize: 10, color: 'var(--brand-primary)', fontWeight: 700, marginTop: 4 }}>
-            → {money(baseReplacementProfit * Number(draft.replacementMultipliers.three || 0))} profit
+      ) : (
+        <div style={{
+          padding: 16, background: 'linear-gradient(160deg, rgba(200,164,74,.04) 0%, var(--s1) 100%)',
+          border: '1px solid var(--border)', borderRadius: 10,
+          display: 'flex', alignItems: 'center', gap: 14,
+        }}>
+          <div style={{ fontSize: 24, flexShrink: 0 }}>🔒</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--t1)', marginBottom: 4 }}>
+              Team access is available on Pro
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--t3)', lineHeight: 1.5 }}>
+              Add admins and technicians, restrict pricing changes, and track who logged each job.
+            </div>
           </div>
         </div>
-        <div className="field" style={{ marginBottom: 0 }}>
-          <label>4 tires ×</label>
-          <input type="number" inputMode="decimal" step="0.1" value={draft.replacementMultipliers.four}
-            onChange={(e) => setMult('four', Number(e.target.value))} />
-          <div style={{ fontSize: 10, color: 'var(--brand-primary)', fontWeight: 700, marginTop: 4 }}>
-            → {money(baseReplacementProfit * Number(draft.replacementMultipliers.four || 0))} profit
-          </div>
-        </div>
-      </div>
-
-      <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '1px', margin: '18px 0 8px 0' }}>
-        Tire Installation Prices (customer supplies tires)
-      </div>
-      <div style={{ fontSize: 11, color: 'var(--t3)', marginBottom: 10 }}>
-        Flat labor charge by quantity. Travel and surcharges still apply on top.
-      </div>
-      <div className="field-row">
-        <div className="field" style={{ marginBottom: 0 }}>
-          <label>1 tire ($)</label>
-          <input type="number" inputMode="decimal" value={draft.installationByQuantity.one}
-            onChange={(e) => setInstall('one', Number(e.target.value))} />
-        </div>
-        <div className="field" style={{ marginBottom: 0 }}>
-          <label>2 tires ($)</label>
-          <input type="number" inputMode="decimal" value={draft.installationByQuantity.two}
-            onChange={(e) => setInstall('two', Number(e.target.value))} />
-        </div>
-      </div>
-      <div className="field-row" style={{ marginTop: 8 }}>
-        <div className="field" style={{ marginBottom: 0 }}>
-          <label>3 tires ($)</label>
-          <input type="number" inputMode="decimal" value={draft.installationByQuantity.three}
-            onChange={(e) => setInstall('three', Number(e.target.value))} />
-        </div>
-        <div className="field" style={{ marginBottom: 0 }}>
-          <label>4 tires ($)</label>
-          <input type="number" inputMode="decimal" value={draft.installationByQuantity.four}
-            onChange={(e) => setInstall('four', Number(e.target.value))} />
-        </div>
-      </div>
-
-      <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-        <button className="btn secondary" onClick={resetDefaults}>Reset defaults</button>
-        {dirty && <button className="btn primary" style={{ flex: 1 }} onClick={save}>Save Multi-Tire Pricing</button>}
-      </div>
+      )}
     </div>
   );
 }

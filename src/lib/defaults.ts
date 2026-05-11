@@ -1,4 +1,4 @@
-import type { Brand, Settings, Job, ServicePricing, VehiclePricing, PaymentStatus, MultiTirePricing } from '@/types';
+import type { Brand, Settings, Job, ServicePricing, VehiclePricing, PaymentStatus } from '@/types';
 
 export const APP_LOGO = 'icons/icon-rounded-192.png';
 
@@ -54,16 +54,6 @@ export const DEFAULT_VEHICLE_PRICING: Record<string, VehiclePricing> = {
   'Trailer':         { addOnProfit: 30 },
 };
 
-/**
- * Default multi-tire pricing. Sub-linear replacement multipliers because
- * labor scales sub-linearly per additional tire when you're already on-site.
- * Installation prices anchor to a $220 4-tire flat (industry-typical).
- */
-export const DEFAULT_MULTI_TIRE: MultiTirePricing = {
-  replacementMultipliers: { two: 1.6, three: 2.0, four: 2.4 },
-  installationByQuantity: { one: 60, two: 110, three: 165, four: 220 },
-};
-
 export const DEFAULT_SETTINGS: Settings = {
   businessName: 'My Business',
   owner1Name: 'Owner 1',
@@ -77,14 +67,21 @@ export const DEFAULT_SETTINGS: Settings = {
   costPerMile: 0.65,
   defaultTargetProfit: 100,
   invoiceTaxRate: 0,
-  invoicePricingStyle: 'transparent',
   servicePricing: DEFAULT_SERVICE_PRICING,
   vehiclePricing: DEFAULT_VEHICLE_PRICING,
   expenses: [],
   freeMilesIncluded: 5,
   tireRepairTargetProfit: 90,
   tireReplacementTargetProfit: 110,
-  multiTirePricing: DEFAULT_MULTI_TIRE,
+
+  // ── Plan + subscription placeholders ──────────────────────
+  // New tenants start on Core (solo). The "Upgrade to Pro" flow will be wired
+  // when Stripe is added; for now this can be flipped manually via Settings.
+  plan: 'core',
+  subscriptionStatus: 'inactive',
+  maxUsers: 5,
+  allowTechnicianPriceOverride: false,
+  featureFlags: {},
 };
 
 export const SERVICE_PHRASES: Record<string, string> = {
