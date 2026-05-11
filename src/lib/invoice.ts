@@ -5,9 +5,15 @@ import { money, r2, resolvePaymentStatus } from '@/lib/utils';
 
 type RGB = [number, number, number];
 
+/**
+ * Generate an invoice number deterministic from brand slug + job date + id.
+ * Falls back to a neutral "INV" prefix when the tenant brand is unset, so
+ * we never leak the SaaS platform name onto a tenant's invoice.
+ */
 export function generateInvoiceNumber(brand: Brand, job: Job): string {
-  const slug = (brand.businessName || 'SVC').replace(/[^A-Z0-9]/gi, '').slice(0, 4).toUpperCase();
-  return slug + '-' + (job.date || '').replace(/-/g, '') + '-' + (job.id || '').slice(-4).toUpperCase();
+  const cleaned = (brand.businessName || '').replace(/[^A-Z0-9]/gi, '');
+  const prefix = cleaned ? cleaned.slice(0, 4).toUpperCase() : 'INV';
+  return prefix + '-' + (job.date || '').replace(/-/g, '') + '-' + (job.id || '').slice(-4).toUpperCase();
 }
 
 export interface InvoiceResult {
@@ -42,21 +48,28 @@ function locationLine(job: Job): string {
 }
 
 /**
- * Generate a premium, mobile-business-themed invoice PDF.
+ * Generate a premium, mobile-business-themed invoice PDF for the tenant.
  *
- * Design language:
- *   • Dark hero band — large business name, logo, contact strip, brand accent line
- *   • Two-column meta block — Bill To / Service Details on the left, Invoice meta on the right
- *   • Service breakdown table with itemized cost rows (labor, tire, material, travel)
- *   • Right-aligned totals card with prominent grand total
- *   • Payment-status badge in brand color or amber/red based on status
- *   • Footer with business contact, thank-you message, optional review CTA link
+ * All branded text comes from the `brand` argument, which originates from
+ * businesses/{uid}/settings/main. The SaaS platform name "Mobile Service OS"
+ * is NEVER printed on a tenant invoice — if the tenant somehow has no
+ * business name configured, we fall back to a neutral generic phrase.
  */
 export function generateInvoicePDF(job: Job, settings: Settings, brand: Brand): InvoiceResult | null {
   if (!jsPDF) {
     alert('PDF library not loaded.');
     return null;
   }
+
+  // ── Tenant identity resolution ──────────────────────────
+  // Every visible label comes from `brand`. When fields are missing we use
+  // neutral fallbacks rather than the platform name.
+  const tenantName = (brand.businessName || '').trim() || 'Mobile Tire & Roadside Service';
+  const tenantTagline = [
+    (brand.businessType || '').trim() || 'Mobile Tire & Roadside',
+    (brand.serviceArea || '').trim(),
+  ].filter(Boolean).join(' · ');
+  const tenantContact = [brand.phone, brand.email, brand.website].filter(Boolean).join('   ·   ');
 
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const W = 210;
@@ -71,10 +84,7 @@ export function generateInvoicePDF(job: Job, settings: Settings, brand: Brand): 
   const HAIRLINE: RGB = [220, 220, 228];
   const PANEL: RGB = [248, 248, 251];
   const WHITE: RGB = [255, 255, 255];
-
   const accent = hexToRgb(brand.primaryColor || '#c8a44a', [200, 164, 74]);
-
-  // Hero background — deep charcoal, premium dark theme
   const HERO_DARK: RGB = [10, 11, 16];
   const HERO_SOFT: RGB = [22, 24, 32];
 
@@ -82,14 +92,12 @@ export function generateInvoicePDF(job: Job, settings: Settings, brand: Brand): 
   const heroH = 56;
   doc.setFillColor(...HERO_DARK);
   doc.rect(0, 0, W, heroH, 'F');
-  // Soft top stripe for depth
   doc.setFillColor(...HERO_SOFT);
   doc.rect(0, 0, W, 6, 'F');
-  // Brand accent line
   doc.setFillColor(...accent);
   doc.rect(0, heroH, W, 1.5, 'F');
 
-  // Logo
+  // Logo (tenant's, if provided)
   let textX = M;
   if (brand.logoUrl) {
     try {
@@ -103,39 +111,38 @@ export function generateInvoicePDF(job: Job, settings: Settings, brand: Brand): 
     }
   }
 
-  // Business name (large)
+  // Business name (large) — tenant's name, never the platform name
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(22);
   doc.setTextColor(...WHITE);
-  doc.text(brand.businessName || 'Mobile Service OS', textX, 22);
+  doc.text(tenantName, textX, 22);
 
   // Tagline / business type
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
-  doc.setTextColor(180, 180, 192);
-  const tagline = [brand.businessType || 'Mobile Tire & Roadside', brand.serviceArea].filter(Boolean).join(' · ');
-  if (tagline) doc.text(tagline, textX, 29);
+  if (tenantTagline) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(180, 180, 192);
+    doc.text(tenantTagline, textX, 29);
+  }
 
   // Contact strip
-  doc.setFontSize(8);
-  doc.setTextColor(150, 150, 165);
-  const contact = [brand.phone, brand.email, brand.website].filter(Boolean).join('   ·   ');
-  if (contact) doc.text(contact, textX, 36);
+  if (tenantContact) {
+    doc.setFontSize(8);
+    doc.setTextColor(150, 150, 165);
+    doc.text(tenantContact, textX, 36);
+  }
 
-  // Right-side: INVOICE label
+  // Right: INVOICE label
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
   doc.setTextColor(...accent);
   doc.text('INVOICE', W - M, 22, { align: 'right' });
 
-  // Invoice number
   const invNum = job.invoiceNumber || generateInvoiceNumber(brand, job);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   doc.setTextColor(200, 200, 210);
   doc.text('No. ' + invNum, W - M, 29, { align: 'right' });
-
-  // Issue date
   doc.setFontSize(8);
   doc.setTextColor(150, 150, 165);
   doc.text('Issued ' + (job.date || TODAY()), W - M, 35, { align: 'right' });
@@ -196,7 +203,6 @@ export function generateInvoicePDF(job: Job, settings: Settings, brand: Brand): 
   y += panelH + 12;
 
   // ── Service / cost table ─────────────────────────────────
-  // Table head
   doc.setFillColor(...INK);
   doc.rect(M, y, CONTENT_W, 9, 'F');
   doc.setFont('helvetica', 'bold');
@@ -207,7 +213,6 @@ export function generateInvoicePDF(job: Job, settings: Settings, brand: Brand): 
   doc.text('AMOUNT', M + CONTENT_W - 4, y + 6, { align: 'right' });
   y += 13;
 
-  // Primary line — the headline service charge
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
   doc.setTextColor(...INK);
@@ -216,10 +221,9 @@ export function generateInvoicePDF(job: Job, settings: Settings, brand: Brand): 
   if (job.vehicleType && job.vehicleType !== 'Car') desc += '  (' + job.vehicleType + ')';
   doc.text(desc, M + 4, y);
 
-  const qtyStr = String(job.qty || 1);
   doc.setFontSize(9.5);
   doc.setTextColor(...INK_SOFT);
-  doc.text(qtyStr, M + CONTENT_W - 42, y, { align: 'right' });
+  doc.text(String(job.qty || 1), M + CONTENT_W - 42, y, { align: 'right' });
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10);
@@ -227,7 +231,7 @@ export function generateInvoicePDF(job: Job, settings: Settings, brand: Brand): 
   doc.text(money(job.revenue || 0), M + CONTENT_W - 4, y, { align: 'right' });
   y += 6;
 
-  // Cost breakdown (informational sub-rows under the service line)
+  // Cost breakdown sub-rows
   const tireCost = Number(job.tireCost || 0);
   const materialCost = Number(job.materialCost || job.miscCost || 0);
   const miles = Number(job.miles || 0);
@@ -257,13 +261,12 @@ export function generateInvoicePDF(job: Job, settings: Settings, brand: Brand): 
     y += 4;
   }
 
-  // Table bottom hairline
   doc.setDrawColor(...HAIRLINE);
   doc.setLineWidth(0.3);
   doc.line(M, y, M + CONTENT_W, y);
   y += 10;
 
-  // ── Totals card (right-aligned) ──────────────────────────
+  // ── Totals card ──────────────────────────────────────────
   const subtotal = Number(job.revenue || 0);
   const taxRate = Number(settings.invoiceTaxRate || 0) / 100;
   const taxAmt = r2(subtotal * taxRate);
@@ -271,7 +274,7 @@ export function generateInvoicePDF(job: Job, settings: Settings, brand: Brand): 
 
   const totalsW = 78;
   const totalsX = M + CONTENT_W - totalsW;
-  const totalsRows = taxRate > 0 ? 3 : 2; // subtotal + tax? + total
+  const totalsRows = taxRate > 0 ? 3 : 2;
   const totalsCardH = 10 + totalsRows * 8;
 
   doc.setFillColor(...PANEL);
@@ -294,7 +297,6 @@ export function generateInvoicePDF(job: Job, settings: Settings, brand: Brand): 
     ty += 7;
   }
 
-  // Total emphasis bar
   doc.setDrawColor(...HAIRLINE);
   doc.line(totalsX + 4, ty - 2, totalsX + totalsW - 4, ty - 2);
   doc.setFont('helvetica', 'bold');
@@ -313,18 +315,16 @@ export function generateInvoicePDF(job: Job, settings: Settings, brand: Brand): 
   doc.setFontSize(7.5);
   const badgeText = badge.label;
   const badgeW = doc.getTextWidth(badgeText) + 10;
-  const badgeX = M;
   doc.setFillColor(...badge.fill);
-  doc.roundedRect(badgeX, y, badgeW, 7, 1.5, 1.5, 'F');
+  doc.roundedRect(M, y, badgeW, 7, 1.5, 1.5, 'F');
   doc.setTextColor(...badge.text);
-  doc.text(badgeText, badgeX + 5, y + 4.8);
+  doc.text(badgeText, M + 5, y + 4.8);
 
-  // Payment method (right of badge)
   if (job.payment) {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(...MUTED);
-    doc.text('Payment method: ' + job.payment, badgeX + badgeW + 6, y + 4.8);
+    doc.text('Payment method: ' + job.payment, M + badgeW + 6, y + 4.8);
   }
   y += 14;
 
@@ -346,47 +346,50 @@ export function generateInvoicePDF(job: Job, settings: Settings, brand: Brand): 
   // ── Footer ───────────────────────────────────────────────
   const footerY = H - 32;
 
-  // Thin separator
   doc.setDrawColor(...HAIRLINE);
   doc.setLineWidth(0.3);
   doc.line(M, footerY - 6, M + CONTENT_W, footerY - 6);
 
-  // Left side: thank-you + footer message
+  // Thank-you — neutral wording so it works regardless of tenant
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8.5);
   doc.setTextColor(...INK);
   doc.text('Thank you for your business.', M, footerY);
 
+  // Footer text — prefer brand-provided footer; otherwise derive a neutral
+  // description from tenant fields. Never reference the SaaS platform name.
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
   doc.setTextColor(...MUTED);
-  const customFooter = brand.invoiceFooter
-    || `${brand.businessName || 'Mobile Service OS'} — mobile tire & roadside service${brand.serviceArea ? ' in ' + brand.serviceArea : ''}.`;
+  const brandFooter = (brand.invoiceFooter || '').trim();
+  const derivedFooter = brand.serviceArea
+    ? `${tenantName} — mobile tire & roadside service in ${brand.serviceArea}.`
+    : `${tenantName} — mobile tire & roadside service.`;
+  const customFooter = brandFooter || derivedFooter;
   const footerLines = doc.splitTextToSize(customFooter, CONTENT_W * 0.55);
   doc.text(footerLines, M, footerY + 4);
 
-  // Right side: review CTA
+  // Review CTA (right side)
   if (brand.reviewUrl) {
     const rx = M + CONTENT_W;
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8);
     doc.setTextColor(...accent);
     doc.text('Leave a review', rx, footerY, { align: 'right' });
-
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7);
     doc.setTextColor(...MUTED);
-    // Wrap the URL onto multiple lines if needed
     const urlLines = doc.splitTextToSize(brand.reviewUrl, 70);
     doc.text(urlLines, rx, footerY + 4, { align: 'right' });
   }
 
-  // Bottom hairline accent
   doc.setFillColor(...accent);
   doc.rect(0, H - 4, W, 4, 'F');
 
-  const slug = (brand.businessName || 'SVC').replace(/[^a-z0-9]/gi, '-').toLowerCase();
-  const filename = slug + '-invoice-' + invNum + '.pdf';
+  // ── Filename: tenant slug, neutral fallback ──────────────
+  const tenantSlug = (brand.businessName || '').replace(/[^a-z0-9]/gi, '-').toLowerCase();
+  const slug = tenantSlug || 'invoice';
+  const filename = `${slug}-${invNum}.pdf`;
   doc.save(filename);
   return { filename, invoiceNumber: invNum };
 }
