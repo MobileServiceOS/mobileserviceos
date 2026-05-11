@@ -105,11 +105,7 @@ export interface Job {
   city?: string;
   state?: string;
   fullLocationLabel?: string;
-  /**
-   * UID of the team member who created this job. Used by Firestore rules to
-   * let technicians edit jobs they personally created. Owners and admins
-   * can always edit regardless of this field.
-   */
+  /** UID of the team member who created this job (technician edit-own-jobs rule). */
   createdByUid?: string;
 }
 
@@ -133,15 +129,14 @@ export interface Settings {
   tireRepairTargetProfit?: number;
   tireReplacementTargetProfit?: number;
 
-  // ── Multi-tire pricing (nested object — utils.ts reads this shape) ──
+  // ── Multi-tire pricing ──
   multiTirePricing?: MultiTirePricing;
-
-  // ── Invoice rendering style ──
   invoicePricingStyle?: 'transparent' | 'single';
 
-  // ── Plan + subscription + team placeholders (Stripe not wired yet) ──
+  // ── Plan + subscription (Stripe-ready scaffolding) ──
   plan?: Plan;
   subscriptionStatus?: SubscriptionStatus;
+  trialStartedAt?: string;
   trialEndsAt?: string;
   maxUsers?: number;
   allowTechnicianPriceOverride?: boolean;
@@ -154,11 +149,10 @@ export interface MultiTirePricing {
 }
 
 export type Plan = 'core' | 'pro';
-export type SubscriptionStatus = 'trialing' | 'active' | 'inactive';
+export type SubscriptionStatus = 'trialing' | 'active' | 'inactive' | 'past_due' | 'canceled';
 export type Role = 'owner' | 'admin' | 'technician';
 export type MemberStatus = 'active' | 'invited' | 'disabled';
 
-/** Document at `businesses/{businessId}/members/{uid}`. */
 export interface MemberDoc {
   uid: string;
   email: string;
@@ -194,7 +188,14 @@ export interface Permissions {
   canManageBilling: boolean;
 }
 
+/**
+ * Feature flags drive Pro-only capability gates. Set by onboarding plan
+ * selection. teamAccess and technicianRoles unlock multi-user UI;
+ * advancedReports is a placeholder for future reporting features.
+ */
 export interface FeatureFlags {
+  teamAccess?: boolean;
+  technicianRoles?: boolean;
   advancedReports?: boolean;
   prioritySupport?: boolean;
 }
