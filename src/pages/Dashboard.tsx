@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Job, Settings, InventoryItem, QuoteForm, TabId } from '@/types';
 import {
   calcQuote, clamp, fmtDate, getWeekStart,
-  jobGrossProfit, money, normalizeTireSize, paymentPillClass,
+  jobGrossProfit, money, monthlyFixed, normalizeTireSize, paymentPillClass,
   r2, resolvePaymentStatus, serviceIcon, weekSummary,
 } from '@/lib/utils';
 import { DEFAULT_SERVICE_PRICING, DEFAULT_VEHICLE_PRICING, TODAY } from '@/lib/defaults';
@@ -57,6 +57,7 @@ export function Dashboard({
   const avgProfit = weekJobs.length ? r2(totals.grossProfit / weekJobs.length) : 0;
   const goalPct = clamp((totals.grossProfit / (settings.weeklyGoal || 1)) * 100, 0, 100);
   const jobsNeeded = avgProfit > 0 ? Math.max(0, Math.ceil(((settings.weeklyGoal || 0) - totals.grossProfit) / avgProfit)) : '—';
+  const weeklyExpenses = r2(monthlyFixed(settings) / 4.33);
 
   const sources = useMemo(() => {
     const m: Record<string, number> = {};
@@ -119,7 +120,12 @@ export function Dashboard({
       )}
 
       <div className="pro-hero card-anim">
-        <div className="pro-hero-label">This Week's Profit</div>
+        <div className="pro-hero-head">
+          <div className="pro-hero-label">This Week's Profit</div>
+          <div className={'pro-hero-goal-pct ' + (goalPct >= 100 ? 'full' : goalPct >= 50 ? 'mid' : 'low')}>
+            {Math.round(goalPct)}%
+          </div>
+        </div>
         <div className="hero-amount">
           <span className="currency">$</span>{Math.floor(heroValue).toLocaleString()}
         </div>
@@ -128,16 +134,52 @@ export function Dashboard({
             style={{ width: goalPct + '%' }} />
         </div>
         <div className="pro-hero-foot">
-          <span>{Math.round(goalPct)}% of {money(settings.weeklyGoal || 0)} goal</span>
-          <span>{jobsNeeded === '—' ? '—' : jobsNeeded + ' more needed'}</span>
+          <span>{money(settings.weeklyGoal || 0)} weekly goal</span>
+          <span>
+            {jobsNeeded === '—' || jobsNeeded === 0
+              ? goalPct >= 100 ? 'Goal hit ✓' : '—'
+              : `${jobsNeeded} more job${jobsNeeded === 1 ? '' : 's'} to goal`}
+          </span>
+        </div>
+        <div className="pro-hero-strip">
+          <div className="pro-hero-stat">
+            <div className="pro-hero-stat-label">Revenue</div>
+            <div className="pro-hero-stat-value">{money(totals.revenue)}</div>
+          </div>
+          <div className="pro-hero-stat">
+            <div className="pro-hero-stat-label">Expenses</div>
+            <div className="pro-hero-stat-value red">{money(weeklyExpenses)}</div>
+          </div>
+          <div className="pro-hero-stat">
+            <div className="pro-hero-stat-label">Pending</div>
+            <div className={'pro-hero-stat-value ' + (pendingPaymentTotal > 0 ? 'amber' : '')}>
+              {money(pendingPaymentTotal)}
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className="kpi-grid card-anim">
-        <div className="kpi"><div className="kpi-label">Today</div><div className="kpi-value">{todayJobs.length} job{todayJobs.length !== 1 ? 's' : ''}</div></div>
-        <div className="kpi"><div className="kpi-label">Week Jobs</div><div className="kpi-value">{weekJobs.length}</div></div>
-        <div className="kpi"><div className="kpi-label">Revenue</div><div className="kpi-value">{money(totals.revenue)}</div></div>
-        <div className="kpi"><div className="kpi-label">Avg Profit</div><div className="kpi-value">{money(avgProfit)}</div></div>
+      <div className="kpi-grid kpi-grid-tight card-anim">
+        <div className="kpi">
+          <div className="kpi-label">Today</div>
+          <div className="kpi-value">{todayJobs.length}</div>
+          <div className="kpi-sub">job{todayJobs.length !== 1 ? 's' : ''} completed</div>
+        </div>
+        <div className="kpi">
+          <div className="kpi-label">This Week</div>
+          <div className="kpi-value">{weekJobs.length}</div>
+          <div className="kpi-sub">job{weekJobs.length !== 1 ? 's' : ''} done</div>
+        </div>
+        <div className="kpi">
+          <div className="kpi-label">Avg Job</div>
+          <div className="kpi-value">{money(weekJobs.length ? totals.revenue / weekJobs.length : 0)}</div>
+          <div className="kpi-sub">revenue / job</div>
+        </div>
+        <div className="kpi">
+          <div className="kpi-label">Avg Profit</div>
+          <div className="kpi-value green">{money(avgProfit)}</div>
+          <div className="kpi-sub">per completed job</div>
+        </div>
       </div>
 
       {pendingPaymentJobs.length > 0 && (
@@ -186,7 +228,7 @@ export function Dashboard({
 
       <div className="section-label with-action">
         <span>Quick Quote</span>
-        <span className="section-label-hint">Suggested pricing feeds straight into Log Job</span>
+        <span className="section-label-hint">Tap a price to start the job</span>
       </div>
       <div className="quote-box card-anim">
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
@@ -246,50 +288,82 @@ export function Dashboard({
       </div>
 
       {sources.length > 0 && (
-        <>
-          <div className="section-label">Lead Sources</div>
-          <div className="card card-anim">
-            <div className="card-pad">
-              {sources.slice(0, 5).map(([name, count]) => (
-                <div key={name} className="source-bar">
-                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--t2)', width: 80, flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</span>
-                  <div className="source-bar-track"><div className="source-bar-fill" style={{ width: (count / maxSrc) * 100 + '%' }} /></div>
-                  <span className="num" style={{ fontSize: 12, fontWeight: 700, color: 'var(--t1)', width: 30, textAlign: 'right', flexShrink: 0 }}>{count}</span>
-                </div>
-              ))}
+        sources.length === 1 ? (
+          <div className="insight-card card-anim">
+            <div className="insight-card-icon">📈</div>
+            <div className="insight-card-body">
+              <div className="insight-card-label">Top Lead Source</div>
+              <div className="insight-card-value">
+                {sources[0][0]} <span className="insight-card-meta">· {sources[0][1]} job{sources[0][1] !== 1 ? 's' : ''}</span>
+              </div>
             </div>
           </div>
-        </>
+        ) : (
+          <>
+            <div className="section-label">Top Lead Sources</div>
+            <div className="card card-anim">
+              <div className="card-pad lead-sources-pad">
+                {sources.slice(0, 3).map(([name, count]) => (
+                  <div key={name} className="source-bar">
+                    <span className="source-bar-name">{name}</span>
+                    <div className="source-bar-track">
+                      <div className="source-bar-fill" style={{ width: (count / maxSrc) * 100 + '%' }} />
+                    </div>
+                    <span className="source-bar-count num">{count}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )
       )}
 
       {recentCompleted.length > 0 && (
         <>
-          <div className="section-label">Recent Completed Jobs</div>
+          <div className="section-label with-action">
+            <span>Recent Jobs</span>
+            <button className="section-label-action" onClick={() => setTab('history')}>View all →</button>
+          </div>
           <div className="stack">
             {recentCompleted.map((j) => {
               const pr = jobGrossProfit(j, settings);
               const ps = resolvePaymentStatus(j);
+              const locDisplay = j.fullLocationLabel || j.area || '';
               return (
-                <div key={j.id} className="job-card card-anim">
+                <div key={j.id} className="job-card premium card-anim">
                   <div className="job-card-main" onClick={() => onViewJob(j)}>
                     <div className="job-icon">{serviceIcon(j.service)}</div>
                     <div className="job-main">
-                      <div className="job-title">{j.customerName || j.service}</div>
+                      <div className="job-title">{j.customerName || 'Customer'}</div>
                       <div className="job-meta">
-                        {j.service} · {j.fullLocationLabel || j.area || '—'} · {fmtDate(j.date)}
-                        {j.tireSize ? ' · ' + j.tireSize : ''}
+                        <span className="job-meta-service">{j.service}</span>
+                        {locDisplay ? <span className="job-meta-dot">·</span> : null}
+                        {locDisplay ? <span>{locDisplay}</span> : null}
+                        <span className="job-meta-dot">·</span>
+                        <span>{fmtDate(j.date)}</span>
                       </div>
                     </div>
                     <div className="job-right">
-                      <div className="value green">{money(j.revenue)}</div>
-                      <div style={{ fontSize: 11, color: pr >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>{money(pr)} profit</div>
-                      <span className={'pill ' + paymentPillClass(ps)} style={{ marginTop: 4 }}>{ps}</span>
+                      <div className="job-revenue">{money(j.revenue)}</div>
+                      <div className={'job-profit ' + (pr >= 0 ? 'green' : 'red')}>
+                        +{money(pr)} profit
+                      </div>
+                      <span className={'pill ' + paymentPillClass(ps)}>{ps}</span>
                     </div>
                   </div>
-                  <div className="job-card-actions">
-                    <button onClick={() => onGenerateInvoice(j)}>📄 Invoice</button>
-                    <button onClick={() => onSendReview(j)}>⭐ Review</button>
-                    <button onClick={() => onEditJob(j)}>✏️ Edit</button>
+                  <div className="job-card-actions premium">
+                    <button onClick={() => onGenerateInvoice(j)} className="job-action">
+                      <span className="job-action-ico">📄</span>
+                      <span>Invoice</span>
+                    </button>
+                    <button onClick={() => onSendReview(j)} className="job-action">
+                      <span className="job-action-ico">⭐</span>
+                      <span>Review</span>
+                    </button>
+                    <button onClick={() => onEditJob(j)} className="job-action">
+                      <span className="job-action-ico">✏️</span>
+                      <span>Edit</span>
+                    </button>
                   </div>
                 </div>
               );
@@ -298,7 +372,7 @@ export function Dashboard({
         </>
       )}
 
-      <div style={{ marginTop: 28 }}>
+      <div className="dashboard-cta-spacer">
         <button className="cta-btn press-scale" onClick={() => setTab('add')}>＋ Log New Job</button>
       </div>
     </div>
