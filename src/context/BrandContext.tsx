@@ -62,11 +62,20 @@ export function BrandProvider({ children, user }: { children: ReactNode; user: U
         let bId: string;
         if (snap.exists() && snap.data().businessId) {
           bId = snap.data().businessId;
-          // Backfill members doc for users who signed up before this structure was added.
+          // Backfill members doc for users who signed up before this
+          // structure was added. Writes the FULL MemberDoc shape so the
+          // membership context can read role+status reliably.
           try {
             await setDoc(
               doc(db, `businesses/${bId}/members/${user.uid}`),
-              { uid: user.uid, email: user.email || '', role: 'owner', addedAt: new Date().toISOString() },
+              {
+                uid: user.uid,
+                email: user.email || '',
+                role: 'owner',
+                status: 'active',
+                assignedBusinessId: bId,
+                joinedAt: new Date().toISOString(),
+              },
               { merge: true }
             );
           } catch (e) {
@@ -94,7 +103,9 @@ export function BrandProvider({ children, user }: { children: ReactNode; user: U
             uid: user.uid,
             email: user.email || '',
             role: 'owner',
-            addedAt: new Date().toISOString(),
+            status: 'active',
+            assignedBusinessId: bId,
+            joinedAt: new Date().toISOString(),
           }, { merge: true });
 
           await setDoc(doc(db, `businesses/${bId}/settings/main`), {
