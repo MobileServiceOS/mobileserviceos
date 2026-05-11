@@ -105,8 +105,6 @@ export interface Job {
   city?: string;
   state?: string;
   fullLocationLabel?: string;
-  /** UID of the team member who created this job (technician edit-own-jobs rule). */
-  createdByUid?: string;
 }
 
 export interface Settings {
@@ -128,12 +126,6 @@ export interface Settings {
   freeMilesIncluded?: number;
   tireRepairTargetProfit?: number;
   tireReplacementTargetProfit?: number;
-
-  // ── Multi-tire pricing ──
-  multiTirePricing?: MultiTirePricing;
-  invoicePricingStyle?: 'transparent' | 'single';
-
-  // ── Plan + subscription (Stripe-ready scaffolding) ──
   plan?: Plan;
   subscriptionStatus?: SubscriptionStatus;
   trialStartedAt?: string;
@@ -143,56 +135,8 @@ export interface Settings {
   featureFlags?: FeatureFlags;
 }
 
-export interface MultiTirePricing {
-  replacementMultipliers: { two: number; three: number; four: number };
-  installationByQuantity: { one: number; two: number; three: number; four: number };
-}
-
 export type Plan = 'core' | 'pro';
 export type SubscriptionStatus = 'trialing' | 'active' | 'inactive' | 'past_due' | 'canceled';
-export type Role = 'owner' | 'admin' | 'technician';
-export type MemberStatus = 'active' | 'invited' | 'disabled';
-
-export interface MemberDoc {
-  uid: string;
-  email: string;
-  displayName?: string;
-  role: Role;
-  status: MemberStatus;
-  invitedBy?: string;
-  invitedAt?: string;
-  joinedAt?: string;
-  permissions?: Partial<Permissions>;
-  assignedBusinessId: string;
-}
-
-export interface Permissions {
-  canViewFinancials: boolean;
-  canViewRevenue: boolean;
-  canViewProfit: boolean;
-  canManageExpenses: boolean;
-  canManageInventory: boolean;
-  canEditPricingSettings: boolean;
-  canViewPricingSettings: boolean;
-  canUsePricingEngine: boolean;
-  canOverrideJobPrice: boolean;
-  canManageTeam: boolean;
-  canEditBusinessSettings: boolean;
-  canUploadLogo: boolean;
-  canGenerateInvoices: boolean;
-  canSendReviews: boolean;
-  canCreateJobs: boolean;
-  canEditJobs: boolean;
-  canDeleteJobs: boolean;
-  canViewAdvancedReports: boolean;
-  canManageBilling: boolean;
-}
-
-/**
- * Feature flags drive Pro-only capability gates. Set by onboarding plan
- * selection. teamAccess and technicianRoles unlock multi-user UI;
- * advancedReports is a placeholder for future reporting features.
- */
 export interface FeatureFlags {
   teamAccess?: boolean;
   technicianRoles?: boolean;

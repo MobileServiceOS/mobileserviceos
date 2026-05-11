@@ -1,4 +1,4 @@
-import type { Brand, Settings, Job, ServicePricing, VehiclePricing, PaymentStatus, MultiTirePricing } from '@/types';
+import type { Brand, Settings, Job, ServicePricing, VehiclePricing, PaymentStatus } from '@/types';
 
 export const APP_LOGO = 'icons/icon-rounded-192.png';
 
@@ -54,16 +54,6 @@ export const DEFAULT_VEHICLE_PRICING: Record<string, VehiclePricing> = {
   'Trailer':         { addOnProfit: 30 },
 };
 
-/**
- * Default multi-tire pricing. Sub-linear replacement multipliers because
- * labor scales sub-linearly per additional tire (truck setup happens once).
- * 4-tire installation anchors at $220 — industry-typical mobile install.
- */
-export const DEFAULT_MULTI_TIRE: MultiTirePricing = {
-  replacementMultipliers: { two: 1.6, three: 2.0, four: 2.4 },
-  installationByQuantity: { one: 60, two: 110, three: 165, four: 220 },
-};
-
 export const DEFAULT_SETTINGS: Settings = {
   businessName: 'My Business',
   owner1Name: 'Owner 1',
@@ -83,17 +73,15 @@ export const DEFAULT_SETTINGS: Settings = {
   freeMilesIncluded: 5,
   tireRepairTargetProfit: 90,
   tireReplacementTargetProfit: 110,
-
-  // Multi-tire + invoice rendering
-  multiTirePricing: DEFAULT_MULTI_TIRE,
-  invoicePricingStyle: 'transparent',
-
-  // Plan + team placeholders (no Stripe wiring yet)
   plan: 'core',
-  subscriptionStatus: 'inactive',
-  maxUsers: 5,
+  subscriptionStatus: 'trialing',
+  maxUsers: 1,
   allowTechnicianPriceOverride: false,
-  featureFlags: {},
+  featureFlags: {
+    teamAccess: false,
+    technicianRoles: false,
+    advancedReports: false,
+  },
 };
 
 export const SERVICE_PHRASES: Record<string, string> = {
