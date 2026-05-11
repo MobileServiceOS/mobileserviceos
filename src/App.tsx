@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
 import { _auth, _db, scopedCol, fbDelete, fbListen, fbSet, initError } from '@/lib/firebase';
 import { BrandProvider, useBrand } from '@/context/BrandContext';
+import { MembershipProvider, usePermissions } from '@/context/MembershipContext';
 import { AuthScreen } from '@/pages/AuthScreen';
 import { Dashboard } from '@/pages/Dashboard';
 import { AddJob } from '@/pages/AddJob';
@@ -14,6 +15,7 @@ import { Settings } from '@/pages/Settings';
 import { Header } from '@/components/Header';
 import { ToastHost } from '@/components/ToastHost';
 import { InstallBanner } from '@/components/InstallBanner';
+import { UpdateBanner } from '@/components/UpdateBanner';
 import { JobSuccessPanel } from '@/components/JobSuccessPanel';
 import { JobDetailModal } from '@/components/JobDetailModal';
 import { Onboarding } from '@/components/Onboarding';
@@ -319,6 +321,12 @@ function AuthenticatedApp({ user }: { user: User }) {
         tireCost: computedTireCost,
         inventoryDeductions: deductions,
         lastEditedAt: new Date().toISOString(),
+        // Stamp the creator's uid on new jobs so Firestore rules can let
+        // the technician edit their own jobs later. Editing an existing job
+        // preserves whatever createdByUid was already set.
+        createdByUid: isEditing
+          ? (j.createdByUid || _auth?.currentUser?.uid || '')
+          : (_auth?.currentUser?.uid || ''),
       };
       await fbSet(jobsCol, finalJob.id, finalJob);
       addToast(isEditing ? 'Job updated' : 'Job saved', 'success');
@@ -367,9 +375,7 @@ function AuthenticatedApp({ user }: { user: User }) {
   }, [businessId, jobs]);
 
   const handleGenerateInvoice = useCallback(async (j: Job) => {
-    // generateInvoicePDF is async — it preloads the tenant logo as a base64
-    // data URL before drawing the PDF so jsPDF can render it. Must await.
-    const result = await generateInvoicePDF(j, settings, brand);
+    const result = generateInvoicePDF(j, settings, brand);
     if (!result || !businessId) return;
     const jobsCol = scopedCol(businessId, 'jobs');
     const updated: Job = {
@@ -542,31 +548,18 @@ function AuthenticatedApp({ user }: { user: User }) {
   }
 
   return (
-    <>
+    <MembershipProvider settings={settings}>
       <Header syncStatus={syncStatus} onSignOut={onSignOut} />
       <main className="main-content">{tabContent}</main>
-      <nav className="bottom-nav">
-        <button className={'nav-btn' + (tab === 'dashboard' ? ' active' : '')} onClick={() => setTab('dashboard')}>
-          <span className="nav-ico">🏠</span><span>Home</span>
-        </button>
-        <button className={'nav-btn' + (tab === 'history' ? ' active' : '')} onClick={() => setTab('history')}>
-          <span className="nav-ico">📋</span><span>Jobs</span>
-        </button>
-        <button className={'nav-btn primary' + (tab === 'add' ? ' active' : '')} onClick={() => {
+      <AppBottomNav
+        tab={tab}
+        setTab={setTab}
+        onResetJobDraft={() => {
           setJobDraft(EMPTY_JOB());
           setEditingJobId(null);
           setPrefilledFromQuote(false);
-          setTab('add');
-        }}>
-          <span className="nav-ico">＋</span><span>Log</span>
-        </button>
-        <button className={'nav-btn' + (tab === 'inventory' ? ' active' : '')} onClick={() => setTab('inventory')}>
-          <span className="nav-ico">🛞</span><span>Inv</span>
-        </button>
-        <button className={'nav-btn' + (tab === 'settings' ? ' active' : '')} onClick={() => setTab('settings')}>
-          <span className="nav-ico">⚙</span><span>More</span>
-        </button>
-      </nav>
+        }}
+      />
       {detailJob && (
         <JobDetailModal
           job={detailJob}
@@ -581,8 +574,56 @@ function AuthenticatedApp({ user }: { user: User }) {
         />
       )}
       <InstallBanner />
+      <UpdateBanner />
       <ToastHost />
-    </>
+    </MembershipProvider>
+  );
+}
+
+/**
+ * Bottom nav — extracted as inner component so it can use usePermissions()
+ * from the MembershipProvider context. Technicians don't see Inv or More
+ * (Settings) tabs, matching the role-based access spec.
+ */
+function AppBottomNav({
+  tab, setTab, onResetJobDraft,
+}: {
+  tab: TabId;
+  setTab: (t: TabId) => void;
+  onResetJobDraft: () => void;
+}) {
+  const permissions = usePermissions();
+  // Technicians don't get the inventory or settings tabs — those reveal
+  // owner-only data and aren't relevant to their work. They still get the
+  // Log button (primary CTA) since job-logging is their core action.
+  const showInventory = permissions.canManageInventory || permissions.canViewFinancials;
+  const showSettings = permissions.canEditBusinessSettings;
+
+  return (
+    <nav className="bottom-nav">
+      <button className={'nav-btn' + (tab === 'dashboard' ? ' active' : '')} onClick={() => setTab('dashboard')}>
+        <span className="nav-ico">🏠</span><span>Home</span>
+      </button>
+      <button className={'nav-btn' + (tab === 'history' ? ' active' : '')} onClick={() => setTab('history')}>
+        <span className="nav-ico">📋</span><span>Jobs</span>
+      </button>
+      <button className={'nav-btn primary' + (tab === 'add' ? ' active' : '')} onClick={() => {
+        onResetJobDraft();
+        setTab('add');
+      }}>
+        <span className="nav-ico">＋</span><span>Log</span>
+      </button>
+      {showInventory && (
+        <button className={'nav-btn' + (tab === 'inventory' ? ' active' : '')} onClick={() => setTab('inventory')}>
+          <span className="nav-ico">🛞</span><span>Inv</span>
+        </button>
+      )}
+      {showSettings && (
+        <button className={'nav-btn' + (tab === 'settings' ? ' active' : '')} onClick={() => setTab('settings')}>
+          <span className="nav-ico">⚙</span><span>More</span>
+        </button>
+      )}
+    </nav>
   );
 }
 
