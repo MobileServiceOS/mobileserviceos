@@ -1,12 +1,12 @@
 {
   "name": "mobile-service-os",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.2.0",
   "type": "module",
   "description": "Mobile Service OS — white-label PWA for mobile tire & roadside businesses",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "lint": "tsc --noEmit",
     "deploy:rules": "firebase deploy --only firestore:rules,storage"
@@ -15,8 +15,7 @@
     "firebase": "^10.13.0",
     "jspdf": "^2.5.1",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-router-dom": "^6.26.0"
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@types/react": "^18.3.3",
