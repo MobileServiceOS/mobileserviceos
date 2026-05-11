@@ -128,29 +128,103 @@ export function monthSummary(mj: Job[], s: Settings): MonthSummary {
   return { ...ws, fixed: fix, net: r2(ws.grossProfit - fix) };
 }
 
+/**
+ * Resolve the replacement multiplier for a given quantity.
+ * Quantities >4 fall back to the 4-tire multiplier.
+ */
+function replacementMultiplier(settings: Settings, qty: number): number {
+  const mt = settings.multiTirePricing;
+  if (!mt) return 1;
+  const q = Math.max(1, Math.floor(Number(qty) || 1));
+  if (q === 1) return 1;
+  if (q === 2) return Number(mt.replacementMultipliers.two || 1);
+  if (q === 3) return Number(mt.replacementMultipliers.three || 1);
+  return Number(mt.replacementMultipliers.four || 1);
+}
+
+/**
+ * Resolve the flat installation price for a given quantity.
+ * Quantities >4 fall back to the 4-tire price. Returns 0 if no settings.
+ */
+function installationPriceFor(settings: Settings, qty: number): number {
+  const mt = settings.multiTirePricing;
+  if (!mt) return 0;
+  const q = Math.max(1, Math.floor(Number(qty) || 1));
+  if (q === 1) return Number(mt.installationByQuantity.one || 0);
+  if (q === 2) return Number(mt.installationByQuantity.two || 0);
+  if (q === 3) return Number(mt.installationByQuantity.three || 0);
+  return Number(mt.installationByQuantity.four || 0);
+}
+
+/**
+ * Is this service the flat-rate installation service?
+ * Installation is priced by a flat per-quantity price, not by costs+profit.
+ */
+function isInstallationService(service: string): boolean {
+  return service === 'Tire Installation';
+}
+
+/**
+ * Is this a replacement service (where target profit scales with quantity)?
+ */
+function isReplacementService(service: string): boolean {
+  return service === 'Tire Replacement';
+}
+
 export function calcQuote(form: QuoteForm, settings: Settings): QuoteResult {
   const sp = settings.servicePricing || DEFAULT_SERVICE_PRICING;
   const vp = settings.vehiclePricing || DEFAULT_VEHICLE_PRICING;
   const sd = sp[form.service] || { basePrice: 100, minProfit: 80, enabled: true };
   const vd = vp[form.vehicleType] || { addOnProfit: 0 };
-  const tc = Number(form.tireCost || 0) * Number(form.qty || 1);
+  const qty = Math.max(1, Math.floor(Number(form.qty) || 1));
+  const tc = Number(form.tireCost || 0) * qty;
   const mc = Number(form.materialCost || form.miscCost || 0);
   const freeMiles = Number(settings.freeMilesIncluded || 0);
   const chargeable = Math.max(0, Number(form.miles || 0) - freeMiles);
   const travel = chargeable * Number(settings.costPerMile || 0.65);
+
+  // Surcharges apply to all pricing modes
+  let surcharges = 0;
+  if (form.emergency) surcharges += 30;
+  if (form.lateNight) surcharges += 25;
+  if (form.highway) surcharges += 20;
+  if (form.weekend) surcharges += 15;
+
+  // ── Installation path — flat per-quantity price (customer supplies tires) ──
+  // The installation price IS the labor charge. No tire cost is added because
+  // the customer brings the tires. Material cost is still added if present
+  // (e.g. valve stems).
+  if (isInstallationService(form.service)) {
+    const flatLabor = installationPriceFor(settings, qty);
+    const flatBase = flatLabor + mc + travel + surcharges + Number(vd.addOnProfit || 0);
+    let sug = Math.ceil(flatBase / 5) * 5;
+    sug = Math.max(sug, Number(sd.basePrice || 0));
+    // Direct cost = material + travel (no tire cost). Target profit = flat
+    // labor minus any direct labor cost (here, none beyond travel/material).
+    const dc = mc + travel;
+    const tp = sug - dc; // what the operator actually earns above direct cost
+    return {
+      suggested: sug,
+      premium: Math.ceil((sug * 1.25) / 5) * 5,
+      directCosts: r2(dc),
+      targetProfit: r2(tp),
+    };
+  }
+
+  // ── Replacement path — target profit scales with quantity ──
+  const baseTargetProfit = Number(sd.minProfit || 0) + Number(vd.addOnProfit || 0);
+  const multiplier = isReplacementService(form.service) ? replacementMultiplier(settings, qty) : 1;
+  const tp = baseTargetProfit * multiplier;
+
   const dc = tc + mc + travel;
-  const tp = Number(sd.minProfit || 0) + Number(vd.addOnProfit || 0);
-  let sug = Math.ceil((dc + tp) / 5) * 5;
-  if (form.emergency) sug += 30;
-  if (form.lateNight) sug += 25;
-  if (form.highway) sug += 20;
-  if (form.weekend) sug += 15;
+  let sug = Math.ceil((dc + tp + surcharges) / 5) * 5;
   sug = Math.max(sug, Number(sd.basePrice || 0));
+
   return {
     suggested: sug,
     premium: Math.ceil((sug * 1.25) / 5) * 5,
     directCosts: r2(dc),
-    targetProfit: tp,
+    targetProfit: r2(tp),
   };
 }
 

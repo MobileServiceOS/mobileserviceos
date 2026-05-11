@@ -1,4 +1,4 @@
-import type { Brand, Settings, Job, ServicePricing, VehiclePricing, PaymentStatus } from '@/types';
+import type { Brand, Settings, Job, ServicePricing, VehiclePricing, PaymentStatus, MultiTirePricing } from '@/types';
 
 export const APP_LOGO = 'icons/icon-rounded-192.png';
 
@@ -54,6 +54,23 @@ export const DEFAULT_VEHICLE_PRICING: Record<string, VehiclePricing> = {
   'Trailer':         { addOnProfit: 30 },
 };
 
+/**
+ * Default multi-tire pricing.
+ *
+ * Replacement multipliers are sub-linear because labor scales sub-linearly
+ * per additional tire when you're already on-site (truck unpacked, equipment
+ * set up). Defaults: 1.6× / 2.0× / 2.4× for 2/3/4 tires.
+ *
+ * Installation prices reflect the customer-supplied-tires scenario where
+ * there's no tire cost — the whole price is labor. $220 for a 4-tire job
+ * is the Wheel Rush-style anchor. Smaller quantities scale slightly above
+ * straight per-tire proportion to account for the fixed cost of showing up.
+ */
+export const DEFAULT_MULTI_TIRE: MultiTirePricing = {
+  replacementMultipliers: { two: 1.6, three: 2.0, four: 2.4 },
+  installationByQuantity: { one: 60, two: 110, three: 165, four: 220 },
+};
+
 export const DEFAULT_SETTINGS: Settings = {
   businessName: 'My Business',
   owner1Name: 'Owner 1',
@@ -73,6 +90,7 @@ export const DEFAULT_SETTINGS: Settings = {
   freeMilesIncluded: 5,
   tireRepairTargetProfit: 90,
   tireReplacementTargetProfit: 110,
+  multiTirePricing: DEFAULT_MULTI_TIRE,
 };
 
 export const SERVICE_PHRASES: Record<string, string> = {

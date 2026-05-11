@@ -126,6 +126,35 @@ export interface Settings {
   freeMilesIncluded?: number;
   tireRepairTargetProfit?: number;
   tireReplacementTargetProfit?: number;
+  multiTirePricing?: MultiTirePricing;
+}
+
+/**
+ * Pricing controls for multi-tire jobs.
+ *
+ * `replacementMultipliers` scales the target profit when REPLACING 2-4 tires
+ * in one job. The customer is paying for both new tires AND labor, so target
+ * profit grows roughly with quantity but typically sub-linearly because labor
+ * gets more efficient per-tire when you're already on-site.
+ *
+ * `installationByQuantity` is a flat price for installing customer-supplied
+ * tires (mount/balance/install). Tire cost is $0 in this scenario; the price
+ * fully reflects labor and overhead.
+ *
+ * Quantities >4 fall back to the 4-tire value (rare in mobile-tire SMB land).
+ */
+export interface MultiTirePricing {
+  replacementMultipliers: {
+    two: number;
+    three: number;
+    four: number;
+  };
+  installationByQuantity: {
+    one: number;
+    two: number;
+    three: number;
+    four: number;
+  };
 }
 
 export interface QuoteForm {

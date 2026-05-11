@@ -12,13 +12,17 @@ export interface PricingBreakdown {
   directCost: number;
   profit: number;
   profitMargin: number;
+  quantity: number;
 }
 
 export function computeBreakdown(
-  j: Pick<Job, 'revenue' | 'tireCost' | 'materialCost' | 'miscCost' | 'miles'>,
+  j: Pick<Job, 'revenue' | 'tireCost' | 'materialCost' | 'miscCost' | 'miles' | 'qty'>,
   s: Settings
 ): PricingBreakdown {
   const revenue = Number(j.revenue || 0);
+  // tireCost in the Job model is total cost across all tires (set at save
+  // time from the inventory plan or the bought-for-this-job purchase price),
+  // so we don't multiply by qty here.
   const tireCost = Number(j.tireCost || 0);
   const materialCost = Number(j.materialCost || j.miscCost || 0);
   const miles = Number(j.miles || 0);
@@ -38,5 +42,6 @@ export function computeBreakdown(
     directCost,
     profit,
     profitMargin: revenue > 0 ? profit / revenue : 0,
+    quantity: Math.max(1, Math.floor(Number(j.qty) || 1)),
   };
 }

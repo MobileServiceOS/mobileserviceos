@@ -133,7 +133,8 @@ export function deserializeOperationalSettings(raw: RawDoc): Partial<Settings> {
   for (const k of Object.keys(raw)) {
     if (k === 'id') continue;
     const v = raw[k];
-    if (k === 'servicePricing' || k === 'vehiclePricing') {
+    // Nested object fields are JSON-stringified by fbSet — parse them back here.
+    if (k === 'servicePricing' || k === 'vehiclePricing' || k === 'multiTirePricing') {
       if (typeof v === 'string') {
         const parsed = tryParseJSON<Record<string, unknown>>(v);
         if (parsed && typeof parsed === 'object') {

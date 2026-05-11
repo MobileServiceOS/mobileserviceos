@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Settings as SettingsT, ServicePricing, VehiclePricing, Brand } from '@/types';
+import type { Settings as SettingsT, ServicePricing, VehiclePricing, Brand, MultiTirePricing } from '@/types';
 import { useBrand } from '@/context/BrandContext';
 import { CityStateSelect } from '@/components/CityStateSelect';
 import { addToast } from '@/lib/toast';
 import { uploadLogo, _auth } from '@/lib/firebase';
 import { signOut, updatePassword } from 'firebase/auth';
-import { APP_LOGO } from '@/lib/defaults';
+import { APP_LOGO, DEFAULT_MULTI_TIRE } from '@/lib/defaults';
 import { money } from '@/lib/utils';
 
 interface Props {
@@ -20,6 +20,7 @@ export function Settings({ settings, onSave }: Props) {
       <BrandSection />
       <BusinessSection settings={settings} onSave={onSave} />
       <PricingSection settings={settings} onSave={onSave} />
+      <MultiTirePricingSection settings={settings} onSave={onSave} />
       <AccountSection />
     </div>
   );
@@ -262,6 +263,137 @@ function PricingSection({ settings, onSave }: Props) {
       {dirty && <button className="btn primary" onClick={save}>Save Pricing</button>}
       <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 10 }}>
         Estimated travel charge for 10 mi: {money(Math.max(0, 10 - (settings.freeMilesIncluded || 0)) * (settings.costPerMile || 0))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Edit replacement multipliers and flat installation prices.
+ *
+ * Why this section exists: a 4-tire job isn't 4× the labor of a 1-tire job —
+ * you only set up the truck once. Replacement multipliers let owners encode
+ * their actual labor scaling. Installation prices cover the customer-supplied-
+ * tires scenario where the whole charge is labor.
+ */
+function MultiTirePricingSection({ settings, onSave }: Props) {
+  const current: MultiTirePricing = settings.multiTirePricing || DEFAULT_MULTI_TIRE;
+  const [draft, setDraft] = useState<MultiTirePricing>(current);
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    setDraft(settings.multiTirePricing || DEFAULT_MULTI_TIRE);
+    setDirty(false);
+  }, [settings.multiTirePricing]);
+
+  const setMult = (key: 'two' | 'three' | 'four', v: number) => {
+    setDraft((d) => ({ ...d, replacementMultipliers: { ...d.replacementMultipliers, [key]: v } }));
+    setDirty(true);
+  };
+  const setInstall = (key: 'one' | 'two' | 'three' | 'four', v: number) => {
+    setDraft((d) => ({ ...d, installationByQuantity: { ...d.installationByQuantity, [key]: v } }));
+    setDirty(true);
+  };
+
+  const resetDefaults = () => {
+    setDraft(DEFAULT_MULTI_TIRE);
+    setDirty(true);
+  };
+
+  const save = async () => {
+    try {
+      await onSave({ multiTirePricing: draft });
+      setDirty(false);
+      addToast('Multi-tire pricing saved', 'success');
+    } catch { /* toast handled in caller */ }
+  };
+
+  // Quick preview using the current base target profit from Tire Replacement
+  // service pricing so the owner can SEE what each multiplier means.
+  const baseReplacementProfit = Number(
+    settings.servicePricing?.['Tire Replacement']?.minProfit
+      ?? settings.tireReplacementTargetProfit
+      ?? 110
+  );
+
+  return (
+    <div className="form-group card-anim">
+      <div className="form-group-title">Multi-Tire Pricing</div>
+      <div style={{ fontSize: 11, color: 'var(--t3)', marginBottom: 12, lineHeight: 1.5 }}>
+        Pricing controls for jobs with more than 1 tire. Replacement multipliers scale your target
+        profit when replacing multiple tires. Installation prices are flat labor charges when the
+        customer supplies their own tires.
+      </div>
+
+      {/* ── Replacement multipliers ─────────────────────── */}
+      <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 8 }}>
+        Tire Replacement Multipliers
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--t3)', marginBottom: 10 }}>
+        Base target profit: <strong style={{ color: 'var(--t1)' }}>{money(baseReplacementProfit)}</strong>
+      </div>
+      <div className="field-row">
+        <div className="field" style={{ marginBottom: 0 }}>
+          <label>2 tires ×</label>
+          <input type="number" inputMode="decimal" step="0.1" value={draft.replacementMultipliers.two}
+            onChange={(e) => setMult('two', Number(e.target.value))} />
+          <div style={{ fontSize: 10, color: 'var(--brand-primary)', fontWeight: 700, marginTop: 4 }}>
+            → {money(baseReplacementProfit * Number(draft.replacementMultipliers.two || 0))} profit
+          </div>
+        </div>
+        <div className="field" style={{ marginBottom: 0 }}>
+          <label>3 tires ×</label>
+          <input type="number" inputMode="decimal" step="0.1" value={draft.replacementMultipliers.three}
+            onChange={(e) => setMult('three', Number(e.target.value))} />
+          <div style={{ fontSize: 10, color: 'var(--brand-primary)', fontWeight: 700, marginTop: 4 }}>
+            → {money(baseReplacementProfit * Number(draft.replacementMultipliers.three || 0))} profit
+          </div>
+        </div>
+        <div className="field" style={{ marginBottom: 0 }}>
+          <label>4 tires ×</label>
+          <input type="number" inputMode="decimal" step="0.1" value={draft.replacementMultipliers.four}
+            onChange={(e) => setMult('four', Number(e.target.value))} />
+          <div style={{ fontSize: 10, color: 'var(--brand-primary)', fontWeight: 700, marginTop: 4 }}>
+            → {money(baseReplacementProfit * Number(draft.replacementMultipliers.four || 0))} profit
+          </div>
+        </div>
+      </div>
+
+      {/* ── Installation prices ─────────────────────────── */}
+      <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '1px', margin: '18px 0 8px 0' }}>
+        Tire Installation Prices (customer supplies tires)
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--t3)', marginBottom: 10 }}>
+        Flat labor charge by quantity. Travel and surcharges still apply on top.
+      </div>
+      <div className="field-row">
+        <div className="field" style={{ marginBottom: 0 }}>
+          <label>1 tire ($)</label>
+          <input type="number" inputMode="decimal" value={draft.installationByQuantity.one}
+            onChange={(e) => setInstall('one', Number(e.target.value))} />
+        </div>
+        <div className="field" style={{ marginBottom: 0 }}>
+          <label>2 tires ($)</label>
+          <input type="number" inputMode="decimal" value={draft.installationByQuantity.two}
+            onChange={(e) => setInstall('two', Number(e.target.value))} />
+        </div>
+      </div>
+      <div className="field-row" style={{ marginTop: 8 }}>
+        <div className="field" style={{ marginBottom: 0 }}>
+          <label>3 tires ($)</label>
+          <input type="number" inputMode="decimal" value={draft.installationByQuantity.three}
+            onChange={(e) => setInstall('three', Number(e.target.value))} />
+        </div>
+        <div className="field" style={{ marginBottom: 0 }}>
+          <label>4 tires ($)</label>
+          <input type="number" inputMode="decimal" value={draft.installationByQuantity.four}
+            onChange={(e) => setInstall('four', Number(e.target.value))} />
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+        <button className="btn secondary" onClick={resetDefaults}>Reset defaults</button>
+        {dirty && <button className="btn primary" style={{ flex: 1 }} onClick={save}>Save Multi-Tire Pricing</button>}
       </div>
     </div>
   );
