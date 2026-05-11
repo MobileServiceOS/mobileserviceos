@@ -5,11 +5,6 @@ import { money, r2, resolvePaymentStatus } from '@/lib/utils';
 
 type RGB = [number, number, number];
 
-/**
- * Generate an invoice number deterministic from brand slug + job date + id.
- * Falls back to a neutral "INV" prefix when the tenant brand is unset, so
- * we never leak the SaaS platform name onto a tenant's invoice.
- */
 export function generateInvoiceNumber(brand: Brand, job: Job): string {
   const cleaned = (brand.businessName || '').replace(/[^A-Z0-9]/gi, '');
   const prefix = cleaned ? cleaned.slice(0, 4).toUpperCase() : 'INV';
@@ -20,6 +15,100 @@ export interface InvoiceResult {
   filename: string;
   invoiceNumber: string;
 }
+
+export interface InvoiceLineItem {
+  label: string;
+  qty: number;
+  amount: number;
+}
+
+// ── Line-item builder ──────────────────────────────────────
+// This is the heart of the new transparent-pricing invoice. The function is
+// pure (no side effects, no PDF rendering) so we can unit-test it and call it
+// from anywhere — invoice PDF, on-screen preview, email summaries, etc.
+//
+// Constraints, derived from the spec:
+//   • Travel cost is NEVER shown as a line item. It's used internally only.
+//   • The lines must sum to `revenue` exactly — we balance any rounding into
+//     the dispatch line which is the most generic of the three.
+//   • Tire Replacement (transparent) → 3 lines: Tire, Mobile Service & Dispatch,
+//     Mounting & Balancing
+//   • Tire Installation (transparent) → 2 lines: Mobile Service & Dispatch,
+//     Mounting & Balancing  (customer supplies tire, so no Tire line)
+//   • Flat repair / other services / single style → 1 line: the service name
+//
+// Split heuristic: of the non-tire revenue, dispatch gets ~55%, mounting ~45%.
+// This mirrors the spec example (revenue $170, tire $50 → $65 dispatch + $55
+// mounting). The dispatch share is intentionally a bit larger because it
+// absorbs the hidden travel cost.
+
+const DEFAULT_DISPATCH_LABEL = 'Mobile Service & Dispatch';
+const DEFAULT_MOUNTING_LABEL = 'Mounting & Balancing';
+
+function isReplacement(service: string): boolean {
+  return service === 'Tire Replacement';
+}
+function isInstallation(service: string): boolean {
+  return service === 'Tire Installation';
+}
+
+export function buildInvoiceLines(job: Job, settings: Settings): InvoiceLineItem[] {
+  const style = settings.invoicePricingStyle === 'single' ? 'single' : 'transparent';
+  const revenue = r2(Number(job.revenue || 0));
+  const tireCost = r2(Number(job.tireCost || 0));
+  const qty = Math.max(1, Math.floor(Number(job.qty) || 1));
+
+  // Single-line mode (or any non-replacement/installation service in
+  // transparent mode) keeps the simpler format.
+  if (style === 'single' || (!isReplacement(job.service) && !isInstallation(job.service))) {
+    return [{ label: job.service || 'Service', qty, amount: revenue }];
+  }
+
+  // ── Replacement: Tire + Dispatch + Mounting ──
+  if (isReplacement(job.service)) {
+    const tireLine = Math.min(tireCost, revenue); // never let tire line exceed total
+    const remainder = r2(revenue - tireLine);
+    // Split the non-tire amount: ~55% dispatch, ~45% mounting.
+    let dispatchLine = Math.round(remainder * 0.55);
+    let mountingLine = r2(remainder - dispatchLine);
+    // Defensive: if revenue is tiny / weird, fall back to single line.
+    if (remainder <= 0 || dispatchLine < 0 || mountingLine < 0) {
+      return [{ label: job.service, qty, amount: revenue }];
+    }
+    // Push tiny rounding remainders into dispatch so the lines sum exactly.
+    const sumCheck = r2(tireLine + dispatchLine + mountingLine);
+    const drift = r2(revenue - sumCheck);
+    if (drift !== 0) dispatchLine = r2(dispatchLine + drift);
+    return [
+      { label: 'Tire', qty, amount: tireLine },
+      { label: DEFAULT_DISPATCH_LABEL, qty: 1, amount: dispatchLine },
+      { label: DEFAULT_MOUNTING_LABEL, qty: 1, amount: mountingLine },
+    ];
+  }
+
+  // ── Installation (customer-supplied tires): Dispatch + Mounting ──
+  // No tire line since the customer brought the tires. The whole revenue
+  // is labor + dispatch, split 55/45.
+  if (isInstallation(job.service)) {
+    let dispatchLine = Math.round(revenue * 0.55);
+    let mountingLine = r2(revenue - dispatchLine);
+    if (dispatchLine < 0 || mountingLine < 0) {
+      return [{ label: job.service, qty, amount: revenue }];
+    }
+    const sumCheck = r2(dispatchLine + mountingLine);
+    const drift = r2(revenue - sumCheck);
+    if (drift !== 0) dispatchLine = r2(dispatchLine + drift);
+    return [
+      { label: DEFAULT_DISPATCH_LABEL, qty: 1, amount: dispatchLine },
+      { label: DEFAULT_MOUNTING_LABEL, qty: 1, amount: mountingLine },
+    ];
+  }
+
+  // Unreachable, but TypeScript wants a return.
+  return [{ label: job.service, qty, amount: revenue }];
+}
+
+// ── Color + helpers ────────────────────────────────────────
 
 function hexToRgb(hex: string, fallback: RGB): RGB {
   if (!hex || hex[0] !== '#' || (hex.length !== 7 && hex.length !== 4)) return fallback;
@@ -50,10 +139,11 @@ function locationLine(job: Job): string {
 /**
  * Generate a premium, mobile-business-themed invoice PDF for the tenant.
  *
- * All branded text comes from the `brand` argument, which originates from
- * businesses/{uid}/settings/main. The SaaS platform name "Mobile Service OS"
- * is NEVER printed on a tenant invoice — if the tenant somehow has no
- * business name configured, we fall back to a neutral generic phrase.
+ * All branded text comes from the `brand` argument (businesses/{uid}/settings/
+ * main). The SaaS platform name is NEVER printed on a tenant invoice.
+ *
+ * Travel cost is computed internally for profit math but is NOT shown as a
+ * line item — it's absorbed into the "Mobile Service & Dispatch" line.
  */
 export function generateInvoicePDF(job: Job, settings: Settings, brand: Brand): InvoiceResult | null {
   if (!jsPDF) {
@@ -61,9 +151,6 @@ export function generateInvoicePDF(job: Job, settings: Settings, brand: Brand): 
     return null;
   }
 
-  // ── Tenant identity resolution ──────────────────────────
-  // Every visible label comes from `brand`. When fields are missing we use
-  // neutral fallbacks rather than the platform name.
   const tenantName = (brand.businessName || '').trim() || 'Mobile Tire & Roadside Service';
   const tenantTagline = [
     (brand.businessType || '').trim() || 'Mobile Tire & Roadside',
@@ -77,7 +164,7 @@ export function generateInvoicePDF(job: Job, settings: Settings, brand: Brand): 
   const M = 16;
   const CONTENT_W = W - 2 * M;
 
-  // ── Palette ──────────────────────────────────────────────
+  // ── Palette ──
   const INK: RGB = [17, 17, 22];
   const INK_SOFT: RGB = [55, 55, 68];
   const MUTED: RGB = [128, 128, 142];
@@ -88,7 +175,7 @@ export function generateInvoicePDF(job: Job, settings: Settings, brand: Brand): 
   const HERO_DARK: RGB = [10, 11, 16];
   const HERO_SOFT: RGB = [22, 24, 32];
 
-  // ── Hero header ──────────────────────────────────────────
+  // ── Hero header ──
   const heroH = 56;
   doc.setFillColor(...HERO_DARK);
   doc.rect(0, 0, W, heroH, 'F');
@@ -97,7 +184,6 @@ export function generateInvoicePDF(job: Job, settings: Settings, brand: Brand): 
   doc.setFillColor(...accent);
   doc.rect(0, heroH, W, 1.5, 'F');
 
-  // Logo (tenant's, if provided)
   let textX = M;
   if (brand.logoUrl) {
     try {
@@ -107,17 +193,15 @@ export function generateInvoicePDF(job: Job, settings: Settings, brand: Brand): 
       try {
         doc.addImage(brand.logoUrl, 'JPEG', M, 12, 26, 26);
         textX = M + 32;
-      } catch { /* skip silently */ }
+      } catch { /* skip */ }
     }
   }
 
-  // Business name (large) — tenant's name, never the platform name
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(22);
   doc.setTextColor(...WHITE);
   doc.text(tenantName, textX, 22);
 
-  // Tagline / business type
   if (tenantTagline) {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
@@ -125,14 +209,12 @@ export function generateInvoicePDF(job: Job, settings: Settings, brand: Brand): 
     doc.text(tenantTagline, textX, 29);
   }
 
-  // Contact strip
   if (tenantContact) {
     doc.setFontSize(8);
     doc.setTextColor(150, 150, 165);
     doc.text(tenantContact, textX, 36);
   }
 
-  // Right: INVOICE label
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
   doc.setTextColor(...accent);
@@ -147,12 +229,11 @@ export function generateInvoicePDF(job: Job, settings: Settings, brand: Brand): 
   doc.setTextColor(150, 150, 165);
   doc.text('Issued ' + (job.date || TODAY()), W - M, 35, { align: 'right' });
 
-  // ── Bill To / Service panels ─────────────────────────────
+  // ── Bill To / Service panels ──
   let y = heroH + 14;
   const panelW = (CONTENT_W - 6) / 2;
   const panelH = 38;
 
-  // Bill To panel
   doc.setFillColor(...PANEL);
   doc.roundedRect(M, y, panelW, panelH, 2, 2, 'F');
   doc.setFont('helvetica', 'bold');
@@ -174,7 +255,6 @@ export function generateInvoicePDF(job: Job, settings: Settings, brand: Brand): 
   if (loc) { doc.text(loc, M + 5, ly); ly += 4.5; }
   if (job.vehicleType) { doc.text('Vehicle: ' + job.vehicleType, M + 5, ly); ly += 4.5; }
 
-  // Service Details panel
   const sx = M + panelW + 6;
   doc.setFillColor(...PANEL);
   doc.roundedRect(sx, y, panelW, panelH, 2, 2, 'F');
@@ -202,7 +282,13 @@ export function generateInvoicePDF(job: Job, settings: Settings, brand: Brand): 
 
   y += panelH + 12;
 
-  // ── Service / cost table ─────────────────────────────────
+  // ── Service line items ──
+  // Build the line items from the new pure function. This is where the
+  // transparent-pricing magic happens — but the PDF rendering below is
+  // agnostic to whether we got 1, 2, or 3 lines.
+  const lines = buildInvoiceLines(job, settings);
+
+  // Table head
   doc.setFillColor(...INK);
   doc.rect(M, y, CONTENT_W, 9, 'F');
   doc.setFont('helvetica', 'bold');
@@ -213,61 +299,43 @@ export function generateInvoicePDF(job: Job, settings: Settings, brand: Brand): 
   doc.text('AMOUNT', M + CONTENT_W - 4, y + 6, { align: 'right' });
   y += 13;
 
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
-  doc.setTextColor(...INK);
-  let desc = job.service || 'Service';
-  if (job.tireSize) desc += ' — ' + job.tireSize;
-  if (job.vehicleType && job.vehicleType !== 'Car') desc += '  (' + job.vehicleType + ')';
-  doc.text(desc, M + 4, y);
-
-  doc.setFontSize(9.5);
-  doc.setTextColor(...INK_SOFT);
-  doc.text(String(job.qty || 1), M + CONTENT_W - 42, y, { align: 'right' });
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.setTextColor(...INK);
-  doc.text(money(job.revenue || 0), M + CONTENT_W - 4, y, { align: 'right' });
-  y += 6;
-
-  // Cost breakdown sub-rows
-  const tireCost = Number(job.tireCost || 0);
-  const materialCost = Number(job.materialCost || job.miscCost || 0);
-  const miles = Number(job.miles || 0);
-  const freeMiles = Number(settings.freeMilesIncluded || 0);
-  const chargeable = Math.max(0, miles - freeMiles);
-  const travelCost = r2(chargeable * Number(settings.costPerMile || 0));
-
-  const breakdownRows: Array<[string, number]> = [];
-  if (tireCost > 0) breakdownRows.push(['Tire cost (included)', tireCost]);
-  if (materialCost > 0) breakdownRows.push(['Material cost (included)', materialCost]);
-  if (travelCost > 0) {
-    const milesLabel = freeMiles ? ` (${miles} mi, ${freeMiles} free)` : ` (${miles} mi)`;
-    breakdownRows.push(['Travel' + milesLabel, travelCost]);
-  }
-
-  if (breakdownRows.length > 0) {
+  // Each line item
+  for (let i = 0; i < lines.length; i++) {
+    const li = lines[i];
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(...MUTED);
-    for (const [label, amt] of breakdownRows) {
-      doc.text('  ' + label, M + 4, y);
-      doc.text(money(amt), M + CONTENT_W - 4, y, { align: 'right' });
-      y += 4.5;
+    doc.setFontSize(10);
+    doc.setTextColor(...INK);
+    doc.text(li.label, M + 4, y);
+
+    doc.setFontSize(9.5);
+    doc.setTextColor(...INK_SOFT);
+    doc.text(String(li.qty || 1), M + CONTENT_W - 42, y, { align: 'right' });
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(...INK);
+    doc.text(money(li.amount), M + CONTENT_W - 4, y, { align: 'right' });
+
+    y += 7;
+
+    // Hairline between line items (not after the last one)
+    if (i < lines.length - 1) {
+      doc.setDrawColor(...HAIRLINE);
+      doc.setLineWidth(0.2);
+      doc.line(M + 4, y - 2, M + CONTENT_W - 4, y - 2);
+      y += 1;
     }
-    y += 2;
-  } else {
-    y += 4;
   }
 
+  // Closing hairline under the table
+  y += 4;
   doc.setDrawColor(...HAIRLINE);
   doc.setLineWidth(0.3);
   doc.line(M, y, M + CONTENT_W, y);
   y += 10;
 
-  // ── Totals card ──────────────────────────────────────────
-  const subtotal = Number(job.revenue || 0);
+  // ── Totals card ──
+  const subtotal = r2(lines.reduce((s, l) => s + l.amount, 0));
   const taxRate = Number(settings.invoiceTaxRate || 0) / 100;
   const taxAmt = r2(subtotal * taxRate);
   const total = r2(subtotal + taxAmt);
@@ -300,7 +368,7 @@ export function generateInvoicePDF(job: Job, settings: Settings, brand: Brand): 
   doc.setDrawColor(...HAIRLINE);
   doc.line(totalsX + 4, ty - 2, totalsX + totalsW - 4, ty - 2);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(12);
+  doc.setFontSize(13);
   doc.setTextColor(...INK);
   doc.text('TOTAL', totalsX + 5, ty + 4);
   doc.setTextColor(...accent);
@@ -308,7 +376,7 @@ export function generateInvoicePDF(job: Job, settings: Settings, brand: Brand): 
 
   y += totalsCardH + 6;
 
-  // ── Payment status badge ─────────────────────────────────
+  // ── Payment status badge ──
   const ps = resolvePaymentStatus(job);
   const badge = paymentBadgeColors(ps);
   doc.setFont('helvetica', 'bold');
@@ -328,7 +396,7 @@ export function generateInvoicePDF(job: Job, settings: Settings, brand: Brand): 
   }
   y += 14;
 
-  // ── Notes ────────────────────────────────────────────────
+  // ── Notes ──
   if (job.note && job.note.trim()) {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7);
@@ -343,21 +411,17 @@ export function generateInvoicePDF(job: Job, settings: Settings, brand: Brand): 
     y += noteLines.length * 4.5 + 6;
   }
 
-  // ── Footer ───────────────────────────────────────────────
+  // ── Footer ──
   const footerY = H - 32;
-
   doc.setDrawColor(...HAIRLINE);
   doc.setLineWidth(0.3);
   doc.line(M, footerY - 6, M + CONTENT_W, footerY - 6);
 
-  // Thank-you — neutral wording so it works regardless of tenant
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8.5);
   doc.setTextColor(...INK);
   doc.text('Thank you for your business.', M, footerY);
 
-  // Footer text — prefer brand-provided footer; otherwise derive a neutral
-  // description from tenant fields. Never reference the SaaS platform name.
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
   doc.setTextColor(...MUTED);
@@ -369,7 +433,6 @@ export function generateInvoicePDF(job: Job, settings: Settings, brand: Brand): 
   const footerLines = doc.splitTextToSize(customFooter, CONTENT_W * 0.55);
   doc.text(footerLines, M, footerY + 4);
 
-  // Review CTA (right side)
   if (brand.reviewUrl) {
     const rx = M + CONTENT_W;
     doc.setFont('helvetica', 'bold');
@@ -386,7 +449,6 @@ export function generateInvoicePDF(job: Job, settings: Settings, brand: Brand): 
   doc.setFillColor(...accent);
   doc.rect(0, H - 4, W, 4, 'F');
 
-  // ── Filename: tenant slug, neutral fallback ──────────────
   const tenantSlug = (brand.businessName || '').replace(/[^a-z0-9]/gi, '-').toLowerCase();
   const slug = tenantSlug || 'invoice';
   const filename = `${slug}-${invNum}.pdf`;

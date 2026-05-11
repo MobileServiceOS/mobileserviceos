@@ -120,6 +120,18 @@ export interface Settings {
   costPerMile: number;
   defaultTargetProfit: number;
   invoiceTaxRate: number;
+  /**
+   * Customer-facing invoice line-item layout.
+   *   • 'transparent' (default) — break replacement jobs into Tire / Mobile
+   *     Service & Dispatch / Mounting & Balancing. Travel cost is absorbed
+   *     into the dispatch line rather than shown as a separate fee.
+   *   • 'single'     — print the service as one combined line item.
+   *
+   * Internal pricing math (suggested price, profit, dashboard, payouts) is
+   * unaffected by this setting. It only controls how line items render on
+   * the customer's PDF.
+   */
+  invoicePricingStyle?: 'transparent' | 'single';
   servicePricing: Record<string, ServicePricing>;
   vehiclePricing: Record<string, VehiclePricing>;
   expenses: Expense[];
@@ -133,15 +145,13 @@ export interface Settings {
  * Pricing controls for multi-tire jobs.
  *
  * `replacementMultipliers` scales the target profit when REPLACING 2-4 tires
- * in one job. The customer is paying for both new tires AND labor, so target
- * profit grows roughly with quantity but typically sub-linearly because labor
- * gets more efficient per-tire when you're already on-site.
+ * in one job. Sub-linear by default because labor is more efficient per-tire
+ * when you're already on-site.
  *
- * `installationByQuantity` is a flat price for installing customer-supplied
- * tires (mount/balance/install). Tire cost is $0 in this scenario; the price
- * fully reflects labor and overhead.
+ * `installationByQuantity` is a flat labor price for installing customer-
+ * supplied tires (mount/balance/install). Tire cost is $0 in this scenario.
  *
- * Quantities >4 fall back to the 4-tire value (rare in mobile-tire SMB land).
+ * Quantities >4 fall back to the 4-tire value.
  */
 export interface MultiTirePricing {
   replacementMultipliers: {

@@ -19,6 +19,7 @@ export function Settings({ settings, onSave }: Props) {
       <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 14 }}>Settings</div>
       <BrandSection />
       <BusinessSection settings={settings} onSave={onSave} />
+      <InvoiceStyleSection settings={settings} onSave={onSave} />
       <PricingSection settings={settings} onSave={onSave} />
       <MultiTirePricingSection settings={settings} onSave={onSave} />
       <AccountSection />
@@ -269,6 +270,128 @@ function PricingSection({ settings, onSave }: Props) {
 }
 
 /**
+ * Invoice line-item display style.
+ *
+ *   • Transparent Line Items (default) — breaks replacement/installation jobs
+ *     into "Tire" + "Mobile Service & Dispatch" + "Mounting & Balancing".
+ *     Travel cost is computed internally for profit math but never shown as
+ *     a separate fee on the customer's invoice.
+ *   • Single-Line Service — prints the service as one combined line item.
+ *
+ * Internal pricing logic (suggested price, profit, payouts, dashboard) is
+ * not affected by this setting — only the customer-facing PDF rendering.
+ */
+function InvoiceStyleSection({ settings, onSave }: Props) {
+  const current: 'transparent' | 'single' =
+    settings.invoicePricingStyle === 'single' ? 'single' : 'transparent';
+  const [draft, setDraft] = useState<'transparent' | 'single'>(current);
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    const v = settings.invoicePricingStyle === 'single' ? 'single' : 'transparent';
+    setDraft(v);
+    setDirty(false);
+  }, [settings.invoicePricingStyle]);
+
+  const select = (v: 'transparent' | 'single') => {
+    setDraft(v);
+    setDirty(v !== current);
+  };
+
+  const save = async () => {
+    try {
+      await onSave({ invoicePricingStyle: draft });
+      setDirty(false);
+      addToast('Invoice style saved', 'success');
+    } catch { /* toast handled in caller */ }
+  };
+
+  return (
+    <div className="form-group card-anim">
+      <div className="form-group-title">Invoice Display Style</div>
+      <div style={{ fontSize: 11, color: 'var(--t3)', marginBottom: 12, lineHeight: 1.5 }}>
+        Choose how line items appear on customer invoices. This only affects the PDF —
+        your internal pricing, profit, and dashboard math are unchanged.
+      </div>
+
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => select('transparent')}
+        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && select('transparent')}
+        style={{
+          border: '1px solid ' + (draft === 'transparent' ? 'var(--brand-primary)' : 'var(--border)'),
+          background: draft === 'transparent' ? 'rgba(200,164,74,.06)' : 'var(--s1)',
+          borderRadius: 10, padding: 12, marginBottom: 10, cursor: 'pointer',
+          transition: 'border-color .15s ease, background .15s ease',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--t1)' }}>Transparent Line Items</span>
+          {draft === 'transparent' && <span style={{ fontSize: 10, fontWeight: 800, color: 'var(--brand-primary)', textTransform: 'uppercase', letterSpacing: '1px' }}>Active</span>}
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--t3)', marginBottom: 8 }}>
+          Professional 3-line breakdown for replacement jobs.
+        </div>
+        <div style={{ background: 'var(--s2)', borderRadius: 6, padding: '8px 10px', fontSize: 11, color: 'var(--t2)', fontFamily: 'ui-monospace,Menlo,monospace' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span>Tire</span><span style={{ color: 'var(--t1)' }}>$50</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span>Mobile Service &amp; Dispatch</span><span style={{ color: 'var(--t1)' }}>$65</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span>Mounting &amp; Balancing</span><span style={{ color: 'var(--t1)' }}>$55</span>
+          </div>
+          <div style={{ borderTop: '1px solid var(--border)', marginTop: 5, paddingTop: 5, display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: 'var(--t1)' }}>
+            <span>TOTAL</span><span>$170</span>
+          </div>
+        </div>
+      </div>
+
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => select('single')}
+        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && select('single')}
+        style={{
+          border: '1px solid ' + (draft === 'single' ? 'var(--brand-primary)' : 'var(--border)'),
+          background: draft === 'single' ? 'rgba(200,164,74,.06)' : 'var(--s1)',
+          borderRadius: 10, padding: 12, marginBottom: 10, cursor: 'pointer',
+          transition: 'border-color .15s ease, background .15s ease',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--t1)' }}>Single-Line Service</span>
+          {draft === 'single' && <span style={{ fontSize: 10, fontWeight: 800, color: 'var(--brand-primary)', textTransform: 'uppercase', letterSpacing: '1px' }}>Active</span>}
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--t3)', marginBottom: 8 }}>
+          One combined line per service.
+        </div>
+        <div style={{ background: 'var(--s2)', borderRadius: 6, padding: '8px 10px', fontSize: 11, color: 'var(--t2)', fontFamily: 'ui-monospace,Menlo,monospace' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span>Tire Replacement</span><span style={{ color: 'var(--t1)' }}>$170</span>
+          </div>
+          <div style={{ borderTop: '1px solid var(--border)', marginTop: 5, paddingTop: 5, display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: 'var(--t1)' }}>
+            <span>TOTAL</span><span>$170</span>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 4, lineHeight: 1.5 }}>
+        Flat tire repairs and other simple services always print as a single line regardless of this setting.
+      </div>
+
+      {dirty && (
+        <button className="btn primary" onClick={save} style={{ marginTop: 12, width: '100%' }}>
+          Save Invoice Style
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
  * Edit replacement multipliers and flat installation prices.
  *
  * Why this section exists: a 4-tire job isn't 4× the labor of a 1-tire job —
@@ -308,8 +431,6 @@ function MultiTirePricingSection({ settings, onSave }: Props) {
     } catch { /* toast handled in caller */ }
   };
 
-  // Quick preview using the current base target profit from Tire Replacement
-  // service pricing so the owner can SEE what each multiplier means.
   const baseReplacementProfit = Number(
     settings.servicePricing?.['Tire Replacement']?.minProfit
       ?? settings.tireReplacementTargetProfit
@@ -325,7 +446,6 @@ function MultiTirePricingSection({ settings, onSave }: Props) {
         customer supplies their own tires.
       </div>
 
-      {/* ── Replacement multipliers ─────────────────────── */}
       <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 8 }}>
         Tire Replacement Multipliers
       </div>
@@ -359,7 +479,6 @@ function MultiTirePricingSection({ settings, onSave }: Props) {
         </div>
       </div>
 
-      {/* ── Installation prices ─────────────────────────── */}
       <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '1px', margin: '18px 0 8px 0' }}>
         Tire Installation Prices (customer supplies tires)
       </div>

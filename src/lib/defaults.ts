@@ -55,16 +55,9 @@ export const DEFAULT_VEHICLE_PRICING: Record<string, VehiclePricing> = {
 };
 
 /**
- * Default multi-tire pricing.
- *
- * Replacement multipliers are sub-linear because labor scales sub-linearly
- * per additional tire when you're already on-site (truck unpacked, equipment
- * set up). Defaults: 1.6× / 2.0× / 2.4× for 2/3/4 tires.
- *
- * Installation prices reflect the customer-supplied-tires scenario where
- * there's no tire cost — the whole price is labor. $220 for a 4-tire job
- * is the Wheel Rush-style anchor. Smaller quantities scale slightly above
- * straight per-tire proportion to account for the fixed cost of showing up.
+ * Default multi-tire pricing. Sub-linear replacement multipliers because
+ * labor scales sub-linearly per additional tire when you're already on-site.
+ * Installation prices anchor to a $220 4-tire flat (industry-typical).
  */
 export const DEFAULT_MULTI_TIRE: MultiTirePricing = {
   replacementMultipliers: { two: 1.6, three: 2.0, four: 2.4 },
@@ -84,6 +77,7 @@ export const DEFAULT_SETTINGS: Settings = {
   costPerMile: 0.65,
   defaultTargetProfit: 100,
   invoiceTaxRate: 0,
+  invoicePricingStyle: 'transparent',
   servicePricing: DEFAULT_SERVICE_PRICING,
   vehiclePricing: DEFAULT_VEHICLE_PRICING,
   expenses: [],
