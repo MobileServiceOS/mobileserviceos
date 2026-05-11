@@ -321,9 +321,8 @@ function AuthenticatedApp({ user }: { user: User }) {
         tireCost: computedTireCost,
         inventoryDeductions: deductions,
         lastEditedAt: new Date().toISOString(),
-        // Stamp the creator's uid on new jobs so Firestore rules can let
-        // the technician edit their own jobs later. Editing an existing job
-        // preserves whatever createdByUid was already set.
+        // Stamp the creator's uid so Firestore rules can let technicians
+        // edit their own jobs. Editing preserves existing createdByUid.
         createdByUid: isEditing
           ? (j.createdByUid || _auth?.currentUser?.uid || '')
           : (_auth?.currentUser?.uid || ''),
@@ -375,7 +374,9 @@ function AuthenticatedApp({ user }: { user: User }) {
   }, [businessId, jobs]);
 
   const handleGenerateInvoice = useCallback(async (j: Job) => {
-    const result = generateInvoicePDF(j, settings, brand);
+    // generateInvoicePDF is async — it preloads the tenant logo as a base64
+    // data URL before drawing the PDF so jsPDF can render it. Must await.
+    const result = await generateInvoicePDF(j, settings, brand);
     if (!result || !businessId) return;
     const jobsCol = scopedCol(businessId, 'jobs');
     const updated: Job = {
@@ -581,9 +582,9 @@ function AuthenticatedApp({ user }: { user: User }) {
 }
 
 /**
- * Bottom nav — extracted as inner component so it can use usePermissions()
- * from the MembershipProvider context. Technicians don't see Inv or More
- * (Settings) tabs, matching the role-based access spec.
+ * Bottom nav — extracted so it can use usePermissions() from the
+ * MembershipProvider context. Technicians don't see Inv or More (Settings)
+ * tabs.
  */
 function AppBottomNav({
   tab, setTab, onResetJobDraft,
@@ -593,9 +594,6 @@ function AppBottomNav({
   onResetJobDraft: () => void;
 }) {
   const permissions = usePermissions();
-  // Technicians don't get the inventory or settings tabs — those reveal
-  // owner-only data and aren't relevant to their work. They still get the
-  // Log button (primary CTA) since job-logging is their core action.
   const showInventory = permissions.canManageInventory || permissions.canViewFinancials;
   const showSettings = permissions.canEditBusinessSettings;
 
