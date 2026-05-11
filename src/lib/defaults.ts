@@ -56,9 +56,8 @@ export const DEFAULT_VEHICLE_PRICING: Record<string, VehiclePricing> = {
 
 /**
  * Default multi-tire pricing. Sub-linear replacement multipliers because
- * labor is more efficient per-tire when you're already on-site (truck
- * unpacked once, equipment set up once). Installation prices anchor to
- * $220 for a 4-tire job, which is the industry-typical mobile install rate.
+ * labor scales sub-linearly per additional tire (truck setup happens once).
+ * 4-tire installation anchors at $220 — industry-typical mobile install.
  */
 export const DEFAULT_MULTI_TIRE: MultiTirePricing = {
   replacementMultipliers: { two: 1.6, three: 2.0, four: 2.4 },
@@ -84,8 +83,17 @@ export const DEFAULT_SETTINGS: Settings = {
   freeMilesIncluded: 5,
   tireRepairTargetProfit: 90,
   tireReplacementTargetProfit: 110,
+
+  // Multi-tire + invoice rendering
   multiTirePricing: DEFAULT_MULTI_TIRE,
   invoicePricingStyle: 'transparent',
+
+  // Plan + team placeholders (no Stripe wiring yet)
+  plan: 'core',
+  subscriptionStatus: 'inactive',
+  maxUsers: 5,
+  allowTechnicianPriceOverride: false,
+  featureFlags: {},
 };
 
 export const SERVICE_PHRASES: Record<string, string> = {

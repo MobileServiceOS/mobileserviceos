@@ -4,26 +4,15 @@ import type { Role, Permissions, Plan, Settings, MemberDoc } from '@/types';
  * Centralized permissions helper.
  *
  * All UI gating and Firestore-rule reasoning flows through this module so
- * permission logic lives in exactly one place. Three callers exist:
+ * permission logic lives in exactly one place.
  *
- *   1. UI code: `usePermissions()` hook (added in batch 2) returns the
- *      resolved Permissions for the current user/business.
- *   2. Pure helpers: `getRolePermissions(role)` returns the role default
- *      without needing membership context — useful for previews.
- *   3. Backend reasoning: `firestore.rules` mirrors these checks server-side
- *      so security doesn't rely on the UI being honest.
- *
- * Permission resolution order (most → least specific):
+ * Resolution order (most → least specific):
  *   1. Per-member `permissions` override (rare; only set explicitly)
  *   2. Role default (owner | admin | technician)
- *   3. ALL FALSE — the safe baseline if anything is missing/invalid
+ *   3. Plan cap (Pro-only features stripped on Core)
+ *   4. Business setting overrides (e.g. allowTechnicianPriceOverride)
  *
- * Plan tier (`core` vs `pro`) caps a few permissions:
- *   • `canManageTeam` requires Pro (Core is solo-only)
- *   • `canViewAdvancedReports` requires Pro
- *
- * Business setting `allowTechnicianPriceOverride` further restricts
- * `canOverrideJobPrice` for technicians.
+ * The safe baseline is ALL FALSE — a missing or invalid role grants nothing.
  */
 
 const ALL_FALSE: Permissions = {
@@ -72,9 +61,9 @@ const OWNER_PERMISSIONS: Permissions = {
 
 /**
  * Admin = owner-equivalent operationally, but cannot manage billing or
- * remove the owner. The "cannot remove the owner" check is enforced at the
- * team-management action level (in TeamManagement.tsx and firestore.rules);
- * permissions alone can't express it.
+ * remove the owner. The "cannot remove the owner" rule is enforced at the
+ * team-management action level (TeamManagement.tsx + firestore.rules) since
+ * a single boolean can't capture it cleanly.
  */
 const ADMIN_PERMISSIONS: Permissions = {
   ...OWNER_PERMISSIONS,
@@ -82,30 +71,23 @@ const ADMIN_PERMISSIONS: Permissions = {
 };
 
 /**
- * Technician — field worker. Sees what they need to work on a job. Hidden
- * from anything that reveals company financials or lets them change pricing.
- * `canOverrideJobPrice` is FALSE here at the role level — the business-
- * setting toggle `allowTechnicianPriceOverride` can flip it ON via
- * `applyBusinessOverrides()` below.
+ * Technician — field worker. Sees what's needed to complete a job. Hidden
+ * from anything that reveals company financials or lets them edit pricing.
+ * `canOverrideJobPrice` is FALSE here; the business setting
+ * `allowTechnicianPriceOverride` flips it ON via `applyBusinessOverrides()`.
  */
 const TECHNICIAN_PERMISSIONS: Permissions = {
   ...ALL_FALSE,
   canUsePricingEngine: true,
   canCreateJobs: true,
-  canEditJobs: true,        // own jobs only — enforced in rules + UI
+  canEditJobs: true, // own jobs only — enforced in rules + UI
   canGenerateInvoices: true,
   canSendReviews: true,
-  canViewPricingSettings: false, // can quote, but can't see settings page
-  // The following remain FALSE explicitly for clarity even though spread
-  // already set them: canViewFinancials, canViewRevenue, canViewProfit,
-  // canManageExpenses, canManageInventory, canEditPricingSettings,
-  // canManageTeam, canEditBusinessSettings, canUploadLogo, canDeleteJobs,
-  // canViewAdvancedReports, canManageBilling, canOverrideJobPrice.
 };
 
 /**
  * Role-only default permissions. Use when business plan / settings aren't
- * available (e.g. role preview in invite dialog).
+ * available (e.g. role preview in an invite dialog before settings load).
  */
 export function getRolePermissions(role: Role): Permissions {
   switch (role) {
@@ -117,12 +99,9 @@ export function getRolePermissions(role: Role): Permissions {
 }
 
 /**
- * Apply plan-tier caps to a permission set. Some permissions require Pro:
- *   • `canManageTeam` — Core is solo-only by definition
- *   • `canViewAdvancedReports` — Pro feature
- *
- * Owner of a Core business STILL gets `canEditBusinessSettings`, etc; the
- * only thing they can't do is invite teammates.
+ * Apply plan-tier caps. Some permissions require Pro:
+ *   • canManageTeam — Core is solo-only by definition
+ *   • canViewAdvancedReports — Pro-only feature
  */
 function applyPlanCaps(p: Permissions, plan: Plan): Permissions {
   if (plan === 'pro') return p;
@@ -134,9 +113,8 @@ function applyPlanCaps(p: Permissions, plan: Plan): Permissions {
 }
 
 /**
- * Apply business-level setting overrides. Currently:
- *   • `allowTechnicianPriceOverride` flips `canOverrideJobPrice` ON for
- *     technicians when enabled. Doesn't affect owner/admin (already true).
+ * Apply business-setting overrides:
+ *   • allowTechnicianPriceOverride flips canOverrideJobPrice ON for techs.
  */
 function applyBusinessOverrides(
   p: Permissions,
@@ -153,14 +131,8 @@ function applyBusinessOverrides(
 /**
  * Resolve the effective permission set for a member in a business.
  *
- * Order of precedence:
- *   1. Per-member explicit `permissions` overrides (if set on MemberDoc)
- *   2. Role default
- *   3. Plan cap (Pro-only features stripped on Core)
- *   4. Business override (technician price override toggle)
- *
- * Pass an empty/null member to get the safe-default ALL_FALSE set — used
- * for unauthenticated / pre-load states.
+ * Pass a null/undefined member to get the safe ALL_FALSE set — used for
+ * unauthenticated or pre-load states.
  */
 export function getPermissions(
   member: MemberDoc | null | undefined,
@@ -176,7 +148,7 @@ export function getPermissions(
   p = applyBusinessOverrides(p, role, settings);
 
   // Per-member overrides applied last so they always win — useful for
-  // promoting a technician to manage inventory without making them admin.
+  // promoting a technician to manage inventory without giving them admin.
   if (member.permissions) {
     p = { ...p, ...member.permissions };
   }
@@ -184,9 +156,7 @@ export function getPermissions(
 }
 
 /**
- * Convenience: can this role be assigned by the given actor?
- *
- * Rules:
+ * Can this actor assign the given target role?
  *   • Owner can assign any role
  *   • Admin can assign admin or technician (not owner)
  *   • Technician cannot assign anyone
@@ -198,8 +168,8 @@ export function canAssignRole(actorRole: Role, targetRole: Role): boolean {
 }
 
 /**
- * Plan-tier seat limit. Returns the max number of *member* docs (including
- * owner) that can exist on this plan. Used to gate the invite button.
+ * Maximum member count allowed under this plan. Core = 1, Pro = configurable
+ * (defaults to 5). Used to gate the invite button in TeamManagement.
  */
 export function planSeatLimit(settings: Pick<Settings, 'plan' | 'maxUsers'>): number {
   const plan: Plan = settings.plan === 'pro' ? 'pro' : 'core';

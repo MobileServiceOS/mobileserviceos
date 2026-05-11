@@ -127,41 +127,31 @@ export interface Settings {
   tireRepairTargetProfit?: number;
   tireReplacementTargetProfit?: number;
 
-  /**
-   * Pricing controls for multi-tire jobs. The `utils.ts` `calcQuote` function
-   * reads this as a nested object (e.g. `settings.multiTirePricing
-   * .replacementMultipliers.two`) so the shape MUST stay nested. If you want
-   * flat field names later, that's a refactor across utils.ts + AddJob +
-   * Dashboard + Settings — not a type-only change.
-   *
-   *   replacementMultipliers.{two,three,four}  multiplies target profit
-   *     when replacing 2/3/4 tires in one job. Default 1.6 / 2.0 / 2.4.
-   *
-   *   installationByQuantity.{one,two,three,four}  flat labor price when the
-   *     customer supplies the tires. Default 60 / 110 / 165 / 220.
-   *     The 4-tire $220 is the industry anchor.
-   */
+  // ── Multi-tire pricing (nested object — utils.ts reads it this shape) ──
   multiTirePricing?: MultiTirePricing;
 
-  /**
-   * Invoice line-item layout for customer-facing PDFs.
-   *   • 'transparent' — split Tire Replacement into Tire / Mobile Service &
-   *     Dispatch / Mounting & Balancing (travel cost absorbed into dispatch).
-   *   • 'single'      — print the service as one combined line.
-   *
-   * The codebase reads this as a string literal union. Default 'transparent'.
-   */
+  // ── Invoice rendering style ──
   invoicePricingStyle?: 'transparent' | 'single';
+
+  // ── Plan + subscription + team placeholders (Stripe not wired yet) ──
+  plan?: Plan;
+  subscriptionStatus?: SubscriptionStatus;
+  trialEndsAt?: string;
+  maxUsers?: number;
+  allowTechnicianPriceOverride?: boolean;
+  featureFlags?: FeatureFlags;
 }
 
 /**
- * Nested type referenced from Settings.multiTirePricing.
+ * Multi-tire pricing controls.
  *
- * Why nested rather than flat? Two reasons:
- *   1. Existing pricing logic in `utils.ts` reads the nested form
- *      (`.replacementMultipliers.two`, `.installationByQuantity.four`).
- *   2. Grouping multipliers vs installation prices makes intent clearer
- *      and lets us add per-group settings later without flattening more.
+ * `replacementMultipliers.{two,three,four}` scales target profit when
+ * replacing multiple tires (sub-linear by default — labor is more efficient
+ * per-tire when already on-site).
+ *
+ * `installationByQuantity.{one,two,three,four}` is the flat labor charge
+ * when the customer supplies the tires. The 4-tire $220 default is the
+ * industry anchor for mobile install.
  */
 export interface MultiTirePricing {
   replacementMultipliers: {
@@ -175,6 +165,84 @@ export interface MultiTirePricing {
     three: number;
     four: number;
   };
+}
+
+/**
+ * Plan tier for a business. Drives team-management gating; does NOT replace
+ * the fine-grained per-role permissions in `lib/permissions.ts`.
+ *   • core — solo operator, 1 user, all core features
+ *   • pro  — multi-user team access + advanced reports
+ */
+export type Plan = 'core' | 'pro';
+
+export type SubscriptionStatus = 'trialing' | 'active' | 'inactive';
+
+/**
+ * Role of a member within a business.
+ *   • owner      — full access; at least one must always exist per business
+ *   • admin      — full operational access except billing + can't remove owner
+ *   • technician — field worker; limited to job logging + quoting, no
+ *                  financials, no settings
+ */
+export type Role = 'owner' | 'admin' | 'technician';
+
+export type MemberStatus = 'active' | 'invited' | 'disabled';
+
+/**
+ * Document at `businesses/{businessId}/members/{uid}`.
+ *
+ * For pending invites the uid may be a placeholder until the invitee signs up,
+ * at which point the accept-invite flow swaps it for the real auth uid.
+ * `permissions` is an OPTIONAL per-user override on top of the role defaults
+ * — leave undefined for standard role-based access.
+ */
+export interface MemberDoc {
+  uid: string;
+  email: string;
+  displayName?: string;
+  role: Role;
+  status: MemberStatus;
+  invitedBy?: string;
+  invitedAt?: string;
+  joinedAt?: string;
+  permissions?: Partial<Permissions>;
+  assignedBusinessId: string;
+}
+
+/**
+ * Per-user/per-business permission set. Use through `getPermissions()` in
+ * `lib/permissions.ts` rather than constructing directly — the helper
+ * applies role defaults, plan caps, and business overrides.
+ *
+ * All permissions default to FALSE so a missing/invalid role can never
+ * accidentally grant access.
+ */
+export interface Permissions {
+  canViewFinancials: boolean;
+  canViewRevenue: boolean;
+  canViewProfit: boolean;
+  canManageExpenses: boolean;
+  canManageInventory: boolean;
+  canEditPricingSettings: boolean;
+  canViewPricingSettings: boolean;
+  canUsePricingEngine: boolean;
+  canOverrideJobPrice: boolean;
+  canManageTeam: boolean;
+  canEditBusinessSettings: boolean;
+  canUploadLogo: boolean;
+  canGenerateInvoices: boolean;
+  canSendReviews: boolean;
+  canCreateJobs: boolean;
+  canEditJobs: boolean;
+  canDeleteJobs: boolean;
+  canViewAdvancedReports: boolean;
+  canManageBilling: boolean;
+}
+
+/** Feature flag bag — tenant-level toggles. */
+export interface FeatureFlags {
+  advancedReports?: boolean;
+  prioritySupport?: boolean;
 }
 
 export interface QuoteForm {
