@@ -1,0 +1,53 @@
+name: CI
+
+# Runs on every PR + every push to main. The PR run is the gate; branch
+# protection on `main` should require this workflow to pass before merge.
+# The push-to-main run is a safety net for direct commits.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Cancel in-progress runs for the same ref when a new commit is pushed.
+# Saves CI minutes during rapid debugging.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Type-check + build
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Production build
+        run: npm run build
+
+      # Guardrail: catches the recurring un-awaited generateInvoicePDF
+      # regression. If `generateInvoicePDF(` appears in App.tsx without a
+      # preceding `await`, fail the build with a clear error message.
+      - name: Lint critical async patterns
+        run: |
+          if grep -nE "(^|[^a-zA-Z_])generateInvoicePDF\(" src/App.tsx | grep -v "await generateInvoicePDF" | grep -v "^[0-9]*:import" | grep -v "^[0-9]*: \*"; then
+            echo "::error::Found un-awaited generateInvoicePDF call in App.tsx. The function is async — every callsite must use 'await'."
+            exit 1
+          fi
+          echo "✓ All generateInvoicePDF callsites properly awaited."
