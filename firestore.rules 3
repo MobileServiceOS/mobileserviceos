@@ -1,0 +1,186 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Auth helpers ─────────────────────────────────────
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwnUser(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Owner-by-convention: businessId == auth.uid. This is the bootstrap
+    // and primary-owner identity. It does NOT require a members doc to
+    // exist, which is critical for two cases:
+    //   1. First-signup bootstrap (members doc doesn't exist yet)
+    //   2. Existing tenants whose members doc was written before batch 2
+    //      and is missing the `status` field
+    function isOwnerByConvention(businessId) {
+      return isSignedIn() && request.auth.uid == businessId;
+    }
+
+    // Teammate access — invited users link via users/{uid}.businessId
+    function hasUserBusinessLink(businessId) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.businessId == businessId;
+    }
+
+    function hasMemberDoc(businessId) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/businesses/$(businessId)/members/$(request.auth.uid));
+    }
+
+    function canAccessBusiness(businessId) {
+      return isOwnerByConvention(businessId)
+        || hasUserBusinessLink(businessId)
+        || hasMemberDoc(businessId);
+    }
+
+    // ── Defensive member-doc field readers ───────────────
+    // Firestore rules error (deny) when reading a missing field directly.
+    // We use `'fieldName' in data ? data.fieldName : default` so older
+    // member docs without the new fields still work.
+    function memberData(businessId) {
+      return get(/databases/$(database)/documents/businesses/$(businessId)/members/$(request.auth.uid)).data;
+    }
+
+    function memberRole(businessId) {
+      return 'role' in memberData(businessId) ? memberData(businessId).role : 'owner';
+    }
+
+    function memberStatus(businessId) {
+      return 'status' in memberData(businessId) ? memberData(businessId).status : 'active';
+    }
+
+    function isActiveMember(businessId) {
+      // Convention-owner is always active without needing a members doc.
+      // For teammates, the doc must exist AND not be 'disabled'.
+      return isOwnerByConvention(businessId)
+        || (hasMemberDoc(businessId) && memberStatus(businessId) != 'disabled');
+    }
+
+    // Role checks. Convention-owner ALWAYS passes the owner check without
+    // consulting the members doc — this is the primary owner identity and
+    // is the only reliable identity during bootstrap and for legacy docs.
+    function isOwnerRole(businessId) {
+      return isOwnerByConvention(businessId)
+        || (hasMemberDoc(businessId)
+            && memberRole(businessId) == 'owner'
+            && memberStatus(businessId) != 'disabled');
+    }
+
+    function isAdminRole(businessId) {
+      return hasMemberDoc(businessId)
+        && memberRole(businessId) == 'admin'
+        && memberStatus(businessId) != 'disabled';
+    }
+
+    function isTechnicianRole(businessId) {
+      return hasMemberDoc(businessId)
+        && memberRole(businessId) == 'technician'
+        && memberStatus(businessId) != 'disabled';
+    }
+
+    function isOwnerOrAdmin(businessId) {
+      return isOwnerRole(businessId) || isAdminRole(businessId);
+    }
+
+    // ── users/{uid} ──────────────────────────────────────
+    match /users/{userId} {
+      allow read, write: if isOwnUser(userId);
+    }
+
+    // ── businesses/{businessId} ──────────────────────────
+    match /businesses/{businessId} {
+      allow read:   if canAccessBusiness(businessId);
+      allow create: if isOwnerByConvention(businessId);
+      allow update: if isOwnerOrAdmin(businessId);
+      allow delete: if false;
+
+      // ── members/{uid} ──────────────────────────────
+      // Owner can manage all member docs. Admin can manage non-owners.
+      // A user can read their own member doc + accept an invite.
+      match /members/{memberUid} {
+        allow read: if isOwnUser(memberUid) || isOwnerOrAdmin(businessId);
+
+        // Bootstrap: convention-owner creates their first member doc as
+        // themselves. Subsequent invites must come from owner/admin.
+        allow create: if (isOwnerByConvention(businessId) && request.auth.uid == memberUid)
+                         || isOwnerOrAdmin(businessId);
+
+        // Update: owner can update anyone. Admin can update non-owners.
+        // A user can update their OWN doc only to flip invited→active.
+        allow update: if isOwnerRole(businessId)
+                         || (isAdminRole(businessId)
+                             && resource.data.role != 'owner'
+                             && request.resource.data.role != 'owner')
+                         || (isOwnUser(memberUid)
+                             && resource.data.role == request.resource.data.role
+                             && ('status' in resource.data ? resource.data.status : 'active') == 'invited'
+                             && request.resource.data.status == 'active');
+
+        // Delete: owner can delete anyone (with last-owner UI guard).
+        // Admin can delete non-owners. Technicians cannot delete members.
+        allow delete: if isOwnerRole(businessId)
+                         || (isAdminRole(businessId) && resource.data.role != 'owner');
+      }
+
+      // ── settings/{settingId} ───────────────────────
+      // Brand and operational settings. Owner/admin can write; everyone
+      // active can read.
+      match /settings/{settingId} {
+        allow read: if canAccessBusiness(businessId);
+        allow write: if isOwnerOrAdmin(businessId);
+      }
+
+      // ── jobs/{jobId} ───────────────────────────────
+      // All active members create+read. Owner/admin edit any; technicians
+      // edit only jobs they created (via createdByUid, wired in batch 3).
+      match /jobs/{jobId} {
+        allow read: if isActiveMember(businessId);
+        allow create: if isActiveMember(businessId);
+        allow update: if isOwnerOrAdmin(businessId)
+                         || (isTechnicianRole(businessId)
+                             && 'createdByUid' in resource.data
+                             && resource.data.createdByUid == request.auth.uid);
+        allow delete: if isOwnerOrAdmin(businessId);
+      }
+
+      // ── inventory/{itemId} ─────────────────────────
+      match /inventory/{itemId} {
+        allow read: if isActiveMember(businessId);
+        allow write: if isOwnerOrAdmin(businessId);
+      }
+
+      // ── expenses/{expenseId} ───────────────────────
+      // Financial data — owner/admin only. Technicians blocked entirely.
+      match /expenses/{expenseId} {
+        allow read, write: if isOwnerOrAdmin(businessId);
+      }
+
+      // ── invoices/{invoiceId} ───────────────────────
+      match /invoices/{invoiceId} {
+        allow read, write: if isActiveMember(businessId);
+      }
+
+      // ── Other business-scoped subcollections ───────
+      match /{collection}/{docId} {
+        allow read: if isActiveMember(businessId);
+        allow write: if isOwnerOrAdmin(businessId);
+      }
+
+      match /{collection}/{docId}/{rest=**} {
+        allow read: if isActiveMember(businessId);
+        allow write: if isOwnerOrAdmin(businessId);
+      }
+    }
+
+    // ── Default deny ─────────────────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
