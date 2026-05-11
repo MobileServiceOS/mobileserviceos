@@ -435,3 +435,52 @@ a { color: var(--brand-primary); text-decoration: none; }
   .kpi-grid.three { grid-template-columns: 1fr 1fr; }
   .field-row { grid-template-columns: 1fr; }
 }
+
+/* ============================================================
+   AddJob — pricing-first layout additions
+   ============================================================ */
+
+/* Highlight the pricing card so it reads as the primary section */
+.pricing-summary {
+  border-color: rgba(200,164,74,.28);
+  background: linear-gradient(160deg, rgba(200,164,74,.06) 0%, var(--s1) 60%);
+}
+
+/* Compact breakdown that sits between the price tiles and the CTA. */
+.pricing-mini-breakdown {
+  margin: 12px 0 4px 0;
+  padding: 10px 12px;
+  background: var(--s2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.pricing-mini-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: var(--t2);
+  padding: 3px 0;
+}
+.pricing-mini-row.total {
+  border-top: 1px solid var(--border2);
+  padding-top: 7px;
+  margin-top: 4px;
+  font-weight: 700;
+  color: var(--t1);
+}
+.pricing-mini-row .num { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--t1); }
+.pricing-mini-row .num.green { color: var(--green); }
+
+/* Inline note shown when revenue has been manually overridden */
+.pricing-override-note {
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: rgba(245,158,11,.08);
+  border: 1px solid rgba(245,158,11,.22);
+  border-radius: 8px;
+  font-size: 11px;
+  color: var(--amber);
+  font-weight: 600;
+  text-align: center;
+}

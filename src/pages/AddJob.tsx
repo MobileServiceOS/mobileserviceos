@@ -36,18 +36,50 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
   const needsTireDetails = TIRE_MATERIAL_SERVICES.includes(job.service);
   const tireSource = (job.tireSource || 'Inventory') as TireSource;
 
-  // Pre-populate revenue with suggested when blank and service/vehicle present
+  // Live quote that updates with every relevant change. This drives both the
+  // pricing summary at the top and the suggested-price auto-fill below.
+  const quote = useMemo(
+    () => calcQuote({
+      service: job.service, vehicleType: job.vehicleType,
+      miles: job.miles, tireCost: job.tireCost, materialCost: job.materialCost,
+      qty: job.qty,
+      emergency: job.emergency, lateNight: job.lateNight, highway: job.highway, weekend: job.weekend,
+    }, settings),
+    [
+      job.service, job.vehicleType, job.miles, job.tireCost, job.materialCost,
+      job.qty, job.emergency, job.lateNight, job.highway, job.weekend, settings,
+    ]
+  );
+
+  const [pricingMode, setPricingMode] = useState<'suggested' | 'premium'>('suggested');
+  // Track whether the user has manually edited revenue. Once they do, stop
+  // auto-filling so we don't blow away their override every time they tweak
+  // a chip below.
+  const revenueLockedRef = useRef<boolean>(Boolean(isEditing && job.revenue));
+
+  const onRevenueChange = (value: string) => {
+    revenueLockedRef.current = true;
+    set('revenue', value);
+  };
+
+  // Auto-fill revenue from the live quote when the user hasn't overridden it.
+  // Runs on every quote change, but is a no-op once the user types a value.
   useEffect(() => {
-    if (!isEditing && !job.revenue) {
-      const q = calcQuote({
-        service: job.service, vehicleType: job.vehicleType,
-        miles: job.miles, tireCost: job.tireCost, materialCost: job.materialCost,
-        qty: job.qty, emergency: job.emergency, lateNight: job.lateNight, highway: job.highway, weekend: job.weekend,
-      }, settings);
-      setJob({ ...job, revenue: q.suggested });
+    if (isEditing) return;
+    if (revenueLockedRef.current) return;
+    const target = pricingMode === 'premium' ? quote.premium : quote.suggested;
+    if (Number(job.revenue || 0) !== target) {
+      set('revenue', target);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [job.service, job.vehicleType]);
+  }, [quote.suggested, quote.premium, pricingMode]);
+
+  const acceptPrice = (mode: 'suggested' | 'premium') => {
+    setPricingMode(mode);
+    revenueLockedRef.current = false; // re-engage auto-fill at the new price
+    const target = mode === 'premium' ? quote.premium : quote.suggested;
+    set('revenue', target);
+  };
 
   // Auto-zero tireCost when customer-supplied
   useEffect(() => {
@@ -118,6 +150,70 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
           Pre-filled from Quick Quote · Adjust details below
         </div>
       )}
+
+      {/* ── Pricing summary — always first so the operator can see the
+            suggested/premium price and target profit before filling out
+            any details. Updates live as Service / Vehicle / Miles / Tire
+            cost change below. ───────────────────────────────────────── */}
+      <div className="form-group card-anim pricing-summary">
+        <div className="form-group-title">Pricing</div>
+        <div className="qq-pricing-row">
+          <div
+            className={'qq-price-tile' + (pricingMode === 'suggested' ? ' active' : '')}
+            onClick={() => acceptPrice('suggested')}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && acceptPrice('suggested')}
+          >
+            <div className="qq-price-tile-label">Suggested</div>
+            <div className="qq-price-tile-amount">{money(quote.suggested)}</div>
+          </div>
+          <div
+            className={'qq-price-tile premium' + (pricingMode === 'premium' ? ' active' : '')}
+            onClick={() => acceptPrice('premium')}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && acceptPrice('premium')}
+          >
+            <div className="qq-price-tile-label">Premium</div>
+            <div className="qq-price-tile-amount">{money(quote.premium)}</div>
+          </div>
+        </div>
+
+        <div className="pricing-mini-breakdown">
+          <div className="pricing-mini-row">
+            <span>Direct cost</span>
+            <span className="num">{money(quote.directCosts)}</span>
+          </div>
+          <div className="pricing-mini-row">
+            <span>
+              Travel ({Number(job.miles || 0)} mi
+              {Number(settings.freeMilesIncluded || 0)
+                ? `, ${settings.freeMilesIncluded} free`
+                : ''})
+            </span>
+            <span className="num">{money(quote.directCosts - Number(job.tireCost || 0) - Number(job.materialCost || job.miscCost || 0))}</span>
+          </div>
+          <div className="pricing-mini-row total">
+            <span>Target profit</span>
+            <span className="num green">{money(quote.targetProfit)}</span>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          className="cta-btn press-scale qq-cta"
+          onClick={() => acceptPrice(pricingMode)}
+        >
+          Start Job at {money(pricingMode === 'premium' ? quote.premium : quote.suggested)} →
+        </button>
+
+        {revenueLockedRef.current && Number(job.revenue || 0) !== (pricingMode === 'premium' ? quote.premium : quote.suggested) && (
+          <div className="pricing-override-note">
+            Revenue manually set to {money(job.revenue)} · tap a price tile to reset
+          </div>
+        )}
+      </div>
 
       <div className="form-group card-anim">
         <div className="form-group-title">Service</div>
@@ -315,10 +411,16 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
       </div>
 
       <div className="form-group card-anim">
-        <div className="form-group-title">Revenue</div>
+        <div className="form-group-title">Confirm Revenue &amp; Profit</div>
         <div className="field">
           <label>Revenue charged ($)</label>
-          <input type="number" inputMode="decimal" value={job.revenue} onChange={(e) => set('revenue', e.target.value)} placeholder="0" />
+          <input
+            type="number"
+            inputMode="decimal"
+            value={job.revenue}
+            onChange={(e) => onRevenueChange(e.target.value)}
+            placeholder="0"
+          />
         </div>
         <div className="field">
           <label>Note (optional)</label>
