@@ -437,294 +437,58 @@ a { color: var(--brand-primary); text-decoration: none; }
 }
 
 /* ============================================================
-   Dashboard — premium polish pass
+   Quick Quote — operational control center polish
    ============================================================ */
 
-/* Tighter section labels — more breathing room without floating apart */
-.section-label { margin: 18px 0 8px 0; }
-.section-label.with-action { display: flex; justify-content: space-between; align-items: baseline; }
-.section-label-action {
-  background: none; border: none; cursor: pointer;
-  font-size: 11px; font-weight: 700; color: var(--brand-primary);
-  text-transform: none; letter-spacing: 0; padding: 0;
-}
-.section-label-action:hover { color: var(--brand-accent); }
-
-/* Tighten the top of the dashboard page */
-.dashboard-page { padding-top: 10px; }
-.dashboard-cta-spacer { margin-top: 22px; }
-
-/* ── Hero refinements ──────────────────────────────────── */
-.pro-hero {
-  padding: 16px 16px 14px 16px;
-  background:
-    radial-gradient(circle at 0% 0%, rgba(200,164,74,.14) 0%, transparent 60%),
-    linear-gradient(160deg, rgba(200,164,74,.06) 0%, var(--s1) 70%);
-  border-radius: 18px;
-  box-shadow: 0 10px 32px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.04);
-}
-.pro-hero-head {
-  display: flex; justify-content: space-between; align-items: center;
-  margin-bottom: 4px;
-}
-.pro-hero-goal-pct {
-  font-size: 11px; font-weight: 800; letter-spacing: 1px;
-  padding: 3px 8px; border-radius: 99px;
-  background: var(--s2); border: 1px solid var(--border);
-  font-variant-numeric: tabular-nums;
-}
-.pro-hero-goal-pct.low { color: var(--red); border-color: rgba(239,68,68,.3); background: rgba(239,68,68,.08); }
-.pro-hero-goal-pct.mid { color: var(--amber); border-color: rgba(245,158,11,.3); background: rgba(245,158,11,.08); }
-.pro-hero-goal-pct.full { color: var(--green); border-color: rgba(34,197,94,.3); background: rgba(34,197,94,.08); }
-
-.hero-amount { line-height: .95; }
-.goal-track {
-  height: 8px;
-  background: linear-gradient(180deg, rgba(0,0,0,.4), var(--s3));
-  border-radius: 99px;
-  margin-top: 16px;
-  overflow: hidden;
-  box-shadow: inset 0 1px 2px rgba(0,0,0,.4);
-}
-.goal-fill {
-  height: 100%;
-  transition: width .45s cubic-bezier(.2,.7,.25,1);
-  border-radius: 99px;
-  box-shadow: 0 0 12px currentColor;
-}
-.goal-fill.low { background: linear-gradient(90deg, #ef4444, #f87171); color: rgba(239,68,68,.5); }
-.goal-fill.mid { background: linear-gradient(90deg, #f59e0b, #fbbf24); color: rgba(245,158,11,.5); }
-.goal-fill.full { background: linear-gradient(90deg, #22c55e, #4ade80); color: rgba(34,197,94,.5); }
-
-.pro-hero-foot { margin-top: 8px; font-size: 11px; color: var(--t3); }
-.pro-hero-foot > span { font-weight: 600; }
-.pro-hero-foot > span:last-child { color: var(--t2); }
-
-/* Inline stats strip — Revenue / Expenses / Pending */
-.pro-hero-strip {
-  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1px;
-  margin-top: 14px;
-  background: var(--border);
-  border-radius: 10px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-}
-.pro-hero-stat {
-  background: rgba(11,13,18,.5);
-  padding: 8px 10px;
-  text-align: center;
-}
-.pro-hero-stat-label {
-  font-size: 9px; font-weight: 800; color: var(--t3);
-  text-transform: uppercase; letter-spacing: 1px;
-  margin-bottom: 2px;
-}
-.pro-hero-stat-value {
-  font-size: 13px; font-weight: 800; color: var(--t1);
-  font-variant-numeric: tabular-nums;
-}
-.pro-hero-stat-value.red { color: var(--red); }
-.pro-hero-stat-value.amber { color: var(--amber); }
-.pro-hero-stat-value.green { color: var(--green); }
-
-/* ── KPI grid (tight variant) ──────────────────────────── */
-.kpi-grid-tight { margin-top: 10px; gap: 8px; }
-.kpi-grid-tight .kpi {
-  padding: 10px 12px 9px 12px;
-  background: var(--s1);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  transition: border-color .15s ease;
-}
-.kpi-grid-tight .kpi:hover { border-color: var(--border2); }
-.kpi-grid-tight .kpi-label {
-  font-size: 9px; color: var(--t3); font-weight: 800;
-  text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 3px;
-}
-.kpi-grid-tight .kpi-value {
-  font-size: 18px; font-weight: 800; color: var(--t1);
-  letter-spacing: -.3px; line-height: 1.05;
-  font-variant-numeric: tabular-nums;
-}
-.kpi-grid-tight .kpi-value.green { color: var(--green); }
-.kpi-sub {
-  font-size: 10px; color: var(--t3); margin-top: 3px; font-weight: 600;
-}
-
-/* ── Insight card (single-row inline card for compact insights) ── */
-.insight-card {
-  display: flex; align-items: center; gap: 12px;
-  background: var(--s1); border: 1px solid var(--border);
-  border-radius: 12px; padding: 10px 14px;
-  margin-top: 14px;
-}
-.insight-card-icon { font-size: 20px; flex-shrink: 0; }
-.insight-card-body { flex: 1; min-width: 0; }
-.insight-card-label {
-  font-size: 9px; font-weight: 800; color: var(--t3);
-  text-transform: uppercase; letter-spacing: 1.2px;
-}
-.insight-card-value {
-  font-size: 13px; font-weight: 700; color: var(--t1); margin-top: 2px;
-}
-.insight-card-meta { color: var(--t3); font-weight: 500; }
-
-/* Compact lead-sources */
-.lead-sources-pad { padding: 10px 14px; }
-.source-bar { display: flex; align-items: center; gap: 10px; padding: 5px 0; }
-.source-bar-name {
-  font-size: 11px; font-weight: 700; color: var(--t2);
-  width: 78px; flex-shrink: 0;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.source-bar-track {
-  flex: 1; height: 6px;
-  background: var(--s3); border-radius: 99px; overflow: hidden;
-}
-.source-bar-fill {
-  height: 100%; background: linear-gradient(90deg, var(--brand-primary), var(--brand-accent));
-  border-radius: 99px;
-}
-.source-bar-count {
-  font-size: 12px; font-weight: 800; color: var(--t1);
-  width: 26px; text-align: right; flex-shrink: 0;
-}
-
-/* ── Premium job card ──────────────────────────────────── */
-.job-card.premium {
-  background: linear-gradient(180deg, var(--s1) 0%, rgba(11,13,18,.7) 100%);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  overflow: hidden;
-  transition: border-color .15s ease, transform .15s ease;
-}
-.job-card.premium:hover { border-color: rgba(200,164,74,.25); }
-.job-card.premium:active { transform: scale(.998); }
-
-.job-card.premium .job-card-main { padding: 12px 14px; gap: 11px; }
-.job-card.premium .job-icon {
-  font-size: 22px;
-  width: 40px; height: 40px;
-  display: flex; align-items: center; justify-content: center;
-  background: var(--s2); border-radius: 10px; flex-shrink: 0;
-}
-.job-card.premium .job-title {
-  font-size: 13px; font-weight: 700; color: var(--t1);
-  letter-spacing: -.2px; margin-bottom: 3px;
-}
-.job-card.premium .job-meta {
-  font-size: 11px; color: var(--t3); font-weight: 500;
-  display: flex; gap: 5px; align-items: center; flex-wrap: nowrap;
-  overflow: hidden;
-}
-.job-meta-service { color: var(--t2); font-weight: 600; }
-.job-meta-dot { color: var(--border2); }
-
-.job-card.premium .job-right { text-align: right; flex-shrink: 0; }
-.job-revenue {
-  font-size: 14px; font-weight: 800; color: var(--green);
-  font-variant-numeric: tabular-nums; line-height: 1.1;
-}
-.job-profit {
-  font-size: 10px; font-weight: 700; margin-top: 2px;
-  font-variant-numeric: tabular-nums;
-}
-.job-profit.green { color: var(--green); }
-.job-profit.red { color: var(--red); }
-.job-card.premium .job-right .pill {
-  margin-top: 5px;
-  font-size: 9px;
-}
-
-/* Premium action row — taller tap targets, icon-above-label */
-.job-card-actions.premium {
-  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0;
-  padding: 0;
-  background: rgba(11,13,18,.4);
-  border-top: 1px solid var(--border);
-}
-.job-action {
-  background: transparent; border: none; cursor: pointer;
-  display: flex; align-items: center; justify-content: center; gap: 6px;
-  padding: 11px 6px;
-  font-size: 11px; font-weight: 700; color: var(--t2);
-  border-right: 1px solid var(--border);
-  transition: background .15s ease, color .15s ease;
-}
-.job-action:last-child { border-right: none; }
-.job-action:hover { background: rgba(200,164,74,.06); color: var(--brand-primary); }
-.job-action:active { background: rgba(200,164,74,.12); }
-.job-action-ico { font-size: 13px; }
-
-/* ── Quick Quote — operational control feel ───────────── */
-.quote-box {
-  background: linear-gradient(160deg, rgba(200,164,74,.04) 0%, var(--s1) 70%);
-  border: 1px solid rgba(200,164,74,.18);
-  border-radius: 16px;
-  padding: 14px;
-  box-shadow: 0 6px 20px rgba(0,0,0,.3);
-}
-.qq-price-tile {
-  padding: 12px 14px;
+/* Clean stacked breakdown rows replacing the cramped one-liner. */
+.qq-breakdown {
+  margin: 12px 0 14px 0;
+  padding: 10px 12px;
   background: var(--s2);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  cursor: pointer;
-  transition: all .15s ease;
+  border-radius: 10px;
 }
-.qq-price-tile:hover { border-color: var(--border2); }
-.qq-price-tile.active {
-  background: linear-gradient(160deg, rgba(200,164,74,.14) 0%, rgba(200,164,74,.04) 100%);
-  border-color: var(--brand-primary);
-  box-shadow: 0 0 0 1px var(--brand-primary), 0 4px 16px rgba(200,164,74,.15);
+.qq-breakdown-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: var(--t2);
+  padding: 4px 0;
 }
-.qq-price-tile-label {
-  font-size: 9px; font-weight: 800; color: var(--t3);
-  text-transform: uppercase; letter-spacing: 1.2px;
-}
-.qq-price-tile.active .qq-price-tile-label { color: var(--brand-primary); }
-.qq-price-tile-amount {
-  font-size: 22px; font-weight: 800; color: var(--t1);
-  letter-spacing: -.5px; margin-top: 3px;
+.qq-breakdown-row .num {
   font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--t1);
 }
-.qq-price-tile.active .qq-price-tile-amount { color: var(--brand-primary); text-shadow: 0 0 12px rgba(200,164,74,.4); }
-.qq-meta {
-  text-align: center; margin: 12px 0 4px 0;
-  font-size: 11px; color: var(--t3); font-weight: 600;
+.qq-breakdown-row .num.green { color: var(--green); }
+.qq-breakdown-row.total {
+  border-top: 1px solid var(--border2);
+  padding-top: 8px;
+  margin-top: 4px;
+  font-weight: 700;
+  color: var(--t1);
+  font-size: 13px;
+}
+.qq-breakdown-row.total .num {
+  color: var(--brand-primary);
+  font-size: 14px;
 }
 
-/* ── Bottom nav — premium active state ────────────────── */
-.bottom-nav {
-  background: linear-gradient(180deg, var(--s1) 0%, var(--bg) 100%);
-  border-top: 1px solid var(--border);
-  box-shadow: 0 -4px 20px rgba(0,0,0,.4);
+/* Subtle inline toggle for revealing tire cost on flat-repair quotes */
+.qq-tire-toggle {
+  background: none;
+  border: 1px dashed var(--border2);
+  color: var(--t3);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  margin: 2px 0 12px 0;
+  transition: color .15s ease, border-color .15s ease;
 }
-.nav-btn {
-  position: relative;
-  transition: color .15s ease;
-}
-.nav-btn .nav-ico {
-  transition: transform .18s cubic-bezier(.2,.7,.25,1);
-}
-.nav-btn.active {
+.qq-tire-toggle:hover {
   color: var(--brand-primary);
+  border-color: rgba(200,164,74,.4);
 }
-.nav-btn.active .nav-ico {
-  transform: translateY(-1px);
-  filter: drop-shadow(0 0 6px rgba(200,164,74,.5));
-}
-.nav-btn.active::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 50%;
-  width: 24px; height: 2px;
-  background: var(--brand-primary);
-  border-radius: 0 0 99px 99px;
-  transform: translateX(-50%);
-  box-shadow: 0 0 8px var(--brand-primary);
-}
-.nav-btn.primary {
-  color: var(--brand-primary);
-}
-.nav-btn:active .nav-ico { transform: scale(.92); }
