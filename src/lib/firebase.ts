@@ -27,8 +27,6 @@ import {
   ref as storageRef,
   uploadBytes,
   getDownloadURL,
-  deleteObject,
-  listAll,
   type FirebaseStorage,
 } from 'firebase/storage';
 
@@ -94,6 +92,92 @@ export const scopedCol = (
   name: string
 ): CollectionReference<DocumentData> | null => (_db ? collection(_db, `businesses/${bId}/${name}`) : null);
 
+// ─────────────────────────────────────────────────────────────
+//  Retry helper for transient Firestore failures
+// ─────────────────────────────────────────────────────────────
+//
+// Mobile technicians work in driveways, parking lots, garages with bad
+// WiFi. Without retries, a single dropped packet during a settings save
+// becomes a "Settings save failed" toast and lost work. With retries,
+// the same blip is invisible — the call just takes an extra ~500ms.
+//
+// We retry ONLY on transient errors (network/server). User errors like
+// permission-denied or invalid-argument are not retried — those need
+// user attention and silent retry would just delay the inevitable.
+
+/** Firestore error codes that are safe to retry — they're transient by definition. */
+const TRANSIENT_FIRESTORE_CODES = new Set<string>([
+  'unavailable',         // Server temporarily unreachable
+  'deadline-exceeded',   // Request timed out
+  'aborted',             // Transaction collision or RPC abort
+  'internal',            // Server-side transient issue
+  'resource-exhausted',  // Quota throttle (usually transient)
+  'cancelled',           // RPC cancelled mid-flight
+]);
+
+/** Pull the Firestore error code out of any thrown value. Defensive — some
+ *  errors come through as plain strings or non-Error objects. */
+function getFirestoreErrorCode(e: unknown): string | null {
+  if (!e) return null;
+  if (typeof e === 'object' && e !== null && 'code' in e) {
+    const code = (e as { code: unknown }).code;
+    if (typeof code === 'string') return code.replace(/^firestore\//, '');
+  }
+  return null;
+}
+
+function isTransientError(e: unknown): boolean {
+  const code = getFirestoreErrorCode(e);
+  if (!code) return false;
+  return TRANSIENT_FIRESTORE_CODES.has(code);
+}
+
+/** Sleep with ±20% jitter so simultaneous failures across tabs don't all
+ *  retry at the same instant (thundering herd). */
+function jitteredDelay(baseMs: number): Promise<void> {
+  const jitter = 0.8 + Math.random() * 0.4; // 0.8x → 1.2x
+  return new Promise((resolve) => setTimeout(resolve, Math.round(baseMs * jitter)));
+}
+
+/**
+ * Run an async operation with exponential backoff retry on transient
+ * Firestore errors. Non-transient errors throw immediately so callers
+ * still get useful user-facing errors fast.
+ *
+ * Backoff: 500ms → 1500ms → 4500ms. Worst case = ~6.5s before failure
+ * is surfaced. That's acceptable for "save settings" but would be too
+ * slow for any user-blocking hot path (we don't have any of those
+ * going through this helper).
+ *
+ * Exposed as a generic so it can wrap things beyond setDoc/deleteDoc
+ * in future batches (transactions, etc.) without changing the helper.
+ */
+async function withRetry<T>(op: () => Promise<T>, label: string): Promise<T> {
+  const delays = [500, 1500, 4500];
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= delays.length; attempt++) {
+    try {
+      return await op();
+    } catch (e) {
+      lastError = e;
+      if (!isTransientError(e) || attempt === delays.length) {
+        // Either non-transient (throw immediately) OR out of retries
+        // (throw the last error so the caller sees a real failure).
+        throw e;
+      }
+      const delay = delays[attempt];
+      console.warn(
+        `[firebase] ${label} transient error on attempt ${attempt + 1}/${delays.length + 1}, ` +
+        `retrying in ~${delay}ms:`,
+        getFirestoreErrorCode(e)
+      );
+      await jitteredDelay(delay);
+    }
+  }
+  // Unreachable — the loop above either returns or throws — but TS needs it.
+  throw lastError;
+}
+
 export async function fbSet(
   col: CollectionReference<DocumentData> | null,
   id: string,
@@ -111,7 +195,10 @@ export async function fbSet(
   });
   clean.id = String(id);
   try {
-    await setDoc(doc(col, String(id)), clean, { merge: true });
+    await withRetry(
+      () => setDoc(doc(col, String(id)), clean, { merge: true }),
+      `fbSet(${col.path}/${id})`
+    );
   } catch (e) {
     console.error('[firebase] fbSet failed:', { path: col.path, id, error: e });
     throw e;
@@ -121,7 +208,10 @@ export async function fbSet(
 export async function fbDelete(col: CollectionReference<DocumentData> | null, id: string): Promise<void> {
   if (!col) throw new Error('Firestore not initialized');
   try {
-    await deleteDoc(doc(col, String(id)));
+    await withRetry(
+      () => deleteDoc(doc(col, String(id))),
+      `fbDelete(${col.path}/${id})`
+    );
   } catch (e) {
     console.error('[firebase] fbDelete failed:', { path: col.path, id, error: e });
     throw e;
@@ -145,69 +235,13 @@ export function fbListen(
   );
 }
 
-/**
- * Accepted logo image formats. JPEG, PNG, and WEBP are universally renderable
- * in PDF (after base64 conversion) and in browsers. SVG is rejected because
- * jsPDF can't rasterize it reliably and Firebase Storage doesn't sanitize it.
- */
-const LOGO_ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
-const LOGO_ACCEPTED_EXTS = ['png', 'jpg', 'jpeg', 'webp'];
-
-/**
- * Upload a logo image for the given business.
- *
- * The file is stored under `businesses/{businessId}/branding/logo.{ext}`.
- * Each upload overwrites the same key for the matching extension, so the
- * tenant always has at most one logo per extension. Returns the public
- * downloadable URL on success.
- *
- * Throws on validation failure so the UI can show a useful error toast.
- */
 export async function uploadLogo(businessId: string, file: File): Promise<string | null> {
   if (!_storage || !businessId || !file) return null;
   if (file.size > 5 * 1024 * 1024) throw new Error('Logo must be under 5MB');
-
-  // Validate type — reject SVG and other formats up front instead of letting
-  // the user upload something that won't render on the PDF.
-  const lcType = (file.type || '').toLowerCase();
-  const ext = (file.name.split('.').pop() || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-  const typeOk = LOGO_ACCEPTED_TYPES.includes(lcType) || LOGO_ACCEPTED_EXTS.includes(ext);
-  if (!typeOk) {
-    throw new Error('Logo must be a PNG, JPG, or WEBP image');
-  }
-
-  // Normalize extension so we can find this file later for deletion.
-  const safeExt = LOGO_ACCEPTED_EXTS.includes(ext) ? ext : (lcType === 'image/webp' ? 'webp' : lcType === 'image/png' ? 'png' : 'jpg');
-  const path = `businesses/${businessId}/branding/logo.${safeExt}`;
-  const ref = storageRef(_storage, path);
-  await uploadBytes(ref, file, { contentType: file.type || 'image/png' });
+  const ext = (file.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const ref = storageRef(_storage, `businesses/${businessId}/branding/logo.${ext || 'png'}`);
+  await uploadBytes(ref, file, { contentType: file.type });
   return await getDownloadURL(ref);
-}
-
-/**
- * Delete ALL logo files for this business from Firebase Storage.
- *
- * We list everything under `branding/` and delete each so we don't leave
- * stale `logo.png` and `logo.jpg` behind after a format swap. Best-effort —
- * individual delete failures are logged and skipped so a partial failure
- * doesn't leave the brand record pointing at a deleted file.
- */
-export async function deleteLogo(businessId: string): Promise<void> {
-  if (!_storage || !businessId) return;
-  try {
-    const folderRef = storageRef(_storage, `businesses/${businessId}/branding`);
-    const listing = await listAll(folderRef);
-    await Promise.all(
-      listing.items.map((item) =>
-        deleteObject(item).catch((e) => {
-          console.warn('[firebase] deleteLogo: failed to delete', item.fullPath, e);
-        })
-      )
-    );
-  } catch (e) {
-    // If listing itself fails (e.g. nothing was ever uploaded), don't surface.
-    console.warn('[firebase] deleteLogo: listAll failed', e);
-  }
 }
 
 export async function uploadReceipt(
