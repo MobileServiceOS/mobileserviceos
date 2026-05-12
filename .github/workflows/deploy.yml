@@ -80,6 +80,46 @@ jobs:
           fi
           npm run build
 
+      # Stamp the service worker with this commit's short SHA so each deploy
+      # produces a unique VERSION string. The SW activation logic in sw.js
+      # uses this string to detect "is this a new build?" — without bumping
+      # it, the browser keeps the OLD service worker active and users never
+      # see new code until they manually hard-refresh. This is the H7 fix
+      # from the production-readiness audit.
+      #
+      # We modify dist/sw.js (build output), NOT public/sw.js (source), so
+      # the working tree stays clean and the source-of-truth VERSION line
+      # in public/sw.js continues to act as a "manual bump" anchor for any
+      # local builds outside CI.
+      - name: Stamp service worker version
+        run: |
+          set -e
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+          BUILD_TIME=$(date -u +%Y%m%d-%H%M%S)
+          NEW_VERSION="msos-${SHORT_SHA}-${BUILD_TIME}"
+
+          if [ ! -f dist/sw.js ]; then
+            echo "::error::dist/sw.js missing — cannot stamp version"
+            exit 1
+          fi
+
+          # Match the existing line `const VERSION = '...'` and replace with the
+          # new unique build version. The sed is anchored to `const VERSION =`
+          # so it won't accidentally rewrite anything else.
+          sed -i.bak "s/^const VERSION = '[^']*';/const VERSION = '${NEW_VERSION}';/" dist/sw.js
+          rm -f dist/sw.js.bak
+
+          # Verify the substitution actually happened — fail loudly if the
+          # pattern didn't match (e.g. someone reformatted the source).
+          if ! grep -q "const VERSION = '${NEW_VERSION}';" dist/sw.js; then
+            echo "::error::SW version stamp did not apply. The expected line 'const VERSION = ...' was not found in dist/sw.js."
+            echo "Current VERSION line(s):"
+            grep "VERSION" dist/sw.js | head -5
+            exit 1
+          fi
+
+          echo "✓ Service worker stamped: ${NEW_VERSION}"
+
       # GitHub Pages disables Jekyll only when .nojekyll is at the published root.
       # Vite copies public/.nojekyll into dist automatically — verify and re-create
       # if missing so a stripped checkout never produces a Jekyll-processed deploy.
