@@ -7,6 +7,8 @@ import {
 } from '@/lib/utils';
 import { DEFAULT_SERVICE_PRICING, DEFAULT_VEHICLE_PRICING, TODAY } from '@/lib/defaults';
 import { useCountUp } from '@/lib/useCountUp';
+import { useBrand } from '@/context/BrandContext';
+import { useMembersDirectory } from '@/lib/useMembersDirectory';
 
 interface Props {
   jobs: Job[];
@@ -25,6 +27,12 @@ export function Dashboard({
   jobs, settings, inventory, setTab,
   onStartJob, onViewJob, onGenerateInvoice, onSendReview, onMarkPaid, onEditJob,
 }: Props) {
+  // "by X" attribution on recent jobs — same hook used by History so the
+  // members directory is fetched twice per app session at most (once per
+  // mount of each page). Lookups are O(n) over a list typically <20.
+  const { businessId } = useBrand();
+  const { resolveName } = useMembersDirectory(businessId);
+
   const enabledServices = useMemo(() => {
     const sp = settings.servicePricing || DEFAULT_SERVICE_PRICING;
     return Object.keys(sp).filter((k) => sp[k] && sp[k].enabled !== false);
@@ -275,6 +283,7 @@ export function Dashboard({
             {recentCompleted.map((j) => {
               const pr = jobGrossProfit(j, settings);
               const ps = resolvePaymentStatus(j);
+              const techName = resolveName(j.createdByUid);
               return (
                 <div key={j.id} className="job-card card-anim">
                   <div className="job-card-main" onClick={() => onViewJob(j)}>
@@ -285,6 +294,11 @@ export function Dashboard({
                         {j.service} · {j.fullLocationLabel || j.area || '—'} · {fmtDate(j.date)}
                         {j.tireSize ? ' · ' + j.tireSize : ''}
                       </div>
+                      {techName && (
+                        <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 2 }}>
+                          by {techName}
+                        </div>
+                      )}
                     </div>
                     <div className="job-right">
                       <div className="value green">{money(j.revenue)}</div>
@@ -293,6 +307,8 @@ export function Dashboard({
                     </div>
                   </div>
                   <div className="job-card-actions">
+                    {/* One-tap Mark Paid for unpaid rows — carry-forward from
+                        the payment-workflow batch. */}
                     {ps !== 'Paid' && ps !== 'Cancelled' && (
                       <button
                         onClick={() => onMarkPaid(j)}

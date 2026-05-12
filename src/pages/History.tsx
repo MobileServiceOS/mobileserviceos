@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
 import type { Job, Settings } from '@/types';
 import { fmtDate, jobGrossProfit, money, paymentPillClass, resolvePaymentStatus, serviceIcon } from '@/lib/utils';
+import { useBrand } from '@/context/BrandContext';
+import { useMembersDirectory } from '@/lib/useMembersDirectory';
 
 interface Props {
   jobs: Job[];
@@ -14,6 +16,9 @@ type Filter = 'all' | 'completed' | 'pending' | 'cancelled' | 'unpaid';
 export function History({ jobs, settings, onViewJob, onMarkPaid }: Props) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
+  // Resolve `createdByUid` → display name for the "by X" suffix.
+  const { businessId } = useBrand();
+  const { resolveName } = useMembersDirectory(businessId);
 
   const filtered = useMemo(() => {
     let list = Array.isArray(jobs) ? [...jobs] : [];
@@ -62,6 +67,7 @@ export function History({ jobs, settings, onViewJob, onMarkPaid }: Props) {
           {filtered.map((j) => {
             const pr = jobGrossProfit(j, settings);
             const ps = resolvePaymentStatus(j);
+            const techName = resolveName(j.createdByUid);
             return (
               <div key={j.id} className="job-card card-anim">
                 <div className="job-card-main" onClick={() => onViewJob(j)}>
@@ -72,6 +78,15 @@ export function History({ jobs, settings, onViewJob, onMarkPaid }: Props) {
                       {j.service} · {j.fullLocationLabel || j.area || '—'} · {fmtDate(j.date)}
                       {j.tireSize ? ' · ' + j.tireSize : ''}
                     </div>
+                    {/* "by Mike" attribution. Only renders when we can
+                        resolve the uid → name. Owners/admins see this on
+                        every job; technicians only see their own jobs
+                        anyway so the line is redundant for them but harmless. */}
+                    {techName && (
+                      <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 2 }}>
+                        by {techName}
+                      </div>
+                    )}
                   </div>
                   <div className="job-right">
                     <div className="value green">{money(j.revenue)}</div>
@@ -79,9 +94,8 @@ export function History({ jobs, settings, onViewJob, onMarkPaid }: Props) {
                     <span className={'pill ' + paymentPillClass(ps)} style={{ marginTop: 4 }}>{ps}</span>
                   </div>
                 </div>
-                {/* Mark Paid action footer — only render when payment is
-                    outstanding. Stops propagation so the button doesn't
-                    also open the detail modal. */}
+                {/* One-tap Mark Paid for unpaid rows. stopPropagation so
+                    tapping the button doesn't also open the detail modal. */}
                 {ps !== 'Paid' && ps !== 'Cancelled' && (
                   <div style={{
                     padding: '10px 14px',
