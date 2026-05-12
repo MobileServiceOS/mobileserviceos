@@ -10,7 +10,6 @@ import { addToast } from '@/lib/toast';
 import { uploadReceipt } from '@/lib/firebase';
 import { useBrand } from '@/context/BrandContext';
 import { CityStateSelect } from '@/components/CityStateSelect';
-import { NumberField } from '@/components/NumberField';
 
 interface Props {
   job: Job;
@@ -37,56 +36,18 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
   const needsTireDetails = TIRE_MATERIAL_SERVICES.includes(job.service);
   const tireSource = (job.tireSource || 'Inventory') as TireSource;
 
-  /**
-   * Revenue auto-fill — fixes the "revenue stays at 0" bug.
-   *
-   * Strategy: every time the suggested price (re)computes, fill revenue
-   * IF revenue is empty/0 OR revenue currently matches the last suggested
-   * we applied. That second condition means "the user hasn't manually
-   * changed it." Once they tap into the Revenue field and type a different
-   * number, we stop overwriting.
-   *
-   * Without this, the legacy effect only fired on service/vehicleType
-   * change — so adding miles, switching tire source, or toggling
-   * surcharges wouldn't update the suggested price into the field, and
-   * starting a job from the Quick Quote tile could leave revenue at 0
-   * if the form arrived empty.
-   */
-  const lastAutoAppliedRef = useRef<number | null>(null);
+  // Pre-populate revenue with suggested when blank and service/vehicle present
   useEffect(() => {
-    if (isEditing) return; // never overwrite a job being edited
-    const q = calcQuote({
-      service: job.service, vehicleType: job.vehicleType,
-      miles: job.miles, tireCost: job.tireCost, materialCost: job.materialCost,
-      qty: job.qty, emergency: job.emergency, lateNight: job.lateNight,
-      highway: job.highway, weekend: job.weekend,
-    }, settings);
-    const suggested = Number(q.suggested) || 0;
-    if (suggested <= 0) return;
-
-    const currentRevenue = Number(job.revenue || 0);
-    const lastApplied = lastAutoAppliedRef.current;
-    // Apply when: (a) revenue is blank/zero, or (b) revenue equals what
-    // we last auto-applied (i.e. user hasn't manually overridden).
-    const shouldApply =
-      currentRevenue === 0 || (lastApplied !== null && currentRevenue === lastApplied);
-
-    if (shouldApply && currentRevenue !== suggested) {
-      lastAutoAppliedRef.current = suggested;
-      setJob({ ...job, revenue: suggested });
-    } else if (lastApplied === null && currentRevenue > 0) {
-      // First render with an existing revenue (e.g. arrived from Quick
-      // Quote with a price already set). Remember it as the baseline so
-      // subsequent suggested recomputes don't overwrite the user's
-      // intentional value.
-      lastAutoAppliedRef.current = currentRevenue;
+    if (!isEditing && !job.revenue) {
+      const q = calcQuote({
+        service: job.service, vehicleType: job.vehicleType,
+        miles: job.miles, tireCost: job.tireCost, materialCost: job.materialCost,
+        qty: job.qty, emergency: job.emergency, lateNight: job.lateNight, highway: job.highway, weekend: job.weekend,
+      }, settings);
+      setJob({ ...job, revenue: q.suggested });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    job.service, job.vehicleType, job.miles, job.tireCost, job.materialCost,
-    job.qty, job.emergency, job.lateNight, job.highway, job.weekend,
-    settings, isEditing,
-  ]);
+  }, [job.service, job.vehicleType]);
 
   // Auto-zero tireCost when customer-supplied
   useEffect(() => {
@@ -214,12 +175,7 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
             </div>
             <div className="field">
               <label>Qty</label>
-              <NumberField
-                value={job.qty}
-                onChange={(n) => set('qty', n)}
-                decimals={false}
-                placeholder="1"
-              />
+              <input type="number" inputMode="numeric" value={job.qty} onChange={(e) => set('qty', e.target.value)} />
             </div>
           </div>
           <div className="field">
@@ -232,13 +188,55 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
             </div>
           </div>
 
-          {tireSource === 'Inventory' && job.tireSize && (
-            <div className="info-banner" style={{ marginTop: 8 }}>
-              {matchingInventoryCount > 0
-                ? `${matchingInventoryCount} on hand · ${inventoryPlan?.shortfall ? `short ${inventoryPlan.shortfall}` : 'in stock'}`
-                : 'No matching size on hand — consider switching tire source'}
-            </div>
-          )}
+          {tireSource === 'Inventory' && job.tireSize && (() => {
+            // Inventory availability indicator. Three states by stock health:
+            //   shortfall  → red: not enough stock for this job
+            //   exact     → amber: just enough, no buffer left
+            //   plenty    → green: stock will remain after deduction
+            // No matches at all → strong red prompting source switch.
+            const reqQty = Number(job.qty || 1);
+            const shortfall = inventoryPlan?.shortfall ?? 0;
+            const matched = matchingInventoryCount;
+            let tone: 'red' | 'amber' | 'green' = 'green';
+            let label = '';
+            if (matched === 0) {
+              tone = 'red';
+              label = 'No matching size on hand — switch tire source or add to inventory.';
+            } else if (shortfall > 0) {
+              tone = 'red';
+              label = `Only ${matched} on hand, need ${reqQty}. Short ${shortfall} tire(s). ` +
+                'Saving anyway will log a shortfall; consider switching to "Bought for this job".';
+            } else if (matched === reqQty) {
+              tone = 'amber';
+              label = `Using all ${matched} on hand for this job. No buffer left.`;
+            } else {
+              tone = 'green';
+              label = `${matched} on hand · ${matched - reqQty} will remain after this job.`;
+            }
+            const colors = {
+              red:   { bg: 'rgba(239,68,68,.08)',  border: 'rgba(239,68,68,.35)',  txt: 'var(--red)'   },
+              amber: { bg: 'rgba(245,158,11,.08)', border: 'rgba(245,158,11,.35)', txt: 'var(--amber)' },
+              green: { bg: 'rgba(34,197,94,.08)',  border: 'rgba(34,197,94,.30)',  txt: 'var(--green)' },
+            }[tone];
+            return (
+              <div
+                style={{
+                  marginTop: 8,
+                  padding: '10px 12px',
+                  background: colors.bg,
+                  border: `1px solid ${colors.border}`,
+                  borderRadius: 10,
+                  fontSize: 12,
+                  color: colors.txt,
+                  fontWeight: 600,
+                  lineHeight: 1.45,
+                }}
+              >
+                {tone === 'red' ? '⚠️ ' : tone === 'amber' ? '⚡ ' : '✓ '}
+                {label}
+              </div>
+            );
+          })()}
 
           {tireSource === 'Bought for this job' && (
             <div className="purchase-panel card-anim">
@@ -250,11 +248,7 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
                 </div>
                 <div className="field">
                   <label>Purchase price ($)</label>
-                  <NumberField
-                    value={job.tirePurchasePrice || 0}
-                    onChange={(n) => set('tirePurchasePrice', n)}
-                    placeholder="0"
-                  />
+                  <input type="number" inputMode="decimal" value={job.tirePurchasePrice || ''} onChange={(e) => set('tirePurchasePrice', e.target.value)} placeholder="0" />
                 </div>
               </div>
               <div className="field-row">
@@ -304,19 +298,11 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
         <div className="field-row">
           <div className="field">
             <label>Miles to job</label>
-            <NumberField
-              value={job.miles}
-              onChange={(n) => set('miles', n)}
-              placeholder="0"
-            />
+            <input type="number" inputMode="decimal" value={job.miles} onChange={(e) => set('miles', e.target.value)} placeholder="0" />
           </div>
           <div className="field">
             <label>Material $</label>
-            <NumberField
-              value={job.materialCost}
-              onChange={(n) => set('materialCost', n)}
-              placeholder="0"
-            />
+            <input type="number" inputMode="decimal" value={job.materialCost} onChange={(e) => set('materialCost', e.target.value)} placeholder="0" />
           </div>
         </div>
         <div className="field" style={{ marginTop: 6 }}>
@@ -374,12 +360,7 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
         <div className="form-group-title">Revenue</div>
         <div className="field">
           <label>Revenue charged ($)</label>
-          <NumberField
-            value={job.revenue}
-            onChange={(n) => set('revenue', n)}
-            placeholder="0"
-            selectOnFocus
-          />
+          <input type="number" inputMode="decimal" value={job.revenue} onChange={(e) => set('revenue', e.target.value)} placeholder="0" />
         </div>
         <div className="field">
           <label>Note (optional)</label>
