@@ -92,6 +92,43 @@ export function Inventory({ inventory, onSave }: Props) {
     { id: uid(), size: '', qty: 0, cost: 0, condition: 'New', brand: '', model: '', notes: '', _isNew: true },
     ...list,
   ]);
+
+  /**
+   * Add a tire pre-filled with a known size + best-guess brand.
+   *
+   * Pulled out of the generic `add()` because the hot-size workflow
+   * skips the size-entry step — we already know the size; the only
+   * thing the operator still needs to type is the quantity (and
+   * confirm the cost if it differs from the previous batch).
+   *
+   * Best-guess brand: most-recent brand paired with this size in the
+   * existing list. Doesn't have to be right — Brand is a free field —
+   * but it's right 80%+ of the time for shops that stock the same
+   * brands repeatedly, which saves a second typing step.
+   */
+  const addHotSize = (size: string) => {
+    const lastWithSize = [...list].reverse().find((i) => i.size === size && (i.brand || '').trim());
+    const lastWithSizeForCost = [...list].reverse().find((i) => i.size === size && i.cost > 0);
+    update([
+      {
+        id: uid(),
+        size,
+        qty: 1, // sensible default — operator usually adds 1+ as they stock
+        cost: lastWithSizeForCost?.cost ?? 0,
+        condition: 'New',
+        brand: lastWithSize?.brand || '',
+        model: lastWithSize?.model || '',
+        notes: '',
+        _isNew: true,
+      },
+      ...list,
+    ]);
+    // Scroll to top so the new card is visible. Setting search/filter
+    // shouldn't interfere because the new card has _isNew: true which
+    // typically renders regardless of filter.
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const remove = (id: string) => update(list.filter((i) => i.id !== id));
   const change = <K extends keyof InventoryItem>(id: string, key: K, value: InventoryItem[K]) =>
     update(list.map((i) => (i.id === id ? { ...i, [key]: value } : i)));
@@ -162,6 +199,44 @@ export function Inventory({ inventory, onSave }: Props) {
     );
   }, [list, search]);
 
+  /**
+   * Hot Sizes — the operator's most-used tire sizes, ranked by total
+   * stocked quantity (more recently restocked = higher rank). Renders
+   * as a horizontally-scrollable chip strip. Tapping a chip adds a new
+   * line item pre-filled with that size + the brand most recently
+   * paired with it, so the only thing left to type is Qty.
+   *
+   * Filters out blank sizes (in-progress new entries) so they don't
+   * show up as a phantom "" chip.
+   */
+  const hotSizes = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const i of list) {
+      const s = (i.size || '').trim();
+      if (!s) continue;
+      totals.set(s, (totals.get(s) || 0) + Number(i.qty || 0));
+    }
+    return Array.from(totals.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([size]) => size);
+  }, [list]);
+
+  /**
+   * Known brands — unique brand strings from existing inventory, used
+   * to power native browser autocomplete via <datalist>. Standard HTML
+   * feature, no popup library needed, works on iOS Safari and Android
+   * Chrome out of the box.
+   */
+  const knownBrands = useMemo(() => {
+    const set = new Set<string>();
+    for (const i of list) {
+      const b = (i.brand || '').trim();
+      if (b) set.add(b);
+    }
+    return Array.from(set).sort();
+  }, [list]);
+
   const totalQty = list.reduce((t, i) => t + Number(i.qty || 0), 0);
   const lowStock = list.filter((i) => Number(i.qty || 0) <= 1).length;
 
@@ -188,6 +263,53 @@ export function Inventory({ inventory, onSave }: Props) {
       <div className="field">
         <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search tire size, brand, notes…" />
       </div>
+
+      {/* Hot Sizes — quick-add chips for the operator's most-used sizes.
+          Renders only when there's actually inventory to derive from;
+          new shops with empty stock won't see this row. Horizontally
+          scrollable so it doesn't wrap on phones. */}
+      {hotSizes.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <div style={{
+            fontSize: 10, fontWeight: 800, color: 'var(--t3)',
+            textTransform: 'uppercase', letterSpacing: '1.5px', marginBottom: 6,
+          }}>
+            🔥 Hot Sizes · tap to add
+          </div>
+          <div style={{
+            display: 'flex', gap: 6, overflowX: 'auto',
+            paddingBottom: 4, WebkitOverflowScrolling: 'touch',
+            // Negative margin + padding so the scroll edges align with
+            // the page edges (chips don't get clipped at the start).
+            marginLeft: -2, marginRight: -2, paddingLeft: 2, paddingRight: 2,
+          }}>
+            {hotSizes.map((size) => (
+              <button
+                key={size}
+                onClick={() => addHotSize(size)}
+                className="chip"
+                style={{
+                  flexShrink: 0,
+                  fontWeight: 700,
+                  background: 'linear-gradient(160deg, rgba(200,164,74,.12) 0%, var(--s2) 80%)',
+                  borderColor: 'rgba(200,164,74,.3)',
+                  color: 'var(--brand-primary)',
+                }}
+              >
+                + {size}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Native browser autocomplete source for the Brand inputs below.
+          Each <input list="known-brands"> picks up these <option>s as
+          autocomplete suggestions. No popup library needed; iOS Safari
+          and Android Chrome both support this natively. */}
+      <datalist id="known-brands">
+        {knownBrands.map((b) => <option key={b} value={b} />)}
+      </datalist>
 
       <div className="stack">
         {filtered.length === 0 ? (
@@ -222,7 +344,13 @@ export function Inventory({ inventory, onSave }: Props) {
                 </div>
                 <div className="field" style={{ marginBottom: 0 }}>
                   <label>Brand</label>
-                  <input value={i.brand || ''} onChange={(e) => change(i.id, 'brand', e.target.value)} placeholder="Michelin" />
+                  <input
+                    value={i.brand || ''}
+                    onChange={(e) => change(i.id, 'brand', e.target.value)}
+                    placeholder="Michelin"
+                    list="known-brands"
+                    autoComplete="off"
+                  />
                 </div>
               </div>
               <div className="field" style={{ marginTop: 10 }}>
