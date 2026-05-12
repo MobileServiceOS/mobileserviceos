@@ -30,10 +30,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
+          # Note: no `cache: 'npm'` here because cache requires package-lock.json
+          # to compute the cache key. Once a lockfile is committed, add it back.
 
       - name: Install dependencies
-        run: npm ci
+        # Using `npm install` instead of `npm ci` because the repo does not
+        # currently commit package-lock.json. Once a lockfile is added, switch
+        # this back to `npm ci` for reproducible installs.
+        run: npm install
 
       - name: TypeScript check
         run: npx tsc --noEmit
