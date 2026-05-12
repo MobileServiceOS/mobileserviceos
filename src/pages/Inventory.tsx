@@ -2,11 +2,14 @@ import { useMemo, useRef, useState } from 'react';
 import type { InventoryItem } from '@/types';
 import { money, sanitizeInvItem, uid } from '@/lib/utils';
 import { addToast } from '@/lib/toast';
+import { NumberField } from '@/components/NumberField';
 
 interface Props {
   inventory: InventoryItem[];
   onSave: (next: InventoryItem[]) => void;
 }
+
+type CondFilter = 'all' | 'New' | 'Used';
 
 const CSV_HEADERS = ['tireSize', 'condition', 'quantity', 'cost', 'sellingPrice', 'vendor', 'notes'];
 const CSV_TEMPLATE = `${CSV_HEADERS.join(',')}\n225/60R18,New,4,85,140,Discount Tire,Premium SUV\n245/40R19,Used,2,55,110,Local Wholesaler,Tread 7/32\n`;
@@ -87,33 +90,50 @@ export function Inventory({ inventory, onSave }: Props) {
   const [deleteConfirm, setDeleteConfirm] = useState('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  // Track which cards are expanded by id. Compact-by-default UX — tapping
+  // a card or hitting Edit flips the expanded state. New items (_isNew)
+  // auto-expand below so the user can fill them in right away.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  // Conditional filter chips (All / New / Used). Reduces clutter when a
+  // shop carries mixed stock and the operator is hunting for a specific
+  // condition (insurance jobs are often "new only", e.g.).
+  const [condFilter, setCondFilter] = useState<CondFilter>('all');
+
+  const isExpanded = (id: string, item: InventoryItem) => item._isNew || expanded.has(id);
+  const toggleExpanded = (id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
   const update = (next: InventoryItem[]) => { setList(next); setDirty(true); };
-  const add = () => update([
-    { id: uid(), size: '', qty: 0, cost: 0, condition: 'New', brand: '', model: '', notes: '', _isNew: true },
-    ...list,
-  ]);
+  const add = () => {
+    const newId = uid();
+    update([
+      { id: newId, size: '', qty: 0, cost: 0, condition: 'New', brand: '', model: '', notes: '', _isNew: true },
+      ...list,
+    ]);
+    setExpanded((prev) => new Set(prev).add(newId));
+  };
 
   /**
-   * Add a tire pre-filled with a known size + best-guess brand.
-   *
-   * Pulled out of the generic `add()` because the hot-size workflow
-   * skips the size-entry step — we already know the size; the only
-   * thing the operator still needs to type is the quantity (and
-   * confirm the cost if it differs from the previous batch).
-   *
-   * Best-guess brand: most-recent brand paired with this size in the
-   * existing list. Doesn't have to be right — Brand is a free field —
-   * but it's right 80%+ of the time for shops that stock the same
-   * brands repeatedly, which saves a second typing step.
+   * Hot-size quick-add (carry-forward from prior batch). Pre-fills size +
+   * best-guess brand/cost from the last entry that used the same size,
+   * leaving the operator to confirm qty and save. Auto-expands the new
+   * card so it's immediately editable.
    */
   const addHotSize = (size: string) => {
     const lastWithSize = [...list].reverse().find((i) => i.size === size && (i.brand || '').trim());
     const lastWithSizeForCost = [...list].reverse().find((i) => i.size === size && i.cost > 0);
+    const newId = uid();
     update([
       {
-        id: uid(),
+        id: newId,
         size,
-        qty: 1, // sensible default — operator usually adds 1+ as they stock
+        qty: 1,
         cost: lastWithSizeForCost?.cost ?? 0,
         condition: 'New',
         brand: lastWithSize?.brand || '',
@@ -123,9 +143,7 @@ export function Inventory({ inventory, onSave }: Props) {
       },
       ...list,
     ]);
-    // Scroll to top so the new card is visible. Setting search/filter
-    // shouldn't interfere because the new card has _isNew: true which
-    // typically renders regardless of filter.
+    setExpanded((prev) => new Set(prev).add(newId));
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -191,23 +209,56 @@ export function Inventory({ inventory, onSave }: Props) {
     addToast('Inventory cleared', 'success');
   };
 
+  /**
+   * Smart inventory search.
+   *
+   * Three-tier ranking by how well the query matches the size:
+   *   1. Exact size match (operator typed full "225/35R18")
+   *   2. Size prefix or substring match (typed "225", "225/35", "35R18")
+   *   3. Brand or notes match (fallback so they still find tires by maker)
+   *
+   * Within each tier, original list order is preserved. Empty query =
+   * unranked list. Brand/notes-only matches sort last so the tire-size
+   * scanners aren't drowned out.
+   *
+   * The condition filter is applied BEFORE search so the search only
+   * considers in-condition items.
+   */
   const filtered = useMemo(() => {
+    let base = list;
+    if (condFilter !== 'all') {
+      base = base.filter((i) => (i.condition || 'New') === condFilter);
+    }
+    // Always show new (unsaved) cards regardless of condition filter so
+    // the operator doesn't lose track of a card they just added.
+    if (condFilter !== 'all') {
+      const newOnes = list.filter((i) => i._isNew);
+      const seen = new Set(base.map((i) => i.id));
+      for (const n of newOnes) if (!seen.has(n.id)) base = [n, ...base];
+    }
+
     const q = search.trim().toLowerCase();
-    if (!q) return list;
-    return list.filter((i) =>
-      i.size.toLowerCase().includes(q) || (i.brand || '').toLowerCase().includes(q) || (i.notes || '').toLowerCase().includes(q)
-    );
-  }, [list, search]);
+    if (!q) return base;
+
+    type Ranked = { item: InventoryItem; tier: number; idx: number };
+    const ranked: Ranked[] = [];
+    base.forEach((i, idx) => {
+      const size = (i.size || '').toLowerCase();
+      const brand = (i.brand || '').toLowerCase();
+      const notes = (i.notes || '').toLowerCase();
+      let tier = -1;
+      if (size === q) tier = 0;
+      else if (size.includes(q)) tier = 1;
+      else if (brand.includes(q) || notes.includes(q)) tier = 2;
+      if (tier !== -1) ranked.push({ item: i, tier, idx });
+    });
+    ranked.sort((a, b) => a.tier - b.tier || a.idx - b.idx);
+    return ranked.map((r) => r.item);
+  }, [list, search, condFilter]);
 
   /**
-   * Hot Sizes — the operator's most-used tire sizes, ranked by total
-   * stocked quantity (more recently restocked = higher rank). Renders
-   * as a horizontally-scrollable chip strip. Tapping a chip adds a new
-   * line item pre-filled with that size + the brand most recently
-   * paired with it, so the only thing left to type is Qty.
-   *
-   * Filters out blank sizes (in-progress new entries) so they don't
-   * show up as a phantom "" chip.
+   * Hot Sizes — most-stocked sizes, ranked by total qty. Renders as chip
+   * strip for quick-add. Carry-forward from prior batch.
    */
   const hotSizes = useMemo(() => {
     const totals = new Map<string, number>();
@@ -223,10 +274,7 @@ export function Inventory({ inventory, onSave }: Props) {
   }, [list]);
 
   /**
-   * Known brands — unique brand strings from existing inventory, used
-   * to power native browser autocomplete via <datalist>. Standard HTML
-   * feature, no popup library needed, works on iOS Safari and Android
-   * Chrome out of the box.
+   * Known brands for native autocomplete via <datalist>. Carry-forward.
    */
   const knownBrands = useMemo(() => {
     const set = new Set<string>();
@@ -260,14 +308,32 @@ export function Inventory({ inventory, onSave }: Props) {
         <div className="kpi"><div className="kpi-label">Low Stock</div><div className="kpi-value" style={{ color: lowStock > 0 ? 'var(--amber)' : undefined }}>{lowStock}</div></div>
       </div>
 
-      <div className="field">
-        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search tire size, brand, notes…" />
+      <div className="field" style={{ marginBottom: 10 }}>
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search size (225, 225/35, 35R18), brand, notes…"
+          autoComplete="off"
+          inputMode="search"
+        />
       </div>
 
-      {/* Hot Sizes — quick-add chips for the operator's most-used sizes.
-          Renders only when there's actually inventory to derive from;
-          new shops with empty stock won't see this row. Horizontally
-          scrollable so it doesn't wrap on phones. */}
+      {/* Condition filter chips. Sticky-feel: applied before search so
+          the operator can narrow first, then type. */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+        {(['all', 'New', 'Used'] as const).map((c) => (
+          <button
+            key={c}
+            type="button"
+            className={'chip sm' + (condFilter === c ? ' active' : '')}
+            onClick={() => setCondFilter(c)}
+          >
+            {c === 'all' ? 'All' : c}
+          </button>
+        ))}
+      </div>
+
+      {/* Hot Sizes — quick-add chip strip for repeat-stock sizes. */}
       {hotSizes.length > 0 && (
         <div style={{ marginBottom: 14 }}>
           <div style={{
@@ -279,8 +345,6 @@ export function Inventory({ inventory, onSave }: Props) {
           <div style={{
             display: 'flex', gap: 6, overflowX: 'auto',
             paddingBottom: 4, WebkitOverflowScrolling: 'touch',
-            // Negative margin + padding so the scroll edges align with
-            // the page edges (chips don't get clipped at the start).
             marginLeft: -2, marginRight: -2, paddingLeft: 2, paddingRight: 2,
           }}>
             {hotSizes.map((size) => (
@@ -303,10 +367,7 @@ export function Inventory({ inventory, onSave }: Props) {
         </div>
       )}
 
-      {/* Native browser autocomplete source for the Brand inputs below.
-          Each <input list="known-brands"> picks up these <option>s as
-          autocomplete suggestions. No popup library needed; iOS Safari
-          and Android Chrome both support this natively. */}
+      {/* Native browser autocomplete source for Brand inputs below. */}
       <datalist id="known-brands">
         {knownBrands.map((b) => <option key={b} value={b} />)}
       </datalist>
@@ -316,54 +377,153 @@ export function Inventory({ inventory, onSave }: Props) {
           <div className="empty-state">
             <div className="empty-state-icon">🛞</div>
             <div className="empty-state-title">No tires in inventory</div>
-            <div className="empty-state-sub">Add tires individually or upload a CSV.</div>
-          </div>
-        ) : filtered.map((i) => (
-          <div key={i.id} className="card card-anim">
-            <div className="card-pad">
-              <div className="field-row">
-                <div className="field" style={{ marginBottom: 0 }}>
-                  <label>Size</label>
-                  <input value={i.size} onChange={(e) => change(i.id, 'size', e.target.value)} placeholder="225/65R17" />
-                </div>
-                <div className="field" style={{ marginBottom: 0 }}>
-                  <label>Qty</label>
-                  <input type="number" inputMode="numeric" value={i.qty} onChange={(e) => change(i.id, 'qty', Number(e.target.value))} />
-                </div>
-                <div className="field" style={{ marginBottom: 0 }}>
-                  <label>Cost</label>
-                  <input type="number" inputMode="decimal" value={i.cost} onChange={(e) => change(i.id, 'cost', Number(e.target.value))} />
-                </div>
-              </div>
-              <div className="field-row" style={{ marginTop: 10 }}>
-                <div className="field" style={{ marginBottom: 0 }}>
-                  <label>Condition</label>
-                  <select value={i.condition || 'New'} onChange={(e) => change(i.id, 'condition', e.target.value)}>
-                    <option>New</option><option>Used</option>
-                  </select>
-                </div>
-                <div className="field" style={{ marginBottom: 0 }}>
-                  <label>Brand</label>
-                  <input
-                    value={i.brand || ''}
-                    onChange={(e) => change(i.id, 'brand', e.target.value)}
-                    placeholder="Michelin"
-                    list="known-brands"
-                    autoComplete="off"
-                  />
-                </div>
-              </div>
-              <div className="field" style={{ marginTop: 10 }}>
-                <label>Notes</label>
-                <input value={i.notes || ''} onChange={(e) => change(i.id, 'notes', e.target.value)} placeholder="Optional notes" />
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
-                <div style={{ fontSize: 11, color: 'var(--t3)' }}>Value: {money(Number(i.qty || 0) * Number(i.cost || 0))}</div>
-                <button className="btn xs danger" onClick={() => remove(i.id)}>Remove</button>
-              </div>
+            <div className="empty-state-sub">
+              {search.trim() ? 'No matches. Try a different search.' : 'Add tires individually or upload a CSV.'}
             </div>
           </div>
-        ))}
+        ) : filtered.map((i) => {
+          const open = isExpanded(i.id, i);
+          const qty = Number(i.qty || 0);
+          const cost = Number(i.cost || 0);
+          const value = qty * cost;
+          const low = qty > 0 && qty <= 1;
+          const outOfStock = qty === 0;
+
+          return (
+            <div key={i.id} className="card card-anim" style={{ overflow: 'hidden' }}>
+              {/* Compact header — always visible. Tap anywhere on the
+                  header to toggle expansion. Quantity is the visual
+                  anchor on the right; size is bold on the left. */}
+              <button
+                type="button"
+                onClick={() => toggleExpanded(i.id)}
+                aria-expanded={open}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: '12px 14px',
+                  width: '100%',
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--t1)',
+                  textAlign: 'left',
+                  cursor: 'pointer',
+                  minHeight: 64,
+                }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--t1)' }}>
+                      {i.size || <span style={{ color: 'var(--t3)', fontStyle: 'italic' }}>(new tire)</span>}
+                    </div>
+                    {/* Inline badges: condition, low stock, out of stock. */}
+                    {i.condition && i.condition !== 'New' && (
+                      <span className="pill" style={{ fontSize: 9, padding: '2px 6px' }}>
+                        {i.condition}
+                      </span>
+                    )}
+                    {outOfStock && (
+                      <span className="pill red" style={{ fontSize: 9, padding: '2px 6px' }}>
+                        Out
+                      </span>
+                    )}
+                    {low && (
+                      <span className="pill amber" style={{ fontSize: 9, padding: '2px 6px' }}>
+                        Low
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--t3)', marginTop: 2 }}>
+                    {(i.brand || 'No brand').trim() || 'No brand'}
+                    {' · '}
+                    {i.condition || 'New'}
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right', minWidth: 56 }}>
+                  <div style={{
+                    fontSize: 22, fontWeight: 800,
+                    color: outOfStock ? 'var(--red)' : low ? 'var(--amber)' : 'var(--t1)',
+                    lineHeight: 1,
+                  }}>
+                    {qty}
+                  </div>
+                  <div style={{ fontSize: 9, color: 'var(--t3)', marginTop: 2, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    in stock
+                  </div>
+                </div>
+                <div
+                  aria-hidden
+                  style={{
+                    fontSize: 12,
+                    color: 'var(--t3)',
+                    transition: 'transform .2s ease',
+                    transform: open ? 'rotate(90deg)' : 'rotate(0deg)',
+                    marginLeft: 4,
+                  }}
+                >
+                  ▸
+                </div>
+              </button>
+
+              {/* Expanded edit form — same fields as before but now hidden
+                  by default so the compact view stays scannable. */}
+              {open && (
+                <div className="card-pad" style={{ paddingTop: 4, borderTop: '1px solid var(--border2)' }}>
+                  <div className="field-row" style={{ marginTop: 10 }}>
+                    <div className="field" style={{ marginBottom: 0 }}>
+                      <label>Size</label>
+                      <input value={i.size} onChange={(e) => change(i.id, 'size', e.target.value)} placeholder="225/65R17" />
+                    </div>
+                    <div className="field" style={{ marginBottom: 0 }}>
+                      <label>Qty</label>
+                      <NumberField
+                        value={i.qty}
+                        onChange={(n) => change(i.id, 'qty', n)}
+                        decimals={false}
+                        placeholder="0"
+                      />
+                    </div>
+                    <div className="field" style={{ marginBottom: 0 }}>
+                      <label>Cost</label>
+                      <NumberField
+                        value={i.cost}
+                        onChange={(n) => change(i.id, 'cost', n)}
+                        placeholder="0"
+                      />
+                    </div>
+                  </div>
+                  <div className="field-row" style={{ marginTop: 10 }}>
+                    <div className="field" style={{ marginBottom: 0 }}>
+                      <label>Condition</label>
+                      <select value={i.condition || 'New'} onChange={(e) => change(i.id, 'condition', e.target.value)}>
+                        <option>New</option><option>Used</option>
+                      </select>
+                    </div>
+                    <div className="field" style={{ marginBottom: 0 }}>
+                      <label>Brand</label>
+                      <input
+                        value={i.brand || ''}
+                        onChange={(e) => change(i.id, 'brand', e.target.value)}
+                        placeholder="Michelin"
+                        list="known-brands"
+                        autoComplete="off"
+                      />
+                    </div>
+                  </div>
+                  <div className="field" style={{ marginTop: 10 }}>
+                    <label>Notes</label>
+                    <input value={i.notes || ''} onChange={(e) => change(i.id, 'notes', e.target.value)} placeholder="Optional notes" />
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
+                    <div style={{ fontSize: 11, color: 'var(--t3)' }}>Value: {money(value)}</div>
+                    <button className="btn xs danger" onClick={() => remove(i.id)}>Remove</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {dirty && (
