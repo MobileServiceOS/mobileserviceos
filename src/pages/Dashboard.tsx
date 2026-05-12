@@ -47,27 +47,6 @@ export function Dashboard({
   const [qqMode, setQqMode] = useState<'suggested' | 'premium'>('suggested');
   const qqChange = <K extends keyof QuoteForm>(k: K, v: QuoteForm[K]) => setQqForm((p) => ({ ...p, [k]: v }));
 
-  // Tire cost input is hidden for Flat Repair (where the customer's existing
-  // tire is patched rather than replaced) unless the operator opts in via the
-  // "+ Add tire cost" toggle. For replacement / installation / other services
-  // we always show it because tire cost is central to the pricing math.
-  const tireCostRelevantByDefault = (svc: string) =>
-    svc !== 'Flat Tire Repair' && svc !== 'Tire Rotation' && svc !== 'TPMS Service';
-  const [qqShowTireCost, setQqShowTireCost] = useState<boolean>(
-    tireCostRelevantByDefault(qqForm.service)
-  );
-  // When the service changes, reset the tire-cost visibility AND clear any
-  // stale tire cost so a flat-repair quote doesn't accidentally inherit a
-  // value from a prior replacement quote.
-  useEffect(() => {
-    const shouldShow = tireCostRelevantByDefault(qqForm.service);
-    setQqShowTireCost(shouldShow);
-    if (!shouldShow && Number(qqForm.tireCost || 0) > 0) {
-      setQqForm((p) => ({ ...p, tireCost: 0 }));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [qqForm.service]);
-
   const safeJobs = Array.isArray(jobs) ? jobs : [];
   const today = TODAY();
   const thisWeek = getWeekStart(today);
@@ -121,15 +100,6 @@ export function Dashboard({
   }, [safeJobs, inventory]);
 
   const quote = useMemo(() => calcQuote(qqForm, settings), [qqForm, settings]);
-
-  // Travel cost surfaced separately for the breakdown panel. calcQuote rolls
-  // travel into directCosts internally, so we recompute it here for display.
-  const qqTravelCost = useMemo(() => {
-    const miles = Number(qqForm.miles) || 0;
-    const freeMiles = Number(settings.freeMilesIncluded || 0);
-    const chargeable = Math.max(0, miles - freeMiles);
-    return r2(chargeable * Number(settings.costPerMile || 0.65));
-  }, [qqForm.miles, settings.freeMilesIncluded, settings.costPerMile]);
   const heroValue = useCountUp(totals.grossProfit);
 
   const handleStartJob = () => {
@@ -189,7 +159,13 @@ export function Dashboard({
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
                     <span className="num" style={{ fontSize: 14, fontWeight: 700, color: 'var(--gold)' }}>{money(j.revenue)}</span>
-                    <button className="btn xs success" onClick={() => onMarkPaid(j)}>Paid</button>
+                    <button
+                      className="btn sm success"
+                      onClick={() => onMarkPaid(j)}
+                      style={{ fontWeight: 800, minHeight: 36, paddingLeft: 14, paddingRight: 14 }}
+                    >
+                      Mark Paid
+                    </button>
                   </div>
                 </div>
               ))}
@@ -216,11 +192,10 @@ export function Dashboard({
 
       <div className="section-label with-action">
         <span>Quick Quote</span>
-        <span className="section-label-hint">Tap a price to start the job</span>
+        <span className="section-label-hint">Suggested pricing feeds straight into Log Job</span>
       </div>
       <div className="quote-box card-anim">
-        {/* ── Service + Vehicle ───────────────────────────── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
           <div className="field" style={{ marginBottom: 0 }}>
             <label>Service</label>
             <select value={qqForm.service} onChange={(e) => qqChange('service', e.target.value)}>
@@ -234,49 +209,21 @@ export function Dashboard({
             </select>
           </div>
         </div>
-
-        {/* ── Numeric inputs row ───────────────────────────
-              Tire cost is hidden for Flat Repair unless the operator
-              explicitly opts in — flat repairs rarely involve a new tire.
-              Material cost is always available because patches, valve stems,
-              and TPMS sensors are common on every service type. */}
-        <div style={{ display: 'grid', gridTemplateColumns: qqShowTireCost ? '1fr 1fr 1fr 1fr' : '1fr 1fr 1fr', gap: 10, marginBottom: 10 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 12 }}>
           <div className="field" style={{ marginBottom: 0 }}>
             <label>Miles</label>
             <input type="number" inputMode="decimal" value={qqForm.miles} onChange={(e) => qqChange('miles', e.target.value)} placeholder="0" />
           </div>
-          {qqShowTireCost && (
-            <div className="field" style={{ marginBottom: 0 }}>
-              <label>Tire $</label>
-              <input type="number" inputMode="decimal" value={qqForm.tireCost} onChange={(e) => qqChange('tireCost', e.target.value)} placeholder="0" />
-            </div>
-          )}
           <div className="field" style={{ marginBottom: 0 }}>
-            <label>Material $</label>
-            <input type="number" inputMode="decimal" value={qqForm.materialCost || 0} onChange={(e) => qqChange('materialCost', e.target.value)} placeholder="0" />
+            <label>Tire $</label>
+            <input type="number" inputMode="decimal" value={qqForm.tireCost} onChange={(e) => qqChange('tireCost', e.target.value)} placeholder="0" />
           </div>
           <div className="field" style={{ marginBottom: 0 }}>
             <label>Qty</label>
             <input type="number" inputMode="numeric" value={qqForm.qty} onChange={(e) => qqChange('qty', e.target.value)} placeholder="1" />
           </div>
         </div>
-
-        {/* Toggle for flat-repair tire cost — only shown when tire cost is
-            currently hidden, i.e. for Flat Repair services. Operators who
-            need to add a tire to a repair (e.g. tire was unrepairable) can
-            opt in inline without leaving the Quick Quote. */}
-        {!qqShowTireCost && (
-          <button
-            type="button"
-            className="qq-tire-toggle"
-            onClick={() => setQqShowTireCost(true)}
-          >
-            + Add tire cost
-          </button>
-        )}
-
-        {/* ── Surcharge chips ──────────────────────────────── */}
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
           {([
             ['emergency', '🚨 Emergency'],
             ['lateNight', '🌙 Late'],
@@ -286,8 +233,6 @@ export function Dashboard({
             <button key={k} className={'chip sm' + (qqForm[k] ? ' active' : '')} onClick={() => qqChange(k, !qqForm[k])}>{l}</button>
           ))}
         </div>
-
-        {/* ── Suggested / Premium price tiles ──────────────── */}
         <div className="qq-pricing-row">
           <div className={'qq-price-tile' + (qqMode === 'suggested' ? ' active' : '')}
             onClick={() => setQqMode('suggested')} role="button">
@@ -300,33 +245,7 @@ export function Dashboard({
             <div className="qq-price-tile-amount">{money(quote.premium)}</div>
           </div>
         </div>
-
-        {/* ── Clean breakdown rows ─────────────────────────────
-              One row per cost component, right-aligned numerics. This
-              replaces the cramped one-line "Direct cost X · target profit Y"
-              that the spec called out as unfinished. */}
-        <div className="qq-breakdown">
-          <div className="qq-breakdown-row">
-            <span>Direct costs</span>
-            <span className="num">{money(quote.directCosts)}</span>
-          </div>
-          <div className="qq-breakdown-row">
-            <span>
-              Travel ({Number(qqForm.miles) || 0} mi
-              {Number(settings.freeMilesIncluded || 0) ? `, ${settings.freeMilesIncluded} free` : ''})
-            </span>
-            <span className="num">{money(qqTravelCost)}</span>
-          </div>
-          <div className="qq-breakdown-row">
-            <span>Target profit</span>
-            <span className="num green">{money(quote.targetProfit)}</span>
-          </div>
-          <div className="qq-breakdown-row total">
-            <span>Suggested price</span>
-            <span className="num">{money(qqMode === 'premium' ? quote.premium : quote.suggested)}</span>
-          </div>
-        </div>
-
+        <div className="qq-meta">Direct cost {money(quote.directCosts)} · target profit {money(quote.targetProfit)}</div>
         <button className="cta-btn press-scale qq-cta" onClick={handleStartJob}>
           Start Job at {money(qqMode === 'suggested' ? quote.suggested : quote.premium)} →
         </button>
@@ -374,6 +293,17 @@ export function Dashboard({
                     </div>
                   </div>
                   <div className="job-card-actions">
+                    {ps !== 'Paid' && ps !== 'Cancelled' && (
+                      // Inline Mark Paid — short-circuits the
+                      // open-edit-save loop for the common case of
+                      // collecting payment on a recent job.
+                      <button
+                        onClick={() => onMarkPaid(j)}
+                        style={{ color: 'var(--green)', fontWeight: 800 }}
+                      >
+                        💰 Mark Paid
+                      </button>
+                    )}
                     <button onClick={() => onGenerateInvoice(j)}>📄 Invoice</button>
                     <button onClick={() => onSendReview(j)}>⭐ Review</button>
                     <button onClick={() => onEditJob(j)}>✏️ Edit</button>

@@ -11,11 +11,12 @@ interface Props {
   onGenerateInvoice: () => void;
   onSendInvoice: () => void;
   onSendReview: () => void;
+  onMarkPaid: () => void;
 }
 
 export function JobDetailModal({
   job, settings, onClose, onEdit, onDuplicate, onDelete,
-  onGenerateInvoice, onSendInvoice, onSendReview,
+  onGenerateInvoice, onSendInvoice, onSendReview, onMarkPaid,
 }: Props) {
   const profit = jobGrossProfit(job, settings);
   const ps = resolvePaymentStatus(job);
@@ -99,7 +100,62 @@ export function JobDetailModal({
               <span className="label">Payment</span>
               <span className={'pill ' + paymentPillClass(ps)}>{ps}</span>
             </div>
+            {/* Paid-via metadata: shown when payment has been collected.
+                Gives the operator confirmation that the right method was
+                logged and when. Replaces what was previously invisible. */}
+            {ps === 'Paid' && (job.paymentMethod || job.paidAt) && (
+              <div style={{
+                marginTop: 4,
+                padding: '8px 12px',
+                background: 'rgba(34,197,94,.06)',
+                border: '1px solid rgba(34,197,94,.2)',
+                borderRadius: 8,
+                fontSize: 11,
+                color: 'var(--t2)',
+                display: 'flex',
+                justifyContent: 'space-between',
+              }}>
+                <span>{job.paymentMethod ? `via ${job.paymentMethod}` : 'Paid'}</span>
+                {job.paidAt && (
+                  <span style={{ color: 'var(--t3)' }}>
+                    {new Date(job.paidAt).toLocaleString(undefined, {
+                      month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+                    })}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
+
+          {/* Mark Paid CTA — primary action when payment is outstanding.
+              Placed above the secondary action grid so it's the obvious
+              next tap. Matches the field-service workflow: open job → see
+              what's owed → tap to collect → done. */}
+          {ps !== 'Paid' && ps !== 'Cancelled' && (
+            <button
+              onClick={onMarkPaid}
+              style={{
+                width: '100%',
+                marginTop: 16,
+                padding: '14px 18px',
+                background: 'linear-gradient(135deg, var(--green) 0%, #16a34a 100%)',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 12,
+                fontSize: 15,
+                fontWeight: 800,
+                cursor: 'pointer',
+                boxShadow: '0 6px 20px rgba(34,197,94,.25)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                minHeight: 52,
+              }}
+            >
+              💰 Collect Payment · {money(job.revenue)}
+            </button>
+          )}
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 16 }}>
             <button className="btn secondary" onClick={onGenerateInvoice}>📄 Invoice</button>

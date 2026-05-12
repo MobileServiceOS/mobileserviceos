@@ -12,6 +12,7 @@ interface Props {
   onViewJob: () => void;
   onDuplicate: () => void;
   onClose: () => void;
+  onMarkPaid: () => void;
 }
 
 function buildHeader(job: Job, ps: ReturnType<typeof resolvePaymentStatus>) {
@@ -28,7 +29,7 @@ function buildHeader(job: Job, ps: ReturnType<typeof resolvePaymentStatus>) {
 
 export function JobSuccessPanel({
   job, settings, brand,
-  onGenerateInvoice, onSendReview, onEditJob, onViewJob, onDuplicate, onClose,
+  onGenerateInvoice, onSendReview, onEditJob, onViewJob, onDuplicate, onClose, onMarkPaid,
 }: Props) {
   const profit = jobGrossProfit(job, settings);
   const ps = resolvePaymentStatus(job);
@@ -76,6 +77,25 @@ export function JobSuccessPanel({
         </div>
       </div>
       <div className="action-grid card-anim">
+        {/* Mark Paid — first action when payment is outstanding. Spans both
+            columns so it's the obvious next tap right after job save.
+            Surfaced at the top of the grid so the operator can collect
+            payment without scrolling or hunting for the button. */}
+        {ps !== 'Paid' && ps !== 'Cancelled' && job.status !== 'Cancelled' && (
+          <button
+            className="action-btn wide"
+            onClick={onMarkPaid}
+            style={{
+              background: 'linear-gradient(135deg, var(--green) 0%, #16a34a 100%)',
+              color: '#fff',
+              border: 'none',
+              boxShadow: '0 6px 20px rgba(34,197,94,.25)',
+            }}
+          >
+            <span className="action-ico">💰</span>
+            <span style={{ fontWeight: 800 }}>Collect Payment · {money(job.revenue)}</span>
+          </button>
+        )}
         {isCompleted ? (
           <>
             <button className="action-btn" onClick={onGenerateInvoice}>

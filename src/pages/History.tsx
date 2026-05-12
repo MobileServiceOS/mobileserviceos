@@ -6,11 +6,12 @@ interface Props {
   jobs: Job[];
   settings: Settings;
   onViewJob: (j: Job) => void;
+  onMarkPaid: (j: Job) => void;
 }
 
 type Filter = 'all' | 'completed' | 'pending' | 'cancelled' | 'unpaid';
 
-export function History({ jobs, settings, onViewJob }: Props) {
+export function History({ jobs, settings, onViewJob, onMarkPaid }: Props) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
 
@@ -62,8 +63,8 @@ export function History({ jobs, settings, onViewJob }: Props) {
             const pr = jobGrossProfit(j, settings);
             const ps = resolvePaymentStatus(j);
             return (
-              <div key={j.id} className="job-card card-anim" onClick={() => onViewJob(j)}>
-                <div className="job-card-main">
+              <div key={j.id} className="job-card card-anim">
+                <div className="job-card-main" onClick={() => onViewJob(j)}>
                   <div className="job-icon">{serviceIcon(j.service)}</div>
                   <div className="job-main">
                     <div className="job-title">{j.customerName || j.service}</div>
@@ -78,6 +79,28 @@ export function History({ jobs, settings, onViewJob }: Props) {
                     <span className={'pill ' + paymentPillClass(ps)} style={{ marginTop: 4 }}>{ps}</span>
                   </div>
                 </div>
+                {/* Mark Paid action — only render when payment is outstanding.
+                    Stops propagation so tapping the button doesn't also open
+                    the detail modal. Pattern matches Dashboard's job cards. */}
+                {ps !== 'Paid' && ps !== 'Cancelled' && (
+                  <div style={{
+                    padding: '10px 14px',
+                    borderTop: '1px solid var(--border2)',
+                    background: 'var(--s2)',
+                    display: 'flex', alignItems: 'center', gap: 10,
+                  }}>
+                    <div style={{ flex: 1, fontSize: 11, color: 'var(--t3)' }}>
+                      Balance due <strong style={{ color: 'var(--amber)' }}>{money(j.revenue)}</strong>
+                    </div>
+                    <button
+                      className="btn sm success"
+                      onClick={(e) => { e.stopPropagation(); onMarkPaid(j); }}
+                      style={{ fontWeight: 800, minHeight: 36 }}
+                    >
+                      Mark Paid
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}

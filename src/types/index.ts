@@ -94,6 +94,16 @@ export interface Job {
   inventoryDeductions?: InventoryDeduction[] | string | null;
   inventoryUsed?: unknown;
   paymentStatus: PaymentStatus;
+  /** When the job was marked paid. ISO timestamp. */
+  paidAt?: string;
+  /** How the payment was collected. Set by the Mark Paid action. */
+  paymentMethod?: PaymentMethod;
+  /** Future-ready: partial-payment / deposit / refund tracking. None of
+   *  these are written today — they exist so the schema doesn't need a
+   *  breaking migration when partial-payment UI ships. */
+  amountPaid?: number;
+  balanceDue?: number;
+  paymentHistory?: PaymentEvent[];
   invoiceGenerated: boolean;
   invoiceGeneratedAt?: string | null;
   invoiceNumber?: string | null;
@@ -105,7 +115,6 @@ export interface Job {
   city?: string;
   state?: string;
   fullLocationLabel?: string;
-  /** UID of team member who created this job; used by technician edit-own-jobs rule. */
   createdByUid?: string;
 }
 
@@ -138,6 +147,66 @@ export interface Settings {
   allowTechnicianPriceOverride?: boolean;
   featureFlags?: FeatureFlags;
 }
+
+export interface QuoteForm {
+  service: string;
+  vehicleType: string;
+  miles?: number | string;
+  tireCost?: number | string;
+  materialCost?: number | string;
+  miscCost?: number | string;
+  qty?: number | string;
+  revenue?: number | string;
+  emergency?: boolean;
+  lateNight?: boolean;
+  highway?: boolean;
+  weekend?: boolean;
+}
+
+export interface QuoteResult {
+  suggested: number;
+  premium: number;
+  directCosts: number;
+  targetProfit: number;
+}
+
+export type ToastType = 'success' | 'warn' | 'error' | 'info';
+
+export interface ToastItem {
+  id: string;
+  msg: string;
+  type: ToastType;
+  ts: number;
+}
+
+export type SyncStatus = 'local' | 'syncing' | 'connected' | 'offline' | 'sync_failed';
+export type TabId =
+  | 'dashboard'
+  | 'add'
+  | 'history'
+  | 'customers'
+  | 'payouts'
+  | 'expenses'
+  | 'inventory'
+  | 'settings'
+  | 'success';
+
+export type PaymentMethod = 'Cash' | 'Zelle' | 'Cash App' | 'Card' | 'Other';
+
+/**
+ * Forward-ready payment event for partial-payments/deposits/refunds.
+ * Not consumed by current UI — the `paymentStatus` + `paidAt` +
+ * `paymentMethod` fields drive everything today. Existence here lets us
+ * append events without a breaking schema change later.
+ */
+export interface PaymentEvent {
+  at: string;
+  amount: number;
+  method: PaymentMethod;
+  kind: 'payment' | 'deposit' | 'refund';
+  note?: string;
+}
+
 
 export interface MultiTirePricing {
   replacementMultipliers: { two: number; three: number; four: number };
@@ -190,46 +259,3 @@ export interface FeatureFlags {
   advancedReports?: boolean;
   prioritySupport?: boolean;
 }
-
-export interface QuoteForm {
-  service: string;
-  vehicleType: string;
-  miles?: number | string;
-  tireCost?: number | string;
-  materialCost?: number | string;
-  miscCost?: number | string;
-  qty?: number | string;
-  revenue?: number | string;
-  emergency?: boolean;
-  lateNight?: boolean;
-  highway?: boolean;
-  weekend?: boolean;
-}
-
-export interface QuoteResult {
-  suggested: number;
-  premium: number;
-  directCosts: number;
-  targetProfit: number;
-}
-
-export type ToastType = 'success' | 'warn' | 'error' | 'info';
-
-export interface ToastItem {
-  id: string;
-  msg: string;
-  type: ToastType;
-  ts: number;
-}
-
-export type SyncStatus = 'local' | 'syncing' | 'connected' | 'offline' | 'sync_failed';
-export type TabId =
-  | 'dashboard'
-  | 'add'
-  | 'history'
-  | 'customers'
-  | 'payouts'
-  | 'expenses'
-  | 'inventory'
-  | 'settings'
-  | 'success';

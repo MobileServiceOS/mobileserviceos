@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
 import { _auth, _db, scopedCol, fbDelete, fbListen, fbSet, initError } from '@/lib/firebase';
 import { BrandProvider, useBrand } from '@/context/BrandContext';
-import { MembershipProvider, usePermissions } from '@/context/MembershipContext';
 import { AuthScreen } from '@/pages/AuthScreen';
 import { Dashboard } from '@/pages/Dashboard';
 import { AddJob } from '@/pages/AddJob';
@@ -15,7 +14,7 @@ import { Settings } from '@/pages/Settings';
 import { Header } from '@/components/Header';
 import { ToastHost } from '@/components/ToastHost';
 import { InstallBanner } from '@/components/InstallBanner';
-import { UpdateBanner } from '@/components/UpdateBanner';
+import { PaymentMethodSheet } from '@/components/PaymentMethodSheet';
 import { JobSuccessPanel } from '@/components/JobSuccessPanel';
 import { JobDetailModal } from '@/components/JobDetailModal';
 import { Onboarding } from '@/components/Onboarding';
@@ -31,7 +30,7 @@ import {
   deserializeOperationalSettings,
 } from '@/lib/deserializers';
 import type {
-  Brand, Expense, InventoryItem, Job, QuoteForm, Settings as SettingsT, SyncStatus, TabId,
+  Brand, Expense, InventoryItem, Job, PaymentMethod, QuoteForm, Settings as SettingsT, SyncStatus, TabId,
 } from '@/types';
 
 declare global {
@@ -321,11 +320,6 @@ function AuthenticatedApp({ user }: { user: User }) {
         tireCost: computedTireCost,
         inventoryDeductions: deductions,
         lastEditedAt: new Date().toISOString(),
-        // Stamp the creator's uid so Firestore rules can let technicians
-        // edit their own jobs. Editing preserves existing createdByUid.
-        createdByUid: isEditing
-          ? (j.createdByUid || _auth?.currentUser?.uid || '')
-          : (_auth?.currentUser?.uid || ''),
       };
       await fbSet(jobsCol, finalJob.id, finalJob);
       addToast(isEditing ? 'Job updated' : 'Job saved', 'success');
@@ -374,8 +368,8 @@ function AuthenticatedApp({ user }: { user: User }) {
   }, [businessId, jobs]);
 
   const handleGenerateInvoice = useCallback(async (j: Job) => {
-    // generateInvoicePDF is async — it preloads the tenant logo as a base64
-    // data URL before drawing the PDF so jsPDF can render it. Must await.
+    // generateInvoicePDF is async — it preloads the tenant logo as base64
+    // before drawing. Must await. (CI guardrail catches this regression.)
     const result = await generateInvoicePDF(j, settings, brand);
     if (!result || !businessId) return;
     const jobsCol = scopedCol(businessId, 'jobs');
@@ -426,16 +420,49 @@ function AuthenticatedApp({ user }: { user: User }) {
     }
   }, [businessId, brand]);
 
-  const handleMarkPaid = useCallback(async (j: Job) => {
+  // Payment-method sheet state. When non-null, the PaymentMethodSheet
+  // renders over the app for this job. Set by handleMarkPaid (called from
+  // job cards / detail modals / history rows). Cleared by sheet close.
+  const [collectingPayment, setCollectingPayment] = useState<Job | null>(null);
+
+  /**
+   * Trigger the "Collect Payment" workflow for a job. Opens the bottom
+   * sheet — does NOT write Firestore yet. Once the user picks a method
+   * in the sheet, `handleCollectPayment` does the actual write.
+   *
+   * Kept named `handleMarkPaid` because every surface that wires this in
+   * already uses that prop name; renaming would be a larger refactor.
+   */
+  const handleMarkPaid = useCallback((j: Job) => {
+    // If somehow already paid, no-op. Defensive — UI should hide the
+    // button in that case but we double-check here.
+    if (j.paymentStatus === 'Paid') return;
+    setCollectingPayment(j);
+  }, []);
+
+  /**
+   * Actually persist the paid status + method + timestamp. Called by the
+   * PaymentMethodSheet once the user picks a method. Optimistic UI:
+   * jobs state updates immediately via fbSet's local cache, dashboard
+   * recalculates totals on next render, Firestore syncs in the background.
+   */
+  const handleCollectPayment = useCallback(async (j: Job, method: PaymentMethod) => {
     if (!businessId) return;
     const jobsCol = scopedCol(businessId, 'jobs');
-    const updated: Job = { ...j, paymentStatus: 'Paid' };
+    const now = new Date().toISOString();
+    const updated: Job = {
+      ...j,
+      paymentStatus: 'Paid',
+      paidAt: now,
+      paymentMethod: method,
+    };
     try {
       await fbSet(jobsCol, j.id, updated);
-      addToast('Marked as paid', 'success');
+      addToast(`Paid · ${method}`, 'success');
     } catch (e) {
       setSyncStatus('sync_failed');
       addToast(`Mark-paid failed: ${humanizeFirestoreError(e)}`, 'error');
+      throw e; // re-throw so the sheet can reset its busy state
     }
   }, [businessId]);
 
@@ -504,7 +531,7 @@ function AuthenticatedApp({ user }: { user: User }) {
         />
       );
     }
-    if (tab === 'history') return <History jobs={jobs} settings={settings} onViewJob={handleViewJob} />;
+    if (tab === 'history') return <History jobs={jobs} settings={settings} onViewJob={handleViewJob} onMarkPaid={handleMarkPaid} />;
     if (tab === 'customers') return <Customers jobs={jobs} settings={settings} />;
     if (tab === 'payouts') return <Payouts jobs={jobs} settings={settings} />;
     if (tab === 'expenses') return <Expenses expenses={settings.expenses || []} onSave={persistExpenses} />;
@@ -521,6 +548,7 @@ function AuthenticatedApp({ user }: { user: User }) {
           onEditJob={() => handleEditJob(savedJob)}
           onViewJob={() => handleViewJob(savedJob)}
           onDuplicate={() => handleDuplicate(savedJob)}
+          onMarkPaid={() => handleMarkPaid(savedJob)}
           onClose={() => { setSavedJob(null); setTab('dashboard'); }}
         />
       );
@@ -549,18 +577,31 @@ function AuthenticatedApp({ user }: { user: User }) {
   }
 
   return (
-    <MembershipProvider settings={settings}>
+    <>
       <Header syncStatus={syncStatus} onSignOut={onSignOut} />
       <main className="main-content">{tabContent}</main>
-      <AppBottomNav
-        tab={tab}
-        setTab={setTab}
-        onResetJobDraft={() => {
+      <nav className="bottom-nav">
+        <button className={'nav-btn' + (tab === 'dashboard' ? ' active' : '')} onClick={() => setTab('dashboard')}>
+          <span className="nav-ico">🏠</span><span>Home</span>
+        </button>
+        <button className={'nav-btn' + (tab === 'history' ? ' active' : '')} onClick={() => setTab('history')}>
+          <span className="nav-ico">📋</span><span>Jobs</span>
+        </button>
+        <button className={'nav-btn primary' + (tab === 'add' ? ' active' : '')} onClick={() => {
           setJobDraft(EMPTY_JOB());
           setEditingJobId(null);
           setPrefilledFromQuote(false);
-        }}
-      />
+          setTab('add');
+        }}>
+          <span className="nav-ico">＋</span><span>Log</span>
+        </button>
+        <button className={'nav-btn' + (tab === 'inventory' ? ' active' : '')} onClick={() => setTab('inventory')}>
+          <span className="nav-ico">🛞</span><span>Inv</span>
+        </button>
+        <button className={'nav-btn' + (tab === 'settings' ? ' active' : '')} onClick={() => setTab('settings')}>
+          <span className="nav-ico">⚙</span><span>More</span>
+        </button>
+      </nav>
       {detailJob && (
         <JobDetailModal
           job={detailJob}
@@ -572,56 +613,21 @@ function AuthenticatedApp({ user }: { user: User }) {
           onGenerateInvoice={() => handleGenerateInvoice(detailJob)}
           onSendInvoice={() => handleSendInvoice(detailJob)}
           onSendReview={() => handleSendReview(detailJob)}
+          onMarkPaid={() => handleMarkPaid(detailJob)}
+        />
+      )}
+      {collectingPayment && (
+        <PaymentMethodSheet
+          amountDue={Number(collectingPayment.revenue) || 0}
+          onConfirm={async (method) => {
+            await handleCollectPayment(collectingPayment, method);
+          }}
+          onClose={() => setCollectingPayment(null)}
         />
       )}
       <InstallBanner />
-      <UpdateBanner />
       <ToastHost />
-    </MembershipProvider>
-  );
-}
-
-/**
- * Bottom nav — extracted so it can use usePermissions() from the
- * MembershipProvider context. Technicians don't see Inv or More (Settings)
- * tabs.
- */
-function AppBottomNav({
-  tab, setTab, onResetJobDraft,
-}: {
-  tab: TabId;
-  setTab: (t: TabId) => void;
-  onResetJobDraft: () => void;
-}) {
-  const permissions = usePermissions();
-  const showInventory = permissions.canManageInventory || permissions.canViewFinancials;
-  const showSettings = permissions.canEditBusinessSettings;
-
-  return (
-    <nav className="bottom-nav">
-      <button className={'nav-btn' + (tab === 'dashboard' ? ' active' : '')} onClick={() => setTab('dashboard')}>
-        <span className="nav-ico">🏠</span><span>Home</span>
-      </button>
-      <button className={'nav-btn' + (tab === 'history' ? ' active' : '')} onClick={() => setTab('history')}>
-        <span className="nav-ico">📋</span><span>Jobs</span>
-      </button>
-      <button className={'nav-btn primary' + (tab === 'add' ? ' active' : '')} onClick={() => {
-        onResetJobDraft();
-        setTab('add');
-      }}>
-        <span className="nav-ico">＋</span><span>Log</span>
-      </button>
-      {showInventory && (
-        <button className={'nav-btn' + (tab === 'inventory' ? ' active' : '')} onClick={() => setTab('inventory')}>
-          <span className="nav-ico">🛞</span><span>Inv</span>
-        </button>
-      )}
-      {showSettings && (
-        <button className={'nav-btn' + (tab === 'settings' ? ' active' : '')} onClick={() => setTab('settings')}>
-          <span className="nav-ico">⚙</span><span>More</span>
-        </button>
-      )}
-    </nav>
+    </>
   );
 }
 
