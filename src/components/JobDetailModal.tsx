@@ -100,10 +100,9 @@ export function JobDetailModal({
               <span className="label">Payment</span>
               <span className={'pill ' + paymentPillClass(ps)}>{ps}</span>
             </div>
-            {/* Paid-via metadata: shown when payment has been collected.
-                Gives the operator confirmation that the right method was
-                logged and when. Replaces what was previously invisible. */}
-            {ps === 'Paid' && (job.paymentMethod || job.paidAt) && (
+            {/* Paid metadata: show when payment is in. Helpful for the
+                operator to confirm the job was correctly marked. */}
+            {ps === 'Paid' && job.paidAt && (
               <div style={{
                 marginTop: 4,
                 padding: '8px 12px',
@@ -115,22 +114,19 @@ export function JobDetailModal({
                 display: 'flex',
                 justifyContent: 'space-between',
               }}>
-                <span>{job.paymentMethod ? `via ${job.paymentMethod}` : 'Paid'}</span>
-                {job.paidAt && (
-                  <span style={{ color: 'var(--t3)' }}>
-                    {new Date(job.paidAt).toLocaleString(undefined, {
-                      month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
-                    })}
-                  </span>
-                )}
+                <span>Paid{job.paymentMethod ? ` via ${job.paymentMethod}` : ''}</span>
+                <span style={{ color: 'var(--t3)' }}>
+                  {new Date(job.paidAt).toLocaleString(undefined, {
+                    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+                  })}
+                </span>
               </div>
             )}
           </div>
 
           {/* Mark Paid CTA — primary action when payment is outstanding.
-              Placed above the secondary action grid so it's the obvious
-              next tap. Matches the field-service workflow: open job → see
-              what's owed → tap to collect → done. */}
+              One tap = paid. No method picker, no edit mode. Roadside
+              workflow: see button → tap → done. */}
           {ps !== 'Paid' && ps !== 'Cancelled' && (
             <button
               onClick={onMarkPaid}
@@ -153,7 +149,7 @@ export function JobDetailModal({
                 minHeight: 52,
               }}
             >
-              💰 Collect Payment · {money(job.revenue)}
+              💰 Mark Paid · {money(job.revenue)}
             </button>
           )}
 

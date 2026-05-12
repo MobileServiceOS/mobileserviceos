@@ -94,13 +94,8 @@ export interface Job {
   inventoryDeductions?: InventoryDeduction[] | string | null;
   inventoryUsed?: unknown;
   paymentStatus: PaymentStatus;
-  /** When the job was marked paid. ISO timestamp. */
   paidAt?: string;
-  /** How the payment was collected. Set by the Mark Paid action. */
   paymentMethod?: PaymentMethod;
-  /** Future-ready: partial-payment / deposit / refund tracking. None of
-   *  these are written today — they exist so the schema doesn't need a
-   *  breaking migration when partial-payment UI ships. */
   amountPaid?: number;
   balanceDue?: number;
   paymentHistory?: PaymentEvent[];
@@ -193,12 +188,6 @@ export type TabId =
 
 export type PaymentMethod = 'Cash' | 'Zelle' | 'Cash App' | 'Card' | 'Other';
 
-/**
- * Forward-ready payment event for partial-payments/deposits/refunds.
- * Not consumed by current UI — the `paymentStatus` + `paidAt` +
- * `paymentMethod` fields drive everything today. Existence here lets us
- * append events without a breaking schema change later.
- */
 export interface PaymentEvent {
   at: string;
   amount: number;
@@ -206,7 +195,6 @@ export interface PaymentEvent {
   kind: 'payment' | 'deposit' | 'refund';
   note?: string;
 }
-
 
 export interface MultiTirePricing {
   replacementMultipliers: { two: number; three: number; four: number };

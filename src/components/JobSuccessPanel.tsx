@@ -77,10 +77,8 @@ export function JobSuccessPanel({
         </div>
       </div>
       <div className="action-grid card-anim">
-        {/* Mark Paid — first action when payment is outstanding. Spans both
-            columns so it's the obvious next tap right after job save.
-            Surfaced at the top of the grid so the operator can collect
-            payment without scrolling or hunting for the button. */}
+        {/* Mark Paid — first action when payment is outstanding.
+            Spans both columns. One tap = paid. */}
         {ps !== 'Paid' && ps !== 'Cancelled' && job.status !== 'Cancelled' && (
           <button
             className="action-btn wide"
@@ -93,7 +91,7 @@ export function JobSuccessPanel({
             }}
           >
             <span className="action-ico">💰</span>
-            <span style={{ fontWeight: 800 }}>Collect Payment · {money(job.revenue)}</span>
+            <span style={{ fontWeight: 800 }}>Mark Paid · {money(job.revenue)}</span>
           </button>
         )}
         {isCompleted ? (

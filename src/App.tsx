@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
 import { _auth, _db, scopedCol, fbDelete, fbListen, fbSet, initError } from '@/lib/firebase';
 import { BrandProvider, useBrand } from '@/context/BrandContext';
+import { MembershipProvider, usePermissions } from '@/context/MembershipContext';
 import { AuthScreen } from '@/pages/AuthScreen';
 import { Dashboard } from '@/pages/Dashboard';
 import { AddJob } from '@/pages/AddJob';
@@ -14,7 +15,7 @@ import { Settings } from '@/pages/Settings';
 import { Header } from '@/components/Header';
 import { ToastHost } from '@/components/ToastHost';
 import { InstallBanner } from '@/components/InstallBanner';
-import { PaymentMethodSheet } from '@/components/PaymentMethodSheet';
+import { UpdateBanner } from '@/components/UpdateBanner';
 import { JobSuccessPanel } from '@/components/JobSuccessPanel';
 import { JobDetailModal } from '@/components/JobDetailModal';
 import { Onboarding } from '@/components/Onboarding';
@@ -30,7 +31,7 @@ import {
   deserializeOperationalSettings,
 } from '@/lib/deserializers';
 import type {
-  Brand, Expense, InventoryItem, Job, PaymentMethod, QuoteForm, Settings as SettingsT, SyncStatus, TabId,
+  Brand, Expense, InventoryItem, Job, QuoteForm, Settings as SettingsT, SyncStatus, TabId,
 } from '@/types';
 
 declare global {
@@ -320,6 +321,9 @@ function AuthenticatedApp({ user }: { user: User }) {
         tireCost: computedTireCost,
         inventoryDeductions: deductions,
         lastEditedAt: new Date().toISOString(),
+        createdByUid: isEditing
+          ? (j.createdByUid || _auth?.currentUser?.uid || '')
+          : (_auth?.currentUser?.uid || ''),
       };
       await fbSet(jobsCol, finalJob.id, finalJob);
       addToast(isEditing ? 'Job updated' : 'Job saved', 'success');
@@ -368,8 +372,7 @@ function AuthenticatedApp({ user }: { user: User }) {
   }, [businessId, jobs]);
 
   const handleGenerateInvoice = useCallback(async (j: Job) => {
-    // generateInvoicePDF is async — it preloads the tenant logo as base64
-    // before drawing. Must await. (CI guardrail catches this regression.)
+    // generateInvoicePDF is async — preloads logo as base64. Must await.
     const result = await generateInvoicePDF(j, settings, brand);
     if (!result || !businessId) return;
     const jobsCol = scopedCol(businessId, 'jobs');
@@ -420,49 +423,26 @@ function AuthenticatedApp({ user }: { user: User }) {
     }
   }, [businessId, brand]);
 
-  // Payment-method sheet state. When non-null, the PaymentMethodSheet
-  // renders over the app for this job. Set by handleMarkPaid (called from
-  // job cards / detail modals / history rows). Cleared by sheet close.
-  const [collectingPayment, setCollectingPayment] = useState<Job | null>(null);
-
-  /**
-   * Trigger the "Collect Payment" workflow for a job. Opens the bottom
-   * sheet — does NOT write Firestore yet. Once the user picks a method
-   * in the sheet, `handleCollectPayment` does the actual write.
-   *
-   * Kept named `handleMarkPaid` because every surface that wires this in
-   * already uses that prop name; renaming would be a larger refactor.
-   */
-  const handleMarkPaid = useCallback((j: Job) => {
-    // If somehow already paid, no-op. Defensive — UI should hide the
-    // button in that case but we double-check here.
+  const handleMarkPaid = useCallback(async (j: Job) => {
+    // One-tap mark paid — no method picker. Field workflow needs the
+    // fewest possible taps: see button → tap → status flips to Paid.
+    // Stamp `paidAt` so the dashboard / history know when payment landed.
+    // The `paymentMethod` field stays in the schema (set elsewhere if
+    // needed) but isn't asked here.
     if (j.paymentStatus === 'Paid') return;
-    setCollectingPayment(j);
-  }, []);
-
-  /**
-   * Actually persist the paid status + method + timestamp. Called by the
-   * PaymentMethodSheet once the user picks a method. Optimistic UI:
-   * jobs state updates immediately via fbSet's local cache, dashboard
-   * recalculates totals on next render, Firestore syncs in the background.
-   */
-  const handleCollectPayment = useCallback(async (j: Job, method: PaymentMethod) => {
     if (!businessId) return;
     const jobsCol = scopedCol(businessId, 'jobs');
-    const now = new Date().toISOString();
     const updated: Job = {
       ...j,
       paymentStatus: 'Paid',
-      paidAt: now,
-      paymentMethod: method,
+      paidAt: new Date().toISOString(),
     };
     try {
       await fbSet(jobsCol, j.id, updated);
-      addToast(`Paid · ${method}`, 'success');
+      addToast('Marked as paid', 'success');
     } catch (e) {
       setSyncStatus('sync_failed');
       addToast(`Mark-paid failed: ${humanizeFirestoreError(e)}`, 'error');
-      throw e; // re-throw so the sheet can reset its busy state
     }
   }, [businessId]);
 
@@ -577,31 +557,18 @@ function AuthenticatedApp({ user }: { user: User }) {
   }
 
   return (
-    <>
+    <MembershipProvider settings={settings}>
       <Header syncStatus={syncStatus} onSignOut={onSignOut} />
       <main className="main-content">{tabContent}</main>
-      <nav className="bottom-nav">
-        <button className={'nav-btn' + (tab === 'dashboard' ? ' active' : '')} onClick={() => setTab('dashboard')}>
-          <span className="nav-ico">🏠</span><span>Home</span>
-        </button>
-        <button className={'nav-btn' + (tab === 'history' ? ' active' : '')} onClick={() => setTab('history')}>
-          <span className="nav-ico">📋</span><span>Jobs</span>
-        </button>
-        <button className={'nav-btn primary' + (tab === 'add' ? ' active' : '')} onClick={() => {
+      <AppBottomNav
+        tab={tab}
+        setTab={setTab}
+        onResetJobDraft={() => {
           setJobDraft(EMPTY_JOB());
           setEditingJobId(null);
           setPrefilledFromQuote(false);
-          setTab('add');
-        }}>
-          <span className="nav-ico">＋</span><span>Log</span>
-        </button>
-        <button className={'nav-btn' + (tab === 'inventory' ? ' active' : '')} onClick={() => setTab('inventory')}>
-          <span className="nav-ico">🛞</span><span>Inv</span>
-        </button>
-        <button className={'nav-btn' + (tab === 'settings' ? ' active' : '')} onClick={() => setTab('settings')}>
-          <span className="nav-ico">⚙</span><span>More</span>
-        </button>
-      </nav>
+        }}
+      />
       {detailJob && (
         <JobDetailModal
           job={detailJob}
@@ -616,18 +583,53 @@ function AuthenticatedApp({ user }: { user: User }) {
           onMarkPaid={() => handleMarkPaid(detailJob)}
         />
       )}
-      {collectingPayment && (
-        <PaymentMethodSheet
-          amountDue={Number(collectingPayment.revenue) || 0}
-          onConfirm={async (method) => {
-            await handleCollectPayment(collectingPayment, method);
-          }}
-          onClose={() => setCollectingPayment(null)}
-        />
-      )}
       <InstallBanner />
+      <UpdateBanner />
       <ToastHost />
-    </>
+    </MembershipProvider>
+  );
+}
+
+/**
+ * Bottom nav — extracted so it can use usePermissions() from
+ * MembershipProvider context. Technicians don't see Inv or More tabs.
+ */
+function AppBottomNav({
+  tab, setTab, onResetJobDraft,
+}: {
+  tab: TabId;
+  setTab: (t: TabId) => void;
+  onResetJobDraft: () => void;
+}) {
+  const permissions = usePermissions();
+  const showInventory = permissions.canManageInventory || permissions.canViewFinancials;
+  const showSettings = permissions.canEditBusinessSettings;
+
+  return (
+    <nav className="bottom-nav">
+      <button className={'nav-btn' + (tab === 'dashboard' ? ' active' : '')} onClick={() => setTab('dashboard')}>
+        <span className="nav-ico">🏠</span><span>Home</span>
+      </button>
+      <button className={'nav-btn' + (tab === 'history' ? ' active' : '')} onClick={() => setTab('history')}>
+        <span className="nav-ico">📋</span><span>Jobs</span>
+      </button>
+      <button className={'nav-btn primary' + (tab === 'add' ? ' active' : '')} onClick={() => {
+        onResetJobDraft();
+        setTab('add');
+      }}>
+        <span className="nav-ico">＋</span><span>Log</span>
+      </button>
+      {showInventory && (
+        <button className={'nav-btn' + (tab === 'inventory' ? ' active' : '')} onClick={() => setTab('inventory')}>
+          <span className="nav-ico">🛞</span><span>Inv</span>
+        </button>
+      )}
+      {showSettings && (
+        <button className={'nav-btn' + (tab === 'settings' ? ' active' : '')} onClick={() => setTab('settings')}>
+          <span className="nav-ico">⚙</span><span>More</span>
+        </button>
+      )}
+    </nav>
   );
 }
 

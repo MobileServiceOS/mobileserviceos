@@ -294,9 +294,6 @@ export function Dashboard({
                   </div>
                   <div className="job-card-actions">
                     {ps !== 'Paid' && ps !== 'Cancelled' && (
-                      // Inline Mark Paid — short-circuits the
-                      // open-edit-save loop for the common case of
-                      // collecting payment on a recent job.
                       <button
                         onClick={() => onMarkPaid(j)}
                         style={{ color: 'var(--green)', fontWeight: 800 }}

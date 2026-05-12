@@ -79,9 +79,9 @@ export function History({ jobs, settings, onViewJob, onMarkPaid }: Props) {
                     <span className={'pill ' + paymentPillClass(ps)} style={{ marginTop: 4 }}>{ps}</span>
                   </div>
                 </div>
-                {/* Mark Paid action — only render when payment is outstanding.
-                    Stops propagation so tapping the button doesn't also open
-                    the detail modal. Pattern matches Dashboard's job cards. */}
+                {/* Mark Paid action footer — only render when payment is
+                    outstanding. Stops propagation so the button doesn't
+                    also open the detail modal. */}
                 {ps !== 'Paid' && ps !== 'Cancelled' && (
                   <div style={{
                     padding: '10px 14px',
