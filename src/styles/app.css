@@ -24,10 +24,7 @@
   --red: #ef4444;
   --amber: #f59e0b;
 
-  /* ── Spacing scale (8pt-based) ──
-     Use these vars in inline styles and component CSS instead of
-     freestyle pixel values. Each step is multiplicative: doubling
-     up to --sp-3, then +8px increments. Keeps page rhythm tight. */
+  /* ── Spacing scale (8pt-based) ── */
   --sp-1: 4px;
   --sp-2: 8px;
   --sp-3: 12px;
@@ -37,10 +34,7 @@
   --sp-7: 32px;
   --sp-8: 40px;
 
-  /* ── Typography scale ──
-     7 sizes covering everything from caption labels to hero numbers.
-     Most body copy is --fs-md. Card titles --fs-lg. Hero stats --fs-2xl
-     or --fs-display. Tiny uppercase labels --fs-xs. */
+  /* ── Typography scale ── */
   --fs-xs:      10px;
   --fs-sm:      11px;
   --fs-md:      13px;
@@ -49,27 +43,47 @@
   --fs-2xl:     22px;
   --fs-display: 28px;
 
-  /* ── Radius scale ──
-     Three rounding levels. Pills are --r-pill. Cards --r-md.
-     Small chips/inputs --r-sm. Avoid arbitrary radii. */
+  /* ── Radius scale ── */
   --r-sm:   8px;
   --r-md:   12px;
   --r-lg:   16px;
   --r-pill: 999px;
 
+  /* ── Safe-area insets ──
+     Exposed as tokens so any fixed/sticky element (header, bottom nav,
+     install banner, sheet modals) can opt into iOS notch/home-indicator
+     safe padding without re-importing env() each time.
+     The fallback `0` applies in browsers without env() support (desktop,
+     older Android). On iPhone in PWA mode these become non-zero
+     automatically because viewport-fit=cover is set in index.html. */
+  --safe-top: env(safe-area-inset-top, 0);
   --safe-bot: env(safe-area-inset-bottom, 0);
+  --safe-l:   env(safe-area-inset-left, 0);
+  --safe-r:   env(safe-area-inset-right, 0);
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+/* ── Global overflow + viewport bounds ──
+   The installed PWA on iPhone hands React a viewport that excludes the
+   status bar / home indicator notches. Any element wider than 100vw
+   leaks into horizontal scroll. These three lines kill stray overflow
+   from rogue tables, long strings, or hard-coded widths anywhere in
+   the tree. Pair with per-component max-width caps below. */
 html, body, #root {
   margin: 0;
   padding: 0;
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
   background: var(--bg);
   color: var(--t1);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   font-size: 14px;
   min-height: 100vh;
+  /* iOS PWA needs explicit min-height for the keyboard collapse fix. */
+  min-height: -webkit-fill-available;
 }
 body { overscroll-behavior-y: contain; }
 input, select, textarea, button { font-family: inherit; }
@@ -81,27 +95,42 @@ a { color: var(--brand-primary); text-decoration: none; }
   display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 14px;
   background: var(--bg); z-index: 9999;
+  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bot);
 }
 .splash-logo { width: 64px; height: 64px; border-radius: 14px; opacity: .9; }
 .splash-name { font-size: 14px; color: var(--t2); letter-spacing: 1px; text-transform: uppercase; }
 
 /* ── Header ─────────────────────────────────────────────── */
+/* The header sits below the iOS status bar (black-translucent). We add
+   --safe-top to top-padding so the actual content row starts BELOW the
+   carrier/clock/battery overlay, not under it. The header background
+   extends edge-to-edge so the status bar still looks intentional. */
 .header-compact {
   position: sticky; top: 0; z-index: 50;
   display: flex; align-items: center; gap: 8px;
-  padding: 10px 14px;
+  padding: calc(10px + var(--safe-top)) calc(14px + var(--safe-r)) 10px calc(14px + var(--safe-l));
   background: rgba(11,13,18,.92);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
+  /* Prevent header overflow when business name is long. */
+  min-width: 0;
 }
-.header-compact h1 { font-size: 14px; margin: 0; font-weight: 700; }
-.header-compact p { font-size: 11px; margin: 0; color: var(--t3); }
+.header-compact h1 {
+  font-size: 14px; margin: 0; font-weight: 700;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.header-compact p {
+  font-size: 11px; margin: 0; color: var(--t3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 
 /* ── Sync pill ──────────────────────────────────────────── */
 .sync-pill {
   font-size: 9px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase;
   padding: 4px 8px; border-radius: 999px; border: 1px solid transparent; white-space: nowrap;
   transition: color .2s, background .2s, border-color .2s;
+  flex-shrink: 0;
 }
 .sync-pill.synced { color: var(--green); background: rgba(34,197,94,.1); border-color: rgba(34,197,94,.25); }
 .sync-pill.syncing { color: var(--brand-primary); background: rgba(200,164,74,.08); border-color: rgba(200,164,74,.22); animation: pulseSync 1.6s ease-in-out infinite; }
@@ -112,17 +141,30 @@ a { color: var(--brand-primary); text-decoration: none; }
 @keyframes pulseFail { 0%, 100% { opacity: .85; } 50% { opacity: 1; box-shadow: 0 0 0 3px rgba(239,68,68,.18); } }
 
 /* ── Layout ─────────────────────────────────────────────── */
-.main-content { padding: 0 0 calc(72px + var(--safe-bot)) 0; }
-.page { padding: 14px 14px 24px 14px; max-width: 760px; margin: 0 auto; }
+/* main-content reserves space at the bottom equal to bottom-nav height
+   plus the safe-area inset so scrollable content never hides under the
+   nav bar on iPhone. */
+.main-content {
+  padding: 0 0 calc(72px + var(--safe-bot)) 0;
+  width: 100%;
+  max-width: 100vw;
+}
+
+/* .page is the inner content wrapper used by Dashboard / Jobs / etc.
+   max-width caps at 760px on tablet+ but the explicit 100% / 100vw
+   guards keep it inside the viewport on phones with notches in
+   landscape (left/right insets eat real width). */
+.page {
+  padding: 14px calc(14px + var(--safe-r)) 24px calc(14px + var(--safe-l));
+  max-width: min(760px, 100%);
+  margin: 0 auto;
+  width: 100%;
+}
 .page-enter { animation: fadeIn .25s ease; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
 .card-anim { animation: slideUp .35s ease backwards; }
-/* ── Staggered entrance ──
-   When multiple .card-anim cards appear inside a page, this stagger
-   makes them pop in sequence (60ms apart) rather than all at once.
-   Capped at 8 cards — the 9th onward all use the 8-card delay so
-   long lists don't get an absurdly long total animation time. */
+/* ── Staggered entrance ── */
 .card-anim:nth-of-type(1)        { animation-delay:  0ms; }
 .card-anim:nth-of-type(2)        { animation-delay:  60ms; }
 .card-anim:nth-of-type(3)        { animation-delay: 120ms; }
@@ -131,7 +173,6 @@ a { color: var(--brand-primary); text-decoration: none; }
 .card-anim:nth-of-type(6)        { animation-delay: 300ms; }
 .card-anim:nth-of-type(7)        { animation-delay: 360ms; }
 .card-anim:nth-of-type(n+8)      { animation-delay: 420ms; }
-/* Respect the user's reduced-motion preference — instant cards. */
 @media (prefers-reduced-motion: reduce) {
   .card-anim { animation: none; }
   .page-enter { animation: none; }
@@ -141,7 +182,13 @@ a { color: var(--brand-primary); text-decoration: none; }
 .stack > * + * { margin-top: 10px; }
 
 /* ── Cards / sections ───────────────────────────────────── */
-.card { background: var(--s1); border: 1px solid var(--border); border-radius: 14px; }
+/* Universal max-width cap on top-level layout primitives. Anything
+   that's a "card" in the dashboard tree will never overflow the
+   viewport even if a nested element tries to. */
+.card {
+  background: var(--s1); border: 1px solid var(--border); border-radius: 14px;
+  max-width: 100%;
+}
 .card-pad { padding: 14px; }
 .section-label { font-size: 11px; font-weight: 800; color: var(--t2); text-transform: uppercase; letter-spacing: 1.5px; margin: 20px 0 8px 0; }
 .section-label.with-action { display: flex; justify-content: space-between; align-items: baseline; }
@@ -150,9 +197,13 @@ a { color: var(--brand-primary); text-decoration: none; }
 /* ── KPI grid ───────────────────────────────────────────── */
 .kpi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
 .kpi-grid.three { grid-template-columns: 1fr 1fr 1fr; }
-.kpi { background: var(--s1); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; }
+.kpi { background: var(--s1); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; min-width: 0; }
 .kpi-label { font-size: 10px; color: var(--t3); font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
-.kpi-value { font-size: 16px; font-weight: 700; color: var(--t1); }
+.kpi-value {
+  font-size: 16px; font-weight: 700; color: var(--t1);
+  /* Long currency strings get truncated rather than overflowing. */
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 
 /* ── Hero (dashboard) ───────────────────────────────────── */
 .pro-hero {
@@ -162,6 +213,7 @@ a { color: var(--brand-primary); text-decoration: none; }
   padding: 18px 16px;
   margin-bottom: 14px;
   box-shadow: 0 8px 24px rgba(0,0,0,.4);
+  max-width: 100%;
 }
 .pro-hero-label { font-size: 11px; font-weight: 800; color: var(--brand-primary); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 6px; }
 .hero-amount { font-size: 38px; font-weight: 800; letter-spacing: -1px; line-height: 1; color: var(--t1); }
@@ -182,6 +234,7 @@ a { color: var(--brand-primary); text-decoration: none; }
   justify-content: space-between;
   align-items: center;
   cursor: pointer;
+  max-width: 100%;
 }
 .pending-banner-title { font-size: 13px; font-weight: 800; color: var(--amber); }
 .pending-banner-sub { font-size: 11px; color: var(--t2); margin-top: 2px; }
@@ -189,24 +242,28 @@ a { color: var(--brand-primary); text-decoration: none; }
 .info-banner { background: rgba(200,164,74,.08); border: 1px solid rgba(200,164,74,.22); color: var(--brand-primary); border-radius: 10px; padding: 8px 12px; font-size: 12px; font-weight: 600; }
 
 /* ── Quote box ──────────────────────────────────────────── */
-.quote-box { background: var(--s1); border: 1px solid var(--border); border-radius: 14px; padding: 14px; }
-/* Three-column tile row: Suggested / Premium / Custom. Tightens
-   amount type to 17px so all three fit on narrow phones. */
+.quote-box {
+  background: var(--s1); border: 1px solid var(--border); border-radius: 14px;
+  padding: 14px;
+  max-width: 100%;
+}
+/* Three-column tile row at the default breakpoint: Suggested / Premium /
+   Custom. At ≤380px the Custom tile drops to a full-width row below the
+   first two — fits comfortably on iPhone SE (375px) without any tile
+   shrinking below tap-target minimums. */
 .qq-pricing-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 6px; }
-.qq-price-tile { background: var(--s2); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; cursor: pointer; transition: all .15s ease; }
+.qq-price-tile {
+  background: var(--s2); border: 1px solid var(--border); border-radius: 12px;
+  padding: 10px 12px; cursor: pointer; transition: all .15s ease;
+  min-width: 0;
+}
 .qq-price-tile.active { background: rgba(200,164,74,.1); border-color: var(--brand-primary); }
 .qq-price-tile.premium { }
 .qq-price-tile-label { font-size: 10px; color: var(--t3); font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
 .qq-price-tile-amount { font-size: 17px; font-weight: 800; color: var(--t1); margin-top: 2px; }
 .qq-price-tile.active .qq-price-tile-amount { color: var(--brand-primary); }
 
-/* ── Custom price tile ──
-   The Custom tile contains an inline $ prefix + number input on one
-   baseline. The wrap is a flex row so the prefix and input align
-   exactly like the static $90/$115 amounts in Suggested/Premium.
-   When the Custom tile is active, both the prefix AND the typed
-   number render in brand gold to match the active-state contract
-   of the other two tiles. */
+/* ── Custom price tile ── */
 .qq-price-tile.custom .qq-price-tile-amount { padding: 0; }
 .qq-custom-input-wrap {
   display: flex;
@@ -246,16 +303,23 @@ a { color: var(--brand-primary); text-decoration: none; }
 .field label { font-size: 11px; color: var(--t3); font-weight: 700; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 4px; }
 .field input, .field select, .field textarea {
   width: 100%;
+  max-width: 100%;
   background: var(--s2); color: var(--t1);
   border: 1px solid var(--border); border-radius: 10px;
   padding: 10px 12px; font-size: 14px;
   outline: none; transition: border-color .15s ease, background .15s ease;
 }
-.field input:focus, .field select:focus, .field textarea:focus { border-color: var(--brand-primary); background: var(--s3); }
+/* iOS Safari forces input zoom when font-size < 16px on focus. The
+   field at 14px would trigger that zoom on every form tap inside the
+   PWA. Bumping the focus state above 16px keeps the layout stable. */
+.field input:focus, .field select:focus, .field textarea:focus {
+  border-color: var(--brand-primary); background: var(--s3);
+  font-size: 16px;
+}
 .field textarea { min-height: 64px; resize: vertical; }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
 
-.form-group { background: var(--s1); border: 1px solid var(--border); border-radius: 14px; padding: 14px; margin-bottom: 12px; }
+.form-group { background: var(--s1); border: 1px solid var(--border); border-radius: 14px; padding: 14px; margin-bottom: 12px; max-width: 100%; }
 .form-group-title { font-size: 11px; font-weight: 800; color: var(--t2); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
 
 /* ── Chips ──────────────────────────────────────────────── */
@@ -270,9 +334,6 @@ a { color: var(--brand-primary); text-decoration: none; }
 .chip.active { background: rgba(200,164,74,.14); border-color: var(--brand-primary); color: var(--brand-primary); }
 
 /* ── Pills ──────────────────────────────────────────────── */
-/* ── Pills (payment status, generic state indicators) ───
-   Sizing: 3px vertical / 9px horizontal, 10px caps. Variants live
-   on the same row so payment / sync / plan pills line up visually. */
 .pill {
   display: inline-block;
   padding: 3px 9px;
@@ -291,10 +352,7 @@ a { color: var(--brand-primary); text-decoration: none; }
 .pill.gold  { color: var(--brand-primary); background: rgba(200,164,74,.1); border-color: rgba(200,164,74,.3); }
 .pill.muted { color: var(--t3);    background: var(--s3);            border-color: var(--border); }
 
-/* ── Badges (tire size, identifiers, "Pro" tags) ───
-   Slightly different DNA: not uppercase, normal case, used inline
-   inside titles where a pill's caps would feel shouty. Same tone
-   variants as pills so designers can swap freely. */
+/* ── Badges ── */
 .badge {
   display: inline-block;
   padding: 2px 7px;
@@ -333,7 +391,7 @@ a { color: var(--brand-primary); text-decoration: none; }
 .btn.success { background: rgba(34,197,94,.16); color: var(--green); border-color: rgba(34,197,94,.3); }
 
 .cta-btn {
-  display: block; width: 100%;
+  display: block; width: 100%; max-width: 100%;
   background: linear-gradient(135deg, var(--brand-primary), var(--brand-accent));
   color: #06070a;
   padding: 14px 18px; border-radius: 12px;
@@ -346,7 +404,7 @@ a { color: var(--brand-primary); text-decoration: none; }
 .cta-btn.press-scale:active { transform: scale(.97); }
 
 /* ── Job cards ──────────────────────────────────────────── */
-.job-card { background: var(--s1); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+.job-card { background: var(--s1); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; max-width: 100%; }
 .job-card-main { display: flex; align-items: center; gap: 12px; padding: 12px 14px; cursor: pointer; }
 .job-icon { font-size: 26px; flex-shrink: 0; }
 .job-main { flex: 1; min-width: 0; }
@@ -372,23 +430,18 @@ a { color: var(--brand-primary); text-decoration: none; }
 .source-bar-fill { height: 100%; background: var(--brand-primary); }
 
 /* ── Modal ──────────────────────────────────────────────── */
+/* Modal overlay respects safe-area on all sides so sheets/dialogs
+   never extend behind notches or the home indicator on iPhone. */
 .modal-overlay {
   position: fixed; inset: 0; z-index: 1000;
   background: rgba(0,0,0,.6); backdrop-filter: blur(6px);
   display: flex; align-items: center; justify-content: center;
-  padding: 20px;
+  padding: calc(20px + var(--safe-top)) calc(20px + var(--safe-r)) calc(20px + var(--safe-bot)) calc(20px + var(--safe-l));
   animation: modalBackdropIn .18s ease;
 }
-/* Bottom-sheet variants (PaymentMethodSheet, QuickActionSheet) align
-   their content to the bottom and use a translateY slide-in. Centered
-   modals (JobDetailModal) use a fade + soft zoom. CSS picks whichever
-   matches the sheet position via `align-items: center` vs the inline
-   `marginTop: auto` set by sheet components. */
 .modal-overlay > * {
   animation: modalContentIn .22s cubic-bezier(.2,.9,.3,1) both;
 }
-/* Bottom-aligned sheets (radius only on top corners) get a stronger
-   slide-up gesture — feels like native iOS sheets. */
 .modal-overlay > [class*="sheet" i],
 .modal-overlay > .payment-sheet {
   animation: sheetSlideUp .26s cubic-bezier(.2,.9,.3,1) both;
@@ -449,7 +502,7 @@ a { color: var(--brand-primary); text-decoration: none; }
 .receipt-thumb { font-size: 12px; color: var(--brand-primary); font-weight: 700; }
 
 /* Pricing breakdown panel */
-.pricing-breakdown { background: var(--s2); border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-top: 14px; }
+.pricing-breakdown { background: var(--s2); border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-top: 14px; max-width: 100%; }
 .pricing-breakdown-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; color: var(--t2); }
 .pricing-breakdown-row.total { border-top: 1px solid var(--border2); margin-top: 6px; padding-top: 10px; font-weight: 800; font-size: 14px; color: var(--t1); }
 .pricing-breakdown-row .num { font-weight: 700; }
@@ -472,13 +525,14 @@ a { color: var(--brand-primary); text-decoration: none; }
   padding: 26px 18px;
   margin-bottom: 14px;
   text-align: center;
+  max-width: 100%;
 }
 .success-panel.pending { background: radial-gradient(circle at 50% 0%, rgba(245,158,11,.18) 0%, var(--s1) 60%); border-color: rgba(245,158,11,.3); }
 .success-panel.pending-payment { background: radial-gradient(circle at 50% 0%, rgba(245,158,11,.16) 0%, var(--s1) 60%); border-color: rgba(245,158,11,.3); }
 .success-panel.cancelled { background: radial-gradient(circle at 50% 0%, rgba(239,68,68,.18) 0%, var(--s1) 60%); border-color: rgba(239,68,68,.3); }
 .success-check { font-size: 42px; margin-bottom: 6px; }
 .action-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
-.action-btn { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px; background: var(--s2); border: 1px solid var(--border); border-radius: 12px; color: var(--t1); cursor: pointer; font-size: 12px; font-weight: 600; }
+.action-btn { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px; background: var(--s2); border: 1px solid var(--border); border-radius: 12px; color: var(--t1); cursor: pointer; font-size: 12px; font-weight: 600; min-width: 0; }
 .action-btn:hover { background: var(--s3); }
 .action-btn.wide { grid-column: span 2; }
 .action-ico { font-size: 20px; }
@@ -489,25 +543,32 @@ a { color: var(--brand-primary); text-decoration: none; }
   position: fixed; left: 0; right: 0;
   bottom: calc(54px + var(--safe-bot));
   background: linear-gradient(to top, var(--bg) 60%, rgba(6,7,10,0));
-  padding: 12px 14px;
+  padding: 12px calc(14px + var(--safe-r)) 12px calc(14px + var(--safe-l));
   z-index: 40;
 }
 .save-footer-inner { display: flex; align-items: center; gap: 8px; max-width: 760px; margin: 0 auto; background: var(--s1); border: 1px solid var(--border); border-radius: 14px; padding: 10px 12px; }
-.save-footer-meta { flex: 1; }
+.save-footer-meta { flex: 1; min-width: 0; }
 .save-footer-label { font-size: 10px; color: var(--t3); font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
 .save-footer-value { font-size: 16px; font-weight: 800; }
 .save-footer-value.green { color: var(--green); }
 .save-footer-value.red { color: var(--red); }
 
 /* ── Bottom nav ─────────────────────────────────────────── */
+/* Fixed bottom nav with iOS home-indicator safe-area padding. The
+   --safe-bot inset lifts the icon row above the home indicator so
+   icons never sit underneath the swipe-up gesture area. The nav
+   itself extends full-width edge to edge with a tinted background. */
 .bottom-nav {
   position: fixed; left: 0; right: 0;
-  bottom: 0; padding-bottom: var(--safe-bot);
+  bottom: 0;
+  padding-bottom: var(--safe-bot);
+  padding-left: var(--safe-l);
+  padding-right: var(--safe-r);
   display: grid; grid-template-columns: repeat(5, 1fr);
   background: var(--s1); border-top: 1px solid var(--border);
   z-index: 30;
 }
-.nav-btn { background: transparent; border: none; color: var(--t3); display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 4px; font-size: 10px; font-weight: 600; cursor: pointer; }
+.nav-btn { background: transparent; border: none; color: var(--t3); display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 4px; font-size: 10px; font-weight: 600; cursor: pointer; min-width: 0; }
 .nav-btn.active { color: var(--brand-primary); }
 .nav-btn.primary { color: var(--brand-primary); }
 .nav-ico { font-size: 18px; }
@@ -521,6 +582,7 @@ a { color: var(--brand-primary); text-decoration: none; }
   display: flex; align-items: center; gap: 10px;
   z-index: 100;
   box-shadow: 0 10px 30px rgba(0,0,0,.5);
+  max-width: calc(100vw - 24px);
 }
 .install-banner-icon { width: 36px; height: 36px; border-radius: 8px; flex-shrink: 0; }
 .install-banner-text { flex: 1; min-width: 0; }
@@ -529,7 +591,18 @@ a { color: var(--brand-primary); text-decoration: none; }
 .install-banner-actions { display: flex; gap: 6px; flex-shrink: 0; }
 
 /* ── Toasts ─────────────────────────────────────────────── */
-.toast-host { position: fixed; top: 64px; left: 0; right: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; z-index: 9999; pointer-events: none; padding: 0 14px; }
+/* Toast host respects safe-area top so toasts don't render under the
+   iOS status bar overlay. Anchored below the sticky header by adding
+   header height (~44px) on top of --safe-top. */
+.toast-host {
+  position: fixed;
+  top: calc(64px + var(--safe-top));
+  left: 0; right: 0;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  z-index: 9999;
+  pointer-events: none;
+  padding: 0 14px;
+}
 .toast { background: var(--s3); border: 1px solid var(--border2); border-radius: 12px; padding: 10px 14px; font-size: 13px; font-weight: 600; box-shadow: 0 6px 20px rgba(0,0,0,.4); animation: toastIn .25s ease; max-width: 90%; }
 .toast.success { color: var(--green); border-color: rgba(34,197,94,.3); }
 .toast.warn { color: var(--amber); border-color: rgba(245,158,11,.3); }
@@ -538,7 +611,14 @@ a { color: var(--brand-primary); text-decoration: none; }
 @keyframes toastIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
 
 /* ── Auth screen ────────────────────────────────────────── */
-.auth-screen { min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 32px 18px 40px; gap: 28px; background: radial-gradient(circle at 50% 0%, rgba(200,164,74,.06) 0%, var(--bg) 50%); }
+.auth-screen {
+  min-height: 100vh;
+  min-height: -webkit-fill-available;
+  display: flex; flex-direction: column; align-items: center;
+  padding: calc(32px + var(--safe-top)) calc(18px + var(--safe-r)) calc(40px + var(--safe-bot)) calc(18px + var(--safe-l));
+  gap: 28px;
+  background: radial-gradient(circle at 50% 0%, rgba(200,164,74,.06) 0%, var(--bg) 50%);
+}
 .auth-brand { text-align: center; }
 .auth-logo { width: 72px; height: 72px; border-radius: 18px; margin-bottom: 12px; }
 .auth-name { font-size: 22px; font-weight: 800; letter-spacing: -.5px; }
@@ -553,7 +633,8 @@ a { color: var(--brand-primary); text-decoration: none; }
 .auth-banner.success { background: rgba(34,197,94,.1); color: var(--green); border: 1px solid rgba(34,197,94,.3); }
 .auth-field { margin-bottom: 12px; }
 .auth-label { font-size: 11px; color: var(--t3); font-weight: 700; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 5px; }
-.auth-inp2 { width: 100%; background: var(--s2); color: var(--t1); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; font-size: 14px; outline: none; }
+/* 16px font-size prevents iOS Safari from zooming on focus inside the PWA. */
+.auth-inp2 { width: 100%; background: var(--s2); color: var(--t1); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; font-size: 16px; outline: none; }
 .auth-inp2:focus { border-color: var(--brand-primary); }
 .auth-btn-main { width: 100%; background: var(--brand-primary); color: #06070a; padding: 12px; border-radius: 10px; font-size: 14px; font-weight: 800; border: none; cursor: pointer; margin-top: 8px; }
 .auth-btn-main:disabled { opacity: .5; cursor: not-allowed; }
@@ -566,7 +647,12 @@ a { color: var(--brand-primary); text-decoration: none; }
 .auth-links button.auth-link-accent { color: var(--brand-primary); }
 
 /* ── Onboarding ─────────────────────────────────────────── */
-.onboarding-screen { min-height: 100vh; padding: 28px 16px 40px; background: radial-gradient(circle at 50% 0%, rgba(200,164,74,.05) 0%, var(--bg) 50%); }
+.onboarding-screen {
+  min-height: 100vh;
+  min-height: -webkit-fill-available;
+  padding: calc(28px + var(--safe-top)) calc(16px + var(--safe-r)) calc(40px + var(--safe-bot)) calc(16px + var(--safe-l));
+  background: radial-gradient(circle at 50% 0%, rgba(200,164,74,.05) 0%, var(--bg) 50%);
+}
 .onboarding-container { max-width: 480px; margin: 0 auto; background: var(--s1); border: 1px solid var(--border); border-radius: 16px; padding: 22px; }
 .onboarding-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
 .onboarding-logo { width: 48px; height: 48px; border-radius: 12px; }
@@ -596,7 +682,45 @@ a { color: var(--brand-primary); text-decoration: none; }
 .city-autocomplete-item:hover, .city-autocomplete-item.active { background: var(--s3); color: var(--brand-primary); }
 .city-autocomplete-item.custom { border-top: 1px solid var(--border); color: var(--brand-primary); font-style: italic; font-size: 12px; }
 
+/* ──────────────────────────────────────────────────────────
+   Mobile breakpoints
+   ────────────────────────────────────────────────────────── */
+
+/* iPhone SE / mini width (≤380px): Quick Quote tiles collapse to a
+   2-row layout so the Custom tile is never squeezed off-screen.
+   Suggested + Premium share row 1, Custom takes the full width of
+   row 2. Each tile keeps a comfortable tap target instead of being
+   crushed into a 100px-wide column. */
 @media (max-width: 380px) {
   .kpi-grid.three { grid-template-columns: 1fr 1fr; }
   .field-row { grid-template-columns: 1fr; }
+
+  .qq-pricing-row {
+    grid-template-columns: 1fr 1fr;
+  }
+  .qq-price-tile.custom {
+    grid-column: 1 / -1;
+  }
+
+  /* Tighter side padding on cramped phones so cards have more
+     horizontal room for content. */
+  .page {
+    padding-left: calc(10px + var(--safe-l));
+    padding-right: calc(10px + var(--safe-r));
+  }
+}
+
+/* Standalone display mode (installed PWA). Browsers set this when
+   the app launches from the home screen rather than a tab. Used to
+   subtly indicate "you're in the app, not the browser" — extra blur
+   on the header for a denser native feel. */
+@media all and (display-mode: standalone),
+       all and (display-mode: fullscreen) {
+  .header-compact {
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+  /* Hide the install banner in standalone mode — they already
+     installed the app, no point nagging them again. */
+  .install-banner { display: none !important; }
 }
