@@ -190,13 +190,54 @@ a { color: var(--brand-primary); text-decoration: none; }
 
 /* ── Quote box ──────────────────────────────────────────── */
 .quote-box { background: var(--s1); border: 1px solid var(--border); border-radius: 14px; padding: 14px; }
-.qq-pricing-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 6px; }
+/* Three-column tile row: Suggested / Premium / Custom. Tightens
+   amount type to 17px so all three fit on narrow phones. */
+.qq-pricing-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 6px; }
 .qq-price-tile { background: var(--s2); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; cursor: pointer; transition: all .15s ease; }
 .qq-price-tile.active { background: rgba(200,164,74,.1); border-color: var(--brand-primary); }
 .qq-price-tile.premium { }
 .qq-price-tile-label { font-size: 10px; color: var(--t3); font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
-.qq-price-tile-amount { font-size: 20px; font-weight: 800; color: var(--t1); margin-top: 2px; }
+.qq-price-tile-amount { font-size: 17px; font-weight: 800; color: var(--t1); margin-top: 2px; }
 .qq-price-tile.active .qq-price-tile-amount { color: var(--brand-primary); }
+
+/* ── Custom price tile ──
+   The Custom tile contains an inline $ prefix + number input on one
+   baseline. The wrap is a flex row so the prefix and input align
+   exactly like the static $90/$115 amounts in Suggested/Premium.
+   When the Custom tile is active, both the prefix AND the typed
+   number render in brand gold to match the active-state contract
+   of the other two tiles. */
+.qq-price-tile.custom .qq-price-tile-amount { padding: 0; }
+.qq-custom-input-wrap {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  width: 100%;
+}
+.qq-custom-prefix {
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--t1);
+  flex-shrink: 0;
+}
+.qq-custom-input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 0;
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--t1);
+  font-family: inherit;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.qq-custom-input::placeholder { color: var(--t3); opacity: .5; }
+.qq-price-tile.custom.active .qq-custom-prefix,
+.qq-price-tile.custom.active .qq-custom-input { color: var(--brand-primary); }
+
 .qq-meta { font-size: 11px; color: var(--t3); margin: 10px 0 4px 0; text-align: center; }
 .qq-cta { margin-top: 12px; }
 
