@@ -15,12 +15,12 @@ interface PillSpec {
 
 function statusPill(s: SyncStatus): PillSpec {
   switch (s) {
-    case 'connected':   return { label: '● Synced',  className: 'sync-pill synced',  title: 'All changes synced to cloud' };
-    case 'syncing':     return { label: '○ Syncing', className: 'sync-pill syncing', title: 'Syncing with Firestore' };
-    case 'offline':     return { label: '⚠ Offline', className: 'sync-pill offline', title: 'No internet — changes queued' };
-    case 'sync_failed': return { label: '✕ Failed',  className: 'sync-pill failed',  title: 'Sync failed — see console' };
+    case 'connected':   return { label: '● Synced',        className: 'sync-pill synced',  title: 'All changes synced to cloud' };
+    case 'syncing':     return { label: '○ Syncing…',      className: 'sync-pill syncing', title: 'Syncing with Firestore' };
+    case 'offline':     return { label: '⚠ Offline',       className: 'sync-pill offline', title: 'No internet — changes queued locally' };
+    case 'sync_failed': return { label: '↻ Retry queued',  className: 'sync-pill failed',  title: 'Sync failed — will retry automatically' };
     case 'local':
-    default:            return { label: '○ Local',   className: 'sync-pill local',   title: 'Local-only — not yet synced' };
+    default:            return { label: '○ Local',         className: 'sync-pill local',   title: 'Local-only — not yet synced' };
   }
 }
 

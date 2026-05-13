@@ -9,6 +9,8 @@ import { DEFAULT_SERVICE_PRICING, DEFAULT_VEHICLE_PRICING, TODAY } from '@/lib/d
 import { useCountUp } from '@/lib/useCountUp';
 import { useBrand } from '@/context/BrandContext';
 import { useMembersDirectory } from '@/lib/useMembersDirectory';
+import { useLongPress } from '@/lib/useLongPress';
+import { QuickActionSheet } from '@/components/QuickActionSheet';
 
 interface Props {
   jobs: Job[];
@@ -18,6 +20,7 @@ interface Props {
   onStartJob: (form: QuoteForm) => void;
   onViewJob: (j: Job) => void;
   onGenerateInvoice: (j: Job) => void;
+  onSendInvoice: (j: Job) => void;
   onSendReview: (j: Job) => void;
   onMarkPaid: (j: Job) => void;
   onEditJob: (j: Job) => void;
@@ -25,14 +28,16 @@ interface Props {
 
 export function Dashboard({
   jobs, settings, inventory, setTab,
-  onStartJob, onViewJob, onGenerateInvoice, onSendReview, onMarkPaid, onEditJob,
+  onStartJob, onViewJob, onGenerateInvoice, onSendInvoice, onSendReview, onMarkPaid, onEditJob,
 }: Props) {
-  // "by X" attribution on recent jobs — same hook used by History so the
-  // members directory is fetched twice per app session at most (once per
-  // mount of each page). Lookups are O(n) over a list typically <20.
+  // Member directory for "by Marcus" tech attribution on each card.
   const { businessId } = useBrand();
   const { resolveName } = useMembersDirectory(businessId);
 
+  // Long-press / quick-action sheet state. When non-null, the sheet renders
+  // for that job. Set by the long-press handler on each card; cleared on
+  // sheet dismiss.
+  const [sheetJob, setSheetJob] = useState<Job | null>(null);
   const enabledServices = useMemo(() => {
     const sp = settings.servicePricing || DEFAULT_SERVICE_PRICING;
     return Object.keys(sp).filter((k) => sp[k] && sp[k].enabled !== false);
@@ -137,7 +142,16 @@ export function Dashboard({
         </div>
         <div className="pro-hero-foot">
           <span>{Math.round(goalPct)}% of {money(settings.weeklyGoal || 0)} goal</span>
-          <span>{jobsNeeded === '—' ? '—' : jobsNeeded + ' more needed'}</span>
+          {/* Per spec: replace vague "8 more needed" with explicit
+              dollar-amount remaining when over goal threshold; show
+              jobs-to-goal when below. */}
+          <span>
+            {goalPct >= 100
+              ? '🎯 Goal reached'
+              : jobsNeeded === '—'
+                ? `${money(Math.max(0, (settings.weeklyGoal || 0) - totals.grossProfit))} to weekly goal`
+                : `${jobsNeeded} job${jobsNeeded === 1 ? '' : 's'} to reach goal`}
+          </span>
         </div>
       </div>
 
@@ -183,10 +197,31 @@ export function Dashboard({
       )}
 
       {lowStock.length > 0 && (
-        <div className="card card-anim" style={{ borderColor: 'rgba(245,158,11,.2)' }}>
+        <div
+          className="card card-anim"
+          style={{ borderColor: 'rgba(245,158,11,.2)', cursor: 'pointer' }}
+          onClick={() => {
+            // Pass the first low-stock size as the initial filter so the
+            // Inventory page opens with that size already typed. Multiple
+            // low-stock sizes? Use the first — operator can clear and
+            // browse from there.
+            // sessionStorage is the cleanest cross-component handoff
+            // without prop-drilling or routing. Inventory reads + clears
+            // on mount.
+            try {
+              if (typeof sessionStorage !== 'undefined') {
+                sessionStorage.setItem('msos:inv:initial-search', lowStock[0].size);
+              }
+            } catch {
+              // Best-effort; navigation still works without the prefill.
+            }
+            setTab('inventory');
+          }}
+        >
           <div className="card-pad">
-            <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 8 }}>
-              ⚠ Low Stock Alert
+            <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>⚠ Low Stock Alert</span>
+              <span style={{ fontSize: 9, color: 'var(--t3)' }}>tap to view →</span>
             </div>
             {lowStock.map((ls) => (
               <div key={ls.size} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '4px 0', color: 'var(--t2)' }}>
@@ -280,56 +315,127 @@ export function Dashboard({
         <>
           <div className="section-label">Recent Completed Jobs</div>
           <div className="stack">
-            {recentCompleted.map((j) => {
-              const pr = jobGrossProfit(j, settings);
-              const ps = resolvePaymentStatus(j);
-              const techName = resolveName(j.createdByUid);
-              return (
-                <div key={j.id} className="job-card card-anim">
-                  <div className="job-card-main" onClick={() => onViewJob(j)}>
-                    <div className="job-icon">{serviceIcon(j.service)}</div>
-                    <div className="job-main">
-                      <div className="job-title">{j.customerName || j.service}</div>
-                      <div className="job-meta">
-                        {j.service} · {j.fullLocationLabel || j.area || '—'} · {fmtDate(j.date)}
-                        {j.tireSize ? ' · ' + j.tireSize : ''}
-                      </div>
-                      {techName && (
-                        <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 2 }}>
-                          by {techName}
-                        </div>
-                      )}
-                    </div>
-                    <div className="job-right">
-                      <div className="value green">{money(j.revenue)}</div>
-                      <div style={{ fontSize: 11, color: pr >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>{money(pr)} profit</div>
-                      <span className={'pill ' + paymentPillClass(ps)} style={{ marginTop: 4 }}>{ps}</span>
-                    </div>
-                  </div>
-                  <div className="job-card-actions">
-                    {/* One-tap Mark Paid for unpaid rows — carry-forward from
-                        the payment-workflow batch. */}
-                    {ps !== 'Paid' && ps !== 'Cancelled' && (
-                      <button
-                        onClick={() => onMarkPaid(j)}
-                        style={{ color: 'var(--green)', fontWeight: 800 }}
-                      >
-                        💰 Mark Paid
-                      </button>
-                    )}
-                    <button onClick={() => onGenerateInvoice(j)}>📄 Invoice</button>
-                    <button onClick={() => onSendReview(j)}>⭐ Review</button>
-                    <button onClick={() => onEditJob(j)}>✏️ Edit</button>
-                  </div>
-                </div>
-              );
-            })}
+            {recentCompleted.map((j) => (
+              <RecentJobCard
+                key={j.id}
+                job={j}
+                settings={settings}
+                techName={resolveName(j.createdByUid)}
+                onView={() => onViewJob(j)}
+                onLongPress={() => setSheetJob(j)}
+                onGenerateInvoice={() => onGenerateInvoice(j)}
+                onSendReview={() => onSendReview(j)}
+                onEditJob={() => onEditJob(j)}
+                onMarkPaid={() => onMarkPaid(j)}
+              />
+            ))}
           </div>
         </>
       )}
 
       <div style={{ marginTop: 28 }}>
         <button className="cta-btn press-scale" onClick={() => setTab('add')}>＋ Log New Job</button>
+      </div>
+
+      {/* Quick-action bottom sheet — opens on long-press of any recent job card. */}
+      {sheetJob && (
+        <QuickActionSheet
+          job={sheetJob}
+          onClose={() => setSheetJob(null)}
+          onView={() => onViewJob(sheetJob)}
+          onEdit={() => onEditJob(sheetJob)}
+          onSendInvoice={() => onSendInvoice(sheetJob)}
+          onSendReview={() => onSendReview(sheetJob)}
+          onMarkPaid={() => onMarkPaid(sheetJob)}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Standalone recent-jobs card so each instance can own its own
+ * long-press hook (hooks can't run inside `.map`).
+ *
+ * Tap = open job details. Long-press = open quick-action sheet.
+ * Includes inline Mark Paid for unpaid jobs (carry-forward) and the
+ * new tire-size badge + technician attribution line.
+ */
+function RecentJobCard({
+  job, settings, techName,
+  onView, onLongPress, onGenerateInvoice, onSendReview, onEditJob, onMarkPaid,
+}: {
+  job: Job;
+  settings: Settings;
+  techName: string | null;
+  onView: () => void;
+  onLongPress: () => void;
+  onGenerateInvoice: () => void;
+  onSendReview: () => void;
+  onEditJob: () => void;
+  onMarkPaid: () => void;
+}) {
+  const pr = jobGrossProfit(job, settings);
+  const ps = resolvePaymentStatus(job);
+  const lp = useLongPress(onLongPress);
+
+  return (
+    <div className="job-card card-anim">
+      <div
+        className="job-card-main"
+        // Tap = open detail; suppress when long-press just fired.
+        onClick={() => { if (lp.firedRef.current) return; onView(); }}
+        {...lp.bind}
+      >
+        <div className="job-icon">{serviceIcon(job.service)}</div>
+        <div className="job-main">
+          <div className="job-title" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span>{job.customerName || job.service}</span>
+            {/* Tire size badge — small inline pill so the operator can
+                scan size at a glance without expanding the card. */}
+            {job.tireSize && (
+              <span
+                style={{
+                  fontSize: 9, fontWeight: 800, color: 'var(--brand-primary)',
+                  letterSpacing: '0.3px',
+                  padding: '2px 6px', borderRadius: 99,
+                  background: 'rgba(200,164,74,.1)',
+                  border: '1px solid rgba(200,164,74,.25)',
+                }}
+              >
+                {job.tireSize}
+              </span>
+            )}
+          </div>
+          <div className="job-meta">
+            {job.service} · {job.fullLocationLabel || job.area || '—'} · {fmtDate(job.date)}
+          </div>
+          {/* Technician attribution line — only renders when we can
+              resolve the uid → a member's display name. */}
+          {techName && (
+            <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 2 }}>
+              Tech: {techName}
+            </div>
+          )}
+        </div>
+        <div className="job-right">
+          <div className="value green">{money(job.revenue)}</div>
+          <div style={{ fontSize: 11, color: pr >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>
+            {money(pr)} profit
+          </div>
+          <span className={'pill ' + paymentPillClass(ps)} style={{ marginTop: 4 }}>{ps}</span>
+        </div>
+      </div>
+      <div className="job-card-actions">
+        {/* Mark Paid only when payment is outstanding (carry-forward). */}
+        {ps !== 'Paid' && ps !== 'Cancelled' && (
+          <button onClick={onMarkPaid} style={{ color: 'var(--green)', fontWeight: 800 }}>
+            💰 Mark Paid
+          </button>
+        )}
+        <button onClick={onGenerateInvoice}>📄 Invoice</button>
+        <button onClick={onSendReview}>⭐ Review</button>
+        <button onClick={onEditJob}>✏️ Edit</button>
       </div>
     </div>
   );

@@ -285,75 +285,30 @@ function AuthenticatedApp({ user }: { user: User }) {
 
     try {
       if (j.tireSource === 'Inventory' && j.tireSize) {
-        // Track every inventory row that gets touched (either restored from
-        // a prior edit's deductions, or freshly deducted by this save) so we
-        // can write each one to Firestore exactly once at the end. This fixes
-        // the bug where editing a job could leave restored rows un-synced.
-        const touched = new Map<string, InventoryItem>();
-
-        // If editing: first reverse the previous deductions so this job
-        // doesn't double-deduct against its own old stock claim. The
-        // restored rows go into `touched` so they get written below even
-        // if the new plan picks DIFFERENT rows.
+        // If editing, restore previous deductions first
         if (isEditing) {
           const prev = jobs.find((x) => x.id === editingJobId);
           const oldDeds = prev && Array.isArray(prev.inventoryDeductions) ? prev.inventoryDeductions : null;
           if (oldDeds) {
             for (const d of oldDeds) {
               const idx = workingInv.findIndex((i) => i.id === d.id);
-              if (idx >= 0) {
-                const restored = { ...workingInv[idx], qty: Number(workingInv[idx].qty || 0) + Number(d.qty || 0) };
-                workingInv[idx] = restored;
-                touched.set(restored.id, restored);
-              }
-              // If idx < 0 the inventory row was deleted entirely after the
-              // job was originally saved. We can't restore it — best to
-              // leave it gone. The job's audit trail still records the
-              // historical deduction.
+              if (idx >= 0) workingInv[idx] = { ...workingInv[idx], qty: Number(workingInv[idx].qty || 0) + Number(d.qty || 0) };
             }
           }
         }
-
-        // Plan and apply new deductions against the (possibly restored)
-        // working inventory.
         const plan = planInventoryDeduction(j.tireSize, Number(j.qty || 1), workingInv);
         deductions = plan.deductions;
-
-        // Weighted tire cost from FIFO plan. Falls through to user-entered
-        // tireCost when the plan produced no actual deductions (e.g. zero
-        // stock — shortfall warning fires below).
+        // Compute weighted tire cost from FIFO plan
         const planTotal = plan.deductions.reduce((s, d) => s + d.cost * d.qty, 0);
         if (planTotal > 0) computedTireCost = r2(planTotal);
-
-        // Apply deductions to working inventory in memory.
+        // Apply deductions to working inventory
         for (const d of plan.deductions) {
           const idx = workingInv.findIndex((i) => i.id === d.id);
-          if (idx < 0) {
-            // Defensive: planInventoryDeduction returned an id we can't
-            // find. Skip rather than corrupt an unrelated row (the old
-            // code wrote workingInv[0] in this case, which was a real bug).
-            console.warn('[saveJob] deduction id not in working inventory:', d.id);
-            continue;
-          }
-          const deducted = {
-            ...workingInv[idx],
-            qty: Math.max(0, Number(workingInv[idx].qty || 0) - Number(d.qty || 0)),
-          };
-          workingInv[idx] = deducted;
-          touched.set(deducted.id, deducted);
+          if (idx >= 0) workingInv[idx] = { ...workingInv[idx], qty: Math.max(0, Number(workingInv[idx].qty || 0) - Number(d.qty || 0)) };
+          await fbSet(invCol, workingInv[idx >= 0 ? idx : 0]?.id || d.id, workingInv[idx >= 0 ? idx : 0] || {});
         }
-
-        // Now write every touched row to Firestore. This is the only point
-        // in the save flow where inventory writes happen, so it's the
-        // single source of truth for what got synced.
-        for (const item of touched.values()) {
-          await fbSet(invCol, item.id, item);
-        }
-
         setInventoryRaw(workingInv);
-        if (plan.shortfall > 0) {
-          addToast(`Logged with shortfall of ${plan.shortfall} tire(s) — not enough stock`, 'warn');
-        }
+        if (plan.shortfall > 0) addToast(`Logged with shortfall of ${plan.shortfall} tire(s)`, 'warn');
       } else if (j.tireSource === 'Bought for this job') {
         computedTireCost = Number(j.tirePurchasePrice || j.tireCost || 0);
       } else if (j.tireSource === 'Customer supplied') {
@@ -531,6 +486,7 @@ function AuthenticatedApp({ user }: { user: User }) {
           onStartJob={handleStartJob}
           onViewJob={handleViewJob}
           onGenerateInvoice={handleGenerateInvoice}
+          onSendInvoice={handleSendInvoice}
           onSendReview={handleSendReview}
           onMarkPaid={handleMarkPaid}
           onEditJob={handleEditJob}
@@ -551,7 +507,18 @@ function AuthenticatedApp({ user }: { user: User }) {
         />
       );
     }
-    if (tab === 'history') return <History jobs={jobs} settings={settings} onViewJob={handleViewJob} onMarkPaid={handleMarkPaid} />;
+    if (tab === 'history') return (
+      <History
+        jobs={jobs}
+        settings={settings}
+        onViewJob={handleViewJob}
+        onMarkPaid={handleMarkPaid}
+        onEditJob={handleEditJob}
+        onGenerateInvoice={handleGenerateInvoice}
+        onSendInvoice={handleSendInvoice}
+        onSendReview={handleSendReview}
+      />
+    );
     if (tab === 'customers') return <Customers jobs={jobs} settings={settings} />;
     if (tab === 'payouts') return <Payouts jobs={jobs} settings={settings} />;
     if (tab === 'expenses') return <Expenses expenses={settings.expenses || []} onSave={persistExpenses} />;
@@ -631,8 +598,8 @@ function AuthenticatedApp({ user }: { user: User }) {
 }
 
 /**
- * Bottom nav — extracted so it can use usePermissions() from
- * MembershipProvider context. Technicians don't see Inv or More tabs.
+ * Bottom nav extracted so it can read permissions via usePermissions().
+ * Technicians don't see Inv or More tabs.
  */
 function AppBottomNav({
   tab, setTab, onResetJobDraft,
