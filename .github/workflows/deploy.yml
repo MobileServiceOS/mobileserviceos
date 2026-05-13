@@ -62,8 +62,8 @@ jobs:
       - name: Build
         env:
           # Custom domain (app.mobileserviceos.app) is served at root.
-          # The legacy GitHub Pages URL (/mobileserviceos/) is now retired;
-          # set VITE_BASE_PATH manually to re-enable that path if needed.
+          # The legacy GitHub Pages project URL (/mobileserviceos/) is now
+          # retired; set VITE_BASE_PATH manually to re-enable that path.
           VITE_BASE_PATH: /
         run: |
           # Firebase config lives in .env.production (committed). For private
@@ -82,42 +82,56 @@ jobs:
           fi
           npm run build
 
-      # Stamp the service worker with this commit's short SHA + UTC timestamp
-      # so each deploy produces a unique VERSION string. Critical for the
-      # custom-domain migration: forces every browser still holding the old
-      # /mobileserviceos/-scoped SW to detect a new SW and release control.
+      # Stamp the service worker with a unique VERSION per deploy. Forces
+      # every browser holding the previous SW to detect a new install and
+      # eventually release control. Critical for migration recovery.
       - name: Stamp service worker version
         run: |
           set -e
           SHORT_SHA="${GITHUB_SHA:0:7}"
           BUILD_TIME=$(date -u +%Y%m%d-%H%M%S)
           NEW_VERSION="msos-${SHORT_SHA}-${BUILD_TIME}"
-
           if [ ! -f dist/sw.js ]; then
             echo "::error::dist/sw.js missing — cannot stamp version"
             exit 1
           fi
-
           sed -i.bak "s/^const VERSION = '[^']*';/const VERSION = '${NEW_VERSION}';/" dist/sw.js
           rm -f dist/sw.js.bak
-
           if ! grep -q "const VERSION = '${NEW_VERSION}';" dist/sw.js; then
             echo "::error::SW version stamp did not apply"
             exit 1
           fi
           echo "✓ Service worker stamped: ${NEW_VERSION}"
 
-      # GitHub Pages disables Jekyll only when .nojekyll is at the published root.
-      # Vite copies public/.nojekyll into dist automatically — verify and re-create
-      # if missing so a stripped checkout never produces a Jekyll-processed deploy.
-      # Write CNAME so GitHub Pages serves the custom domain. Required on
-      # every deploy — Pages re-reads CNAME from the published artifact,
-      # not from repo metadata. Without this file the deploy reverts to
-      # the *.github.io URL even when the repo's Pages config says
-      # "Custom domain: app.mobileserviceos.app".
+      # Write CNAME so GitHub Pages serves the custom domain. Required
+      # in every deploy artifact — Pages reads CNAME from the published
+      # tree, not from repo metadata.
       - name: Write CNAME for custom domain
         run: echo "app.mobileserviceos.app" > dist/CNAME
 
+      # Verify the assets folder isn't empty. If Vite build silently
+      # skipped its rollup pass, dist/index.html references /assets/*.js
+      # but the folder won't exist — that's the exact failure mode behind
+      # "App failed to start, no JavaScript loaded".
+      - name: Verify dist/assets/ has JS bundles
+        run: |
+          set -e
+          if [ ! -d dist/assets ]; then
+            echo "::error::dist/assets/ directory missing — Vite build did not emit bundles"
+            ls -la dist/
+            exit 1
+          fi
+          JS_COUNT=$(find dist/assets -name "*.js" -type f | wc -l | tr -d ' ')
+          if [ "$JS_COUNT" = "0" ]; then
+            echo "::error::dist/assets/ has 0 JS files"
+            ls -la dist/assets/
+            exit 1
+          fi
+          echo "✓ dist/assets/ contains $JS_COUNT JS bundle(s)"
+
+      # GitHub Pages disables Jekyll only when .nojekyll is at the published root.
+      # Vite copies public/.nojekyll into dist automatically — verify and re-create
+      # if missing so a stripped checkout never produces a Jekyll-processed deploy.
       - name: Ensure .nojekyll
         run: touch dist/.nojekyll
 
@@ -133,6 +147,7 @@ jobs:
           test -d dist/icons || { echo "::error::icons folder missing"; exit 1; }
           if ! grep -q '/assets/' dist/index.html; then
             echo "::error::dist/index.html has no /assets/ references — Vite build may not have produced asset URLs"
+            cat dist/index.html | head -50
             exit 1
           fi
           # Verify the bundled JS embeds the correct Firebase project. Vite
