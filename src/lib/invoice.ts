@@ -105,15 +105,75 @@ function sanitizeForFilename(s: string | undefined | null, fallback: string): st
 }
 
 /**
- * Pre-fetch the logo URL into a base64 data URI so jsPDF.addImage can
- * draw it synchronously. jsPDF accepts data URIs but NOT remote URLs in
- * Node-free browsers — we have to inline. Returns null on any failure
- * (CORS, 404, decode error) so the invoice still renders sans logo.
+ * Pre-load a remote logo URL into a PNG data URI that jsPDF.addImage
+ * can draw. jsPDF needs raw image bytes (data URI), not a URL.
+ *
+ * Strategy (in order of reliability):
+ *   1. Already a data URI? Return as-is.
+ *   2. Load via <Image> with crossOrigin="anonymous", then draw to a
+ *      canvas and read back as PNG data URI. This is the canonical
+ *      pattern that works with Firebase Storage URLs once the storage
+ *      bucket has CORS configured for the app origin (which our app
+ *      bucket does — see firebase.json / CORS rules).
+ *   3. If <Image> fails (CORS rejected by server, 404, network error),
+ *      fall back to fetch() + FileReader. This handles cases where the
+ *      server allows fetch but not <img> tainted-canvas reads.
+ *   4. All failures return null so the invoice still renders without
+ *      a logo rather than blocking the PDF.
  */
 async function preloadLogo(url: string | undefined | null): Promise<string | null> {
   if (!url) return null;
-  // Data URIs are already inlined.
   if (url.startsWith('data:')) return url;
+
+  // Strategy 2: Image() → canvas → toDataURL. Works for Firebase
+  // Storage when the bucket emits Access-Control-Allow-Origin.
+  const viaImage = await new Promise<string | null>((resolve) => {
+    try {
+      const img = new Image();
+      // crossOrigin MUST be set before src for the request to include
+      // CORS headers. Setting it after has no effect.
+      img.crossOrigin = 'anonymous';
+      img.referrerPolicy = 'no-referrer';
+      img.onload = () => {
+        try {
+          // Skip 0-dim images (broken upload).
+          if (!img.naturalWidth || !img.naturalHeight) {
+            resolve(null);
+            return;
+          }
+          const canvas = document.createElement('canvas');
+          // Cap canvas size — the logo only renders at ~28mm = ~106px
+          // on a 96 DPI PDF, so any source above 512px is wasted bytes.
+          const maxDim = 512;
+          const scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
+          canvas.width = Math.round(img.naturalWidth * scale);
+          canvas.height = Math.round(img.naturalHeight * scale);
+          const ctx = canvas.getContext('2d');
+          if (!ctx) { resolve(null); return; }
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          // toDataURL throws SecurityError if the canvas is tainted
+          // (no CORS) — guarded by the try/catch.
+          const dataUri = canvas.toDataURL('image/png');
+          resolve(dataUri);
+        } catch {
+          resolve(null);
+        }
+      };
+      img.onerror = () => resolve(null);
+      // 8-second cap — if the image hasn't loaded by then, the invoice
+      // ships without a logo rather than hanging the user's tap.
+      setTimeout(() => resolve(null), 8000);
+      img.src = url;
+    } catch {
+      resolve(null);
+    }
+  });
+
+  if (viaImage) return viaImage;
+
+  // Strategy 3: fetch() + FileReader. Some storage backends allow
+  // cross-origin fetch but reject <img> tainted reads. The original
+  // implementation; kept as a safety net.
   try {
     const res = await fetch(url, { mode: 'cors' });
     if (!res.ok) return null;
@@ -127,6 +187,26 @@ async function preloadLogo(url: string | undefined | null): Promise<string | nul
   } catch {
     return null;
   }
+}
+
+/**
+ * Resolve whether the business is on the Pro plan. Branded invoice
+ * features (logo + brand primary color) are reserved for Pro. Core
+ * users get a clean, generic invoice with the universal gold default.
+ *
+ * Pro entitlement is true when EITHER:
+ *   - settings.plan === 'pro' (explicit Pro subscriber)
+ *   - settings.subscriptionStatus === 'trialing' (free trial counts
+ *     as Pro so prospects see the full feature in their evaluation)
+ *
+ * Anything else (core / inactive / past_due / canceled / undefined) is
+ * treated as Core. Conservative by default — if entitlement state is
+ * ambiguous, the user gets the unbranded version.
+ */
+function isProEntitled(settings: Settings): boolean {
+  if (settings?.plan === 'pro') return true;
+  if (settings?.subscriptionStatus === 'trialing') return true;
+  return false;
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -165,6 +245,12 @@ export interface InvoiceOptions {
  *   - business-set footer text
  *   - review CTA (only when brand.reviewUrl is set)
  *
+ * Branding (logo + custom primary color) is GATED to the Pro plan.
+ * Core-tier accounts get the same clean layout with the universal
+ * gold accent and no logo, so the invoice is still professional —
+ * just not white-labeled. This is the headline upgrade hook from
+ * Core to Pro on the pricing page.
+ *
  * Async because it pre-fetches the brand logo into a base64 data URI
  * before drawing (jsPDF.addImage requires inlined image bytes).
  */
@@ -179,8 +265,14 @@ export async function generateInvoicePDF(
     return null;
   }
 
-  // ── Inline the logo before drawing ────────────────────────────────
-  const logoDataUri = await preloadLogo(brand.logoUrl);
+  // ── Plan gate ─────────────────────────────────────────────────────
+  // Pro accounts get logo + brand color. Core gets the default look.
+  const isPro = isProEntitled(settings);
+
+  // ── Inline the logo before drawing (Pro only) ─────────────────────
+  // Skip the network round-trip entirely on Core so the invoice
+  // generates faster AND the logo never leaks into a non-Pro export.
+  const logoDataUri = isPro ? await preloadLogo(brand.logoUrl) : null;
 
   // ── Document setup ────────────────────────────────────────────────
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
@@ -196,7 +288,10 @@ export async function generateInvoicePDF(
   const TOTAL_BG_DARK: [number, number, number] = [17, 17, 17];
   const GREEN: [number, number, number] = [34, 178, 86];
 
-  const pc = brand.primaryColor || '#c8a44a';
+  // Pro: use brand.primaryColor. Core: use the universal default so
+  // the invoice still looks polished, just not white-labeled.
+  const DEFAULT_ACCENT = '#c8a44a';
+  const pc = isPro ? (brand.primaryColor || DEFAULT_ACCENT) : DEFAULT_ACCENT;
   const hR = parseInt(pc.slice(1, 3), 16);
   const hG = parseInt(pc.slice(3, 5), 16);
   const hB = parseInt(pc.slice(5, 7), 16);
@@ -212,11 +307,13 @@ export async function generateInvoicePDF(
   // ═════════════════════════════════════════════════════════════════
   doc.setFillColor(11, 11, 11);
   doc.rect(0, 0, W, 48, 'F');
-  // Accent rule in brand primary color
+  // Accent rule in resolved color (brand on Pro, default on Core)
   doc.setFillColor(hR, hG, hB);
   doc.rect(0, 48, W, 2.5, 'F');
 
-  // Logo, bigger than before (28mm vs 24mm). Inlined data URI required.
+  // Logo (Pro only), bigger than before (28mm vs 24mm). Inlined data
+  // URI required. logoDataUri is guaranteed null when isPro=false, so
+  // a single nullish check covers both gate and load-failure cases.
   if (logoDataUri) {
     try {
       doc.addImage(logoDataUri, 'PNG', M, 8, 28, 28);
@@ -393,7 +490,7 @@ export async function generateInvoicePDF(
   const boxH = 22;
   doc.setFillColor(...TOTAL_BG_DARK);
   doc.roundedRect(M, y, W - 2 * M, boxH, 2, 2, 'F');
-  // Accent bar on left edge in brand color
+  // Accent bar on left edge in resolved color
   doc.setFillColor(hR, hG, hB);
   doc.rect(M, y, 2.5, boxH, 'F');
 
@@ -452,9 +549,10 @@ export async function generateInvoicePDF(
   }
 
   // ═════════════════════════════════════════════════════════════════
-  //  WARRANTY (#13) — per-business toggle
+  //  WARRANTY (#13) — per-business toggle (Pro feature — warranty
+  //  branding is a Pro tier perk along with logo and brand color)
   // ═════════════════════════════════════════════════════════════════
-  if (brand.warrantyEnabled && brand.warrantyText && brand.warrantyText.trim()) {
+  if (isPro && brand.warrantyEnabled && brand.warrantyText && brand.warrantyText.trim()) {
     y += 2;
     doc.setFillColor(248, 248, 252);
     const warrLines = doc.splitTextToSize(brand.warrantyText, W - 2 * M - 6);
@@ -471,9 +569,13 @@ export async function generateInvoicePDF(
   //  REVIEW CTA (#11) — only when brand.reviewUrl is set
   //  + business-set invoice footer
   //  (#12: collapse aggressively if no content — no wasted whitespace)
+  //
+  //  Both reviewUrl and invoiceFooter are Pro-tier (white-label) features.
+  //  Core sees a single line attribution instead: "Powered by Mobile
+  //  Service OS" — this doubles as conversion marketing.
   // ═════════════════════════════════════════════════════════════════
-  const reviewUrl = (brand.reviewUrl || '').trim();
-  const footerText = (brand.invoiceFooter || '').trim();
+  const reviewUrl = isPro ? (brand.reviewUrl || '').trim() : '';
+  const footerText = isPro ? (brand.invoiceFooter || '').trim() : '';
 
   if (reviewUrl || footerText) {
     // Position the footer block at most ~30mm from the bottom of A4
@@ -517,6 +619,16 @@ export async function generateInvoicePDF(
       const footLines = doc.splitTextToSize(footerText, W - 2 * M);
       doc.text(footLines, W / 2, y, { align: 'center' });
     }
+  } else if (!isPro) {
+    // Core-tier attribution footer. Anchored to the bottom of the page
+    // so it sits in the same spot regardless of invoice length. Doubles
+    // as a passive marketing nudge — every Core invoice the customer
+    // receives points back to the platform.
+    const attribY = 280;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.setTextColor(170, 170, 180);
+    doc.text('Powered by Mobile Service OS', W / 2, attribY, { align: 'center' });
   }
 
   // ═════════════════════════════════════════════════════════════════
