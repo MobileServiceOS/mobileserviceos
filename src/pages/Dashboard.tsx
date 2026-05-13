@@ -16,6 +16,13 @@ interface Props {
   onStartJob: (form: QuoteForm) => void;
   onViewJob: (j: Job) => void;
   onGenerateInvoice: (j: Job) => void;
+  /**
+   * "Smart send" — the parent handler will auto-generate the invoice if
+   * `j.invoiceGenerated` is false, then open the SMS share sheet. Dashboard
+   * surfaces this as the single 📩 Send button on recent-job cards so the
+   * tech doesn't need to think about generate-vs-send as separate steps.
+   */
+  onSendInvoice: (j: Job) => void;
   onSendReview: (j: Job) => void;
   onMarkPaid: (j: Job) => void;
   onEditJob: (j: Job) => void;
@@ -23,7 +30,7 @@ interface Props {
 
 export function Dashboard({
   jobs, settings, inventory, setTab,
-  onStartJob, onViewJob, onGenerateInvoice, onSendReview, onMarkPaid, onEditJob,
+  onStartJob, onViewJob, onSendInvoice, onSendReview, onMarkPaid, onEditJob,
 }: Props) {
   const enabledServices = useMemo(() => {
     const sp = settings.servicePricing || DEFAULT_SERVICE_PRICING;
@@ -334,8 +341,13 @@ export function Dashboard({
                       <span className={'pill ' + paymentPillClass(ps)} style={{ marginTop: 4 }}>{ps}</span>
                     </div>
                   </div>
+                  {/* The "Send" action is "smart": parent's onSendInvoice
+                      auto-generates the PDF first if the job hasn't had an
+                      invoice generated yet, then opens the SMS share sheet.
+                      One tap covers both the generate-and-send case (first
+                      time) and the resend case (already generated). */}
                   <div className="job-card-actions">
-                    <button onClick={() => onGenerateInvoice(j)}>📄 Invoice</button>
+                    <button onClick={() => onSendInvoice(j)}>📩 Send</button>
                     <button onClick={() => onSendReview(j)}>⭐ Review</button>
                     <button onClick={() => onEditJob(j)}>✏️ Edit</button>
                   </div>
