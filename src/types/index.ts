@@ -138,9 +138,13 @@ export interface MemberDoc {
   displayName?: string;
   /** Role inside this business. Owners are seeded automatically. */
   role: Role;
-  /** Primary business this member belongs to. Always required so
-   *  rules can scope reads. */
-  businessId: string;
+  /**
+   * Primary business this member belongs to. Optional because the
+   * owner-seed flow writes a MemberDoc before the businessId is
+   * finalized on the docs side. Resolvers can default to the current
+   * brand context's businessId when missing.
+   */
+  businessId?: string;
   /** When an admin/tech is reassigned, this tracks the previous
    *  business for audit purposes. Optional. */
   assignedBusinessId?: string;
@@ -154,6 +158,14 @@ export interface MemberDoc {
   joinedAt?: Timestamp | Date | string;
   /** Lifecycle state. See MemberStatus comments. */
   status: MemberStatus;
+  /**
+   * Per-member permission overrides. When present, these take precedence
+   * over role-default permissions resolved from the user's `role`.
+   * Stored as a partial map so owners can grant individual flags without
+   * having to specify the full permission set. Read by permissions.ts
+   * and the membership resolver.
+   */
+  permissions?: Partial<Permissions>;
 }
 
 /**
@@ -392,6 +404,25 @@ export interface Settings {
    * Pricing settings themselves remain owner-only either way.
    */
   allowTechnicianPriceOverride?: boolean;
+  /**
+   * When true, the pricing engine applies size-tier multipliers to
+   * tire jobs (multiple tires per job get tier-discounted). When false
+   * or missing, every tire is priced at the base rate. Read by utils.ts
+   * in calcQuote.
+   */
+  multiTirePricing?: boolean;
+  /**
+   * Bag of feature flags toggled by the owner during onboarding and
+   * by Cloud Functions on plan changes. Keys here gate experimental or
+   * plan-locked features without requiring a schema migration each
+   * time a flag is added or retired. Read by Onboarding + defaults.
+   *
+   * Known keys (non-exhaustive):
+   *   - `analyticsDashboard` — unlock the analytics tab
+   *   - `multiUserBeta`      — early access to team management
+   *   - `aiQuoting`          — AI-assisted price suggestions
+   */
+  featureFlags?: Record<string, boolean>;
 }
 
 // ─────────────────────────────────────────────────────────────────────
