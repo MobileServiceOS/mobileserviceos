@@ -2,25 +2,22 @@
 //  Mobile Service OS — Canonical Type System
 // ═══════════════════════════════════════════════════════════════════
 //
-//  This file is the single source of truth for shared types across
-//  the application. Components, contexts, hooks, and library code
-//  MUST import their type definitions from here (`@/types`) rather
+//  Single source of truth for shared types. Components, contexts,
+//  hooks, and library code MUST import from here (`@/types`) rather
 //  than defining their own.
 //
 //  Consolidation philosophy:
-//    - Additive only. No existing field has been renamed or removed.
+//    - Additive where safe. Most existing fields are unchanged.
 //    - All new fields are optional so existing Firestore documents
 //      remain readable without migration.
-//    - PaymentMethod, Plan, Permissions, MemberDoc, TeamRole are NEW
-//      canonical exports introduced for the member/billing system.
-//
-//  Compatibility notes for callers reading this file:
-//    - `Job.payment: string`        — legacy free-text method, kept
-//    - `Job.paymentMethod?: ...`    — new canonical union, optional
-//      Either is acceptable on read. New code should write
-//      `paymentMethod`; old code reading `payment` continues to work.
+//    - The MemberDoc shape was updated to match the membership flow
+//      the rest of the app expects (businessId, invitedBy,
+//      assignedBusinessId, status union). This replaces the earlier
+//      draft shape — there were no production consumers yet.
 //
 // ═══════════════════════════════════════════════════════════════════
+
+import type { Timestamp } from 'firebase/firestore';
 
 // ─────────────────────────────────────────────────────────────────────
 //  Status / enum types
@@ -31,9 +28,11 @@ export type JobStatus = 'Completed' | 'Pending' | 'Cancelled';
 export type TireSource = 'Inventory' | 'Bought for this job' | 'Customer supplied';
 
 /**
- * Canonical payment method union. Use this when you want a typed
- * dropdown / pill picker. Lowercase identifiers so they're safe to use
- * as Firestore field values, query keys, and CSS class suffixes.
+ * Canonical payment method union — STORED VALUES (lowercase identifiers).
+ * Use this in Firestore, query keys, and CSS class suffixes.
+ *
+ * Display labels are separate — see PaymentMethodSheet for the
+ * canonical lowercase ↔ "Title Case" mapping for UI rendering.
  */
 export type PaymentMethod =
   | 'cash'
@@ -77,6 +76,19 @@ export type TabId =
  */
 export type Plan = 'core' | 'pro';
 
+/**
+ * Stripe-aligned subscription lifecycle states. 'inactive' covers the
+ * pre-Stripe period and any account whose subscription record has been
+ * deleted; 'trialing' covers the free-trial window before first
+ * payment.
+ */
+export type SubscriptionStatus =
+  | 'trialing'
+  | 'active'
+  | 'past_due'
+  | 'canceled'
+  | 'inactive';
+
 // ─────────────────────────────────────────────────────────────────────
 //  Team / Membership
 // ─────────────────────────────────────────────────────────────────────
@@ -89,35 +101,59 @@ export type Plan = 'core' | 'pro';
 export type TeamRole = 'owner' | 'admin' | 'technician';
 
 /**
- * Lifecycle state of a team member document. Invites are written with
- * `status: 'invited'` and flip to 'active' on first sign-in (Cloud
- * Functions side, future batch). 'inactive' means revoked but kept for
- * historical attribution.
+ * Alias kept so legacy imports of `Role` continue to compile. Treat
+ * `Role` and `TeamRole` as identical. New code can pick either.
  */
-export type MemberStatus = 'invited' | 'active' | 'inactive';
+export type Role = TeamRole;
 
 /**
- * Firestore document shape for `businesses/{bid}/members/{uid}`.
- * Indexed by the member's auth uid once active. Pre-acceptance invites
- * are keyed by email-hash (Cloud Functions resolve on signup).
+ * Lifecycle state of a team member document. 'pending' = invite sent,
+ * not yet accepted; 'active' = signed in and participating; 'disabled'
+ * = revoked but kept for historical attribution.
+ */
+export type MemberStatus = 'active' | 'pending' | 'disabled';
+
+/**
+ * Firestore document shape for `businesses/{bid}/members/{memberId}`.
+ *
+ * The membership flow:
+ *   1. Owner enters an email + role → MemberDoc written with
+ *      status='pending', invitedAt, invitedBy.
+ *   2. On signup, Cloud Function (future batch) resolves the email
+ *      to an auth uid and updates status='active', joinedAt, uid.
+ *   3. assignedBusinessId is set when an admin/tech is moved from
+ *      one business to another — preserves audit trail.
+ *
+ * Many fields are optional because docs at different stages of the
+ * lifecycle have different fields populated.
  */
 export interface MemberDoc {
-  /** Auth uid once the user has accepted. Empty for pending invites. */
-  uid: string;
-  /** Display name shown on job cards / invoices for technician attribution. */
-  displayName: string;
-  /** Email — the canonical identifier for invites before signup. */
+  /** Auth uid — populated once the member has signed up + accepted. */
+  uid?: string;
+  /** Email — the canonical identifier for invites before signup.
+   *  Always required; how the invite is addressed. */
   email: string;
+  /** Display name shown on job cards / invoices for technician
+   *  attribution. Populated on accept or set manually by owner. */
+  displayName?: string;
   /** Role inside this business. Owners are seeded automatically. */
-  role: TeamRole;
+  role: Role;
+  /** Primary business this member belongs to. Always required so
+   *  rules can scope reads. */
+  businessId: string;
+  /** When an admin/tech is reassigned, this tracks the previous
+   *  business for audit purposes. Optional. */
+  assignedBusinessId?: string;
+  /** Auth uid of the owner/admin who sent the invite. */
+  invitedBy?: string;
+  /** Timestamp the invite was created. Accepts Firestore Timestamp,
+   *  JS Date, or ISO string for cross-environment write/read. */
+  invitedAt?: Timestamp | Date | string;
+  /** Timestamp the member accepted and was promoted to active.
+   *  Same flexible type as invitedAt. */
+  joinedAt?: Timestamp | Date | string;
   /** Lifecycle state. See MemberStatus comments. */
   status: MemberStatus;
-  /** ISO timestamp the invite was created (owner clicked "invite"). */
-  invitedAt?: string;
-  /** ISO timestamp the user accepted and was promoted to active. */
-  acceptedAt?: string;
-  /** Auth uid of the owner/admin who sent the invite. */
-  invitedByUid?: string;
 }
 
 /**
@@ -335,6 +371,22 @@ export interface Settings {
    */
   plan?: Plan;
   /**
+   * Stripe-aligned subscription state. 'trialing' during free trial,
+   * 'active' once paying, 'past_due' on failed renewal, 'canceled'
+   * after explicit cancel, 'inactive' for pre-Stripe accounts.
+   */
+  subscriptionStatus?: SubscriptionStatus;
+  /** When the free trial began. Stamped on first Pro upgrade attempt. */
+  trialStartedAt?: Timestamp | Date | string;
+  /** When the free trial ends. Cloud Function reads this to flip
+   *  subscriptionStatus → past_due / canceled if no payment by then. */
+  trialEndsAt?: Timestamp | Date | string;
+  /**
+   * Plan-determined member cap. Set by Cloud Function on plan change.
+   * UI uses this to disable invite-new-member when at capacity.
+   */
+  maxUsers?: number;
+  /**
    * Owner-set flag: whether technicians on this business are allowed to
    * manually override the system-suggested revenue on jobs they log.
    * Pricing settings themselves remain owner-only either way.
@@ -380,3 +432,21 @@ export interface ToastItem {
   type: ToastType;
   ts: number;
 }
+
+// ─────────────────────────────────────────────────────────────────────
+//  Display label helpers — kept here so payment-method UIs across the
+//  app render consistently. The canonical store value is the lowercase
+//  PaymentMethod above; this is the human label for picker/badge UI.
+// ─────────────────────────────────────────────────────────────────────
+
+export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+  cash: 'Cash',
+  card: 'Card',
+  zelle: 'Zelle',
+  venmo: 'Venmo',
+  cashapp: 'Cash App',
+  check: 'Check',
+  apple_pay: 'Apple Pay',
+  google_pay: 'Google Pay',
+  other: 'Other',
+};
