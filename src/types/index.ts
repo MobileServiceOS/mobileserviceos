@@ -71,19 +71,22 @@ export type TabId =
 // ─────────────────────────────────────────────────────────────────────
 
 /**
- * Subscription tier. Mobile Service OS offers a single plan (Pro,
- * $99/mo with a 14-day free trial). The alias remains in the type
- * system so existing call sites (`isProEntitled`, plan-gating
- * helpers, future Stripe wiring) compile without churn; the literal
- * set has simply collapsed to one value.
+ * Subscription tier. Two-tier architecture preserved internally
+ * (Core $39/mo, Pro $99/mo) even though only Pro is offered publicly
+ * today — this lets us turn Core marketing on later without touching
+ * the type system or backend.
  *
- * Any historical Firestore documents that wrote `'core'` are still
- * readable at the JS level — TypeScript will flag them on read so
- * we surface and clean them up. The runtime resolver treats anything
- * other than 'pro' as Core-equivalent (no branding), but with this
- * literal narrowing no new 'core' values should appear.
+ * Public-facing onboarding always assigns `'pro'` for new accounts.
+ * The Core literal exists for future pricing experiments, internal
+ * downgrade flows, and legacy Firestore documents that may still
+ * have `'core'` on disk.
+ *
+ * All gating decisions MUST go through `src/lib/planAccess.ts` —
+ * never hand-roll `plan === 'pro'` checks at call sites. The module
+ * exposes `canAccessFeature()`, `hasProAccess()`, `isTeamEnabled()`
+ * for typed, centralized gating.
  */
-export type Plan = 'pro';
+export type Plan = 'core' | 'pro';
 
 /**
  * Stripe-aligned subscription lifecycle states. 'inactive' covers the

@@ -2,6 +2,7 @@ import { jsPDF } from 'jspdf';
 import type { Job, Settings, Brand } from '@/types';
 import { TODAY } from '@/lib/defaults';
 import { money, r2, resolvePaymentStatus } from '@/lib/utils';
+import { hasProAccess } from '@/lib/planAccess';
 
 // ─────────────────────────────────────────────────────────────────────
 //  Helpers
@@ -194,19 +195,18 @@ async function preloadLogo(url: string | undefined | null): Promise<string | nul
  * features (logo + brand primary color) are reserved for Pro. Core
  * users get a clean, generic invoice with the universal gold default.
  *
- * Pro entitlement is true when EITHER:
- *   - settings.plan === 'pro' (explicit Pro subscriber)
- *   - settings.subscriptionStatus === 'trialing' (free trial counts
- *     as Pro so prospects see the full feature in their evaluation)
+ * Delegates to the centralized plan-access module so the invoice gate
+ * stays in lockstep with every other Pro check across the app. The
+ * resolver handles trialing accounts as Pro automatically — see
+ * `resolvePlan` in `src/lib/planAccess.ts` for the full ruleset.
  *
- * Anything else (core / inactive / past_due / canceled / undefined) is
- * treated as Core. Conservative by default — if entitlement state is
- * ambiguous, the user gets the unbranded version.
+ * Kept as a thin wrapper (rather than calling `hasProAccess` inline
+ * everywhere) so existing comments/blame in `generateInvoicePDF`
+ * still read sensibly and the local name signals "this is the
+ * invoice-side branding gate" semantically.
  */
 function isProEntitled(settings: Settings): boolean {
-  if (settings?.plan === 'pro') return true;
-  if (settings?.subscriptionStatus === 'trialing') return true;
-  return false;
+  return hasProAccess(settings);
 }
 
 // ─────────────────────────────────────────────────────────────────────
