@@ -26,8 +26,17 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
+          // Vendor chunk pre-grouping for better cache hit rate across
+          // deploys. Each entry must be installed in package.json and
+          // actually imported somewhere — Vite/Rollup will fail the build
+          // with "Could not resolve entry module" if a name here isn't
+          // a real installed dependency.
+          //
+          // Tab-based navigation lives in App.tsx (useState<TabId>) so
+          // react-router-dom is intentionally absent — adding it back
+          // here without installing the package will break the build.
+          react: ['react', 'react-dom'],
           firebase: ['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/storage'],
-          react: ['react', 'react-dom', 'react-router-dom'],
           pdf: ['jspdf'],
         },
       },
