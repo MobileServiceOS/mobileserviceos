@@ -2,7 +2,7 @@
 // Strategy: network-first for navigations (so deploys ship instantly),
 // stale-while-revalidate for hashed assets, network-first for Firebase.
 
-const VERSION = 'msos-v1.2.0';
+const VERSION = 'msos-v2.0.0-customdomain';
 const SHELL_CACHE = VERSION + '-shell';
 const RUNTIME_CACHE = VERSION + '-runtime';
 

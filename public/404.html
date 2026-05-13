@@ -11,7 +11,7 @@
     // Pages serves 404.html when no static file matches the URL; we use it to
     // bounce deep links back into the SPA, preserving the original path.
     (function () {
-      var BASE = '/mobileserviceos/';
+      var BASE = '/';
       try {
         var path = location.pathname + location.search + location.hash;
         if (path.indexOf(BASE) === 0) {
@@ -26,7 +26,7 @@
   <noscript>
     <p style="text-align:center;margin-top:40px;padding:0 20px">
       Mobile Service OS requires JavaScript.
-      <a href="/mobileserviceos/" style="color:#c8a44a">Open the app</a>.
+      <a href="/" style="color:#c8a44a">Open the app</a>.
     </p>
   </noscript>
 </body>
