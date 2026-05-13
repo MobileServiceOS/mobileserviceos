@@ -405,12 +405,25 @@ export interface Settings {
    */
   allowTechnicianPriceOverride?: boolean;
   /**
-   * When true, the pricing engine applies size-tier multipliers to
-   * tire jobs (multiple tires per job get tier-discounted). When false
-   * or missing, every tire is priced at the base rate. Read by utils.ts
-   * in calcQuote.
+   * Multi-tire job pricing configuration. When present, the pricing
+   * engine applies size-tier multipliers for jobs with multiple tires
+   * (e.g. a 4-tire install gets a different per-tire rate than a single
+   * tire). All sub-fields are optional so partial configurations work.
+   *
+   * Sub-fields:
+   *   - `installationByQuantity`: map of tire qty → flat install fee
+   *     (e.g. `{ 1: 25, 2: 40, 4: 70 }`)
+   *   - `replacementMultipliers`: map of tire qty → per-tire revenue
+   *     multiplier (e.g. `{ 1: 1.0, 2: 0.95, 4: 0.9 }` for bulk discount)
+   *
+   * Read by utils.ts in calcQuote / computeBreakdown. Index signatures
+   * accept any string key so callers can use either numeric or named
+   * tiers ('default', '4plus', etc.) without schema changes.
    */
-  multiTirePricing?: boolean;
+  multiTirePricing?: {
+    installationByQuantity?: Record<string, number>;
+    replacementMultipliers?: Record<string, number>;
+  };
   /**
    * Bag of feature flags toggled by the owner during onboarding and
    * by Cloud Functions on plan changes. Keys here gate experimental or
