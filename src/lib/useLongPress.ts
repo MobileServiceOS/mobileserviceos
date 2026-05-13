@@ -8,21 +8,13 @@ interface Options {
   moveTolerancePx?: number;
 }
 
-interface PressBindings {
-  onTouchStart: (e: { touches?: { clientX: number; clientY: number }[] }) => void;
-  onTouchEnd: () => void;
-  onTouchMove: (e: { touches?: { clientX: number; clientY: number }[] }) => void;
-  onTouchCancel: () => void;
-  onMouseDown: (e: { clientX: number; clientY: number }) => void;
-  onMouseUp: () => void;
-  onMouseMove: (e: { clientX: number; clientY: number }) => void;
-  onMouseLeave: () => void;
-  onContextMenu: (e: { preventDefault: () => void }) => void;
-}
-
 interface UseLongPressResult {
-  bind: PressBindings;
-  /** Ref the consumer can check in their onClick to suppress the click-after-long-press. */
+  /** Spread onto the target element. Uses `any` event types so it composes
+   *  with any host element (div, button, etc.) without React's strict
+   *  HTMLAttributes complaining about signature mismatch. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  bind: Record<string, (e: any) => void>;
+  /** Ref the consumer checks in their onClick to suppress the post-long-press tap. */
   firedRef: { current: boolean | null };
 }
 
@@ -34,11 +26,10 @@ interface UseLongPressResult {
  * event-binding object and a `firedRef` so consumers can suppress the
  * normal click handler when a long-press fired.
  *
- * Why this and not a library:
- *   - Zero deps.
- *   - Works on touch + mouse + suppresses the browser context menu.
- *   - Movement tolerance prevents the "I was just scrolling" false fires.
- *   - Haptic vibration for gloved-hand confirmation.
+ * The `bind` shape uses an unstructured `Record<string, fn>` so it spreads
+ * cleanly onto any host element. React's HTMLAttributes event types vary
+ * by element (HTMLDivElement vs HTMLButtonElement), and our handler logic
+ * only needs the touch/mouse positions — so we duck-type and stay loose.
  *
  * Usage:
  *   const lp = useLongPress(() => openSheet());
@@ -52,7 +43,7 @@ export function useLongPress(
   const startPosRef = useRef<{ x: number; y: number } | null>(null);
   // Set true when long-press fires; consumer's onClick checks this to skip
   // the regular tap action. Cleared 100ms later so subsequent taps work.
-  const firedRef = useRef(false);
+  const firedRef = useRef<boolean | null>(false);
 
   const clear = useCallback(() => {
     if (timerRef.current !== null) {
@@ -90,23 +81,28 @@ export function useLongPress(
     }
   }, [clear, moveTolerancePx]);
 
-  const bind: PressBindings = {
+  // Loose handler signatures — accept anything React passes. We pull only
+  // what we need (clientX/Y or touches[0].clientX/Y).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const bind: Record<string, (e: any) => void> = {
     onTouchStart: (e) => {
-      const t = e.touches?.[0];
+      const t = e?.touches?.[0];
       if (t) start(t.clientX, t.clientY);
     },
     onTouchEnd: () => clear(),
     onTouchMove: (e) => {
-      const t = e.touches?.[0];
+      const t = e?.touches?.[0];
       if (t) move(t.clientX, t.clientY);
     },
     onTouchCancel: () => clear(),
-    onMouseDown: (e) => start(e.clientX, e.clientY),
+    onMouseDown: (e) => { if (typeof e?.clientX === 'number') start(e.clientX, e.clientY); },
     onMouseUp: () => clear(),
-    onMouseMove: (e) => move(e.clientX, e.clientY),
+    onMouseMove: (e) => { if (typeof e?.clientX === 'number') move(e.clientX, e.clientY); },
     onMouseLeave: () => clear(),
     onContextMenu: (e) => {
-      if (firedRef.current) e.preventDefault();
+      if (firedRef.current && typeof e?.preventDefault === 'function') {
+        e.preventDefault();
+      }
     },
   };
 
