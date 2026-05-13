@@ -3,12 +3,139 @@ import type { Job, Settings, Brand } from '@/types';
 import { TODAY } from '@/lib/defaults';
 import { money, r2, resolvePaymentStatus } from '@/lib/utils';
 
-type RGB = [number, number, number];
+// ─────────────────────────────────────────────────────────────────────
+//  Helpers
+// ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Map an internal service name to a customer-friendly one. Keeps the
+ * invoice from saying "Tire" or "Service" — which look unprofessional —
+ * and instead uses descriptive language a real customer would expect on
+ * a paid invoice. Falls through to the original name when no mapping.
+ */
+function customerFriendlyServiceName(raw: string | undefined | null): string {
+  if (!raw) return 'Mobile Tire Service';
+  const k = raw.trim().toLowerCase();
+
+  // Order matters — more specific keys first.
+  const map: Array<[string, string]> = [
+    ['tire repair',           'Flat Tire Repair Service'],
+    ['flat tire',             'Flat Tire Repair Service'],
+    ['tire replacement',      'Mobile Tire Replacement Service'],
+    ['tire installation',     'Tire Installation Service'],
+    ['tire change',           'Mobile Tire Replacement Service'],
+    ['spare',                 'Spare Tire Installation'],
+    ['mount',                 'Tire Mount & Balance'],
+    ['balance',               'Tire Mount & Balance'],
+    ['roadside',              'Emergency Roadside Tire Service'],
+    ['emergency',             'Emergency Roadside Tire Service'],
+    ['rotation',              'Tire Rotation Service'],
+    ['tractor-trailer',       'Commercial Tire Service'],
+    ['semi',                  'Commercial Tire Service'],
+    ['plug',                  'Flat Tire Repair Service'],
+    ['patch',                 'Flat Tire Repair Service'],
+    ['tire',                  'Mobile Tire Service'],
+    ['service',               'Mobile Tire Service'],
+    ['dispatch',              'Mobile Tire Service'],
+  ];
+
+  for (const [needle, friendly] of map) {
+    if (k.includes(needle)) return friendly;
+  }
+  return raw;
+}
+
+/**
+ * Format an ISO timestamp like "May 11, 2026 at 8:42 PM".
+ * Used for payment timestamp (#8).
+ */
+function formatPaymentTimestamp(iso: string | undefined | null): string {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    const date = d.toLocaleDateString('en-US', {
+      year: 'numeric', month: 'long', day: 'numeric',
+    });
+    const time = d.toLocaleTimeString('en-US', {
+      hour: 'numeric', minute: '2-digit', hour12: true,
+    });
+    return `${date} at ${time}`;
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Format an ISO/yyyy-mm-dd date as "May 11, 2026" for the Completed line.
+ */
+function formatCompletedDate(s: string | undefined | null): string {
+  if (!s) return '';
+  try {
+    // Handle both 2026-05-11 and full ISO; parse as local to avoid the
+    // off-by-one date shift that UTC parsing causes.
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+    let d: Date;
+    if (m) {
+      d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    } else {
+      d = new Date(s);
+    }
+    if (Number.isNaN(d.getTime())) return s;
+    return d.toLocaleDateString('en-US', {
+      year: 'numeric', month: 'long', day: 'numeric',
+    });
+  } catch {
+    return s;
+  }
+}
+
+/**
+ * Sanitize a string for use in a filename. Trims, drops special chars,
+ * collapses spaces to single underscores. Empty → fallback.
+ */
+function sanitizeForFilename(s: string | undefined | null, fallback: string): string {
+  if (!s) return fallback;
+  const out = s
+    .trim()
+    .replace(/[^a-zA-Z0-9\s-]/g, '')
+    .replace(/\s+/g, '_')
+    .slice(0, 40);
+  return out || fallback;
+}
+
+/**
+ * Pre-fetch the logo URL into a base64 data URI so jsPDF.addImage can
+ * draw it synchronously. jsPDF accepts data URIs but NOT remote URLs in
+ * Node-free browsers — we have to inline. Returns null on any failure
+ * (CORS, 404, decode error) so the invoice still renders sans logo.
+ */
+async function preloadLogo(url: string | undefined | null): Promise<string | null> {
+  if (!url) return null;
+  // Data URIs are already inlined.
+  if (url.startsWith('data:')) return url;
+  try {
+    const res = await fetch(url, { mode: 'cors' });
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    return await new Promise<string | null>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+//  Public API
+// ─────────────────────────────────────────────────────────────────────
 
 export function generateInvoiceNumber(brand: Brand, job: Job): string {
-  const cleaned = (brand.businessName || '').replace(/[^A-Z0-9]/gi, '');
-  const prefix = cleaned ? cleaned.slice(0, 4).toUpperCase() : 'INV';
-  return prefix + '-' + (job.date || '').replace(/-/g, '') + '-' + (job.id || '').slice(-4).toUpperCase();
+  const slug = (brand.businessName || 'SVC').replace(/[^A-Z0-9]/gi, '').slice(0, 4).toUpperCase();
+  return slug + '-' + (job.date || '').replace(/-/g, '') + '-' + (job.id || '').slice(-4).toUpperCase();
 }
 
 export interface InvoiceResult {
@@ -16,509 +143,393 @@ export interface InvoiceResult {
   invoiceNumber: string;
 }
 
-export interface InvoiceLineItem {
-  label: string;
-  qty: number;
-  amount: number;
-}
-
-// ── Line-item builder (transparent pricing) ────────────────
-
-const DEFAULT_DISPATCH_LABEL = 'Mobile Service & Dispatch';
-const DEFAULT_MOUNTING_LABEL = 'Mounting & Balancing';
-
-function isReplacement(service: string): boolean {
-  return service === 'Tire Replacement';
-}
-function isInstallation(service: string): boolean {
-  return service === 'Tire Installation';
-}
-
-export function buildInvoiceLines(job: Job, settings: Settings): InvoiceLineItem[] {
-  const style = settings.invoicePricingStyle === 'single' ? 'single' : 'transparent';
-  const revenue = r2(Number(job.revenue || 0));
-  const tireCost = r2(Number(job.tireCost || 0));
-  const qty = Math.max(1, Math.floor(Number(job.qty) || 1));
-
-  if (style === 'single' || (!isReplacement(job.service) && !isInstallation(job.service))) {
-    return [{ label: job.service || 'Service', qty, amount: revenue }];
-  }
-
-  if (isReplacement(job.service)) {
-    const tireLine = Math.min(tireCost, revenue);
-    const remainder = r2(revenue - tireLine);
-    let dispatchLine = Math.round(remainder * 0.55);
-    let mountingLine = r2(remainder - dispatchLine);
-    if (remainder <= 0 || dispatchLine < 0 || mountingLine < 0) {
-      return [{ label: job.service, qty, amount: revenue }];
-    }
-    const sumCheck = r2(tireLine + dispatchLine + mountingLine);
-    const drift = r2(revenue - sumCheck);
-    if (drift !== 0) dispatchLine = r2(dispatchLine + drift);
-    return [
-      { label: 'Tire', qty, amount: tireLine },
-      { label: DEFAULT_DISPATCH_LABEL, qty: 1, amount: dispatchLine },
-      { label: DEFAULT_MOUNTING_LABEL, qty: 1, amount: mountingLine },
-    ];
-  }
-
-  if (isInstallation(job.service)) {
-    let dispatchLine = Math.round(revenue * 0.55);
-    let mountingLine = r2(revenue - dispatchLine);
-    if (dispatchLine < 0 || mountingLine < 0) {
-      return [{ label: job.service, qty, amount: revenue }];
-    }
-    const sumCheck = r2(dispatchLine + mountingLine);
-    const drift = r2(revenue - sumCheck);
-    if (drift !== 0) dispatchLine = r2(dispatchLine + drift);
-    return [
-      { label: DEFAULT_DISPATCH_LABEL, qty: 1, amount: dispatchLine },
-      { label: DEFAULT_MOUNTING_LABEL, qty: 1, amount: mountingLine },
-    ];
-  }
-
-  return [{ label: job.service, qty, amount: revenue }];
-}
-
-// ── Logo prefetch ──────────────────────────────────────────
-//
-// jsPDF's `addImage` accepts a base64 data URL or a pre-loaded HTMLImageElement.
-// It does NOT fetch HTTPS URLs synchronously, so passing a Firebase Storage URL
-// directly causes silent failure (image just doesn't render). The fix is to
-// fetch the binary, read it as a base64 data URL, then hand that to addImage.
-//
-// CORS: Firebase Storage `getDownloadURL()` returns URLs with the
-// `firebasestorage.googleapis.com` host which serves CORS-enabled responses by
-// default for download URLs. If a tenant has a custom CORS config that blocks
-// us, the catch will skip the logo without breaking the invoice.
-
-interface PreloadedLogo {
-  dataUrl: string;
-  mime: 'PNG' | 'JPEG' | 'WEBP';
-  /** Natural width/height in px so we can size the logo proportionally. */
-  width: number;
-  height: number;
-}
-
-function inferMime(url: string, blob: Blob): 'PNG' | 'JPEG' | 'WEBP' {
-  const lc = (blob.type || '').toLowerCase();
-  if (lc.includes('webp')) return 'WEBP';
-  if (lc.includes('png')) return 'PNG';
-  if (lc.includes('jpeg') || lc.includes('jpg')) return 'JPEG';
-  // Fallback to URL extension
-  const noQs = url.split('?')[0].toLowerCase();
-  if (noQs.endsWith('.webp')) return 'WEBP';
-  if (noQs.endsWith('.png')) return 'PNG';
-  return 'JPEG';
-}
-
-async function preloadLogo(url: string): Promise<PreloadedLogo | null> {
-  if (!url) return null;
-  try {
-    const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
-    if (!res.ok) return null;
-    const blob = await res.blob();
-    const mime = inferMime(url, blob);
-    // Convert to base64 data URL
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result || ''));
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(blob);
-    });
-    // Probe natural dimensions so we can preserve aspect ratio on the PDF
-    const dims = await new Promise<{ w: number; h: number }>((resolve) => {
-      const img = new Image();
-      img.onload = () => resolve({ w: img.naturalWidth || 100, h: img.naturalHeight || 100 });
-      img.onerror = () => resolve({ w: 100, h: 100 });
-      img.src = dataUrl;
-    });
-    return { dataUrl, mime, width: dims.w, height: dims.h };
-  } catch (e) {
-    console.warn('[invoice] logo preload failed:', e);
-    return null;
-  }
-}
-
-// ── Color + helpers ────────────────────────────────────────
-
-function hexToRgb(hex: string, fallback: RGB): RGB {
-  if (!hex || hex[0] !== '#' || (hex.length !== 7 && hex.length !== 4)) return fallback;
-  const full = hex.length === 4
-    ? '#' + hex[1] + hex[1] + hex[2] + hex[2] + hex[3] + hex[3]
-    : hex;
-  const r = parseInt(full.slice(1, 3), 16);
-  const g = parseInt(full.slice(3, 5), 16);
-  const b = parseInt(full.slice(5, 7), 16);
-  if ([r, g, b].some((n) => Number.isNaN(n))) return fallback;
-  return [r, g, b];
-}
-
-function paymentBadgeColors(status: string): { fill: RGB; text: RGB; label: string } {
-  if (status === 'Paid') return { fill: [220, 252, 231], text: [22, 101, 52], label: 'PAID' };
-  if (status === 'Pending Payment') return { fill: [255, 237, 213], text: [154, 52, 18], label: 'PAYMENT PENDING' };
-  if (status === 'Partial Payment') return { fill: [255, 237, 213], text: [154, 52, 18], label: 'PARTIAL PAYMENT' };
-  if (status === 'Cancelled') return { fill: [254, 226, 226], text: [153, 27, 27], label: 'CANCELLED' };
-  return { fill: [241, 245, 249], text: [51, 65, 85], label: status.toUpperCase() };
-}
-
-function locationLine(job: Job): string {
-  if (job.fullLocationLabel) return job.fullLocationLabel;
-  if (job.city && job.state) return `${job.city}, ${job.state}`;
-  return job.city || job.area || '';
+export interface InvoiceOptions {
+  /** Optional technician display name, resolved from `job.createdByUid`.
+   *  Caller (App.tsx) owns the resolution since it has access to the
+   *  members directory. Pass undefined to skip the Technician line. */
+  technicianName?: string | null;
 }
 
 /**
- * Render the logo block in the hero header and return the x offset that
- * subsequent text should use. Falls back gracefully to text-only layout
- * when no logo is configured or the preload failed.
+ * Premium-feel mobile-tire-service invoice generator.
  *
- * Logo box: 28mm × 28mm bounding region. The image is scaled to fit while
- * preserving aspect ratio so wide logos don't look squashed.
- */
-function renderLogoBlock(
-  doc: jsPDF,
-  logo: PreloadedLogo | null,
-  marginX: number,
-  topY: number
-): number {
-  const BOX = 28;
-  const NO_LOGO_TEXT_X = marginX;
-  if (!logo) return NO_LOGO_TEXT_X;
-
-  // Fit the image into BOX × BOX while preserving aspect ratio.
-  const aspect = logo.width / Math.max(1, logo.height);
-  let w = BOX;
-  let h = BOX;
-  if (aspect > 1) {
-    // Landscape — width is the limit, scale height down
-    h = BOX / aspect;
-  } else if (aspect < 1) {
-    // Portrait — height is the limit, scale width down
-    w = BOX * aspect;
-  }
-  // Center the image inside its bounding box
-  const x = marginX + (BOX - w) / 2;
-  const y = topY + (BOX - h) / 2;
-
-  try {
-    doc.addImage(logo.dataUrl, logo.mime, x, y, w, h, undefined, 'FAST');
-    return marginX + BOX + 6; // give 6mm gap before the business name
-  } catch (e) {
-    console.warn('[invoice] addImage failed despite preload:', e);
-    return NO_LOGO_TEXT_X;
-  }
-}
-
-/**
- * Generate a premium, mobile-business-themed invoice PDF for the tenant.
+ * Customer-facing — DOES NOT expose internal pricing breakdowns, dispatch
+ * fee allocations, or markup structure. The customer sees:
+ *   - friendly service name + qty
+ *   - tire size + vehicle type (when known)
+ *   - service location (when known)
+ *   - technician (when known)
+ *   - completed date + payment timestamp/method (when paid)
+ *   - one big final total
+ *   - business-set warranty (when enabled)
+ *   - business-set footer text
+ *   - review CTA (only when brand.reviewUrl is set)
  *
- * Async: the function awaits a logo preload before drawing the PDF so the
- * tenant's logo always appears (when one is configured). If the logo can't
- * be loaded for any reason — network, CORS, deleted — the invoice falls
- * back to a text-only header automatically.
+ * Async because it pre-fetches the brand logo into a base64 data URI
+ * before drawing (jsPDF.addImage requires inlined image bytes).
  */
 export async function generateInvoicePDF(
   job: Job,
   settings: Settings,
-  brand: Brand
+  brand: Brand,
+  opts: InvoiceOptions = {},
 ): Promise<InvoiceResult | null> {
   if (!jsPDF) {
     alert('PDF library not loaded.');
     return null;
   }
 
-  // Resolve tenant identity once. We never leak the SaaS platform name.
-  const tenantName = (brand.businessName || '').trim() || 'Mobile Tire & Roadside Service';
-  const tenantTagline = [
-    (brand.businessType || '').trim() || 'Mobile Tire & Roadside',
-    (brand.serviceArea || '').trim(),
-  ].filter(Boolean).join(' · ');
-  const tenantContact = [brand.phone, brand.email, brand.website].filter(Boolean).join('   ·   ');
+  // ── Inline the logo before drawing ────────────────────────────────
+  const logoDataUri = await preloadLogo(brand.logoUrl);
 
-  // Kick off the logo preload BEFORE we build the document. Even if it fails
-  // we still produce a valid PDF — just without the logo.
-  const logo = await preloadLogo((brand.logoUrl || '').trim());
-
+  // ── Document setup ────────────────────────────────────────────────
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const W = 210;
-  const H = 297;
-  const M = 16;
-  const CONTENT_W = W - 2 * M;
+  const M = 18;
 
-  // ── Palette ──
-  const INK: RGB = [17, 17, 22];
-  const INK_SOFT: RGB = [55, 55, 68];
-  const MUTED: RGB = [128, 128, 142];
-  const HAIRLINE: RGB = [220, 220, 228];
-  const PANEL: RGB = [248, 248, 251];
-  const WHITE: RGB = [255, 255, 255];
-  const accent = hexToRgb(brand.primaryColor || '#c8a44a', [200, 164, 74]);
-  const HERO_DARK: RGB = [10, 11, 16];
-  const HERO_SOFT: RGB = [22, 24, 32];
+  // Color palette. Hex parsing for the brand primary so PAID badges and
+  // accent rule match the customer's actual branding.
+  const WHITE: [number, number, number] = [255, 255, 255];
+  const NEAR_BLK: [number, number, number] = [20, 20, 20];
+  const GRAY: [number, number, number] = [110, 110, 125];
+  const LIGHT_GRAY: [number, number, number] = [225, 225, 232];
+  const TOTAL_BG_DARK: [number, number, number] = [17, 17, 17];
+  const GREEN: [number, number, number] = [34, 178, 86];
 
-  // ── Hero header ──
-  const heroH = 56;
-  doc.setFillColor(...HERO_DARK);
-  doc.rect(0, 0, W, heroH, 'F');
-  doc.setFillColor(...HERO_SOFT);
-  doc.rect(0, 0, W, 6, 'F');
-  doc.setFillColor(...accent);
-  doc.rect(0, heroH, W, 1.5, 'F');
+  const pc = brand.primaryColor || '#c8a44a';
+  const hR = parseInt(pc.slice(1, 3), 16);
+  const hG = parseInt(pc.slice(3, 5), 16);
+  const hB = parseInt(pc.slice(5, 7), 16);
 
-  // Logo — renders only when we successfully preloaded it; no broken-image
-  // placeholders if the URL is empty or the fetch failed.
-  const textX = renderLogoBlock(doc, logo, M, 12);
+  // ── Resolve display values ────────────────────────────────────────
+  const paymentStatus = resolvePaymentStatus(job);
+  const isPaid = paymentStatus === 'Paid';
+  const invNum = job.invoiceNumber || generateInvoiceNumber(brand, job);
+  const friendlyService = customerFriendlyServiceName(job.service);
 
-  // Business name (large) — adjust font size if no logo so it has room to breathe
+  // ═════════════════════════════════════════════════════════════════
+  //  HEADER (#2): larger logo, stronger hierarchy, PAID badge
+  // ═════════════════════════════════════════════════════════════════
+  doc.setFillColor(11, 11, 11);
+  doc.rect(0, 0, W, 48, 'F');
+  // Accent rule in brand primary color
+  doc.setFillColor(hR, hG, hB);
+  doc.rect(0, 48, W, 2.5, 'F');
+
+  // Logo, bigger than before (28mm vs 24mm). Inlined data URI required.
+  if (logoDataUri) {
+    try {
+      doc.addImage(logoDataUri, 'PNG', M, 8, 28, 28);
+    } catch {
+      // ignore — invoice still renders without logo
+    }
+  }
+  const textX = logoDataUri ? M + 34 : M;
+
+  // Business name — larger, stronger typography
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(22);
   doc.setTextColor(...WHITE);
-  doc.text(tenantName, textX, 22);
+  doc.text(brand.businessName || 'Mobile Service OS', textX, 20);
 
-  if (tenantTagline) {
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.setTextColor(180, 180, 192);
-    doc.text(tenantTagline, textX, 29);
-  }
-
-  if (tenantContact) {
-    doc.setFontSize(8);
-    doc.setTextColor(150, 150, 165);
-    doc.text(tenantContact, textX, 36);
-  }
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.setTextColor(...accent);
-  doc.text('INVOICE', W - M, 22, { align: 'right' });
-
-  const invNum = job.invoiceNumber || generateInvoiceNumber(brand, job);
+  // Business contact line — smaller, dimmer, just one line of context
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8);
+  doc.setFontSize(8.5);
   doc.setTextColor(200, 200, 210);
-  doc.text('No. ' + invNum, W - M, 29, { align: 'right' });
-  doc.setFontSize(8);
-  doc.setTextColor(150, 150, 165);
-  doc.text('Issued ' + (job.date || TODAY()), W - M, 35, { align: 'right' });
-
-  // ── Bill To / Service panels ──
-  let y = heroH + 14;
-  const panelW = (CONTENT_W - 6) / 2;
-  const panelH = 38;
-
-  doc.setFillColor(...PANEL);
-  doc.roundedRect(M, y, panelW, panelH, 2, 2, 'F');
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7);
-  doc.setTextColor(...MUTED);
-  doc.text('BILL TO', M + 5, y + 6);
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.setTextColor(...INK);
-  doc.text(job.customerName || 'Customer', M + 5, y + 13);
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8.5);
-  doc.setTextColor(...INK_SOFT);
-  let ly = y + 19;
-  if (job.customerPhone) { doc.text(job.customerPhone, M + 5, ly); ly += 4.5; }
-  const loc = locationLine(job);
-  if (loc) { doc.text(loc, M + 5, ly); ly += 4.5; }
-  if (job.vehicleType) { doc.text('Vehicle: ' + job.vehicleType, M + 5, ly); ly += 4.5; }
-
-  const sx = M + panelW + 6;
-  doc.setFillColor(...PANEL);
-  doc.roundedRect(sx, y, panelW, panelH, 2, 2, 'F');
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7);
-  doc.setTextColor(...MUTED);
-  doc.text('SERVICE PERFORMED', sx + 5, y + 6);
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.setTextColor(...INK);
-  doc.text(job.service || 'Service', sx + 5, y + 13);
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8.5);
-  doc.setTextColor(...INK_SOFT);
-  let sy = y + 19;
-  if (job.tireSize) {
-    const qtyLabel = Number(job.qty || 0) > 0 ? `× ${job.qty}` : '';
-    doc.text(`Tire: ${job.tireSize} ${qtyLabel}`.trim(), sx + 5, sy);
-    sy += 4.5;
+  const infoLine = [brand.phone, brand.email, brand.fullLocationLabel || brand.serviceArea]
+    .filter(Boolean).join('  ·  ');
+  if (infoLine) doc.text(infoLine, textX, 28);
+  if (brand.website) {
+    doc.setFontSize(8);
+    doc.text(brand.website, textX, 34);
   }
-  if (job.tireSource) { doc.text('Source: ' + job.tireSource, sx + 5, sy); sy += 4.5; }
-  if (job.date) { doc.text('Service date: ' + job.date, sx + 5, sy); sy += 4.5; }
 
-  y += panelH + 12;
-
-  // ── Service line items ──
-  const lines = buildInvoiceLines(job, settings);
-
-  doc.setFillColor(...INK);
-  doc.rect(M, y, CONTENT_W, 9, 'F');
+  // "INVOICE" + number in top-right
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7.5);
-  doc.setTextColor(...WHITE);
-  doc.text('DESCRIPTION', M + 4, y + 6);
-  doc.text('QTY', M + CONTENT_W - 42, y + 6, { align: 'right' });
-  doc.text('AMOUNT', M + CONTENT_W - 4, y + 6, { align: 'right' });
-  y += 13;
+  doc.setFontSize(13);
+  doc.setTextColor(hR, hG, hB);
+  doc.text('INVOICE', W - M, 16, { align: 'right' });
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  doc.setTextColor(200, 200, 210);
+  doc.text('#' + invNum, W - M, 22, { align: 'right' });
 
-  for (let i = 0; i < lines.length; i++) {
-    const li = lines[i];
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    doc.setTextColor(...INK);
-    doc.text(li.label, M + 4, y);
-
-    doc.setFontSize(9.5);
-    doc.setTextColor(...INK_SOFT);
-    doc.text(String(li.qty || 1), M + CONTENT_W - 42, y, { align: 'right' });
-
+  // Status badge — PAID stamp (#2). Floats under the invoice number.
+  if (isPaid) {
+    const badgeText = 'PAID ✓';
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
-    doc.setTextColor(...INK);
-    doc.text(money(li.amount), M + CONTENT_W - 4, y, { align: 'right' });
-
-    y += 7;
-
-    if (i < lines.length - 1) {
-      doc.setDrawColor(...HAIRLINE);
-      doc.setLineWidth(0.2);
-      doc.line(M + 4, y - 2, M + CONTENT_W - 4, y - 2);
-      y += 1;
-    }
+    const padX = 4;
+    const tw = doc.getTextWidth(badgeText);
+    const bw = tw + padX * 2;
+    const bh = 7;
+    const bx = W - M - bw;
+    const by = 27;
+    doc.setFillColor(...GREEN);
+    doc.roundedRect(bx, by, bw, bh, 1.5, 1.5, 'F');
+    doc.setTextColor(...WHITE);
+    doc.text(badgeText, bx + padX, by + 5);
   }
 
-  y += 4;
-  doc.setDrawColor(...HAIRLINE);
-  doc.setLineWidth(0.3);
-  doc.line(M, y, M + CONTENT_W, y);
-  y += 10;
+  // ── Body cursor starts below the header band + accent rule ──
+  let y = 60;
 
-  // ── Totals card ──
-  const subtotal = r2(lines.reduce((s, l) => s + l.amount, 0));
+  // ═════════════════════════════════════════════════════════════════
+  //  CUSTOMER + COMPLETED DATE  (#4: "Completed" label)
+  // ═════════════════════════════════════════════════════════════════
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  doc.setTextColor(...GRAY);
+  doc.text('BILL TO', M, y);
+  doc.text('COMPLETED', 130, y);
+  y += 5;
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10.5);
+  doc.setTextColor(...NEAR_BLK);
+  doc.text(job.customerName || 'Customer', M, y);
+  doc.text(formatCompletedDate(job.date) || TODAY(), 130, y);
+  y += 5;
+
+  if (job.customerPhone) {
+    doc.setFontSize(9);
+    doc.setTextColor(...GRAY);
+    doc.text(job.customerPhone, M, y);
+    y += 4.5;
+  }
+
+  // ═════════════════════════════════════════════════════════════════
+  //  SERVICE PERFORMED (#3: tire size + vehicle, #6: location, #7: tech)
+  // ═════════════════════════════════════════════════════════════════
+  y += 4;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  doc.setTextColor(...GRAY);
+  doc.text('SERVICE PERFORMED', M, y);
+  y += 5;
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9.5);
+  doc.setTextColor(...NEAR_BLK);
+
+  // Build the service details rows — only emit each one when known.
+  const serviceRows: Array<[string, string]> = [];
+  if (job.tireSize) serviceRows.push(['Tire Size', job.tireSize]);
+  if (job.vehicleType) serviceRows.push(['Vehicle', job.vehicleType]);
+  // Location: prefer fullLocationLabel ("Hollywood, FL") over bare area.
+  const locLabel = job.fullLocationLabel || job.area;
+  if (locLabel) serviceRows.push(['Service Location', `Completed on-site in ${locLabel}`]);
+  // Technician — pulled from the optional opts arg so caller owns
+  // member-name resolution. Skip silently when unknown.
+  if (opts.technicianName) serviceRows.push(['Technician', opts.technicianName]);
+
+  for (const [label, value] of serviceRows) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(...GRAY);
+    doc.text(label + ':', M, y);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9.5);
+    doc.setTextColor(...NEAR_BLK);
+    doc.text(value, M + 32, y);
+    y += 5;
+  }
+
+  // ═════════════════════════════════════════════════════════════════
+  //  LINE ITEM TABLE (#1: customer-facing only — no internal pricing)
+  // ═════════════════════════════════════════════════════════════════
+  y += 6;
+  // Subtle row header band
+  doc.setFillColor(248, 248, 252);
+  doc.rect(M, y, W - 2 * M, 8, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  doc.setTextColor(...GRAY);
+  doc.text('DESCRIPTION', M + 3, y + 5.5);
+  doc.text('QTY', W - M - 30, y + 5.5);
+  doc.text('AMOUNT', W - M - 3, y + 5.5, { align: 'right' });
+  y += 11;
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+  doc.setTextColor(...NEAR_BLK);
+
+  // One line item per job (#9 customer-friendly name).
+  doc.text(friendlyService, M + 3, y + 3);
+  doc.setFont('helvetica', 'bold');
+  doc.text(String(job.qty || 1), W - M - 30, y + 3);
+  doc.text(money(job.revenue || 0), W - M - 3, y + 3, { align: 'right' });
+  y += 9;
+
+  // Light separator
+  doc.setDrawColor(...LIGHT_GRAY);
+  doc.line(M, y, W - M, y);
+  y += 8;
+
+  // ═════════════════════════════════════════════════════════════════
+  //  TOTALS BOX (#5: large, premium)
+  // ═════════════════════════════════════════════════════════════════
+  const subtotal = Number(job.revenue || 0);
   const taxRate = Number(settings.invoiceTaxRate || 0) / 100;
   const taxAmt = r2(subtotal * taxRate);
   const total = r2(subtotal + taxAmt);
 
-  const totalsW = 78;
-  const totalsX = M + CONTENT_W - totalsW;
-  const totalsRows = taxRate > 0 ? 3 : 2;
-  const totalsCardH = 10 + totalsRows * 8;
-
-  doc.setFillColor(...PANEL);
-  doc.roundedRect(totalsX, y, totalsW, totalsCardH, 2, 2, 'F');
-
-  let ty = y + 8;
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
-  doc.setTextColor(...MUTED);
-  doc.text('Subtotal', totalsX + 5, ty);
-  doc.setTextColor(...INK_SOFT);
-  doc.text(money(subtotal), totalsX + totalsW - 5, ty, { align: 'right' });
-  ty += 7;
-
+  // Show subtotal + tax rows ONLY when there's actual tax. Otherwise
+  // skip straight to the total — no need to expose internal-looking
+  // math when the customer is paying a single round number.
   if (taxRate > 0) {
-    doc.setTextColor(...MUTED);
-    doc.text(`Tax (${settings.invoiceTaxRate}%)`, totalsX + 5, ty);
-    doc.setTextColor(...INK_SOFT);
-    doc.text(money(taxAmt), totalsX + totalsW - 5, ty, { align: 'right' });
-    ty += 7;
-  }
-
-  doc.setDrawColor(...HAIRLINE);
-  doc.line(totalsX + 4, ty - 2, totalsX + totalsW - 4, ty - 2);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(13);
-  doc.setTextColor(...INK);
-  doc.text('TOTAL', totalsX + 5, ty + 4);
-  doc.setTextColor(...accent);
-  doc.text(money(total), totalsX + totalsW - 5, ty + 4, { align: 'right' });
-
-  y += totalsCardH + 6;
-
-  // ── Payment status badge ──
-  const ps = resolvePaymentStatus(job);
-  const badge = paymentBadgeColors(ps);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7.5);
-  const badgeText = badge.label;
-  const badgeW = doc.getTextWidth(badgeText) + 10;
-  doc.setFillColor(...badge.fill);
-  doc.roundedRect(M, y, badgeW, 7, 1.5, 1.5, 'F');
-  doc.setTextColor(...badge.text);
-  doc.text(badgeText, M + 5, y + 4.8);
-
-  if (job.payment) {
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(...MUTED);
-    doc.text('Payment method: ' + job.payment, M + badgeW + 6, y + 4.8);
+    doc.setFontSize(9.5);
+    doc.setTextColor(...GRAY);
+    doc.text('Subtotal', M + 3, y);
+    doc.text(money(subtotal), W - M - 3, y, { align: 'right' });
+    y += 6;
+    doc.text(`Tax (${settings.invoiceTaxRate}%)`, M + 3, y);
+    doc.text(money(taxAmt), W - M - 3, y, { align: 'right' });
+    y += 8;
   }
-  y += 14;
 
-  // ── Notes ──
+  // Big dark totals box. Filled rectangle with brand-accent left bar.
+  const boxH = 22;
+  doc.setFillColor(...TOTAL_BG_DARK);
+  doc.roundedRect(M, y, W - 2 * M, boxH, 2, 2, 'F');
+  // Accent bar on left edge in brand color
+  doc.setFillColor(hR, hG, hB);
+  doc.rect(M, y, 2.5, boxH, 'F');
+
+  // Label: "TOTAL PAID" vs "TOTAL DUE" depending on payment state.
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.setTextColor(180, 180, 190);
+  doc.text(isPaid ? 'TOTAL PAID' : 'TOTAL DUE', M + 7, y + 8);
+
+  // Huge total amount
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(20);
+  doc.setTextColor(...WHITE);
+  doc.text(money(total), W - M - 5, y + 15, { align: 'right' });
+
+  y += boxH + 6;
+
+  // ═════════════════════════════════════════════════════════════════
+  //  PAYMENT METHOD + TIMESTAMP (#8)
+  // ═════════════════════════════════════════════════════════════════
+  if (isPaid) {
+    const method = job.payment || 'Cash';
+    const ts = formatPaymentTimestamp(job.paidAt);
+    const line = ts
+      ? `Paid via ${method} — ${ts}`
+      : `Paid via ${method}`;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(...GRAY);
+    doc.text(line, M, y);
+    y += 6;
+  } else if (paymentStatus === 'Pending Payment') {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(...GRAY);
+    doc.text('Payment due upon receipt.', M, y);
+    y += 6;
+  }
+
+  // ═════════════════════════════════════════════════════════════════
+  //  NOTES (#10) — only when present
+  // ═════════════════════════════════════════════════════════════════
   if (job.note && job.note.trim()) {
+    y += 3;
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7);
-    doc.setTextColor(...MUTED);
+    doc.setFontSize(7.5);
+    doc.setTextColor(...GRAY);
     doc.text('NOTES', M, y);
-    y += 5;
+    y += 4.5;
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
-    doc.setTextColor(...INK_SOFT);
-    const noteLines = doc.splitTextToSize(job.note, CONTENT_W);
+    doc.setTextColor(...NEAR_BLK);
+    const noteLines = doc.splitTextToSize(job.note, W - 2 * M);
     doc.text(noteLines, M, y);
-    y += noteLines.length * 4.5 + 6;
+    y += noteLines.length * 4.5 + 4;
   }
 
-  // ── Footer ──
-  const footerY = H - 32;
-  doc.setDrawColor(...HAIRLINE);
-  doc.setLineWidth(0.3);
-  doc.line(M, footerY - 6, M + CONTENT_W, footerY - 6);
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8.5);
-  doc.setTextColor(...INK);
-  doc.text('Thank you for your business.', M, footerY);
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.5);
-  doc.setTextColor(...MUTED);
-  const brandFooter = (brand.invoiceFooter || '').trim();
-  const derivedFooter = brand.serviceArea
-    ? `${tenantName} — mobile tire & roadside service in ${brand.serviceArea}.`
-    : `${tenantName} — mobile tire & roadside service.`;
-  const customFooter = brandFooter || derivedFooter;
-  const footerLines = doc.splitTextToSize(customFooter, CONTENT_W * 0.55);
-  doc.text(footerLines, M, footerY + 4);
-
-  if (brand.reviewUrl) {
-    const rx = M + CONTENT_W;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8);
-    doc.setTextColor(...accent);
-    doc.text('Leave a review', rx, footerY, { align: 'right' });
+  // ═════════════════════════════════════════════════════════════════
+  //  WARRANTY (#13) — per-business toggle
+  // ═════════════════════════════════════════════════════════════════
+  if (brand.warrantyEnabled && brand.warrantyText && brand.warrantyText.trim()) {
+    y += 2;
+    doc.setFillColor(248, 248, 252);
+    const warrLines = doc.splitTextToSize(brand.warrantyText, W - 2 * M - 6);
+    const warrH = warrLines.length * 4 + 6;
+    doc.roundedRect(M, y, W - 2 * M, warrH, 1.5, 1.5, 'F');
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7);
-    doc.setTextColor(...MUTED);
-    const urlLines = doc.splitTextToSize(brand.reviewUrl, 70);
-    doc.text(urlLines, rx, footerY + 4, { align: 'right' });
+    doc.setFontSize(8);
+    doc.setTextColor(...GRAY);
+    doc.text(warrLines, M + 3, y + 4.5);
+    y += warrH + 6;
   }
 
-  doc.setFillColor(...accent);
-  doc.rect(0, H - 4, W, 4, 'F');
+  // ═════════════════════════════════════════════════════════════════
+  //  REVIEW CTA (#11) — only when brand.reviewUrl is set
+  //  + business-set invoice footer
+  //  (#12: collapse aggressively if no content — no wasted whitespace)
+  // ═════════════════════════════════════════════════════════════════
+  const reviewUrl = (brand.reviewUrl || '').trim();
+  const footerText = (brand.invoiceFooter || '').trim();
 
-  const tenantSlug = (brand.businessName || '').replace(/[^a-z0-9]/gi, '-').toLowerCase();
-  const slug = tenantSlug || 'invoice';
-  const filename = `${slug}-${invNum}.pdf`;
+  if (reviewUrl || footerText) {
+    // Position the footer block at most ~30mm from the bottom of A4
+    // (297mm), but no closer than `y + 8` so it doesn't overlap content
+    // when the invoice is short. This balances "anchored to bottom"
+    // (premium feel) with "no awkward gap" (#12).
+    const targetY = Math.max(y + 8, 257);
+    y = targetY;
+
+    // Thin divider above footer
+    doc.setDrawColor(...LIGHT_GRAY);
+    doc.line(M, y, W - M, y);
+    y += 6;
+
+    if (reviewUrl) {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(...NEAR_BLK);
+      doc.text(`Thank you for choosing ${brand.businessName || 'us'}.`, W / 2, y, { align: 'center' });
+      y += 5;
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(...GRAY);
+      doc.text('We\'d love your feedback — please leave a review:', W / 2, y, { align: 'center' });
+      y += 4.5;
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(hR, hG, hB);
+      // Use jsPDF's link annotation so tapping the URL in a PDF viewer
+      // opens the browser. addLink+text is the standard pattern.
+      doc.textWithLink(reviewUrl, W / 2, y, { align: 'center', url: reviewUrl });
+      y += 5;
+    }
+
+    if (footerText) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(...GRAY);
+      const footLines = doc.splitTextToSize(footerText, W - 2 * M);
+      doc.text(footLines, W / 2, y, { align: 'center' });
+    }
+  }
+
+  // ═════════════════════════════════════════════════════════════════
+  //  SMART FILENAME (#14)
+  //  Format: BusinessName_Invoice_YYYY-MM-DD_CustomerName.pdf
+  // ═════════════════════════════════════════════════════════════════
+  const bizSlug = sanitizeForFilename(brand.businessName, 'Invoice');
+  const dateSlug = (job.date || TODAY()).replace(/[^0-9-]/g, '').slice(0, 10);
+  const custSlug = sanitizeForFilename(
+    (job.customerName || '').split(/\s+/)[0],  // first name only for brevity
+    'Customer',
+  );
+  const filename = `${bizSlug}_Invoice_${dateSlug}_${custSlug}.pdf`;
   doc.save(filename);
   return { filename, invoiceNumber: invNum };
 }

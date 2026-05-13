@@ -22,6 +22,13 @@ export interface Brand {
   serviceRadius?: number;
   onboardingComplete?: boolean;
   onboardingCompletedAt?: string | null;
+  /** When true, the invoice renders a warranty box near the footer with
+   *  warrantyText. When false/missing, the box is omitted entirely. */
+  warrantyEnabled?: boolean;
+  /** Text shown inside the invoice warranty box when warrantyEnabled is
+   *  true. Suggested defaults: "90-day workmanship warranty on eligible
+   *  services." */
+  warrantyText?: string;
 }
 
 export interface ServicePricing {
@@ -94,11 +101,8 @@ export interface Job {
   inventoryDeductions?: InventoryDeduction[] | string | null;
   inventoryUsed?: unknown;
   paymentStatus: PaymentStatus;
+  /** ISO timestamp of when the job was marked Paid. Stamped by handleMarkPaid. */
   paidAt?: string;
-  paymentMethod?: PaymentMethod;
-  amountPaid?: number;
-  balanceDue?: number;
-  paymentHistory?: PaymentEvent[];
   invoiceGenerated: boolean;
   invoiceGeneratedAt?: string | null;
   invoiceNumber?: string | null;
@@ -110,6 +114,8 @@ export interface Job {
   city?: string;
   state?: string;
   fullLocationLabel?: string;
+  /** Auth uid of the user who created the job. Used for technician
+   *  attribution on invoices and job cards. */
   createdByUid?: string;
 }
 
@@ -132,15 +138,6 @@ export interface Settings {
   freeMilesIncluded?: number;
   tireRepairTargetProfit?: number;
   tireReplacementTargetProfit?: number;
-  multiTirePricing?: MultiTirePricing;
-  invoicePricingStyle?: 'transparent' | 'single';
-  plan?: Plan;
-  subscriptionStatus?: SubscriptionStatus;
-  trialStartedAt?: string;
-  trialEndsAt?: string;
-  maxUsers?: number;
-  allowTechnicianPriceOverride?: boolean;
-  featureFlags?: FeatureFlags;
 }
 
 export interface QuoteForm {
@@ -185,65 +182,3 @@ export type TabId =
   | 'inventory'
   | 'settings'
   | 'success';
-
-export type PaymentMethod = 'Cash' | 'Zelle' | 'Cash App' | 'Card' | 'Other';
-
-export interface PaymentEvent {
-  at: string;
-  amount: number;
-  method: PaymentMethod;
-  kind: 'payment' | 'deposit' | 'refund';
-  note?: string;
-}
-
-export interface MultiTirePricing {
-  replacementMultipliers: { two: number; three: number; four: number };
-  installationByQuantity: { one: number; two: number; three: number; four: number };
-}
-
-export type Plan = 'core' | 'pro';
-export type SubscriptionStatus = 'trialing' | 'active' | 'inactive' | 'past_due' | 'canceled';
-export type Role = 'owner' | 'admin' | 'technician';
-export type MemberStatus = 'active' | 'invited' | 'disabled';
-
-export interface MemberDoc {
-  uid: string;
-  email: string;
-  displayName?: string;
-  role: Role;
-  status: MemberStatus;
-  invitedBy?: string;
-  invitedAt?: string;
-  joinedAt?: string;
-  permissions?: Partial<Permissions>;
-  assignedBusinessId: string;
-}
-
-export interface Permissions {
-  canViewFinancials: boolean;
-  canViewRevenue: boolean;
-  canViewProfit: boolean;
-  canManageExpenses: boolean;
-  canManageInventory: boolean;
-  canEditPricingSettings: boolean;
-  canViewPricingSettings: boolean;
-  canUsePricingEngine: boolean;
-  canOverrideJobPrice: boolean;
-  canManageTeam: boolean;
-  canEditBusinessSettings: boolean;
-  canUploadLogo: boolean;
-  canGenerateInvoices: boolean;
-  canSendReviews: boolean;
-  canCreateJobs: boolean;
-  canEditJobs: boolean;
-  canDeleteJobs: boolean;
-  canViewAdvancedReports: boolean;
-  canManageBilling: boolean;
-}
-
-export interface FeatureFlags {
-  teamAccess?: boolean;
-  technicianRoles?: boolean;
-  advancedReports?: boolean;
-  prioritySupport?: boolean;
-}

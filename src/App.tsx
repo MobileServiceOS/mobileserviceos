@@ -3,6 +3,7 @@ import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
 import { _auth, _db, scopedCol, fbDelete, fbListen, fbSet, initError } from '@/lib/firebase';
 import { BrandProvider, useBrand } from '@/context/BrandContext';
 import { MembershipProvider, usePermissions } from '@/context/MembershipContext';
+import { useMembersDirectory } from '@/lib/useMembersDirectory';
 import { AuthScreen } from '@/pages/AuthScreen';
 import { Dashboard } from '@/pages/Dashboard';
 import { AddJob } from '@/pages/AddJob';
@@ -119,6 +120,9 @@ export function App() {
 
 function AuthenticatedApp({ user }: { user: User }) {
   const { brand, businessId, loading: brandLoading, onboardingComplete, updateBrand } = useBrand();
+  // Resolve a tech's name from createdByUid → display name for invoices.
+  // The hook self-fetches members on first call and caches.
+  const { resolveName: resolveMemberName } = useMembersDirectory(businessId);
   const [tab, setTab] = useState<TabId>('dashboard');
   const [jobs, setJobs] = useState<Job[]>([]);
   const [inventory, setInventoryRaw] = useState<InventoryItem[]>([]);
@@ -372,8 +376,10 @@ function AuthenticatedApp({ user }: { user: User }) {
   }, [businessId, jobs]);
 
   const handleGenerateInvoice = useCallback(async (j: Job) => {
-    // generateInvoicePDF is async — preloads logo as base64. Must await.
-    const result = await generateInvoicePDF(j, settings, brand);
+    // generateInvoicePDF is async — preloads logo as base64 + we now also
+    // pass the technician's display name resolved from createdByUid.
+    const technicianName = resolveMemberName(j.createdByUid) || null;
+    const result = await generateInvoicePDF(j, settings, brand, { technicianName });
     if (!result || !businessId) return;
     const jobsCol = scopedCol(businessId, 'jobs');
     const updated: Job = {
@@ -389,7 +395,7 @@ function AuthenticatedApp({ user }: { user: User }) {
       setSyncStatus('sync_failed');
       addToast(`Invoice save failed: ${humanizeFirestoreError(e)}`, 'error');
     }
-  }, [settings, brand, businessId]);
+  }, [settings, brand, businessId, resolveMemberName]);
 
   const handleSendInvoice = useCallback(async (j: Job) => {
     if (!businessId) return;
