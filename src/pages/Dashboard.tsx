@@ -7,10 +7,6 @@ import {
 } from '@/lib/utils';
 import { DEFAULT_SERVICE_PRICING, DEFAULT_VEHICLE_PRICING, TODAY } from '@/lib/defaults';
 import { useCountUp } from '@/lib/useCountUp';
-import { useBrand } from '@/context/BrandContext';
-import { useMembersDirectory } from '@/lib/useMembersDirectory';
-import { useLongPress } from '@/lib/useLongPress';
-import { QuickActionSheet } from '@/components/QuickActionSheet';
 
 interface Props {
   jobs: Job[];
@@ -20,7 +16,6 @@ interface Props {
   onStartJob: (form: QuoteForm) => void;
   onViewJob: (j: Job) => void;
   onGenerateInvoice: (j: Job) => void;
-  onSendInvoice: (j: Job) => void;
   onSendReview: (j: Job) => void;
   onMarkPaid: (j: Job) => void;
   onEditJob: (j: Job) => void;
@@ -28,16 +23,8 @@ interface Props {
 
 export function Dashboard({
   jobs, settings, inventory, setTab,
-  onStartJob, onViewJob, onGenerateInvoice, onSendInvoice, onSendReview, onMarkPaid, onEditJob,
+  onStartJob, onViewJob, onGenerateInvoice, onSendReview, onMarkPaid, onEditJob,
 }: Props) {
-  // Member directory for "by Marcus" tech attribution on each card.
-  const { businessId } = useBrand();
-  const { resolveName } = useMembersDirectory(businessId);
-
-  // Long-press / quick-action sheet state. When non-null, the sheet renders
-  // for that job. Set by the long-press handler on each card; cleared on
-  // sheet dismiss.
-  const [sheetJob, setSheetJob] = useState<Job | null>(null);
   const enabledServices = useMemo(() => {
     const sp = settings.servicePricing || DEFAULT_SERVICE_PRICING;
     return Object.keys(sp).filter((k) => sp[k] && sp[k].enabled !== false);
@@ -57,7 +44,13 @@ export function Dashboard({
     }
   }, [enabledServices, qqForm.service]);
 
-  const [qqMode, setQqMode] = useState<'suggested' | 'premium'>('suggested');
+  // Quick Quote price selection. Three modes:
+  //   - 'suggested': use the engine's computed Suggested price
+  //   - 'premium':   use the engine's computed Premium price (~25% higher)
+  //   - 'custom':    use the user-typed customPrice (manual override for
+  //                  unusual quotes where neither preset fits)
+  const [qqMode, setQqMode] = useState<'suggested' | 'premium' | 'custom'>('suggested');
+  const [customPrice, setCustomPrice] = useState<number | string>('');
   const qqChange = <K extends keyof QuoteForm>(k: K, v: QuoteForm[K]) => setQqForm((p) => ({ ...p, [k]: v }));
 
   const safeJobs = Array.isArray(jobs) ? jobs : [];
@@ -115,8 +108,16 @@ export function Dashboard({
   const quote = useMemo(() => calcQuote(qqForm, settings), [qqForm, settings]);
   const heroValue = useCountUp(totals.grossProfit);
 
+  // Resolve the actual dollar amount we'll start the job with. Pulls from
+  // the right source depending on which preset/custom card is active.
+  const resolvedRevenue = (() => {
+    if (qqMode === 'premium') return quote.premium;
+    if (qqMode === 'custom') return Number(customPrice || 0);
+    return quote.suggested;
+  })();
+
   const handleStartJob = () => {
-    onStartJob({ ...qqForm, revenue: qqMode === 'suggested' ? quote.suggested : quote.premium });
+    onStartJob({ ...qqForm, revenue: resolvedRevenue });
   };
 
   return (
@@ -142,16 +143,7 @@ export function Dashboard({
         </div>
         <div className="pro-hero-foot">
           <span>{Math.round(goalPct)}% of {money(settings.weeklyGoal || 0)} goal</span>
-          {/* Per spec: replace vague "8 more needed" with explicit
-              dollar-amount remaining when over goal threshold; show
-              jobs-to-goal when below. */}
-          <span>
-            {goalPct >= 100
-              ? '🎯 Goal reached'
-              : jobsNeeded === '—'
-                ? `${money(Math.max(0, (settings.weeklyGoal || 0) - totals.grossProfit))} to weekly goal`
-                : `${jobsNeeded} job${jobsNeeded === 1 ? '' : 's'} to reach goal`}
-          </span>
+          <span>{jobsNeeded === '—' ? '—' : jobsNeeded + ' more needed'}</span>
         </div>
       </div>
 
@@ -181,13 +173,7 @@ export function Dashboard({
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
                     <span className="num" style={{ fontSize: 14, fontWeight: 700, color: 'var(--gold)' }}>{money(j.revenue)}</span>
-                    <button
-                      className="btn sm success"
-                      onClick={() => onMarkPaid(j)}
-                      style={{ fontWeight: 800, minHeight: 36, paddingLeft: 14, paddingRight: 14 }}
-                    >
-                      Mark Paid
-                    </button>
+                    <button className="btn xs success" onClick={() => onMarkPaid(j)}>Paid</button>
                   </div>
                 </div>
               ))}
@@ -197,31 +183,10 @@ export function Dashboard({
       )}
 
       {lowStock.length > 0 && (
-        <div
-          className="card card-anim"
-          style={{ borderColor: 'rgba(245,158,11,.2)', cursor: 'pointer' }}
-          onClick={() => {
-            // Pass the first low-stock size as the initial filter so the
-            // Inventory page opens with that size already typed. Multiple
-            // low-stock sizes? Use the first — operator can clear and
-            // browse from there.
-            // sessionStorage is the cleanest cross-component handoff
-            // without prop-drilling or routing. Inventory reads + clears
-            // on mount.
-            try {
-              if (typeof sessionStorage !== 'undefined') {
-                sessionStorage.setItem('msos:inv:initial-search', lowStock[0].size);
-              }
-            } catch {
-              // Best-effort; navigation still works without the prefill.
-            }
-            setTab('inventory');
-          }}
-        >
+        <div className="card card-anim" style={{ borderColor: 'rgba(245,158,11,.2)' }}>
           <div className="card-pad">
-            <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>⚠ Low Stock Alert</span>
-              <span style={{ fontSize: 9, color: 'var(--t3)' }}>tap to view →</span>
+            <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 8 }}>
+              ⚠ Low Stock Alert
             </div>
             {lowStock.map((ls) => (
               <div key={ls.size} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '4px 0', color: 'var(--t2)' }}>
@@ -287,10 +252,44 @@ export function Dashboard({
             <div className="qq-price-tile-label">Premium</div>
             <div className="qq-price-tile-amount">{money(quote.premium)}</div>
           </div>
+          {/* Custom card — tapping the card itself activates custom mode
+              without changing the price; typing into the input both
+              activates custom mode AND sets the price. We catch the click
+              on the wrapper but stopPropagation inside the input area so
+              focus behaves naturally. */}
+          <div
+            className={'qq-price-tile custom' + (qqMode === 'custom' ? ' active' : '')}
+            onClick={() => setQqMode('custom')}
+            role="button"
+          >
+            <div className="qq-price-tile-label">Custom</div>
+            <div className="qq-price-tile-amount qq-custom-input-wrap" onClick={(e) => e.stopPropagation()}>
+              <span className="qq-custom-prefix">$</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                pattern="[0-9]*\.?[0-9]*"
+                value={customPrice === 0 || customPrice === '' ? '' : String(customPrice)}
+                onChange={(e) => {
+                  // Sanitize: digits + at most one dot.
+                  let v = e.target.value.replace(/[^0-9.]/g, '');
+                  const dot = v.indexOf('.');
+                  if (dot !== -1) v = v.slice(0, dot + 1) + v.slice(dot + 1).replace(/\./g, '');
+                  setCustomPrice(v);
+                  // Any input flips us into custom mode automatically.
+                  if (qqMode !== 'custom') setQqMode('custom');
+                }}
+                onFocus={() => setQqMode('custom')}
+                placeholder="0"
+                className="qq-custom-input"
+                aria-label="Custom price"
+              />
+            </div>
+          </div>
         </div>
         <div className="qq-meta">Direct cost {money(quote.directCosts)} · target profit {money(quote.targetProfit)}</div>
         <button className="cta-btn press-scale qq-cta" onClick={handleStartJob}>
-          Start Job at {money(qqMode === 'suggested' ? quote.suggested : quote.premium)} →
+          Start Job at {money(resolvedRevenue)} →
         </button>
       </div>
 
@@ -315,127 +314,40 @@ export function Dashboard({
         <>
           <div className="section-label">Recent Completed Jobs</div>
           <div className="stack">
-            {recentCompleted.map((j) => (
-              <RecentJobCard
-                key={j.id}
-                job={j}
-                settings={settings}
-                techName={resolveName(j.createdByUid)}
-                onView={() => onViewJob(j)}
-                onLongPress={() => setSheetJob(j)}
-                onGenerateInvoice={() => onGenerateInvoice(j)}
-                onSendReview={() => onSendReview(j)}
-                onEditJob={() => onEditJob(j)}
-                onMarkPaid={() => onMarkPaid(j)}
-              />
-            ))}
+            {recentCompleted.map((j) => {
+              const pr = jobGrossProfit(j, settings);
+              const ps = resolvePaymentStatus(j);
+              return (
+                <div key={j.id} className="job-card card-anim">
+                  <div className="job-card-main" onClick={() => onViewJob(j)}>
+                    <div className="job-icon">{serviceIcon(j.service)}</div>
+                    <div className="job-main">
+                      <div className="job-title">{j.customerName || j.service}</div>
+                      <div className="job-meta">
+                        {j.service} · {j.fullLocationLabel || j.area || '—'} · {fmtDate(j.date)}
+                        {j.tireSize ? ' · ' + j.tireSize : ''}
+                      </div>
+                    </div>
+                    <div className="job-right">
+                      <div className="value green">{money(j.revenue)}</div>
+                      <div style={{ fontSize: 11, color: pr >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>{money(pr)} profit</div>
+                      <span className={'pill ' + paymentPillClass(ps)} style={{ marginTop: 4 }}>{ps}</span>
+                    </div>
+                  </div>
+                  <div className="job-card-actions">
+                    <button onClick={() => onGenerateInvoice(j)}>📄 Invoice</button>
+                    <button onClick={() => onSendReview(j)}>⭐ Review</button>
+                    <button onClick={() => onEditJob(j)}>✏️ Edit</button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </>
       )}
 
       <div style={{ marginTop: 28 }}>
         <button className="cta-btn press-scale" onClick={() => setTab('add')}>＋ Log New Job</button>
-      </div>
-
-      {/* Quick-action bottom sheet — opens on long-press of any recent job card. */}
-      {sheetJob && (
-        <QuickActionSheet
-          job={sheetJob}
-          onClose={() => setSheetJob(null)}
-          onView={() => onViewJob(sheetJob)}
-          onEdit={() => onEditJob(sheetJob)}
-          onSendInvoice={() => onSendInvoice(sheetJob)}
-          onSendReview={() => onSendReview(sheetJob)}
-          onMarkPaid={() => onMarkPaid(sheetJob)}
-        />
-      )}
-    </div>
-  );
-}
-
-/**
- * Standalone recent-jobs card so each instance can own its own
- * long-press hook (hooks can't run inside `.map`).
- *
- * Tap = open job details. Long-press = open quick-action sheet.
- * Includes inline Mark Paid for unpaid jobs (carry-forward) and the
- * new tire-size badge + technician attribution line.
- */
-function RecentJobCard({
-  job, settings, techName,
-  onView, onLongPress, onGenerateInvoice, onSendReview, onEditJob, onMarkPaid,
-}: {
-  job: Job;
-  settings: Settings;
-  techName: string | null;
-  onView: () => void;
-  onLongPress: () => void;
-  onGenerateInvoice: () => void;
-  onSendReview: () => void;
-  onEditJob: () => void;
-  onMarkPaid: () => void;
-}) {
-  const pr = jobGrossProfit(job, settings);
-  const ps = resolvePaymentStatus(job);
-  const lp = useLongPress(onLongPress);
-
-  return (
-    <div className="job-card card-anim">
-      <div
-        className="job-card-main"
-        // Tap = open detail; suppress when long-press just fired.
-        onClick={() => { if (lp.firedRef.current) return; onView(); }}
-        {...lp.bind}
-      >
-        <div className="job-icon">{serviceIcon(job.service)}</div>
-        <div className="job-main">
-          <div className="job-title" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            <span>{job.customerName || job.service}</span>
-            {/* Tire size badge — small inline pill so the operator can
-                scan size at a glance without expanding the card. */}
-            {job.tireSize && (
-              <span
-                style={{
-                  fontSize: 9, fontWeight: 800, color: 'var(--brand-primary)',
-                  letterSpacing: '0.3px',
-                  padding: '2px 6px', borderRadius: 99,
-                  background: 'rgba(200,164,74,.1)',
-                  border: '1px solid rgba(200,164,74,.25)',
-                }}
-              >
-                {job.tireSize}
-              </span>
-            )}
-          </div>
-          <div className="job-meta">
-            {job.service} · {job.fullLocationLabel || job.area || '—'} · {fmtDate(job.date)}
-          </div>
-          {/* Technician attribution line — only renders when we can
-              resolve the uid → a member's display name. */}
-          {techName && (
-            <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 2 }}>
-              Tech: {techName}
-            </div>
-          )}
-        </div>
-        <div className="job-right">
-          <div className="value green">{money(job.revenue)}</div>
-          <div style={{ fontSize: 11, color: pr >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>
-            {money(pr)} profit
-          </div>
-          <span className={'pill ' + paymentPillClass(ps)} style={{ marginTop: 4 }}>{ps}</span>
-        </div>
-      </div>
-      <div className="job-card-actions">
-        {/* Mark Paid only when payment is outstanding (carry-forward). */}
-        {ps !== 'Paid' && ps !== 'Cancelled' && (
-          <button onClick={onMarkPaid} style={{ color: 'var(--green)', fontWeight: 800 }}>
-            💰 Mark Paid
-          </button>
-        )}
-        <button onClick={onGenerateInvoice}>📄 Invoice</button>
-        <button onClick={onSendReview}>⭐ Review</button>
-        <button onClick={onEditJob}>✏️ Edit</button>
       </div>
     </div>
   );
