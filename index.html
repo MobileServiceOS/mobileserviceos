@@ -11,6 +11,49 @@
   <meta name="description" content="Mobile Service OS — operating system for mobile tire and roadside assistance businesses." />
   <title>Mobile Service OS — Mobile Tire &amp; Roadside</title>
 
+  <!-- ════════════════════════════════════════════════════════════════
+       SERVICE WORKER MIGRATION SAFETY NET
+       ════════════════════════════════════════════════════════════════
+       Runs before any other script. If a stale service worker is
+       active with the legacy /mobileserviceos/ scope (left over from
+       the old GitHub Pages project URL), this unregisters it and
+       clears its caches, then hard-reloads. One-time per session;
+       safe to leave in permanently. ════════════════════════════════ -->
+  <script>
+    (function () {
+      try {
+        if (sessionStorage.getItem('msos-sw-migrated-v2') === '1') return;
+        if (!('serviceWorker' in navigator)) return;
+        navigator.serviceWorker.getRegistrations().then(function (regs) {
+          var stale = false;
+          var promises = [];
+          regs.forEach(function (r) {
+            var scope = (r.scope || '');
+            if (scope.indexOf('/mobileserviceos/') !== -1) {
+              stale = true;
+              promises.push(r.unregister());
+            }
+          });
+          if (!stale) {
+            sessionStorage.setItem('msos-sw-migrated-v2', '1');
+            return;
+          }
+          if (window.caches) {
+            promises.push(
+              caches.keys().then(function (keys) {
+                return Promise.all(keys.map(function (k) { return caches.delete(k); }));
+              })
+            );
+          }
+          Promise.all(promises).then(function () {
+            sessionStorage.setItem('msos-sw-migrated-v2', '1');
+            location.reload(true);
+          });
+        }).catch(function () { /* silent */ });
+      } catch (e) { /* silent */ }
+    })();
+  </script>
+
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png" />
   <link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16.png" />
