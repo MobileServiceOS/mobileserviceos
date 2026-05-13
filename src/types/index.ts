@@ -406,23 +406,40 @@ export interface Settings {
   allowTechnicianPriceOverride?: boolean;
   /**
    * Multi-tire job pricing configuration. When present, the pricing
-   * engine applies size-tier multipliers for jobs with multiple tires
-   * (e.g. a 4-tire install gets a different per-tire rate than a single
-   * tire). All sub-fields are optional so partial configurations work.
+   * engine applies tier-based pricing for jobs with multiple tires
+   * (e.g. a 4-tire install uses different rates than a single tire).
    *
    * Sub-fields:
-   *   - `installationByQuantity`: map of tire qty → flat install fee
-   *     (e.g. `{ 1: 25, 2: 40, 4: 70 }`)
-   *   - `replacementMultipliers`: map of tire qty → per-tire revenue
-   *     multiplier (e.g. `{ 1: 1.0, 2: 0.95, 4: 0.9 }` for bulk discount)
+   *   - `replacementMultipliers`: per-quantity revenue multiplier for
+   *     replacement jobs. Named tiers (`one`, `two`, `three`, `four`)
+   *     match the utility resolver in `utils.ts` — quantities ≥4
+   *     fall back to the `four` tier.
+   *   - `installationByQuantity`: per-quantity flat install labor
+   *     price for customer-supplied tire installations. Same named
+   *     tier scheme; `four` covers any qty ≥4.
    *
-   * Read by utils.ts in calcQuote / computeBreakdown. Index signatures
-   * accept any string key so callers can use either numeric or named
-   * tiers ('default', '4plus', etc.) without schema changes.
+   * Both sub-fields are required when `multiTirePricing` is set so
+   * callers can chain `mt.replacementMultipliers.two` after a single
+   * `if (!mt) return` guard without per-property optional chaining.
+   * Individual tier values are optional — partial configs fall through
+   * to `|| 0` / `|| 1` defaults in the resolver.
+   *
+   * Read by `replacementMultiplier()` and `installationPriceFor()` in
+   * `src/lib/utils.ts`.
    */
   multiTirePricing?: {
-    installationByQuantity?: Record<string, number>;
-    replacementMultipliers?: Record<string, number>;
+    replacementMultipliers: {
+      one?: number;
+      two?: number;
+      three?: number;
+      four?: number;
+    };
+    installationByQuantity: {
+      one?: number;
+      two?: number;
+      three?: number;
+      four?: number;
+    };
   };
   /**
    * Bag of feature flags toggled by the owner during onboarding and
