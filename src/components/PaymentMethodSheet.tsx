@@ -10,12 +10,26 @@ interface Props {
   onClose: () => void;
 }
 
+/**
+ * Method options shown in the sheet.
+ *
+ * `method` is the CANONICAL STORED VALUE — lowercase identifier from the
+ * PaymentMethod union in `@/types`. This is what gets written to
+ * Firestore and used in queries/filters across the app.
+ *
+ * `label` is the user-facing display text. Independent from `method` on
+ * purpose: storage stays stable across UI changes, and the same canonical
+ * value can be re-labeled per locale or per business without changing
+ * the schema.
+ */
 const METHODS: { method: PaymentMethod; icon: string; label: string; sublabel: string }[] = [
-  { method: 'Cash',     icon: '💵', label: 'Cash',     sublabel: 'In-hand right now' },
-  { method: 'Zelle',    icon: '⚡', label: 'Zelle',    sublabel: 'Bank transfer' },
-  { method: 'Cash App', icon: '$',  label: 'Cash App', sublabel: 'Cashtag' },
-  { method: 'Card',     icon: '💳', label: 'Card',     sublabel: 'Reader or invoice' },
-  { method: 'Other',    icon: '⋯',  label: 'Other',    sublabel: 'Check, Venmo, etc.' },
+  { method: 'cash',    icon: '💵', label: 'Cash',     sublabel: 'In-hand right now' },
+  { method: 'zelle',   icon: '⚡', label: 'Zelle',    sublabel: 'Bank transfer' },
+  { method: 'cashapp', icon: '$',  label: 'Cash App', sublabel: 'Cashtag' },
+  { method: 'venmo',   icon: 'V',  label: 'Venmo',    sublabel: 'Username transfer' },
+  { method: 'card',    icon: '💳', label: 'Card',     sublabel: 'Reader or invoice' },
+  { method: 'check',   icon: '🧾', label: 'Check',    sublabel: 'Paper check' },
+  { method: 'other',   icon: '⋯',  label: 'Other',    sublabel: 'Anything else' },
 ];
 
 /**
