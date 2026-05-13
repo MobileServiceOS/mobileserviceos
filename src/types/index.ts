@@ -71,10 +71,19 @@ export type TabId =
 // ─────────────────────────────────────────────────────────────────────
 
 /**
- * Subscription tier. Drives feature gating (team management, advanced
- * reports, etc). Settings.plan defaults to 'core' when unset.
+ * Subscription tier. Mobile Service OS offers a single plan (Pro,
+ * $99/mo with a 14-day free trial). The alias remains in the type
+ * system so existing call sites (`isProEntitled`, plan-gating
+ * helpers, future Stripe wiring) compile without churn; the literal
+ * set has simply collapsed to one value.
+ *
+ * Any historical Firestore documents that wrote `'core'` are still
+ * readable at the JS level — TypeScript will flag them on read so
+ * we surface and clean them up. The runtime resolver treats anything
+ * other than 'pro' as Core-equivalent (no branding), but with this
+ * literal narrowing no new 'core' values should appear.
  */
-export type Plan = 'core' | 'pro';
+export type Plan = 'pro';
 
 /**
  * Stripe-aligned subscription lifecycle states. 'inactive' covers the
@@ -377,25 +386,30 @@ export interface Settings {
   tireRepairTargetProfit?: number;
   tireReplacementTargetProfit?: number;
   /**
-   * Subscription tier for this business. Drives feature gating in
-   * MembershipContext (team management, advanced reports). Defaults to
-   * 'core' at runtime when unset on the Firestore document.
+   * Subscription tier for this business. Single value ('pro') with
+   * the platform's one-plan model. Drives feature gating in
+   * MembershipContext and `isProEntitled` checks. New accounts are
+   * stamped 'pro' on signup; legacy 'core' docs are treated as
+   * pre-migration and surfaced for cleanup at the call site.
    */
   plan?: Plan;
   /**
-   * Stripe-aligned subscription state. 'trialing' during free trial,
-   * 'active' once paying, 'past_due' on failed renewal, 'canceled'
-   * after explicit cancel, 'inactive' for pre-Stripe accounts.
+   * Stripe-aligned subscription state. 'trialing' during the
+   * 14-day free trial, 'active' once paying, 'past_due' on failed
+   * renewal, 'canceled' after explicit cancel, 'inactive' for
+   * pre-Stripe accounts.
    */
   subscriptionStatus?: SubscriptionStatus;
-  /** When the free trial began. Stamped on first Pro upgrade attempt. */
+  /** When the free trial began. Stamped on signup (Onboarding finish). */
   trialStartedAt?: Timestamp | Date | string;
   /** When the free trial ends. Cloud Function reads this to flip
    *  subscriptionStatus → past_due / canceled if no payment by then. */
   trialEndsAt?: Timestamp | Date | string;
   /**
-   * Plan-determined member cap. Set by Cloud Function on plan change.
-   * UI uses this to disable invite-new-member when at capacity.
+   * Plan-determined member cap. Pro accounts default to 5 seats on
+   * signup. Cloud Function may raise this for enterprise customers
+   * in the future. UI uses this to disable invite-new-member when
+   * at capacity.
    */
   maxUsers?: number;
   /**
@@ -451,6 +465,9 @@ export interface Settings {
    *   - `analyticsDashboard` — unlock the analytics tab
    *   - `multiUserBeta`      — early access to team management
    *   - `aiQuoting`          — AI-assisted price suggestions
+   *   - `teamAccess`         — team management UI unlocked
+   *   - `technicianRoles`    — role-based access on technician accounts
+   *   - `advancedReports`    — advanced analytics dashboard
    */
   featureFlags?: Record<string, boolean>;
 }

@@ -16,6 +16,19 @@ interface Props {
 }
 
 /**
+ * Hard cap on logo upload time. Firebase Storage retries internally,
+ * but if the network never settles we still want to release the
+ * spinner so the user isn't stuck. 30s is generous for a sub-MB image.
+ */
+const LOGO_UPLOAD_TIMEOUT_MS = 30_000;
+
+/**
+ * 14-day free trial — matches the value used in Onboarding. Surfaced
+ * in the Subscription card so the user can see how many days remain.
+ */
+const TRIAL_DAYS = 14;
+
+/**
  * Settings — refactored for mobile-first one-handed use.
  *
  * Structure:
@@ -29,6 +42,10 @@ interface Props {
  *
  * Section order matches the spec: Brand → Business → Pricing →
  * Vehicle Add-ons → Team → Subscription → Account.
+ *
+ * Plan model: single Pro plan ($99/mo, 14-day trial). The
+ * Subscription section renders the new PlanCard layout; Team
+ * management is no longer plan-gated because every account is Pro.
  */
 export function Settings({ settings, onSave }: Props) {
   const permissions = usePermissions();
@@ -78,7 +95,6 @@ export function Settings({ settings, onSave }: Props) {
       )}
 
       <TeamAccordion
-        settings={settings}
         open={openSection === 'team'}
         onToggle={() => setOpenSection(openSection === 'team' ? null : 'team')}
       />
@@ -135,19 +151,40 @@ function BrandForm() {
 
   const set = <K extends keyof Brand>(k: K, v: Brand[K]) => setDraft((d) => ({ ...d, [k]: v }));
 
+  /**
+   * Logo upload with a hard timeout so the spinner can never get stuck.
+   * Promise.race against a setTimeout rejection — whichever settles
+   * first wins. The `finally` block guarantees state cleanup on every
+   * branch (success / error / timeout). Toast feedback on each outcome.
+   */
   const handleLogo = async (file: File) => {
     if (!businessId) { addToast('Sign in required', 'warn'); return; }
+    if (logoUploading) return;
     setLogoUploading(true);
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     try {
-      const url = await uploadLogo(businessId, file);
+      const url = await Promise.race<string>([
+        uploadLogo(businessId, file),
+        new Promise<string>((_, reject) => {
+          timeoutId = setTimeout(
+            () => reject(new Error('Logo upload timed out — please try again')),
+            LOGO_UPLOAD_TIMEOUT_MS,
+          );
+        }),
+      ]);
       if (url) {
         set('logoUrl', url);
         await updateBrand({ logoUrl: url });
         addToast('Logo updated', 'success');
+      } else {
+        addToast('Upload returned no URL', 'error');
       }
     } catch (e) {
       addToast((e as Error).message || 'Upload failed', 'error');
-    } finally { setLogoUploading(false); }
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+      setLogoUploading(false);
+    }
   };
 
   const save = async () => {
@@ -172,6 +209,12 @@ function BrandForm() {
             {logoUploading ? 'Uploading…' : 'Upload logo'}
           </button>
         </div>
+        {!draft.logoUrl && !logoUploading && (
+          <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 6 }}>
+            Logo appears on invoices and customer-facing receipts. PNG or
+            JPG, square preferred.
+          </div>
+        )}
       </div>
       <div className="field">
         <label>Business name</label>
@@ -585,56 +628,99 @@ function VehicleAddonsForm({ settings, onSave }: Props) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-//  Team accordion (placeholder — full impl deferred)
+//  Team accordion
+//
+//  No longer plan-gated. Every account is on Pro, so the lock screen
+//  has been replaced with the "coming soon" placeholder (matches the
+//  pattern other in-progress features use elsewhere in the app).
 // ─────────────────────────────────────────────────────────────────────
 
-function TeamAccordion({ settings, open, onToggle }: { settings: SettingsT; open: boolean; onToggle: () => void }) {
-  const isPro = settings.plan === 'pro';
-  const summary = isPro ? 'Coming soon · Pro feature' : 'Pro plan required';
-
+function TeamAccordion({ open, onToggle }: { open: boolean; onToggle: () => void }) {
   return (
-    <AccordionShell title="Team Management" icon="🧑‍🔧" summary={summary} open={open} onToggle={onToggle} badge={isPro ? undefined : 'Pro'}>
-      {isPro ? (
-        <div style={{
-          padding: 14, background: 'var(--s2)', border: '1px dashed var(--border2)',
-          borderRadius: 10, textAlign: 'center',
-        }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--t1)', marginBottom: 4 }}>
-            Team management coming soon
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--t3)', lineHeight: 1.5 }}>
-            Invite admins and technicians, manage roles, and control what your team can see.
-          </div>
+    <AccordionShell title="Team Management" icon="🧑‍🔧" summary="Coming soon" open={open} onToggle={onToggle}>
+      <div style={{
+        padding: 14, background: 'var(--s2)', border: '1px dashed var(--border2)',
+        borderRadius: 10, textAlign: 'center',
+      }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--t1)', marginBottom: 4 }}>
+          Team management coming soon
         </div>
-      ) : (
-        <div style={{
-          padding: 16, background: 'linear-gradient(160deg, rgba(200,164,74,.04) 0%, var(--s1) 100%)',
-          border: '1px solid var(--border)', borderRadius: 10,
-          display: 'flex', alignItems: 'center', gap: 14,
-        }}>
-          <div style={{ fontSize: 24, flexShrink: 0 }}>🔒</div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--t1)', marginBottom: 4 }}>
-              Team access is available on Pro
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--t3)', lineHeight: 1.5 }}>
-              Add admins and technicians, restrict pricing changes, and track who logged each job.
-            </div>
-          </div>
+        <div style={{ fontSize: 11, color: 'var(--t3)', lineHeight: 1.5 }}>
+          Invite admins and technicians, manage roles, and control what your team can see.
+          Multi-user is included in your Pro plan.
         </div>
-      )}
+      </div>
     </AccordionShell>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────
-//  Subscription accordion (was PlanSection)
+//  Subscription accordion — single Pro plan card
+//
+//  Replaces the old Core-vs-Pro comparison UI. Mobile Service OS now
+//  offers one plan ($99/mo Pro with a 14-day free trial). Shows:
+//    - Plan name + price
+//    - Trial countdown pill when subscriptionStatus === 'trialing'
+//    - "Billing integration coming soon" notice
+//    - The full feature checklist (Pro includes everything)
+//
+//  No upgrade button, no plan toggle, no Core comparison.
 // ─────────────────────────────────────────────────────────────────────
 
+const PRO_FEATURES: ReadonlyArray<string> = [
+  'Quick Quote',
+  'Job Logging',
+  'Customer Management',
+  'Branded Invoices',
+  'Review Requests',
+  'Expense Tracking',
+  'Tire Inventory',
+  'Profit Dashboard',
+  'Pending Payment Tracking',
+  'Technician Accounts',
+  'Role Permissions',
+  'Technician Attribution',
+  'Team Inventory Workflow',
+  'Advanced Analytics',
+  'Owner / Admin Visibility',
+  'Multi-user Operations',
+  'PWA Install',
+];
+
+/**
+ * Compute remaining trial days. Returns null when not trialing or
+ * when the trialEndsAt field is missing/unparseable. Handles ISO
+ * string, JS Date, and Firestore Timestamp shapes — see Settings
+ * type for why all three are valid at rest.
+ */
+function trialDaysLeft(settings: SettingsT): number | null {
+  if (settings.subscriptionStatus !== 'trialing') return null;
+  const raw = settings.trialEndsAt;
+  if (!raw) return null;
+  let endMs: number;
+  try {
+    if (typeof raw === 'string') endMs = new Date(raw).getTime();
+    else if (raw instanceof Date) endMs = raw.getTime();
+    else if (raw && typeof (raw as { toMillis?: () => number }).toMillis === 'function') {
+      endMs = (raw as { toMillis: () => number }).toMillis();
+    } else {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+  if (Number.isNaN(endMs)) return null;
+  const diffMs = endMs - Date.now();
+  if (diffMs <= 0) return 0;
+  return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+}
+
 function SubscriptionAccordion({ settings, open, onToggle }: { settings: SettingsT; open: boolean; onToggle: () => void }) {
-  const isPro = settings.plan === 'pro';
-  const status = isPro ? 'Active' : 'Solo';
-  const summary = `${isPro ? 'Pro Plan' : 'Core Plan'} · ${status}`;
+  const daysLeft = trialDaysLeft(settings);
+  const isTrialing = settings.subscriptionStatus === 'trialing';
+  const summary = isTrialing && daysLeft !== null
+    ? `Pro · Trial · ${daysLeft} ${daysLeft === 1 ? 'day' : 'days'} left`
+    : 'Pro Plan · $99/month';
 
   return (
     <AccordionShell
@@ -643,47 +729,99 @@ function SubscriptionAccordion({ settings, open, onToggle }: { settings: Setting
       summary={summary}
       open={open}
       onToggle={onToggle}
-      badge={isPro ? 'Pro' : undefined}
+      badge="Pro"
     >
       <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        gap: 12, padding: 12, background: 'var(--s2)',
-        border: '1px solid var(--border)', borderRadius: 10,
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+        gap: 12,
+        marginBottom: 14,
       }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--t1)' }}>
-              {isPro ? 'Pro Plan' : 'Core Plan'}
-            </span>
-            <span style={{
-              fontSize: 9, fontWeight: 800, color: isPro ? 'var(--brand-primary)' : 'var(--t3)',
-              textTransform: 'uppercase', letterSpacing: '1px',
-              padding: '2px 7px', borderRadius: 99,
-              background: isPro ? 'rgba(200,164,74,.1)' : 'var(--s3)',
-              border: `1px solid ${isPro ? 'rgba(200,164,74,.3)' : 'var(--border)'}`,
-            }}>
-              {status}
-            </span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{
+            fontSize: 22,
+            fontWeight: 800,
+            color: 'var(--t1)',
+            letterSpacing: '-.3px',
+            lineHeight: 1.1,
+          }}>
+            Pro Plan
           </div>
-          <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 4, lineHeight: 1.5 }}>
-            {isPro
-              ? 'Multi-user team access · advanced reporting · priority support'
-              : 'Solo operator · 1 user · all core features included'}
+          <div style={{
+            fontSize: 13,
+            color: 'var(--t2)',
+            marginTop: 6,
+          }}>
+            <span style={{ fontWeight: 800, color: 'var(--brand-primary)' }}>$99</span>
+            <span> / month · {TRIAL_DAYS}-day free trial</span>
           </div>
         </div>
-        {!isPro && (
-          <button
-            className="btn sm secondary"
-            disabled
-            title="Stripe checkout coming soon"
-            style={{ flexShrink: 0, opacity: 0.6 }}
+
+        {isTrialing && daysLeft !== null && (
+          <div
+            title="Free trial in progress"
+            style={{
+              fontSize: 9, fontWeight: 800,
+              color: 'var(--brand-primary)',
+              textTransform: 'uppercase', letterSpacing: '1px',
+              padding: '4px 9px', borderRadius: 99,
+              background: 'rgba(200,164,74,.1)',
+              border: '1px solid rgba(200,164,74,.3)',
+              flexShrink: 0,
+              whiteSpace: 'nowrap',
+            }}
           >
-            Upgrade
-          </button>
+            Trial · {daysLeft}d left
+          </div>
         )}
       </div>
-      <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 8 }}>
-        Subscription billing is not yet wired. Future paywall will use Stripe.
+
+      <div style={{
+        background: 'var(--s2)',
+        border: '1px solid var(--border)',
+        borderRadius: 10,
+        padding: '10px 12px',
+        fontSize: 12,
+        color: 'var(--t2)',
+        marginBottom: 14,
+        lineHeight: 1.5,
+      }}>
+        Billing integration coming soon. Your trial is active and full
+        Pro features are unlocked. No card required during trial.
+      </div>
+
+      <div style={{
+        fontSize: 11,
+        color: 'var(--t3)',
+        fontWeight: 800,
+        textTransform: 'uppercase',
+        letterSpacing: 1,
+        marginBottom: 10,
+      }}>
+        What's included
+      </div>
+
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr',
+        gap: '6px 14px',
+      }}>
+        {PRO_FEATURES.map((feat) => (
+          <div key={feat} style={{
+            fontSize: 12,
+            color: 'var(--t1)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            minWidth: 0,
+          }}>
+            <span style={{ color: 'var(--brand-primary)', fontWeight: 800, flexShrink: 0 }}>✓</span>
+            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {feat}
+            </span>
+          </div>
+        ))}
       </div>
     </AccordionShell>
   );
