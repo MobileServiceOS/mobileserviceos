@@ -42,7 +42,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           # Cache only when a lockfile exists; setup-node@v4 fails the step
           # otherwise. The shell expression resolves to 'npm' or '' at runtime.
           cache: ${{ hashFiles('package-lock.json', 'npm-shrinkwrap.json') != '' && 'npm' || '' }}
@@ -83,8 +83,8 @@ jobs:
       # Stamp the service worker with this commit's short SHA + UTC timestamp
       # so each deploy produces a unique VERSION string. Without this, the
       # browser sees the same SW bytes across deploys and never installs a
-      # new one — users keep getting the old build until manual hard-refresh.
-      # We modify dist/sw.js (build output), not public/sw.js (source).
+      # new one — users stuck on stale builds. Modifies dist/sw.js (build
+      # output), not public/sw.js (source).
       - name: Stamp service worker version
         run: |
           set -e
@@ -102,7 +102,6 @@ jobs:
 
           if ! grep -q "const VERSION = '${NEW_VERSION}';" dist/sw.js; then
             echo "::error::SW version stamp did not apply. Expected 'const VERSION = ...' line not found in dist/sw.js."
-            echo "Current VERSION line(s):"
             grep "VERSION" dist/sw.js | head -5
             exit 1
           fi
