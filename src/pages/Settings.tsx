@@ -412,7 +412,13 @@ function BusinessForm({ settings, onSave, showOwners }: Props & { showOwners: bo
           </select>
         </div>
         <div className="field">
-          {/* spacer so the dropdown lines up cleanly in the field-row */}
+          <label>Technician weekly jobs goal</label>
+          <NumberField
+            value={draft.technicianWeeklyJobsGoal ?? 5}
+            onChange={(n) => set('technicianWeeklyJobsGoal', n)}
+            decimals={false}
+            placeholder="5"
+          />
         </div>
       </div>
       <div className="field-row">
@@ -1359,4 +1365,3 @@ function AccordionShell({ title, icon, summary, badge, open, onToggle, logoUrl, 
     </div>
   );
 }
-
