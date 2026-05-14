@@ -20,6 +20,7 @@ import { ToastHost } from '@/components/ToastHost';
 import { InstallBanner } from '@/components/InstallBanner';
 import { MoreSheet } from '@/components/MoreSheet';
 import { EmailVerificationBanner } from '@/components/EmailVerificationBanner';
+import { TrialCountdownBanner } from '@/components/TrialCountdownBanner';
 import { JobSuccessPanel } from '@/components/JobSuccessPanel';
 import { JobDetailModal } from '@/components/JobDetailModal';
 import { Onboarding } from '@/components/Onboarding';
@@ -731,7 +732,7 @@ function AuthenticatedApp({ user }: { user: User }) {
     );
     if (tab === 'customers') return <Customers jobs={jobs} settings={settings} />;
     if (tab === 'payouts') return <Payouts jobs={jobs} settings={settings} />;
-    if (tab === 'expenses') return <Expenses expenses={settings.expenses || []} onSave={persistExpenses} />;
+    if (tab === 'expenses') return <Expenses expenses={settings.expenses || []} jobs={jobs} settings={settings} onSave={persistExpenses} />;
     if (tab === 'inventory') return <Inventory inventory={inventory} onSave={persistInventory} />;
     if (tab === 'settings') return <Settings settings={settings} onSave={persistSettings} />;
     if (tab === 'help') return <Help onBack={() => setTab('dashboard')} />;
@@ -778,6 +779,15 @@ function AuthenticatedApp({ user }: { user: User }) {
     <MembershipProvider settings={settings}>
       <Header syncStatus={syncStatus} onSignOut={onSignOut} />
       <EmailVerificationBanner />
+      <TrialCountdownBanner
+        settings={settings}
+        onSubscribe={() => {
+          // Route to Settings tab. The SubscriptionAccordion auto-expands
+          // when this session flag is set on its mount effect.
+          try { sessionStorage.setItem('msos_open_subscription', '1'); } catch { /* */ }
+          setTab('settings');
+        }}
+      />
       <main className="main-content">{tabContent}</main>
       <nav className="bottom-nav">
         <button className={'nav-btn' + (tab === 'dashboard' ? ' active' : '')} onClick={() => setTab('dashboard')}>
