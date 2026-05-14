@@ -7,6 +7,8 @@ import {
 } from '@/lib/utils';
 import { DEFAULT_SERVICE_PRICING, DEFAULT_VEHICLE_PRICING, TODAY } from '@/lib/defaults';
 import { useCountUp } from '@/lib/useCountUp';
+import { useMembership } from '@/context/MembershipContext';
+import { _auth } from '@/lib/firebase';
 
 interface Props {
   jobs: Job[];
@@ -16,13 +18,6 @@ interface Props {
   onStartJob: (form: QuoteForm) => void;
   onViewJob: (j: Job) => void;
   onGenerateInvoice: (j: Job) => void;
-  /**
-   * "Smart send" — the parent handler will auto-generate the invoice if
-   * `j.invoiceGenerated` is false, then open the SMS share sheet. Dashboard
-   * surfaces this as the single 📩 Send button on recent-job cards so the
-   * tech doesn't need to think about generate-vs-send as separate steps.
-   */
-  onSendInvoice: (j: Job) => void;
   onSendReview: (j: Job) => void;
   onMarkPaid: (j: Job) => void;
   onEditJob: (j: Job) => void;
@@ -30,7 +25,7 @@ interface Props {
 
 export function Dashboard({
   jobs, settings, inventory, setTab,
-  onStartJob, onViewJob, onSendInvoice, onSendReview, onMarkPaid, onEditJob,
+  onStartJob, onViewJob, onGenerateInvoice, onSendReview, onMarkPaid, onEditJob,
 }: Props) {
   const enabledServices = useMemo(() => {
     const sp = settings.servicePricing || DEFAULT_SERVICE_PRICING;
@@ -51,20 +46,50 @@ export function Dashboard({
     }
   }, [enabledServices, qqForm.service]);
 
-  // Quick Quote price selection. Three modes:
-  //   - 'suggested': use the engine's computed Suggested price
-  //   - 'premium':   use the engine's computed Premium price (~25% higher)
-  //   - 'custom':    use the user-typed customPrice (manual override for
-  //                  unusual quotes where neither preset fits)
-  const [qqMode, setQqMode] = useState<'suggested' | 'premium' | 'custom'>('suggested');
-  const [customPrice, setCustomPrice] = useState<number | string>('');
+  const [qqMode, setQqMode] = useState<'suggested' | 'premium'>('suggested');
   const qqChange = <K extends keyof QuoteForm>(k: K, v: QuoteForm[K]) => setQqForm((p) => ({ ...p, [k]: v }));
 
   const safeJobs = Array.isArray(jobs) ? jobs : [];
   const today = TODAY();
-  const thisWeek = getWeekStart(today);
-  const completedJobs = useMemo(() => safeJobs.filter((j) => j.status === 'Completed'), [safeJobs]);
-  const weekJobs = useMemo(() => completedJobs.filter((j) => getWeekStart(j.date) === thisWeek), [completedJobs, thisWeek]);
+
+  // ─── Role-aware job filter ──────────────────────────────────────
+  // Technicians see ONLY the jobs they created (createdByUid === their
+  // uid). Owners and admins see everything. The filter applies to
+  // EVERY downstream calculation on this page — weekly profit,
+  // pending payments, recent jobs, lead sources — so a technician's
+  // dashboard reflects only their own work and earnings.
+  //
+  // Resolution:
+  //   - useMembership() gives us the resolved role from MembershipContext
+  //   - role === 'technician' → filter to own jobs
+  //   - any other role (owner / admin / null while loading) → see all
+  //
+  // Loading state: while membership hasn't resolved yet, we DON'T
+  // filter (default to all). The owner-fallback in MembershipContext
+  // covers the convention-owner case quickly enough that this rarely
+  // shows stale-all data to a technician — and if it briefly does,
+  // it self-corrects when the member doc loads.
+  const membership = useMembership();
+  const myUid = _auth?.currentUser?.uid ?? null;
+  const isTechnician = membership.role === 'technician';
+
+  const visibleJobs = useMemo(() => {
+    if (!isTechnician || !myUid) return safeJobs;
+    return safeJobs.filter((j) => j.createdByUid === myUid);
+  }, [safeJobs, isTechnician, myUid]);
+
+  // Week-start day is per-business — read from settings, default to
+  // Monday (1) if unset.
+  const weekStartDay = typeof settings.workWeekStartDay === 'number'
+    ? settings.workWeekStartDay
+    : 1;
+  const thisWeek = getWeekStart(today, weekStartDay);
+
+  const completedJobs = useMemo(() => visibleJobs.filter((j) => j.status === 'Completed'), [visibleJobs]);
+  const weekJobs = useMemo(
+    () => completedJobs.filter((j) => getWeekStart(j.date, weekStartDay) === thisWeek),
+    [completedJobs, thisWeek, weekStartDay],
+  );
   const todayJobs = useMemo(() => completedJobs.filter((j) => j.date === today), [completedJobs, today]);
   const totals = useMemo(() => weekSummary(weekJobs, settings), [weekJobs, settings]);
   const avgProfit = weekJobs.length ? r2(totals.grossProfit / weekJobs.length) : 0;
@@ -73,17 +98,17 @@ export function Dashboard({
 
   const sources = useMemo(() => {
     const m: Record<string, number> = {};
-    safeJobs.forEach((j) => { const s = j.source || 'Other'; m[s] = (m[s] || 0) + 1; });
+    visibleJobs.forEach((j) => { const s = j.source || 'Other'; m[s] = (m[s] || 0) + 1; });
     return Object.entries(m).sort((a, b) => b[1] - a[1]);
-  }, [safeJobs]);
+  }, [visibleJobs]);
   const maxSrc = sources.length ? sources[0][1] : 1;
 
   const pendingPaymentJobs = useMemo(
-    () => safeJobs.filter((j) => resolvePaymentStatus(j) === 'Pending Payment'),
-    [safeJobs]
+    () => visibleJobs.filter((j) => resolvePaymentStatus(j) === 'Pending Payment'),
+    [visibleJobs]
   );
   const pendingPaymentTotal = pendingPaymentJobs.reduce((s, j) => s + Number(j.revenue || 0), 0);
-  const pendingJobs = useMemo(() => safeJobs.filter((j) => j.status === 'Pending'), [safeJobs]);
+  const pendingJobs = useMemo(() => visibleJobs.filter((j) => j.status === 'Pending'), [visibleJobs]);
   const pendingTotal = pendingJobs.reduce((s, j) => s + Number(j.revenue || 0), 0);
 
   const recentCompleted = useMemo(() =>
@@ -97,7 +122,7 @@ export function Dashboard({
     const inv = Array.isArray(inventory) ? inventory : [];
     const top5Tires = (() => {
       const c: Record<string, number> = {};
-      safeJobs.forEach((j) => { if (j.tireSize) c[j.tireSize] = (c[j.tireSize] || 0) + Number(j.qty || 1); });
+      visibleJobs.forEach((j) => { if (j.tireSize) c[j.tireSize] = (c[j.tireSize] || 0) + Number(j.qty || 1); });
       return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 5)
         .map(([size, sold]) => ({ size, sold }));
     })();
@@ -110,21 +135,13 @@ export function Dashboard({
       if ((byN[n] || 0) <= 1) alerts.push({ size: t.size, onHand: byN[n] || 0, soldCount: t.sold });
     });
     return alerts.slice(0, 3);
-  }, [safeJobs, inventory]);
+  }, [visibleJobs, inventory]);
 
   const quote = useMemo(() => calcQuote(qqForm, settings), [qqForm, settings]);
   const heroValue = useCountUp(totals.grossProfit);
 
-  // Resolve the actual dollar amount we'll start the job with. Pulls from
-  // the right source depending on which preset/custom card is active.
-  const resolvedRevenue = (() => {
-    if (qqMode === 'premium') return quote.premium;
-    if (qqMode === 'custom') return Number(customPrice || 0);
-    return quote.suggested;
-  })();
-
   const handleStartJob = () => {
-    onStartJob({ ...qqForm, revenue: resolvedRevenue });
+    onStartJob({ ...qqForm, revenue: qqMode === 'suggested' ? quote.suggested : quote.premium });
   };
 
   return (
@@ -140,24 +157,42 @@ export function Dashboard({
       )}
 
       <div className="pro-hero card-anim">
-        <div className="pro-hero-label">This Week's Profit</div>
+        <div className="pro-hero-label">
+          {isTechnician ? "My Week's Earnings" : "This Week's Profit"}
+        </div>
         <div className="hero-amount">
           <span className="currency">$</span>{Math.floor(heroValue).toLocaleString()}
         </div>
-        <div className="goal-track">
-          <div className={'goal-fill ' + (goalPct >= 100 ? 'full' : goalPct >= 50 ? 'mid' : 'low')}
-            style={{ width: goalPct + '%' }} />
-        </div>
-        <div className="pro-hero-foot">
-          <span>{Math.round(goalPct)}% of {money(settings.weeklyGoal || 0)} goal</span>
-          <span>{jobsNeeded === '—' ? '—' : jobsNeeded + ' more needed'}</span>
-        </div>
+        {!isTechnician && (
+          <>
+            <div className="goal-track">
+              <div className={'goal-fill ' + (goalPct >= 100 ? 'full' : goalPct >= 50 ? 'mid' : 'low')}
+                style={{ width: goalPct + '%' }} />
+            </div>
+            <div className="pro-hero-foot">
+              <span>{Math.round(goalPct)}% of {money(settings.weeklyGoal || 0)} goal</span>
+              <span>{jobsNeeded === '—' ? '—' : jobsNeeded + ' more needed'}</span>
+            </div>
+          </>
+        )}
+        {isTechnician && (
+          <div className="pro-hero-foot">
+            <span>{weekJobs.length} job{weekJobs.length !== 1 ? 's' : ''} this week</span>
+            <span>Avg {money(avgProfit)} per job</span>
+          </div>
+        )}
       </div>
 
       <div className="kpi-grid card-anim">
         <div className="kpi"><div className="kpi-label">Today</div><div className="kpi-value">{todayJobs.length} job{todayJobs.length !== 1 ? 's' : ''}</div></div>
         <div className="kpi"><div className="kpi-label">Week Jobs</div><div className="kpi-value">{weekJobs.length}</div></div>
-        <div className="kpi"><div className="kpi-label">Revenue</div><div className="kpi-value">{money(totals.revenue)}</div></div>
+        {/* Revenue KPI is owner/admin only — technicians see only their
+            profit (already shown in the hero) and Avg Profit. The
+            distinction matters: revenue is company-wide; technician
+            "earnings" is profit from jobs they completed. */}
+        {!isTechnician && (
+          <div className="kpi"><div className="kpi-label">Revenue</div><div className="kpi-value">{money(totals.revenue)}</div></div>
+        )}
         <div className="kpi"><div className="kpi-label">Avg Profit</div><div className="kpi-value">{money(avgProfit)}</div></div>
       </div>
 
@@ -259,44 +294,10 @@ export function Dashboard({
             <div className="qq-price-tile-label">Premium</div>
             <div className="qq-price-tile-amount">{money(quote.premium)}</div>
           </div>
-          {/* Custom card — tapping the card itself activates custom mode
-              without changing the price; typing into the input both
-              activates custom mode AND sets the price. We catch the click
-              on the wrapper but stopPropagation inside the input area so
-              focus behaves naturally. */}
-          <div
-            className={'qq-price-tile custom' + (qqMode === 'custom' ? ' active' : '')}
-            onClick={() => setQqMode('custom')}
-            role="button"
-          >
-            <div className="qq-price-tile-label">Custom</div>
-            <div className="qq-price-tile-amount qq-custom-input-wrap" onClick={(e) => e.stopPropagation()}>
-              <span className="qq-custom-prefix">$</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                pattern="[0-9]*\.?[0-9]*"
-                value={customPrice === 0 || customPrice === '' ? '' : String(customPrice)}
-                onChange={(e) => {
-                  // Sanitize: digits + at most one dot.
-                  let v = e.target.value.replace(/[^0-9.]/g, '');
-                  const dot = v.indexOf('.');
-                  if (dot !== -1) v = v.slice(0, dot + 1) + v.slice(dot + 1).replace(/\./g, '');
-                  setCustomPrice(v);
-                  // Any input flips us into custom mode automatically.
-                  if (qqMode !== 'custom') setQqMode('custom');
-                }}
-                onFocus={() => setQqMode('custom')}
-                placeholder="0"
-                className="qq-custom-input"
-                aria-label="Custom price"
-              />
-            </div>
-          </div>
         </div>
         <div className="qq-meta">Direct cost {money(quote.directCosts)} · target profit {money(quote.targetProfit)}</div>
         <button className="cta-btn press-scale qq-cta" onClick={handleStartJob}>
-          Start Job at {money(resolvedRevenue)} →
+          Start Job at {money(qqMode === 'suggested' ? quote.suggested : quote.premium)} →
         </button>
       </div>
 
@@ -341,13 +342,8 @@ export function Dashboard({
                       <span className={'pill ' + paymentPillClass(ps)} style={{ marginTop: 4 }}>{ps}</span>
                     </div>
                   </div>
-                  {/* The "Send" action is "smart": parent's onSendInvoice
-                      auto-generates the PDF first if the job hasn't had an
-                      invoice generated yet, then opens the SMS share sheet.
-                      One tap covers both the generate-and-send case (first
-                      time) and the resend case (already generated). */}
                   <div className="job-card-actions">
-                    <button onClick={() => onSendInvoice(j)}>📩 Send</button>
+                    <button onClick={() => onGenerateInvoice(j)}>📄 Invoice</button>
                     <button onClick={() => onSendReview(j)}>⭐ Review</button>
                     <button onClick={() => onEditJob(j)}>✏️ Edit</button>
                   </div>
