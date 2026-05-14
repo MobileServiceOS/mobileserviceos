@@ -416,6 +416,48 @@ export interface Settings {
    */
   maxUsers?: number;
   /**
+   * ─── Billing Exemption (VIP / founder / lifetime accounts) ─────────
+   *
+   * When `billingExempt === true`, this account bypasses ALL Stripe
+   * checks and is treated as Pro indefinitely. The exemption layer is
+   * tenant-scoped so individual VIP accounts can be granted lifetime
+   * access without affecting Stripe billing for every other business.
+   *
+   * Resolution rules (implemented in `src/lib/planAccess.ts`):
+   *   - billingExempt === true → resolved plan is always 'pro'
+   *   - Stripe webhook events MUST NOT downgrade exempt accounts; the
+   *     `stripeSync.ts` mirror checks `billingExempt` before writing
+   *     `subscriptionStatus` / `plan` changes from Stripe.
+   *   - Firestore security rules also block client-side modification
+   *     of exemption fields (see firestore.rules — only Cloud Functions
+   *     with admin privilege may write these fields).
+   *
+   * To grant lifetime access, call:
+   *   import { setLifetimeAccess } from '@/lib/lifetimeAccess';
+   *   await setLifetimeAccess(uid, { reason: 'Founder account' });
+   *
+   * Reusable across any future VIP / founder / promotional grant —
+   * NOT hardcoded to any specific business.
+   */
+  /** Master kill-switch for Stripe billing on this account. When true,
+   *  every plan check resolves to Pro regardless of Stripe state. */
+  billingExempt?: boolean;
+  /** Categorization of the exemption type. 'lifetime' is the default
+   *  for founder accounts; 'beta', 'comp', and 'internal' reserved for
+   *  future grant types. Free-form string union to keep the schema
+   *  flexible without a code change for each new grant category. */
+  subscriptionOverride?: 'lifetime' | 'beta' | 'comp' | 'internal';
+  /** ISO timestamp of when the exemption was granted. Set by
+   *  `setLifetimeAccess()`. Never overwritten by the mirror. */
+  exemptionGrantedAt?: string;
+  /** Auth uid of the person/system that granted the exemption.
+   *  Audit trail for support tickets / billing inquiries. */
+  exemptionGrantedBy?: string;
+  /** Free-text reason for the exemption (e.g. "Founder account",
+   *  "Beta tester comp through 2027-01-01"). Surfaced in the hidden
+   *  Settings panel for owner visibility. */
+  exemptionReason?: string;
+  /**
    * Owner-set flag: whether technicians on this business are allowed to
    * manually override the system-suggested revenue on jobs they log.
    * Pricing settings themselves remain owner-only either way.
