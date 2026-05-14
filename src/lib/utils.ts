@@ -66,6 +66,45 @@ export function getWeekStart(d: string, startDay: number = 1): string {
   return dt.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
 }
 
+/**
+ * Get the end date (6 days after start) for a given week-start date.
+ * Returns ISO YYYY-MM-DD. Used to display "Week of May 5 — May 11"
+ * style ranges throughout Payouts, Expenses, and Dashboard.
+ */
+export function getWeekEnd(weekStart: string): string {
+  const dt = new Date(weekStart + 'T12:00:00');
+  dt.setDate(dt.getDate() + 6);
+  return dt.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+}
+
+/**
+ * Format a week range as "May 5 — May 11" given the week start ISO date.
+ * If start + end are in different months, both months are shown:
+ * "Apr 29 — May 5". The work-week start day is implicit in the input
+ * (caller passes a real weekStart from getWeekStart()).
+ */
+export function formatWeekRange(weekStart: string): string {
+  if (!weekStart) return '';
+  const weekEnd = getWeekEnd(weekStart);
+  const start = new Date(weekStart + 'T12:00:00');
+  const end = new Date(weekEnd + 'T12:00:00');
+  const fmt = (d: Date) => d.toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric',
+    timeZone: 'America/New_York',
+  });
+  return `${fmt(start)} — ${fmt(end)}`;
+}
+
+/**
+ * Format a YYYY-MM month key as "May 2026".
+ */
+export function formatMonth(monthKey: string): string {
+  if (!monthKey || monthKey.length < 7) return '';
+  const [y, m] = monthKey.split('-').map(Number);
+  const dt = new Date(y, (m || 1) - 1, 1);
+  return dt.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
 export function getMonth(d: string): string {
   return (d || '').slice(0, 7);
 }
