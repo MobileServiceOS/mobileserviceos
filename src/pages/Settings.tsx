@@ -66,10 +66,22 @@ export function Settings({ settings, onSave }: Props) {
   const [openSection, setOpenSection] = useState<string | null>('brand');
 
   // Role gates. Owners and admins see everything. Technicians get a
-  // stripped-down view per the spec.
+  // stripped-down view (only Account + Sign out) per the role spec.
+  //
+  // Gate strategy: HIDE the accordion entirely (don't render) rather
+  // than disable. This is true defense in depth — the field tech
+  // never sees the controls, and Firestore rules separately block
+  // the underlying writes (defense in depth #2).
   const canSeePricing = permissions.canEditPricingSettings || permissions.canViewPricingSettings;
   const canSeeFinancials = permissions.canViewFinancials;
   const canSeeBilling = permissions.canManageBilling;
+  // Brand + Business + Team accordions live under one umbrella permission:
+  // canEditBusinessSettings. Technicians don't have this; owners + admins
+  // do. The "showOwners" block inside BusinessAccordion remains separately
+  // gated by canSeeFinancials so admins can edit business settings
+  // without seeing owner split %.
+  const canSeeBusinessSettings = permissions.canEditBusinessSettings;
+  const canSeeTeam = permissions.canManageTeam;
 
   // Stripe → Firestore subscription mirror. While the Settings page is
   // mounted, listen to the Stripe Extension's per-user subscription
@@ -97,18 +109,22 @@ export function Settings({ settings, onSave }: Props) {
           (see src/styles/app.css). */}
       <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 14 }}>Settings</div>
 
-      <BrandAccordion
-        open={openSection === 'brand'}
-        onToggle={() => setOpenSection(openSection === 'brand' ? null : 'brand')}
-      />
+      {canSeeBusinessSettings && (
+        <BrandAccordion
+          open={openSection === 'brand'}
+          onToggle={() => setOpenSection(openSection === 'brand' ? null : 'brand')}
+        />
+      )}
 
-      <BusinessAccordion
-        settings={settings}
-        onSave={onSave}
-        open={openSection === 'business'}
-        onToggle={() => setOpenSection(openSection === 'business' ? null : 'business')}
-        showOwners={canSeeFinancials}
-      />
+      {canSeeBusinessSettings && (
+        <BusinessAccordion
+          settings={settings}
+          onSave={onSave}
+          open={openSection === 'business'}
+          onToggle={() => setOpenSection(openSection === 'business' ? null : 'business')}
+          showOwners={canSeeFinancials}
+        />
+      )}
 
       {canSeePricing && (
         <PricingAccordion
@@ -128,10 +144,12 @@ export function Settings({ settings, onSave }: Props) {
         />
       )}
 
-      <TeamAccordion
-        open={openSection === 'team'}
-        onToggle={() => setOpenSection(openSection === 'team' ? null : 'team')}
-      />
+      {canSeeTeam && (
+        <TeamAccordion
+          open={openSection === 'team'}
+          onToggle={() => setOpenSection(openSection === 'team' ? null : 'team')}
+        />
+      )}
 
       {canSeeBilling && (
         <SubscriptionAccordion
@@ -1316,3 +1334,4 @@ function AccordionShell({ title, icon, summary, badge, open, onToggle, logoUrl, 
     </div>
   );
 }
+
