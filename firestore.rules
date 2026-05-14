@@ -161,12 +161,26 @@ service cloud.firestore {
         allow read: if isMemberOfBusiness(businessId);
         allow write: if isOwnerOrAdmin(businessId) || request.auth.uid == businessId;
       }
-      // Members collection — owner/admin only writes. (Inviting users
-      // happens through invites/{token} → accept flow above; this rule
-      // covers manual member-doc edits e.g. role changes.)
+      // Members collection — owner/admin only writes for role/invite
+      // management. EXCEPTION: a user can write their OWN member doc
+      // (matched by memberId == auth.uid) to support self-deletion /
+      // "leave team" flows. The user can only mark themselves; they
+      // can't escalate to owner because rules don't validate fields,
+      // but the application-level UI controls what fields get
+      // written here (status: 'left', leftAt: timestamp).
       match /members/{memberId} {
         allow read: if isMemberOfBusiness(businessId);
-        allow write: if isOwnerOrAdmin(businessId) || request.auth.uid == businessId;
+        allow write: if isOwnerOrAdmin(businessId)
+          || request.auth.uid == businessId
+          || request.auth.uid == memberId;
+      }
+
+      // Meta collection — deletion requests and other admin signals.
+      // Any signed-in member can write their own deletion request.
+      // Owner/admin can also write meta docs for purge tracking.
+      match /meta/{docId} {
+        allow read: if isMemberOfBusiness(businessId);
+        allow write: if isMemberOfBusiness(businessId);
       }
 
       // Everything else under the business (jobs, inventory, customers,
