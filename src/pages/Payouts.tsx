@@ -10,8 +10,10 @@ interface Props {
 
 export function Payouts({ jobs, settings }: Props) {
   const completedJobs = useMemo(() => (jobs || []).filter((j) => j.status === 'Completed'), [jobs]);
-  const thisWeek = getWeekStart(TODAY());
-  const weekJobs = completedJobs.filter((j) => getWeekStart(j.date) === thisWeek);
+  // Per-business week-start day. Defaults to Monday (1) when unset.
+  const weekStartDay = typeof settings.workWeekStartDay === 'number' ? settings.workWeekStartDay : 1;
+  const thisWeek = getWeekStart(TODAY(), weekStartDay);
+  const weekJobs = completedJobs.filter((j) => getWeekStart(j.date, weekStartDay) === thisWeek);
 
   const weekProfit = weekJobs.reduce((t, j) => t + jobGrossProfit(j, settings), 0);
   const fixed = monthlyFixed(settings);
@@ -29,7 +31,7 @@ export function Payouts({ jobs, settings }: Props) {
   const weekBreakdown = useMemo(() => {
     const weeks: Record<string, { revenue: number; profit: number; count: number }> = {};
     completedJobs.forEach((j) => {
-      const w = getWeekStart(j.date);
+      const w = getWeekStart(j.date, weekStartDay);
       if (!weeks[w]) weeks[w] = { revenue: 0, profit: 0, count: 0 };
       weeks[w].revenue += Number(j.revenue || 0);
       weeks[w].profit += jobGrossProfit(j, settings);
@@ -38,7 +40,7 @@ export function Payouts({ jobs, settings }: Props) {
     return Object.entries(weeks)
       .sort((a, b) => b[0].localeCompare(a[0]))
       .slice(0, 8);
-  }, [completedJobs, settings]);
+  }, [completedJobs, settings, weekStartDay]);
 
   return (
     <div className="page page-enter">

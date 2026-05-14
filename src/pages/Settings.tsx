@@ -390,6 +390,31 @@ function BusinessForm({ settings, onSave, showOwners }: Props & { showOwners: bo
           <NumberField value={draft.taxRate} onChange={(n) => set('taxRate', n)} placeholder="0" />
         </div>
       </div>
+      {/* Work-week start day — affects Dashboard "This Week's Profit"
+          and Payouts "Week's Earnings" rollups. Default is Monday (1),
+          which matches the ISO standard. Some operators run Sat→Fri
+          or Sun→Sat — this lets each business align the rollup with
+          their actual operational week. */}
+      <div className="field-row">
+        <div className="field">
+          <label>Work week starts on</label>
+          <select
+            value={typeof draft.workWeekStartDay === 'number' ? draft.workWeekStartDay : 1}
+            onChange={(e) => set('workWeekStartDay', Number(e.target.value) as 0 | 1 | 2 | 3 | 4 | 5 | 6)}
+          >
+            <option value={0}>Sunday</option>
+            <option value={1}>Monday</option>
+            <option value={2}>Tuesday</option>
+            <option value={3}>Wednesday</option>
+            <option value={4}>Thursday</option>
+            <option value={5}>Friday</option>
+            <option value={6}>Saturday</option>
+          </select>
+        </div>
+        <div className="field">
+          {/* spacer so the dropdown lines up cleanly in the field-row */}
+        </div>
+      </div>
       <div className="field-row">
         <div className="field">
           <label>Cost per mile ($)</label>
