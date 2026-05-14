@@ -472,6 +472,17 @@ export interface Settings {
    * Editable in Settings → Business (owner/admin only).
    */
   workWeekStartDay?: 0 | 1 | 2 | 3 | 4 | 5 | 6;
+  /**
+   * Weekly completed-jobs goal for individual technicians. Drives
+   * the per-technician progress ring on the Dashboard. Defaults to
+   * 5 when undefined — a reasonable starting target. Owners can
+   * raise/lower this in Settings → Business.
+   *
+   * Distinct from `weeklyGoal` (which is the company-wide DOLLAR
+   * goal). This is jobs, not money — keeps the technician dashboard
+   * non-financial when role permissions don't allow $$ visibility.
+   */
+  technicianWeeklyJobsGoal?: number;
   taxRate: number;
   costPerMile: number;
   defaultTargetProfit: number;
