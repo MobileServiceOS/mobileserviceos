@@ -35,6 +35,7 @@ export const DEFAULT_SERVICE_PRICING: Record<string, ServicePricing> = {
   'Tire Installation':        { enabled: true,  basePrice: 120, minProfit: 110 },
   'Mounting & Balancing':     { enabled: true,  basePrice: 100, minProfit: 80 },
   'Spare Tire Installation':  { enabled: true,  basePrice: 95,  minProfit: 70 },
+  'Spare Change':             { enabled: true,  basePrice: 85,  minProfit: 65 },
   'Tire Rotation':            { enabled: true,  basePrice: 80,  minProfit: 60 },
   'Wheel Lock Removal':       { enabled: true,  basePrice: 85,  minProfit: 65 },
   'Roadside Tire Assistance': { enabled: true,  basePrice: 100, minProfit: 70 },
@@ -73,15 +74,6 @@ export const DEFAULT_SETTINGS: Settings = {
   freeMilesIncluded: 5,
   tireRepairTargetProfit: 90,
   tireReplacementTargetProfit: 110,
-  plan: 'core',
-  subscriptionStatus: 'trialing',
-  maxUsers: 1,
-  allowTechnicianPriceOverride: false,
-  featureFlags: {
-    teamAccess: false,
-    technicianRoles: false,
-    advancedReports: false,
-  },
 };
 
 export const SERVICE_PHRASES: Record<string, string> = {
@@ -90,6 +82,7 @@ export const SERVICE_PHRASES: Record<string, string> = {
   'Tire Installation': 'tire installation',
   'Mounting & Balancing': 'mounting and balancing',
   'Spare Tire Installation': 'spare tire installation',
+  'Spare Change': 'spare change',
   'Tire Rotation': 'tire rotation',
   'Wheel Lock Removal': 'wheel lock removal',
   'Roadside Tire Assistance': 'roadside tire assistance',
@@ -104,6 +97,7 @@ export const SERVICE_ICONS: Record<string, string> = {
   'Tire Installation': '🛞',
   'Mounting & Balancing': '⚙️',
   'Spare Tire Installation': '🛞',
+  'Spare Change': '🔁',
   'Tire Rotation': '🔄',
   'Wheel Lock Removal': '🔓',
   'Roadside Tire Assistance': '🚨',

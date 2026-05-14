@@ -1,5 +1,5 @@
-import type { Job, InventoryItem, Expense, InventoryDeduction, Settings, JobStatus, PaymentStatus, TireSource } from '@/types';
-import { EMPTY_JOB } from '@/lib/defaults';
+import type { Job, InventoryItem, Expense, InventoryDeduction, Settings, ServicePricing, JobStatus, PaymentStatus, TireSource } from '@/types';
+import { EMPTY_JOB, DEFAULT_SERVICE_PRICING } from '@/lib/defaults';
 
 type RawDoc = Record<string, unknown> & { id: string };
 
@@ -133,8 +133,7 @@ export function deserializeOperationalSettings(raw: RawDoc): Partial<Settings> {
   for (const k of Object.keys(raw)) {
     if (k === 'id') continue;
     const v = raw[k];
-    // Nested object fields are JSON-stringified by fbSet — parse them back here.
-    if (k === 'servicePricing' || k === 'vehiclePricing' || k === 'multiTirePricing') {
+    if (k === 'servicePricing' || k === 'vehiclePricing') {
       if (typeof v === 'string') {
         const parsed = tryParseJSON<Record<string, unknown>>(v);
         if (parsed && typeof parsed === 'object') {
@@ -151,3 +150,41 @@ export function deserializeOperationalSettings(raw: RawDoc): Partial<Settings> {
   }
   return out as Partial<Settings>;
 }
+
+/**
+ * Merge any newly-added default services into the user's stored
+ * servicePricing map. Returns `{ map, added }` where `added` is the
+ * list of service names that were missing and got default-seeded.
+ *
+ * Used on settings load so existing accounts pick up new services
+ * (e.g. "Spare Change" added in 2026-05) without losing any of their
+ * own price customizations on existing services. The user's stored
+ * entries always win — we only ADD missing keys, never overwrite.
+ *
+ * The caller is expected to persist the merged map back to Firestore
+ * when `added.length > 0`, so the backfill is sticky (no repeated
+ * merge on every load). If persistence fails, the next load just
+ * re-merges harmlessly.
+ *
+ * Returns the original reference (no copy) if nothing was added, so
+ * callers can compare `result.map === input` as a no-change check.
+ */
+export function mergeMissingDefaultServices(
+  current: Record<string, ServicePricing> | undefined | null,
+): { map: Record<string, ServicePricing>; added: string[] } {
+  const userMap = current && typeof current === 'object' ? current : {};
+  const added: string[] = [];
+  let merged: Record<string, ServicePricing> | null = null;
+
+  for (const key of Object.keys(DEFAULT_SERVICE_PRICING)) {
+    if (!(key in userMap)) {
+      if (!merged) merged = { ...userMap };
+      merged[key] = { ...DEFAULT_SERVICE_PRICING[key] };
+      added.push(key);
+    }
+  }
+
+  if (!merged) return { map: userMap as Record<string, ServicePricing>, added: [] };
+  return { map: merged, added };
+}
+

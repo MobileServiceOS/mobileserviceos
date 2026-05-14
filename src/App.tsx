@@ -2,8 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
 import { _auth, _db, scopedCol, fbDelete, fbListen, fbSet, initError } from '@/lib/firebase';
 import { BrandProvider, useBrand } from '@/context/BrandContext';
-import { MembershipProvider, usePermissions } from '@/context/MembershipContext';
-import { useMembersDirectory } from '@/lib/useMembersDirectory';
 import { AuthScreen } from '@/pages/AuthScreen';
 import { Dashboard } from '@/pages/Dashboard';
 import { AddJob } from '@/pages/AddJob';
@@ -16,7 +14,6 @@ import { Settings } from '@/pages/Settings';
 import { Header } from '@/components/Header';
 import { ToastHost } from '@/components/ToastHost';
 import { InstallBanner } from '@/components/InstallBanner';
-import { UpdateBanner } from '@/components/UpdateBanner';
 import { JobSuccessPanel } from '@/components/JobSuccessPanel';
 import { JobDetailModal } from '@/components/JobDetailModal';
 import { Onboarding } from '@/components/Onboarding';
@@ -30,6 +27,7 @@ import {
   deserializeInventoryItem,
   deserializeJob,
   deserializeOperationalSettings,
+  mergeMissingDefaultServices,
 } from '@/lib/deserializers';
 import type {
   Brand, Expense, InventoryItem, Job, QuoteForm, Settings as SettingsT, SyncStatus, TabId,
@@ -120,9 +118,6 @@ export function App() {
 
 function AuthenticatedApp({ user }: { user: User }) {
   const { brand, businessId, loading: brandLoading, onboardingComplete, updateBrand } = useBrand();
-  // Resolve a tech's name from createdByUid → display name for invoices.
-  // The hook self-fetches members on first call and caches.
-  const { resolveName: resolveMemberName } = useMembersDirectory(businessId);
   const [tab, setTab] = useState<TabId>('dashboard');
   const [jobs, setJobs] = useState<Job[]>([]);
   const [inventory, setInventoryRaw] = useState<InventoryItem[]>([]);
@@ -174,6 +169,29 @@ function AuthenticatedApp({ user }: { user: User }) {
       const main = docs.find((d) => d.id === 'main');
       if (main) {
         const parsed = deserializeOperationalSettings(main);
+
+        // Backfill: merge any newly-shipped default services into the
+        // user's existing servicePricing map. Lets new services (e.g.
+        // "Spare Change" added 2026-05) appear automatically without
+        // a one-off migration. The user's price customizations on
+        // existing services are NEVER touched — only missing keys
+        // are added.
+        const merge = mergeMissingDefaultServices(parsed.servicePricing);
+        if (merge.added.length > 0) {
+          parsed.servicePricing = merge.map;
+          // Persist back so this account doesn't re-merge on every
+          // load. Fire-and-forget — failure just re-runs the merge
+          // next load (idempotent).
+          // eslint-disable-next-line no-console
+          console.info('[settings] backfilling new default services', merge.added);
+          fbSet(scopedCol(businessId, 'operational_settings'), 'main', {
+            servicePricing: merge.map,
+          }).catch((e: unknown) => {
+            // eslint-disable-next-line no-console
+            console.warn('[settings] service backfill persist failed (non-fatal):', e);
+          });
+        }
+
         setSettingsRaw((p) => ({ ...p, ...parsed }));
       }
       markReady('ops');
@@ -325,9 +343,6 @@ function AuthenticatedApp({ user }: { user: User }) {
         tireCost: computedTireCost,
         inventoryDeductions: deductions,
         lastEditedAt: new Date().toISOString(),
-        createdByUid: isEditing
-          ? (j.createdByUid || _auth?.currentUser?.uid || '')
-          : (_auth?.currentUser?.uid || ''),
       };
       await fbSet(jobsCol, finalJob.id, finalJob);
       addToast(isEditing ? 'Job updated' : 'Job saved', 'success');
@@ -376,10 +391,7 @@ function AuthenticatedApp({ user }: { user: User }) {
   }, [businessId, jobs]);
 
   const handleGenerateInvoice = useCallback(async (j: Job) => {
-    // generateInvoicePDF is async — preloads logo as base64 + we now also
-    // pass the technician's display name resolved from createdByUid.
-    const technicianName = resolveMemberName(j.createdByUid) || null;
-    const result = await generateInvoicePDF(j, settings, brand, { technicianName });
+    const result = generateInvoicePDF(j, settings, brand);
     if (!result || !businessId) return;
     const jobsCol = scopedCol(businessId, 'jobs');
     const updated: Job = {
@@ -395,7 +407,7 @@ function AuthenticatedApp({ user }: { user: User }) {
       setSyncStatus('sync_failed');
       addToast(`Invoice save failed: ${humanizeFirestoreError(e)}`, 'error');
     }
-  }, [settings, brand, businessId, resolveMemberName]);
+  }, [settings, brand, businessId]);
 
   const handleSendInvoice = useCallback(async (j: Job) => {
     if (!businessId) return;
@@ -430,14 +442,9 @@ function AuthenticatedApp({ user }: { user: User }) {
   }, [businessId, brand]);
 
   const handleMarkPaid = useCallback(async (j: Job) => {
-    if (j.paymentStatus === 'Paid') return;
     if (!businessId) return;
     const jobsCol = scopedCol(businessId, 'jobs');
-    const updated: Job = {
-      ...j,
-      paymentStatus: 'Paid',
-      paidAt: new Date().toISOString(),
-    };
+    const updated: Job = { ...j, paymentStatus: 'Paid' };
     try {
       await fbSet(jobsCol, j.id, updated);
       addToast('Marked as paid', 'success');
@@ -492,7 +499,6 @@ function AuthenticatedApp({ user }: { user: User }) {
           onStartJob={handleStartJob}
           onViewJob={handleViewJob}
           onGenerateInvoice={handleGenerateInvoice}
-          onSendInvoice={handleSendInvoice}
           onSendReview={handleSendReview}
           onMarkPaid={handleMarkPaid}
           onEditJob={handleEditJob}
@@ -513,18 +519,7 @@ function AuthenticatedApp({ user }: { user: User }) {
         />
       );
     }
-    if (tab === 'history') return (
-      <History
-        jobs={jobs}
-        settings={settings}
-        onViewJob={handleViewJob}
-        onMarkPaid={handleMarkPaid}
-        onEditJob={handleEditJob}
-        onGenerateInvoice={handleGenerateInvoice}
-        onSendInvoice={handleSendInvoice}
-        onSendReview={handleSendReview}
-      />
-    );
+    if (tab === 'history') return <History jobs={jobs} settings={settings} onViewJob={handleViewJob} />;
     if (tab === 'customers') return <Customers jobs={jobs} settings={settings} />;
     if (tab === 'payouts') return <Payouts jobs={jobs} settings={settings} />;
     if (tab === 'expenses') return <Expenses expenses={settings.expenses || []} onSave={persistExpenses} />;
@@ -541,7 +536,6 @@ function AuthenticatedApp({ user }: { user: User }) {
           onEditJob={() => handleEditJob(savedJob)}
           onViewJob={() => handleViewJob(savedJob)}
           onDuplicate={() => handleDuplicate(savedJob)}
-          onMarkPaid={() => handleMarkPaid(savedJob)}
           onClose={() => { setSavedJob(null); setTab('dashboard'); }}
         />
       );
@@ -570,18 +564,31 @@ function AuthenticatedApp({ user }: { user: User }) {
   }
 
   return (
-    <MembershipProvider settings={settings}>
+    <>
       <Header syncStatus={syncStatus} onSignOut={onSignOut} />
       <main className="main-content">{tabContent}</main>
-      <AppBottomNav
-        tab={tab}
-        setTab={setTab}
-        onResetJobDraft={() => {
+      <nav className="bottom-nav">
+        <button className={'nav-btn' + (tab === 'dashboard' ? ' active' : '')} onClick={() => setTab('dashboard')}>
+          <span className="nav-ico">🏠</span><span>Home</span>
+        </button>
+        <button className={'nav-btn' + (tab === 'history' ? ' active' : '')} onClick={() => setTab('history')}>
+          <span className="nav-ico">📋</span><span>Jobs</span>
+        </button>
+        <button className={'nav-btn primary' + (tab === 'add' ? ' active' : '')} onClick={() => {
           setJobDraft(EMPTY_JOB());
           setEditingJobId(null);
           setPrefilledFromQuote(false);
-        }}
-      />
+          setTab('add');
+        }}>
+          <span className="nav-ico">＋</span><span>Log</span>
+        </button>
+        <button className={'nav-btn' + (tab === 'inventory' ? ' active' : '')} onClick={() => setTab('inventory')}>
+          <span className="nav-ico">🛞</span><span>Inv</span>
+        </button>
+        <button className={'nav-btn' + (tab === 'settings' ? ' active' : '')} onClick={() => setTab('settings')}>
+          <span className="nav-ico">⚙</span><span>More</span>
+        </button>
+      </nav>
       {detailJob && (
         <JobDetailModal
           job={detailJob}
@@ -593,56 +600,11 @@ function AuthenticatedApp({ user }: { user: User }) {
           onGenerateInvoice={() => handleGenerateInvoice(detailJob)}
           onSendInvoice={() => handleSendInvoice(detailJob)}
           onSendReview={() => handleSendReview(detailJob)}
-          onMarkPaid={() => handleMarkPaid(detailJob)}
         />
       )}
       <InstallBanner />
-      <UpdateBanner />
       <ToastHost />
-    </MembershipProvider>
-  );
-}
-
-/**
- * Bottom nav extracted so it can read permissions via usePermissions().
- * Technicians don't see Inv or More tabs.
- */
-function AppBottomNav({
-  tab, setTab, onResetJobDraft,
-}: {
-  tab: TabId;
-  setTab: (t: TabId) => void;
-  onResetJobDraft: () => void;
-}) {
-  const permissions = usePermissions();
-  const showInventory = permissions.canManageInventory || permissions.canViewFinancials;
-  const showSettings = permissions.canEditBusinessSettings;
-
-  return (
-    <nav className="bottom-nav">
-      <button className={'nav-btn' + (tab === 'dashboard' ? ' active' : '')} onClick={() => setTab('dashboard')}>
-        <span className="nav-ico">🏠</span><span>Home</span>
-      </button>
-      <button className={'nav-btn' + (tab === 'history' ? ' active' : '')} onClick={() => setTab('history')}>
-        <span className="nav-ico">📋</span><span>Jobs</span>
-      </button>
-      <button className={'nav-btn primary' + (tab === 'add' ? ' active' : '')} onClick={() => {
-        onResetJobDraft();
-        setTab('add');
-      }}>
-        <span className="nav-ico">＋</span><span>Log</span>
-      </button>
-      {showInventory && (
-        <button className={'nav-btn' + (tab === 'inventory' ? ' active' : '')} onClick={() => setTab('inventory')}>
-          <span className="nav-ico">🛞</span><span>Inv</span>
-        </button>
-      )}
-      {showSettings && (
-        <button className={'nav-btn' + (tab === 'settings' ? ' active' : '')} onClick={() => setTab('settings')}>
-          <span className="nav-ico">⚙</span><span>More</span>
-        </button>
-      )}
-    </nav>
+    </>
   );
 }
 
