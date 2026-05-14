@@ -70,8 +70,17 @@ service cloud.firestore {
         && request.resource.data.token == token
         && request.resource.data.expiresAt is string;
 
-      // READ — anyone signed-in who has the token can read.
-      allow read: if isSignedIn();
+      // READ — publicly readable. The token IS the secret (same threat
+      // model as a Google Doc "anyone with the link" share). Requiring
+      // auth to read would break the v1 onboarding flow: invitee taps
+      // link from iMessage → Safari opens fresh, NOT signed in → if
+      // read requires auth, the InviteAccept page can't show "Join
+      // Wheel Rush as a technician" until after sign-in, which is the
+      // wrong order. Acceptance still requires auth + email match
+      // (enforced in the update rule below) so this read-only access
+      // can't be used to escalate privilege — only to view the
+      // business name, role, and inviter to decide whether to accept.
+      allow read: if true;
 
       // UPDATE — three permitted transitions, each with its own rule.
       //
@@ -115,12 +124,88 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // All business data is scoped: only members of that business can access
-    match /businesses/{businessId} {
-      allow read, write: if isMemberOfBusiness(businessId);
+    // All business data is scoped: only members of that business can read.
+    // For writes, we additionally restrict sensitive paths (settings,
+    // operational_settings, members, expenses) to owner/admin roles only —
+    // technicians can read everything in the business but can't write to
+    // business-config docs. Jobs/inventory remain writable by any member
+    // (technicians need to log jobs and adjust inventory mid-job).
+    function memberRole(businessId) {
+      return get(/databases/$(database)/documents/businesses/$(businessId)/members/$(request.auth.uid)).data.role;
+    }
+    function isOwnerOrAdmin(businessId) {
+      return isMemberOfBusiness(businessId) && (
+        memberRole(businessId) == 'owner' || memberRole(businessId) == 'admin'
+      );
+    }
 
+    match /businesses/{businessId} {
+      allow read: if isMemberOfBusiness(businessId);
+      // Business root doc — owner/admin only writes. Convention-owner
+      // fallback: when there's no members doc yet (legacy owner who
+      // bootstrapped before the members collection existed), the
+      // owner's uid equals businessId, and they can still write.
+      allow write: if isOwnerOrAdmin(businessId) || request.auth.uid == businessId;
+
+      // Sensitive config — owner/admin only writes.
+      // Reads stay member-scoped for the rest of the app to function.
+      match /settings/{docId} {
+        allow read: if isMemberOfBusiness(businessId);
+        allow write: if isOwnerOrAdmin(businessId) || request.auth.uid == businessId;
+      }
+      match /operational_settings/{docId} {
+        allow read: if isMemberOfBusiness(businessId);
+        allow write: if isOwnerOrAdmin(businessId) || request.auth.uid == businessId;
+      }
+      match /expenses/{docId} {
+        allow read: if isMemberOfBusiness(businessId);
+        allow write: if isOwnerOrAdmin(businessId) || request.auth.uid == businessId;
+      }
+      // Members collection — owner/admin only writes. (Inviting users
+      // happens through invites/{token} → accept flow above; this rule
+      // covers manual member-doc edits e.g. role changes.)
+      match /members/{memberId} {
+        allow read: if isMemberOfBusiness(businessId);
+        allow write: if isOwnerOrAdmin(businessId) || request.auth.uid == businessId;
+      }
+
+      // Everything else under the business (jobs, inventory, customers,
+      // technicians, products) — any member can read. Writes default to
+      // member-level too (technicians need to log jobs and consume
+      // inventory mid-job). Sensitive paths above OVERRIDE this with
+      // role-restricted writes via more-specific match blocks. Note:
+      // Firestore rules union allow conditions across matching paths,
+      // so this wildcard must NOT be more permissive than the specific
+      // rules for sensitive collections. Since this rule only matches
+      // documents NOT covered by the specific matches above when read
+      // alone, but Firestore evaluates ALL matching rules, we keep
+      // this aligned with the most-permissive intent for non-sensitive
+      // paths only.
+      //
+      // To prevent the wildcard from re-enabling writes on sensitive
+      // paths, the specific match blocks above use the same `read:
+      // isMemberOfBusiness` for reads and restrict writes to
+      // owner/admin. Because Firestore uses an OR across matching
+      // rules, the wildcard write would still grant access to
+      // settings/operational_settings/expenses/members. To prevent
+      // this, we make the wildcard READ-only and let the per-path
+      // rules above handle writes explicitly.
       match /{document=**} {
-        allow read, write: if isMemberOfBusiness(businessId);
+        allow read: if isMemberOfBusiness(businessId);
+      }
+      // Per-collection write rules for non-sensitive paths.
+      // Jobs + inventory + customers + technicians = all members write.
+      match /jobs/{docId} {
+        allow write: if isMemberOfBusiness(businessId);
+      }
+      match /inventory/{docId} {
+        allow write: if isMemberOfBusiness(businessId);
+      }
+      match /customers/{docId} {
+        allow write: if isMemberOfBusiness(businessId);
+      }
+      match /technicians/{docId} {
+        allow write: if isMemberOfBusiness(businessId);
       }
     }
 
