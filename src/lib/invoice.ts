@@ -323,11 +323,41 @@ export async function generateInvoicePDF(
   }
   const textX = logoDataUri ? M + 34 : M;
 
-  // Business name — larger, stronger typography
+  // Business name — larger, stronger typography. Auto-shrink and
+  // truncate so it never collides with the INVOICE block on the right.
+  // The right side reserves ~50mm for the invoice header (label + #
+  // + PAID badge). We compute the max allowable width and shrink the
+  // font size or ellipsis-truncate, whichever preserves more text.
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(22);
   doc.setTextColor(...WHITE);
-  doc.text(brand.businessName || 'Mobile Service OS', textX, 20);
+  const rawName = brand.businessName || 'Mobile Service OS';
+  const RIGHT_RESERVED = 52; // mm reserved for INVOICE label + # + PAID badge
+  const maxNameWidth = W - M - textX - RIGHT_RESERVED;
+  // Try the natural size first; step down to 18, 16, 14 if needed.
+  let nameSize = 22;
+  const sizeSteps = [22, 20, 18, 16, 14];
+  let nameFits = false;
+  for (const s of sizeSteps) {
+    doc.setFontSize(s);
+    if (doc.getTextWidth(rawName) <= maxNameWidth) {
+      nameSize = s;
+      nameFits = true;
+      break;
+    }
+  }
+  // If even 14pt doesn't fit, truncate with ellipsis at 14pt.
+  let drawName = rawName;
+  if (!nameFits) {
+    doc.setFontSize(14);
+    nameSize = 14;
+    let s = rawName;
+    while (s.length > 1 && doc.getTextWidth(s + '…') > maxNameWidth) {
+      s = s.slice(0, -1);
+    }
+    drawName = s + '…';
+  }
+  doc.setFontSize(nameSize);
+  doc.text(drawName, textX, 20);
 
   // Business contact line — smaller, dimmer, just one line of context
   doc.setFont('helvetica', 'normal');
