@@ -148,13 +148,25 @@ export async function createInvite(opts: CreateInviteOptions): Promise<CreateInv
 // ─────────────────────────────────────────────────────────────────────
 
 export async function getInviteByToken(token: string): Promise<InviteDoc | null> {
-  if (!token) return null;
+  if (!token) {
+    // eslint-disable-next-line no-console
+    console.warn('[invites] getInviteByToken called with empty token');
+    return null;
+  }
   const db = getFirestore();
   const ref = doc(db, 'invites', token);
+  // eslint-disable-next-line no-console
+  console.info('[invites] fetching invite', { token, path: `invites/${token}` });
   try {
     const snap = await getDoc(ref);
-    if (!snap.exists()) return null;
+    if (!snap.exists()) {
+      // eslint-disable-next-line no-console
+      console.warn('[invites] doc not found at invites/' + token + ' — verify the token in the URL matches a Firestore doc ID exactly (case-sensitive)');
+      return null;
+    }
     const invite = snap.data() as InviteDoc;
+    // eslint-disable-next-line no-console
+    console.info('[invites] doc loaded', { status: invite.status, email: invite.email, businessName: invite.businessName });
 
     // Lazy expiry — if past expiresAt and still pending, transition.
     if (invite.status === 'pending' && isExpired(invite)) {
@@ -171,8 +183,16 @@ export async function getInviteByToken(token: string): Promise<InviteDoc | null>
     return invite;
   } catch (err) {
     // eslint-disable-next-line no-console
-    console.warn('[invites] getInviteByToken failed:', err);
-    return null;
+    console.warn('[invites] getInviteByToken THREW:', {
+      code: (err as { code?: string }).code,
+      message: (err as Error).message,
+      name: (err as Error).name,
+      token,
+    });
+    // Rethrow so InviteAccept can show the actual error message to
+    // the user instead of the generic "invite unavailable" — much
+    // better for debugging permission / network issues.
+    throw err;
   }
 }
 
