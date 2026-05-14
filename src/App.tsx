@@ -18,6 +18,7 @@ import { Header } from '@/components/Header';
 import { ToastHost } from '@/components/ToastHost';
 import { InstallBanner } from '@/components/InstallBanner';
 import { MoreSheet } from '@/components/MoreSheet';
+import { EmailVerificationBanner } from '@/components/EmailVerificationBanner';
 import { JobSuccessPanel } from '@/components/JobSuccessPanel';
 import { JobDetailModal } from '@/components/JobDetailModal';
 import { Onboarding } from '@/components/Onboarding';
@@ -740,6 +741,7 @@ function AuthenticatedApp({ user }: { user: User }) {
   return (
     <MembershipProvider settings={settings}>
       <Header syncStatus={syncStatus} onSignOut={onSignOut} />
+      <EmailVerificationBanner />
       <main className="main-content">{tabContent}</main>
       <nav className="bottom-nav">
         <button className={'nav-btn' + (tab === 'dashboard' ? ' active' : '')} onClick={() => setTab('dashboard')}>
