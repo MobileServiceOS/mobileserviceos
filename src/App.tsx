@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
 import { _auth, _db, scopedCol, fbDelete, fbListen, fbSet, initError } from '@/lib/firebase';
 import { BrandProvider, useBrand } from '@/context/BrandContext';
+import { MembershipProvider } from '@/context/MembershipContext';
 import { AuthScreen } from '@/pages/AuthScreen';
 import { Dashboard } from '@/pages/Dashboard';
 import { AddJob } from '@/pages/AddJob';
@@ -633,7 +634,7 @@ function AuthenticatedApp({ user }: { user: User }) {
   }
 
   return (
-    <>
+    <MembershipProvider settings={settings}>
       <Header syncStatus={syncStatus} onSignOut={onSignOut} />
       <main className="main-content">{tabContent}</main>
       <nav className="bottom-nav">
@@ -674,7 +675,7 @@ function AuthenticatedApp({ user }: { user: User }) {
       )}
       <InstallBanner />
       <ToastHost />
-    </>
+    </MembershipProvider>
   );
 }
 
