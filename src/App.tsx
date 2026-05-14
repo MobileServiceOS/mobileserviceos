@@ -18,6 +18,7 @@ import { JobSuccessPanel } from '@/components/JobSuccessPanel';
 import { JobDetailModal } from '@/components/JobDetailModal';
 import { Onboarding } from '@/components/Onboarding';
 import { addToast } from '@/lib/toast';
+import { humanizeFirestoreError, logFirestoreError, isPermissionDenied } from '@/lib/firebaseErrors';
 import { applyBrandColors, planInventoryDeduction, r2, uid } from '@/lib/utils';
 import { generateInvoicePDF } from '@/lib/invoice';
 import { openReviewSMS } from '@/lib/review';
@@ -44,17 +45,10 @@ function signalReady() {
   if (typeof window !== 'undefined' && typeof window.__msosReady === 'function') window.__msosReady();
 }
 
-function humanizeFirestoreError(e: unknown): string {
-  const code = (e as { code?: string })?.code || '';
-  if (code === 'permission-denied') return 'Permission denied — check Firestore rules';
-  if (code === 'unauthenticated') return 'Not signed in';
-  if (code === 'unavailable') return 'Network unavailable — will retry when online';
-  if (code === 'deadline-exceeded') return 'Server timed out';
-  if (code === 'failed-precondition') return 'Database not ready (check rules deploy)';
-  if (code === 'resource-exhausted') return 'Quota exceeded';
-  const msg = (e as Error)?.message || String(e);
-  return msg.length > 100 ? msg.slice(0, 100) + '…' : msg;
-}
+// humanizeFirestoreError + logFirestoreError moved to src/lib/firebaseErrors.ts.
+// Imported above. The local copy used to live here but has been promoted to
+// the shared module so other call sites (BrandContext, invoice rendering,
+// invites flow) can use the same friendly mapping.
 
 export function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -133,21 +127,60 @@ function AuthenticatedApp({ user }: { user: User }) {
   const inventoryRef = useRef<InventoryItem[]>([]);
   useEffect(() => { inventoryRef.current = inventory; }, [inventory]);
 
+  // Once-per-session suppression flag for permission-denied toasts.
+  // Avoids spamming the user with the same "Some data isn't
+  // accessible…" message four times in quick succession when the
+  // auth/rules bootstrap window briefly denies multiple collections.
+  const _shownPermissionToast = useRef(false);
+
   // ── Listeners ──
   useEffect(() => {
     if (!businessId || !_db) return;
     setSyncStatus(navigator.onLine ? 'syncing' : 'offline');
     const unsubs: Array<() => void> = [];
 
+    // Diagnostic log on every business attach — surfaces uid /
+    // businessId / email so a permission-denied story in DevTools is
+    // immediately clear about which account/business was active. The
+    // role is logged separately once the membership listener returns
+    // it (see BrandContext / TeamManagement console.info statements).
+    // eslint-disable-next-line no-console
+    console.info('[sync] attaching listeners', {
+      uid: _auth?.currentUser?.uid ?? 'unauthed',
+      email: _auth?.currentUser?.email ?? null,
+      businessId,
+    });
+
     const ready = { jobs: false, inv: false, exp: false, ops: false };
     const markReady = (k: keyof typeof ready) => {
       ready[k] = true;
       if (Object.values(ready).every(Boolean)) setSyncStatus('connected');
     };
+    // Quiet error handler: structured console log + ONE friendly
+    // toast per error code per session. Suppresses the original
+    // pattern of 4+ "Sync error (collection): ..." toasts fired at
+    // once during the auth bootstrap race or rules-deploy lag.
+    //
+    // The toast appears at most once per error code (so a
+    // permission-denied storm during onboarding shows a single
+    // "Some data isn't accessible…" message, not four). We update
+    // syncStatus on every error so the header pill reflects state.
     const handleErr = (label: string) => (e: Error) => {
-      console.error(`[sync] ${label} listener error:`, e);
-      setSyncStatus('sync_failed');
-      addToast(`Sync error (${label}): ${humanizeFirestoreError(e)}`, 'error');
+      logFirestoreError(`${label} listener`, e, { businessId });
+      setSyncStatus((prev) => (prev === 'connected' ? 'sync_failed' : prev));
+
+      // Skip the toast for permission-denied during the initial auth/
+      // rules bootstrap window — these self-resolve within seconds
+      // once BrandContext finishes seeding the user/member docs.
+      if (isPermissionDenied(e) && _shownPermissionToast.current) return;
+      if (isPermissionDenied(e)) {
+        _shownPermissionToast.current = true;
+        // 8-second timer so a transient bootstrap race doesn't latch
+        // the suppression permanently.
+        setTimeout(() => { _shownPermissionToast.current = false; }, 8000);
+      }
+
+      addToast(humanizeFirestoreError(e), 'warn');
     };
 
     unsubs.push(fbListen(scopedCol(businessId, 'jobs'), (docs) => {
@@ -391,7 +424,12 @@ function AuthenticatedApp({ user }: { user: User }) {
   }, [businessId, jobs]);
 
   const handleGenerateInvoice = useCallback(async (j: Job) => {
-    const result = generateInvoicePDF(j, settings, brand);
+    // generateInvoicePDF is async — it pre-loads the brand logo via fetch
+    // before rendering. The previous code missed the await, so `result`
+    // was a Promise and `.invoiceNumber` came back undefined (and TS
+    // flagged the property access). The await fixes both runtime and
+    // type errors.
+    const result = await generateInvoicePDF(j, settings, brand);
     if (!result || !businessId) return;
     const jobsCol = scopedCol(businessId, 'jobs');
     const updated: Job = {
