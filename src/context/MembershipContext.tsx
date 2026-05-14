@@ -244,10 +244,16 @@ export function MembershipProvider({ settings, children }: ProviderProps) {
   // when settings.plan is technically null/undefined.
   const permissions = useMemo(() => {
     const exempt = isBillingExempt(settings);
-    const effectiveSettings = exempt
-      ? { ...settings, plan: 'pro' as const }
-      : settings;
-    const p = getPermissions(member, effectiveSettings);
+    // Narrow to the fields getPermissions() accepts. Coerce plan='pro'
+    // for exempt accounts so plan caps can't strip canManageTeam from a
+    // lifetime-exempt owner. The wider settings prop is still useful for
+    // other fields read by the diagnostic log below; this narrowing is
+    // ONLY for the call to getPermissions().
+    const permsInput: Pick<Settings, 'plan' | 'allowTechnicianPriceOverride'> = {
+      plan: exempt ? 'pro' : settings.plan,
+      allowTechnicianPriceOverride: settings.allowTechnicianPriceOverride,
+    };
+    const p = getPermissions(member, permsInput);
 
     // Diagnostic log on every recompute — surfaces the full state for
     // DevTools-based debugging of "why does my owner not see X" cases.
@@ -262,7 +268,7 @@ export function MembershipProvider({ settings, children }: ProviderProps) {
       isAdmin: member?.role === 'admin',
       isTechnician: member?.role === 'technician',
       plan: settings.plan ?? 'undefined',
-      planEffective: effectiveSettings.plan,
+      planEffective: permsInput.plan,
       billingExempt: exempt,
       subscriptionOverride: settings.subscriptionOverride ?? null,
       canManageTeam: p.canManageTeam,
