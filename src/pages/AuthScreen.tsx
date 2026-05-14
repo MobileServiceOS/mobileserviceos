@@ -122,6 +122,27 @@ export function AuthScreen({ onAuth }: Props) {
           )}
         </div>
       </div>
+      {/* Footer legal links — visible BEFORE signup so prospective
+          users can review the policies before creating an account.
+          Routed via ?legal= URL param so the link is shareable. */}
+      <div style={{
+        marginTop: 18, textAlign: 'center',
+        fontSize: 11, color: 'var(--t3)',
+      }}>
+        <a
+          href="?legal=privacy"
+          style={{ color: 'var(--t3)', textDecoration: 'none', padding: '0 8px' }}
+        >
+          Privacy Policy
+        </a>
+        ·
+        <a
+          href="?legal=terms"
+          style={{ color: 'var(--t3)', textDecoration: 'none', padding: '0 8px' }}
+        >
+          Terms of Service
+        </a>
+      </div>
     </div>
   );
 }
