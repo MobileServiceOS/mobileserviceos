@@ -244,15 +244,19 @@ export function MembershipProvider({ settings, children }: ProviderProps) {
   // when settings.plan is technically null/undefined.
   const permissions = useMemo(() => {
     const exempt = isBillingExempt(settings);
-    // Narrow to the fields getPermissions() accepts. Coerce plan='pro'
-    // for exempt accounts so plan caps can't strip canManageTeam from a
-    // lifetime-exempt owner. The wider settings prop is still useful for
-    // other fields read by the diagnostic log below; this narrowing is
-    // ONLY for the call to getPermissions().
-    const permsInput: Pick<Settings, 'plan' | 'allowTechnicianPriceOverride'> = {
-      plan: exempt ? 'pro' : settings.plan,
-      allowTechnicianPriceOverride: settings.allowTechnicianPriceOverride,
-    };
+    // Pass the FULL settings object (cast to Settings — the parent
+    // App.tsx always passes the real Settings here, but TypeScript only
+    // sees our narrower Pick prop type). For exempt accounts we spread
+    // in plan='pro' so plan caps can't strip canManageTeam from a
+    // lifetime-exempt owner — even when settings.plan is briefly
+    // undefined during the initial load.
+    //
+    // The cast is safe — getPermissions() reads only `plan` and
+    // `allowTechnicianPriceOverride` per lib/permissions.ts.
+    const fullSettings = settings as unknown as Settings;
+    const permsInput: Settings = exempt
+      ? { ...fullSettings, plan: 'pro' }
+      : fullSettings;
     const p = getPermissions(member, permsInput);
 
     // Diagnostic log on every recompute — surfaces the full state for
