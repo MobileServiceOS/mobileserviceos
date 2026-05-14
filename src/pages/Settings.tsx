@@ -74,6 +74,23 @@ export function Settings({ settings, onSave }: Props) {
   // Mutex: which section is currently open. null = all collapsed.
   const [openSection, setOpenSection] = useState<string | null>('brand');
 
+  // Auto-expand Subscription accordion when the TrialCountdownBanner's
+  // Subscribe button was tapped. The banner sets a sessionStorage flag
+  // before routing to this tab; we read + clear it on first render.
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem('msos_open_subscription') === '1') {
+        sessionStorage.removeItem('msos_open_subscription');
+        setOpenSection('subscription');
+        // Scroll the accordion into view after the layout settles.
+        setTimeout(() => {
+          const el = document.querySelector<HTMLElement>('[data-section="subscription"]');
+          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
+      }
+    } catch { /* */ }
+  }, []);
+
   // Role gates. Owners and admins see everything. Technicians get a
   // stripped-down view (only Account + Sign out) per the role spec.
   //
@@ -184,7 +201,7 @@ export function Settings({ settings, onSave }: Props) {
         />
       )}
 
-      {canSeeBilling && <WheelRushBackupImport />}
+      {canSeeBilling && isBillingExempt(settings) && <WheelRushBackupImport />}
 
       <AccountAccordion
         open={openSection === 'account'}
@@ -830,6 +847,7 @@ function SubscriptionAccordion({ settings, open, onToggle }: { settings: Setting
       : `Pro Plan · ${PRO_PRICE_LINE_COMPACT}`;
 
   return (
+    <div data-section="subscription">
     <AccordionShell
       title="Subscription"
       icon="⭐"
@@ -949,12 +967,19 @@ function SubscriptionAccordion({ settings, open, onToggle }: { settings: Setting
         ))}
       </div>
 
-      {/* Stripe subscribe / portal button — hidden entirely for exempt
-          accounts since billing doesn't apply. Renders a disabled
-          "coming soon" placeholder if the Stripe price ID env var
-          isn't configured at build time. */}
-      {!exempt && <SubscribeButton settings={settings} />}
+      {/* Stripe subscribe / portal buttons — hidden entirely for exempt
+          accounts since billing doesn't apply. Renders disabled
+          "Coming soon" placeholders if a plan's Stripe price ID env
+          var isn't configured at build time. Pro renders first
+          (primary CTA), Core renders below as the secondary option. */}
+      {!exempt && (
+        <>
+          <SubscribeButton settings={settings} plan="pro" />
+          <SubscribeButton settings={settings} plan="core" />
+        </>
+      )}
     </AccordionShell>
+    </div>
   );
 }
 
