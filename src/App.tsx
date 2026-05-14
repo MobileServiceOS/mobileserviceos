@@ -6,6 +6,7 @@ import { MembershipProvider } from '@/context/MembershipContext';
 import { AuthScreen } from '@/pages/AuthScreen';
 import { InviteAccept } from '@/pages/InviteAccept';
 import { PrivacyTerms } from '@/pages/PrivacyTerms';
+import { Help } from '@/pages/Help';
 import { Dashboard } from '@/pages/Dashboard';
 import { AddJob } from '@/pages/AddJob';
 import { History } from '@/pages/History';
@@ -96,6 +97,22 @@ function readLegalTabFromUrl(): 'privacy' | 'terms' | null {
 
 const INITIAL_LEGAL_TAB: 'privacy' | 'terms' | null = readLegalTabFromUrl();
 
+/**
+ * Parse `?help=1` URL param. Public, shareable URL so marketing pages
+ * and support emails can deep-link to the FAQ.
+ */
+function readHelpFromUrl(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const url = new URL(window.location.href);
+    return url.searchParams.get('help') === '1';
+  } catch {
+    return false;
+  }
+}
+
+const INITIAL_HELP_OPEN = readHelpFromUrl();
+
 export function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
@@ -104,12 +121,24 @@ export function App() {
   // the splash/auth checks so an unauthenticated user landing on
   // ?legal=privacy can read the policy without signing up.
   const [legalTab, setLegalTab] = useState<'privacy' | 'terms' | null>(INITIAL_LEGAL_TAB);
+  // Help / FAQ — also publicly viewable so support emails and marketing
+  // pages can deep-link via ?help=1.
+  const [helpOpen, setHelpOpen] = useState<boolean>(INITIAL_HELP_OPEN);
 
   const closeLegal = useCallback(() => {
     setLegalTab(null);
     try {
       const url = new URL(window.location.href);
       url.searchParams.delete('legal');
+      window.history.replaceState({}, document.title, url.toString());
+    } catch { /* */ }
+  }, []);
+
+  const closeHelp = useCallback(() => {
+    setHelpOpen(false);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('help');
       window.history.replaceState({}, document.title, url.toString());
     } catch { /* */ }
   }, []);
@@ -149,6 +178,12 @@ export function App() {
   // share URL works for prospective customers, Stripe, App Store, etc.
   if (legalTab) {
     return <PrivacyTerms initialTab={legalTab} onBack={closeLegal} />;
+  }
+
+  // Help / FAQ — also publicly viewable. Useful for support emails
+  // and marketing pages that want to deep-link to a specific FAQ.
+  if (helpOpen) {
+    return <Help onBack={closeHelp} />;
   }
 
   if (!authReady) {
@@ -699,6 +734,7 @@ function AuthenticatedApp({ user }: { user: User }) {
     if (tab === 'expenses') return <Expenses expenses={settings.expenses || []} onSave={persistExpenses} />;
     if (tab === 'inventory') return <Inventory inventory={inventory} onSave={persistInventory} />;
     if (tab === 'settings') return <Settings settings={settings} onSave={persistSettings} />;
+    if (tab === 'help') return <Help onBack={() => setTab('dashboard')} />;
     if (tab === 'success' && savedJob) {
       return (
         <JobSuccessPanel
@@ -762,7 +798,7 @@ function AuthenticatedApp({ user }: { user: User }) {
           <span className="nav-ico">🛞</span><span>Inv</span>
         </button>
         <button
-          className={'nav-btn' + ((tab === 'settings' || tab === 'payouts' || tab === 'expenses' || tab === 'customers') ? ' active' : '')}
+          className={'nav-btn' + ((tab === 'settings' || tab === 'payouts' || tab === 'expenses' || tab === 'customers' || tab === 'help') ? ' active' : '')}
           onClick={() => setMoreOpen(true)}
         >
           <span className="nav-ico">⚙</span><span>More</span>
