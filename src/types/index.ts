@@ -440,8 +440,14 @@ export interface Job {
   state?: string;
   fullLocationLabel?: string;
   /** Auth uid of the user who created the job. Used for technician
-   *  attribution on invoices and job cards. */
+   *  attribution on invoices and job cards, plus the role-based
+   *  Dashboard filter (technicians see only their own jobs). */
   createdByUid?: string;
+  /** ISO timestamp of when the job was first saved. Set once on
+   *  initial save; never overwritten. Used to distinguish actual
+   *  job-creation time from `date` (the service date, which can be
+   *  any day). */
+  createdAt?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -457,6 +463,15 @@ export interface Settings {
   profitSplit1: number;
   profitSplit2: number;
   weeklyGoal: number;
+  /**
+   * Day of week the work week starts on. 0=Sunday, 1=Monday, ...
+   * 6=Saturday. Defaults to 1 (Monday) when undefined — the most
+   * common operational pattern. Used by Dashboard "This Week's
+   * Profit" and Payouts "Week's Earnings" calculations.
+   *
+   * Editable in Settings → Business (owner/admin only).
+   */
+  workWeekStartDay?: 0 | 1 | 2 | 3 | 4 | 5 | 6;
   taxRate: number;
   costPerMile: number;
   defaultTargetProfit: number;
