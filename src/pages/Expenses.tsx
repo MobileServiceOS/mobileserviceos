@@ -67,14 +67,14 @@ export function Expenses({ expenses, jobs, settings, onSave }: Props) {
   const fixedMonthly = monthlyFixed(settings);
   const fixedWeekly = fixedMonthly / 4.33;
 
-  /** Sum of per-job one-time expenses + tire costs for a given job. */
+  /** Sum of all one-time costs incurred on a single completed job:
+   *  tire cost + material cost + misc cost. These are the canonical
+   *  per-job cost fields on the Job type. */
   const jobOperatingCost = (j: Job): number => {
-    const perJobExpenses = (j.expenses || []).reduce(
-      (t, e) => t + Number(e.amount || 0),
-      0,
-    );
-    const tireCost = Number(j.tireCost || 0);
-    return perJobExpenses + tireCost;
+    const tire = Number(j.tireCost || 0);
+    const material = Number(j.materialCost || 0);
+    const misc = Number(j.miscCost || 0);
+    return tire + material + misc;
   };
 
   const completedJobs = useMemo(
