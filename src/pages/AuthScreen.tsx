@@ -4,6 +4,7 @@ import {
   createUserWithEmailAndPassword,
   sendPasswordResetEmail,
   signInWithPopup,
+  sendEmailVerification,
   GoogleAuthProvider,
   type User,
 } from 'firebase/auth';
@@ -38,6 +39,24 @@ export function AuthScreen({ onAuth }: Props) {
         const c = mode === 'login'
           ? await signInWithEmailAndPassword(_auth, email, pass)
           : await createUserWithEmailAndPassword(_auth, email, pass);
+
+        // On signup with email/password, fire a verification email
+        // immediately. Non-blocking — if it fails (rate-limited, etc.)
+        // we don't prevent the user from proceeding. They'll see a
+        // persistent banner inside the app prompting them to verify,
+        // and they can resend from Settings → Account.
+        //
+        // Google sign-ins are already considered email-verified by
+        // Firebase, so we skip them.
+        if (mode === 'signup') {
+          try {
+            await sendEmailVerification(c.user);
+          } catch (verifyErr) {
+            // Log but don't block — the in-app banner will offer
+            // resend. Production telemetry would capture this.
+            console.warn('[auth] verification email failed:', verifyErr);
+          }
+        }
         onAuth(c.user);
       }
     } catch (e) {
