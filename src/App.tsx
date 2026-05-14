@@ -441,12 +441,22 @@ function AuthenticatedApp({ user }: { user: User }) {
         computedTireCost = 0;
       }
 
+      const currentUid = _auth?.currentUser?.uid || '';
       const finalJob: Job = {
         ...j,
         id: j.id || uid(),
         tireCost: computedTireCost,
         inventoryDeductions: deductions,
         lastEditedAt: new Date().toISOString(),
+        // Stamp createdByUid + createdAt the FIRST time a job is saved.
+        // On edits we preserve the original creator — this is what
+        // powers the technician dashboard filter (only see your own
+        // jobs). For pre-existing jobs without a createdByUid (e.g.
+        // imported historical data) the field stays empty and only
+        // owner/admin see those jobs; technicians get a clean view
+        // of their own work going forward.
+        createdByUid: j.createdByUid || currentUid,
+        createdAt: j.createdAt || new Date().toISOString(),
       };
       await fbSet(jobsCol, finalJob.id, finalJob);
       addToast(isEditing ? 'Job updated' : 'Job saved', 'success');
