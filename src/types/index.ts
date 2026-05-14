@@ -180,6 +180,66 @@ export interface MemberDoc {
   permissions?: Partial<Permissions>;
 }
 
+// ─────────────────────────────────────────────────────────────────────
+//  Invites
+// ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Pending team invite. Stored top-level at:
+ *
+ *   invites/{lowercaseEmail}
+ *
+ * Email-keyed (not random ID) so a brand-new signup can locate their
+ * own invite without knowing any prior context — they just look up
+ * `invites/{their_signup_email_lowercased}` and check whether it
+ * exists. If found, the post-signup hook attaches them to the
+ * inviter's business as a member with the specified role, then
+ * deletes the invite doc.
+ *
+ * Why top-level (not nested under the inviting business): a top-level
+ * collection lets the invitee read their invite WITHOUT first having
+ * to know which business invited them. Nested invites would require a
+ * collection-group query, which Firestore allows but with more
+ * restrictive rule patterns.
+ *
+ * Security: Firestore rules enforce that:
+ *   - Only the inviter (or any owner of the same business) can create
+ *     an invite for a given email
+ *   - Only the user whose `request.auth.token.email` matches the doc
+ *     ID can read or delete their own invite
+ *   - Once accepted, the invite doc MUST be deleted by the accepting
+ *     client (server-side cleanup is also fine via Cloud Function for
+ *     future hardening)
+ *
+ * See `firestore.rules` and `docs/INVITES-SETUP.md` for the full
+ * rule block.
+ */
+export interface InviteDoc {
+  /** Lowercased email — also the document ID. Stored as a field too
+   *  so list queries can filter without parsing the ID. */
+  email: string;
+  /** Business the invitee will be attached to on acceptance. */
+  businessId: string;
+  /** Role assigned on acceptance. Owner is excluded — owners are
+   *  seeded on first signup, never invited. */
+  role: 'admin' | 'technician';
+  /** Auth uid of the person who created the invite. Required for
+   *  audit trail and to satisfy the Firestore rule that limits
+   *  invite creation to verified members of the target business. */
+  invitedBy: string;
+  /** Optional display name of the inviter — surfaced in the
+   *  accepting UI ("You've been invited by Alex"). */
+  invitedByDisplayName?: string;
+  /** Business name at time of invite — surfaced in the accepting UI
+   *  so the invitee knows which business they're joining. */
+  businessName?: string;
+  /** ISO timestamp the invite was created. Used for sort order and
+   *  invite-expiry logic (future enhancement). */
+  invitedAt: string;
+  /** Optional free-form note from the inviter. */
+  note?: string;
+}
+
 /**
  * Permission flags resolved from the current user's role + business plan.
  * Computed by MembershipContext and read by components to gate UI.

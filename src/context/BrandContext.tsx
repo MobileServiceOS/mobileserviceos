@@ -11,6 +11,7 @@ import type { User } from 'firebase/auth';
 import { _db } from '@/lib/firebase';
 import { DEFAULT_BRAND } from '@/lib/defaults';
 import { applyBrandColors } from '@/lib/utils';
+import { acceptInviteIfPresent } from '@/lib/invites';
 import type { Brand } from '@/types';
 
 interface BrandContextValue {
@@ -33,70 +34,8 @@ export function useBrand(): BrandContextValue {
   return useContext(BrandContext);
 }
 
-// ─────────────────────────────────────────────────────────────
-//  Onboarding-complete cache (H8 — offline reliability)
-// ─────────────────────────────────────────────────────────────
-//
-// Why this exists: when a returning user opens the app and Firestore is
-// slow or unreachable, the snapshot never fires and `onboardingComplete`
-// stays at its default `false`. After the 6-second timeout we set
-// `loading: false` and the app renders the Onboarding screen — even
-// though this user finished onboarding weeks ago. That's a critical
-// reliability bug for PWA usage on flaky cell connections.
-//
-// The fix is small: cache `onboardingComplete: true` to localStorage
-// when Firestore confirms it, keyed by the user's UID. On the next
-// mount, before Firestore responds, optimistically trust the cache.
-// When Firestore eventually responds, the snapshot overrides whatever
-// the cache said — so the cache is just an early-boot hint, not source
-// of truth.
-//
-// Keyed by UID so a shared device with multiple users (e.g. a shop
-// kiosk) keeps each user's state separate. localStorage may be
-// unavailable in some embedded webviews / private modes, so every
-// access is wrapped in try/catch with safe defaults.
-
-const ONBOARDING_CACHE_PREFIX = 'msos:ob:';
-
-function cacheKey(uid: string): string {
-  return `${ONBOARDING_CACHE_PREFIX}${uid}`;
-}
-
-function readOnboardingCache(uid: string): boolean {
-  try {
-    if (typeof localStorage === 'undefined') return false;
-    return localStorage.getItem(cacheKey(uid)) === '1';
-  } catch {
-    return false;
-  }
-}
-
-function writeOnboardingCache(uid: string, complete: boolean): void {
-  try {
-    if (typeof localStorage === 'undefined') return;
-    if (complete) {
-      localStorage.setItem(cacheKey(uid), '1');
-    } else {
-      // Clear the cache on explicit false (e.g. user resets account).
-      // Don't leave a stale '1' that would incorrectly skip onboarding
-      // on next mount.
-      localStorage.removeItem(cacheKey(uid));
-    }
-  } catch {
-    // Swallow — caching is best-effort, not load-bearing.
-  }
-}
-
 export function BrandProvider({ children, user }: { children: ReactNode; user: User }) {
-  // Optimistic rehydrate: if the cache says this user completed onboarding,
-  // start with onboardingComplete=true so the dashboard renders immediately
-  // even before Firestore responds. If Firestore later disagrees (e.g. user
-  // reset their account on another device), the snapshot will override.
-  const initialOnboardingComplete = user?.uid ? readOnboardingCache(user.uid) : false;
-  const [brand, setBrand] = useState<Brand>(() => ({
-    ...DEFAULT_BRAND,
-    onboardingComplete: initialOnboardingComplete,
-  }));
+  const [brand, setBrand] = useState<Brand>(DEFAULT_BRAND);
   const [businessId, setBusinessId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -135,36 +74,64 @@ export function BrandProvider({ children, user }: { children: ReactNode; user: U
             console.warn('[brand] members backfill failed (non-fatal):', e);
           }
         } else {
-          // First signup: create the full required structure in dependency order.
-          bId = user.uid;
-          console.info('[brand] bootstrapping new business for', user.uid);
+          // ─── Pending invite check ─────────────────────────────────
+          // BEFORE creating a brand new business, look for a pending
+          // invite at invites/{userEmail}. If found, attach this user
+          // to the inviter's business as a member with the invited
+          // role — they do NOT get their own business.
+          //
+          // The invites module handles the user doc, members doc, and
+          // invite cleanup atomically. Returns the businessId on
+          // success or null if no invite exists.
+          let acceptedBid: string | null = null;
+          if (user.email) {
+            try {
+              acceptedBid = await acceptInviteIfPresent(user.uid, user.email);
+            } catch (e) {
+              // Non-fatal: log and fall through to first-signup flow.
+              // The invitee can be invited again later if this fails.
+              console.warn('[brand] invite accept failed (falling through to new business):', e);
+            }
+          }
 
-          await setDoc(userDocRef, {
-            businessId: bId,
-            role: 'owner',
-            email: user.email || '',
-            createdAt: new Date().toISOString(),
-          }, { merge: true });
+          if (acceptedBid) {
+            // Invite accepted — invitee is now a member of the
+            // inviter's business. No bootstrap of a new business.
+            bId = acceptedBid;
+            console.info('[brand] joined existing business via invite', bId);
+          } else {
+            // First signup, no invite: create the full required
+            // structure in dependency order.
+            bId = user.uid;
+            console.info('[brand] bootstrapping new business for', user.uid);
 
-          await setDoc(doc(db, `businesses/${bId}`), {
-            ownerUid: user.uid,
-            ownerEmail: user.email || '',
-            createdAt: new Date().toISOString(),
-          }, { merge: true });
+            await setDoc(userDocRef, {
+              businessId: bId,
+              role: 'owner',
+              email: user.email || '',
+              createdAt: new Date().toISOString(),
+            }, { merge: true });
 
-          await setDoc(doc(db, `businesses/${bId}/members/${user.uid}`), {
-            uid: user.uid,
-            email: user.email || '',
-            role: 'owner',
-            addedAt: new Date().toISOString(),
-          }, { merge: true });
+            await setDoc(doc(db, `businesses/${bId}`), {
+              ownerUid: user.uid,
+              ownerEmail: user.email || '',
+              createdAt: new Date().toISOString(),
+            }, { merge: true });
 
-          await setDoc(doc(db, `businesses/${bId}/settings/main`), {
-            ...DEFAULT_BRAND,
-            email: user.email || '',
-          }, { merge: true });
+            await setDoc(doc(db, `businesses/${bId}/members/${user.uid}`), {
+              uid: user.uid,
+              email: user.email || '',
+              role: 'owner',
+              addedAt: new Date().toISOString(),
+            }, { merge: true });
 
-          console.info('[brand] bootstrap complete for business', bId);
+            await setDoc(doc(db, `businesses/${bId}/settings/main`), {
+              ...DEFAULT_BRAND,
+              email: user.email || '',
+            }, { merge: true });
+
+            console.info('[brand] bootstrap complete for business', bId);
+          }
         }
         if (cancelled) return;
         setBusinessId(bId);
@@ -180,10 +147,6 @@ export function BrandProvider({ children, user }: { children: ReactNode; user: U
               document.title = (merged.businessName || 'Mobile Service OS') + ' — Mobile Tire & Roadside';
               const m = document.querySelector('meta[name="apple-mobile-web-app-title"]');
               if (m) m.setAttribute('content', merged.businessName || 'Mobile Service OS');
-              // Persist the onboarding-complete bit so a future cold start
-              // with Firestore unreachable still skips onboarding for users
-              // who finished it. Idempotent — safe to write every snapshot.
-              writeOnboardingCache(user.uid, !!merged.onboardingComplete);
             }
             window.clearTimeout(timeoutId);
             setLoading(false);
@@ -224,11 +187,6 @@ export function BrandProvider({ children, user }: { children: ReactNode; user: U
         const next = { ...prev, ...updates };
         applyBrandColors(next.primaryColor, next.accentColor);
         document.title = (next.businessName || 'Mobile Service OS') + ' — Mobile Tire & Roadside';
-        // Mirror the same cache write the snapshot does. When the user
-        // taps "Finish setup" the local state update happens before the
-        // snapshot fires back — without this, a fast reload after onboarding
-        // could see stale cache value.
-        if (user?.uid) writeOnboardingCache(user.uid, !!next.onboardingComplete);
         return next;
       });
     },

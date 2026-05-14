@@ -13,6 +13,7 @@ import { attachStripeSync } from '@/lib/stripeSync';
 import { SubscribeButton } from '@/components/SubscribeButton';
 import { isBillingExempt } from '@/lib/planAccess';
 import { PRO_PRICE, PRO_PRICE_LINE_COMPACT } from '@/lib/pricing-display';
+import { TeamManagement } from '@/components/TeamManagement';
 import {
   setLifetimeAccess,
   revokeLifetimeAccess,
@@ -685,19 +686,8 @@ function VehicleAddonsForm({ settings, onSave }: Props) {
 
 function TeamAccordion({ open, onToggle }: { open: boolean; onToggle: () => void }) {
   return (
-    <AccordionShell title="Team Management" icon="🧑‍🔧" summary="Coming soon" open={open} onToggle={onToggle}>
-      <div style={{
-        padding: 14, background: 'var(--s2)', border: '1px dashed var(--border2)',
-        borderRadius: 10, textAlign: 'center',
-      }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--t1)', marginBottom: 4 }}>
-          Team management coming soon
-        </div>
-        <div style={{ fontSize: 11, color: 'var(--t3)', lineHeight: 1.5 }}>
-          Invite admins and technicians, manage roles, and control what your team can see.
-          Multi-user is included in your Pro plan.
-        </div>
-      </div>
+    <AccordionShell title="Team Management" icon="🧑‍🔧" summary="Invite & manage" open={open} onToggle={onToggle}>
+      <TeamManagement />
     </AccordionShell>
   );
 }
