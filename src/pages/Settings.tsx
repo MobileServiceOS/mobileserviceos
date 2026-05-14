@@ -9,6 +9,8 @@ import { uploadLogo, _auth } from '@/lib/firebase';
 import { signOut, updatePassword } from 'firebase/auth';
 import { APP_LOGO } from '@/lib/defaults';
 import { money } from '@/lib/utils';
+import { attachStripeSync } from '@/lib/stripeSync';
+import { SubscribeButton } from '@/components/SubscribeButton';
 
 interface Props {
   settings: SettingsT;
@@ -49,6 +51,7 @@ const TRIAL_DAYS = 14;
  */
 export function Settings({ settings, onSave }: Props) {
   const permissions = usePermissions();
+  const { businessId } = useBrand();
 
   // Mutex: which section is currently open. null = all collapsed.
   const [openSection, setOpenSection] = useState<string | null>('brand');
@@ -58,6 +61,24 @@ export function Settings({ settings, onSave }: Props) {
   const canSeePricing = permissions.canEditPricingSettings || permissions.canViewPricingSettings;
   const canSeeFinancials = permissions.canViewFinancials;
   const canSeeBilling = permissions.canManageBilling;
+
+  // Stripe → Firestore subscription mirror. While the Settings page is
+  // mounted, listen to the Stripe Extension's per-user subscription
+  // docs and reflect status changes back into Settings. The listener
+  // is idempotent and self-detaches on unmount; safe to run even
+  // before the Stripe Extension is installed (the source collection
+  // simply stays empty).
+  //
+  // Mounting here (rather than App-wide) means the mirror only runs
+  // while the user is actively on the Settings page. That's fine —
+  // the Stripe webhook keeps Firestore consistent regardless; this
+  // listener is just for snappier in-app status updates.
+  useEffect(() => {
+    const uid = _auth?.currentUser?.uid;
+    if (!uid || !businessId) return;
+    const unsub = attachStripeSync(uid, businessId);
+    return () => unsub();
+  }, [businessId]);
 
   return (
     <div className="page page-enter" style={{ paddingBottom: 96 /* room for sticky save */ }}>
@@ -791,8 +812,15 @@ function SubscriptionAccordion({ settings, open, onToggle }: { settings: Setting
         marginBottom: 14,
         lineHeight: 1.5,
       }}>
-        Billing integration coming soon. Your trial is active and full
-        Pro features are unlocked. No card required during trial.
+        {isTrialing
+          ? 'Your free trial is active. Subscribe any time to keep your Pro features when the trial ends.'
+          : settings.subscriptionStatus === 'active'
+            ? 'Subscription active. Use Manage billing to update card, view invoices, or cancel.'
+            : settings.subscriptionStatus === 'past_due'
+              ? 'Payment past due. Update your card via Manage billing to keep Pro features.'
+              : settings.subscriptionStatus === 'canceled'
+                ? 'Subscription canceled. Subscribe again to restore Pro features.'
+                : 'Subscribe to keep Pro features active after the trial.'}
       </div>
 
       <div style={{
@@ -810,6 +838,7 @@ function SubscriptionAccordion({ settings, open, onToggle }: { settings: Setting
         display: 'grid',
         gridTemplateColumns: '1fr 1fr',
         gap: '6px 14px',
+        marginBottom: 16,
       }}>
         {PRO_FEATURES.map((feat) => (
           <div key={feat} style={{
@@ -827,6 +856,12 @@ function SubscriptionAccordion({ settings, open, onToggle }: { settings: Setting
           </div>
         ))}
       </div>
+
+      {/* Stripe subscribe / portal button. Auto-detects which flow to
+          launch based on the current subscriptionStatus. Renders a
+          disabled "coming soon" placeholder if the Stripe price ID
+          env var isn't configured at build time. */}
+      <SubscribeButton settings={settings} />
     </AccordionShell>
   );
 }
