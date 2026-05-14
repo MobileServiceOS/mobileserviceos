@@ -10,7 +10,6 @@ import { addToast } from '@/lib/toast';
 import { uploadReceipt } from '@/lib/firebase';
 import { useBrand } from '@/context/BrandContext';
 import { usePermissions } from '@/context/MembershipContext';
-import { CityStateSelect } from '@/components/CityStateSelect';
 
 interface Props {
   job: Job;
@@ -325,13 +324,30 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
             <input type="tel" value={job.customerPhone} onChange={(e) => set('customerPhone', e.target.value)} placeholder="(555) 123-4567" />
           </div>
         </div>
-        <CityStateSelect
-          city={job.city || ''}
-          state={job.state || ''}
-          onChange={({ city, state, fullLocationLabel }) =>
-            setJob({ ...job, city, state, fullLocationLabel, area: city || job.area })
-          }
-        />
+        {/* City — state is implicit (brand.state, set during onboarding).
+            Technicians don't need a state picker; they're always serving
+            customers in the business's home state. The job still saves
+            both `city` and `state` so existing reporting/SEO/invoice
+            templates that consume `state` keep working. */}
+        <div className="field">
+          <label>City</label>
+          <input
+            value={job.city || ''}
+            onChange={(e) => {
+              const c = e.target.value;
+              const s = brand.state || job.state || '';
+              setJob({
+                ...job,
+                city: c,
+                state: s,
+                area: c || job.area,
+                fullLocationLabel: c && s ? `${c}, ${s}` : c,
+              });
+            }}
+            placeholder="Start typing your city"
+            autoComplete="off"
+          />
+        </div>
       </div>
 
       {needsTireDetails && (
