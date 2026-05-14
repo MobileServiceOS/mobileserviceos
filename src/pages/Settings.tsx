@@ -89,7 +89,11 @@ export function Settings({ settings, onSave }: Props) {
   }, [businessId]);
 
   return (
-    <div className="page page-enter" style={{ paddingBottom: 96 /* room for sticky save */ }}>
+    <div className="page page-enter settings-page">
+      {/* Page title — the global sticky Header above already shows the
+          business name + sync pill + sign-out. This is just the page
+          label; spacing/safe-area is handled by .settings-page in CSS
+          (see src/styles/app.css). */}
       <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 14 }}>Settings</div>
 
       <BrandAccordion

@@ -724,3 +724,118 @@ a { color: var(--brand-primary); text-decoration: none; }
      installed the app, no point nagging them again. */
   .install-banner { display: none !important; }
 }
+
+/* ─────────────────────────────────────────────────────────────────
+   Settings page layout polish
+   ─────────────────────────────────────────────────────────────────
+   Surgical fixes for safe-area, save-button clipping, horizontal
+   overflow, and section z-index. Does NOT alter visual style or
+   redesign the page — only adjusts spacing tokens so the existing
+   dark-luxury cards/inputs render without overlap on iPhone PWA
+   and Safari mobile.
+
+   Applied to <div className="page settings-page"> in Settings.tsx
+   (a single extra class added on the existing page root) so changes
+   are scoped to Settings only and don't affect Dashboard / Jobs /
+   History / etc.
+
+   Targets the four real bugs reported:
+   1. Per-section Save button clipped behind the bottom nav
+   2. First card sitting too close to the global sticky header
+   3. Slight horizontal overflow from field-row on narrow phones
+   4. Card animations briefly z-stacking above the sticky header
+   ─────────────────────────────────────────────────────────────── */
+
+.settings-page {
+  /* Generous top padding so the first card has visible breathing room
+     below the sticky global header (.header-compact, z-index 50).
+     The header's own padding-bottom (10px) plus 18px here gives a
+     comfortable 28px gap on every screen size. */
+  padding-top: 18px;
+  /* Bottom padding accounts for: bottom-nav (72px) + iOS home indicator
+     safe area + enough margin so when a section's Save button appears
+     in dirty state it doesn't sit flush against the nav. The 72px
+     bottom-nav padding is ALREADY added by .main-content; we layer
+     additional breathing room here so save buttons land ~24px above
+     the nav top edge instead of touching it. */
+  padding-bottom: calc(96px + var(--safe-bot));
+}
+
+/* Section z-index pin — cards animate in via slideUp (-12px translate)
+   which can briefly overlap the sticky header during the entry
+   animation. Pinning to z-index 1 keeps cards below the header (z=50)
+   throughout the animation. Standard cards on other pages stay at
+   the default auto z. */
+.settings-page .card {
+  position: relative;
+  z-index: 1;
+}
+
+/* Save buttons inside accordions should scroll into view comfortably
+   when they appear (dirty state). scroll-margin-bottom ensures any
+   programmatic scrollIntoView (or browser autofocus scroll) leaves
+   the button at least 96px above the bottom edge — clearing both
+   the bottom nav and the home indicator. */
+.settings-page .btn.primary,
+.settings-page .btn.secondary,
+.settings-page .btn.danger {
+  scroll-margin-bottom: calc(96px + var(--safe-bot));
+}
+
+/* Horizontal overflow guard — .field-row uses flex which can push
+   wider than the viewport on narrow phones when each input asserts
+   its own min-width. Allowing wrap + min-width:0 on children lets
+   the row collapse to a single column on tight screens instead of
+   pushing horizontal scroll on the whole page. */
+.settings-page .field-row {
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.settings-page .field-row > .field {
+  min-width: 0;
+  /* Each .field inside a row claims at least 45% of the row width.
+     On screens >= 360px wide, two fields fit side-by-side as before.
+     On screens < 360px (rare — only iPhone SE 1st gen and similar),
+     the row wraps to a column rather than overflowing. */
+  flex: 1 1 45%;
+}
+
+/* Inputs and selects inside Settings should respect container width
+   so a long input value never pushes the whole row wider than its
+   parent. width:100% is already on most inputs in the design system,
+   but the few inline-styled ones (the role selector in Lifetime
+   Access panel, etc) benefit from this safety net. */
+.settings-page input,
+.settings-page select,
+.settings-page textarea {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* Consistent vertical rhythm between accordion cards. The existing
+   AccordionShell sets marginBottom:12 inline; reinforced here so a
+   future caller forgetting that inline style still gets correct
+   spacing. */
+.settings-page > .card + .card {
+  margin-top: 12px;
+}
+
+/* PWA standalone display mode — extra top padding so the first card
+   sits comfortably below the iOS status bar + Dynamic Island area.
+   On non-standalone (Safari tab) the existing 18px is enough; the
+   status bar is hidden inside the address bar. In standalone mode
+   the status bar overlays the app, so we add --safe-top-equivalent
+   padding ON TOP of the 18px to ensure the title is never under
+   the carrier/clock/battery row. */
+@media (display-mode: standalone) {
+  .settings-page {
+    /* Note: the sticky header (.header-compact) already absorbs
+       --safe-top in ITS padding. This rule adds nothing extra above
+       the header — it adds breathing room BELOW the header in
+       standalone mode, where iOS sometimes renders the chrome a few
+       px taller than expected. 24px instead of 18px gives the cards
+       a tiny bit more clearance. */
+    padding-top: 24px;
+  }
+}
+
