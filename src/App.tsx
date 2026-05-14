@@ -4,6 +4,7 @@ import { _auth, _db, scopedCol, fbDelete, fbListen, fbSet, initError } from '@/l
 import { BrandProvider, useBrand } from '@/context/BrandContext';
 import { MembershipProvider } from '@/context/MembershipContext';
 import { AuthScreen } from '@/pages/AuthScreen';
+import { InviteAccept } from '@/pages/InviteAccept';
 import { Dashboard } from '@/pages/Dashboard';
 import { AddJob } from '@/pages/AddJob';
 import { History } from '@/pages/History';
@@ -52,9 +53,34 @@ function signalReady() {
 // the shared module so other call sites (BrandContext, invoice rendering,
 // invites flow) can use the same friendly mapping.
 
+/**
+ * Parse the invite token from `?invite=<token>` on initial page load.
+ * Captured at module scope so it survives navigation events that
+ * mutate window.location (we want the invite to apply for the whole
+ * session, not just the first render).
+ *
+ * Returns null if no token, or if window is unavailable (SSR).
+ */
+function readInviteTokenFromUrl(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const url = new URL(window.location.href);
+    const token = url.searchParams.get('invite');
+    return token && token.trim() ? token.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+const INITIAL_INVITE_TOKEN: string | null = readInviteTokenFromUrl();
+
 export function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
+  // Held in state so InviteAccept can clear it (e.g. on "Continue to
+  // sign in" from an invalid-invite screen) without forcing a hard
+  // page reload.
+  const [inviteToken, setInviteToken] = useState<string | null>(INITIAL_INVITE_TOKEN);
 
   useEffect(() => {
     if (!_auth) {
@@ -97,6 +123,32 @@ export function App() {
   }
 
   if (!user) {
+    // If the URL has ?invite=<token>, route to the dedicated invite
+    // onboarding page. InviteAccept handles BOTH new and existing
+    // users — Google sign-in, email signup, email login — and calls
+    // acceptInvite() automatically after auth succeeds.
+    if (inviteToken) {
+      return (
+        <>
+          <InviteAccept
+            token={inviteToken}
+            onAuth={(u) => {
+              // Invite is already accepted by the time we get here.
+              // Clear the token + clean the URL so a refresh doesn't
+              // try to re-process it.
+              try {
+                const url = new URL(window.location.href);
+                url.searchParams.delete('invite');
+                window.history.replaceState({}, document.title, url.toString());
+              } catch { /* */ }
+              setInviteToken(null);
+              setUser(u);
+            }}
+          />
+          <ToastHost />
+        </>
+      );
+    }
     return (
       <>
         <AuthScreen onAuth={setUser} />

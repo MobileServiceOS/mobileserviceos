@@ -187,55 +187,74 @@ export interface MemberDoc {
 /**
  * Pending team invite. Stored top-level at:
  *
- *   invites/{lowercaseEmail}
+ *   invites/{token}
  *
- * Email-keyed (not random ID) so a brand-new signup can locate their
- * own invite without knowing any prior context — they just look up
- * `invites/{their_signup_email_lowercased}` and check whether it
- * exists. If found, the post-signup hook attaches them to the
- * inviter's business as a member with the specified role, then
- * deletes the invite doc.
+ * Token-keyed (random URL-safe string) so:
  *
- * Why top-level (not nested under the inviting business): a top-level
- * collection lets the invitee read their invite WITHOUT first having
- * to know which business invited them. Nested invites would require a
- * collection-group query, which Firestore allows but with more
- * restrictive rule patterns.
+ *   1. The invite link contains a single opaque identifier — no email
+ *      leakage in the URL, no PII in browser history.
+ *   2. The invitee can be ANY new or existing user; the link does not
+ *      require a specific Firebase Auth account to exist beforehand.
+ *   3. Owners can reissue invites without exposing previous tokens
+ *      (rotate by revoking + creating).
+ *   4. Lifecycle states (pending / accepted / expired / revoked) are
+ *      tracked in-doc rather than via existence checks alone — gives
+ *      a clean audit trail.
  *
  * Security: Firestore rules enforce that:
- *   - Only the inviter (or any owner of the same business) can create
- *     an invite for a given email
- *   - Only the user whose `request.auth.token.email` matches the doc
- *     ID can read or delete their own invite
- *   - Once accepted, the invite doc MUST be deleted by the accepting
- *     client (server-side cleanup is also fine via Cloud Function for
- *     future hardening)
+ *   - Only owner/admin of the target business creates invites for it
+ *   - The invite role must be admin or technician (never owner)
+ *   - Any authed user can READ a pending invite if they know the token
+ *     (treated like a one-time secret in the URL)
+ *   - Only an authed user whose verified token email MATCHES the
+ *     invite's `email` field can transition it to `accepted` AND only
+ *     if status is still `pending` AND expiresAt is in the future
+ *   - Owner/admin of the inviting business can revoke (transition to
+ *     `revoked`) any of their own invites
  *
- * See `firestore.rules` and `docs/INVITES-SETUP.md` for the full
- * rule block.
+ * See `firestore.rules` and `docs/INVITES-SETUP.md` for the rule block.
  */
+export type InviteStatus = 'pending' | 'accepted' | 'expired' | 'revoked';
+
 export interface InviteDoc {
-  /** Lowercased email — also the document ID. Stored as a field too
-   *  so list queries can filter without parsing the ID. */
+  /** Random URL-safe token — also the document ID. Used as the
+   *  single value in the invite link's query param (?invite=<token>). */
+  id: string;
+  /** Same as `id`. Stored as a field for query-friendliness and
+   *  explicit-naming clarity in rule expressions. */
+  token: string;
+  /** Lowercased email the invite was issued to. Acceptance is gated
+   *  on `request.auth.token.email.lower() == this.email`. */
   email: string;
   /** Business the invitee will be attached to on acceptance. */
   businessId: string;
   /** Role assigned on acceptance. Owner is excluded — owners are
    *  seeded on first signup, never invited. */
   role: 'admin' | 'technician';
-  /** Auth uid of the person who created the invite. Required for
-   *  audit trail and to satisfy the Firestore rule that limits
-   *  invite creation to verified members of the target business. */
+  /** Lifecycle state. `pending` → `accepted` | `revoked` | `expired`.
+   *  Expired transitions can be done client-side lazily on read, OR by
+   *  a future scheduled Cloud Function. */
+  status: InviteStatus;
+  /** Auth uid of the user who created the invite. Required for audit
+   *  trail and to satisfy the Firestore rule that limits invite creation
+   *  to verified members of the target business. */
   invitedBy: string;
-  /** Optional display name of the inviter — surfaced in the
-   *  accepting UI ("You've been invited by Alex"). */
+  /** Optional display name of the inviter — surfaced in the accepting
+   *  UI ("You've been invited by Alex"). */
   invitedByDisplayName?: string;
   /** Business name at time of invite — surfaced in the accepting UI
    *  so the invitee knows which business they're joining. */
   businessName?: string;
-  /** ISO timestamp the invite was created. Used for sort order and
-   *  invite-expiry logic (future enhancement). */
+  /** ISO timestamp the invite was created. Used for sort order. */
   invitedAt: string;
+  /** ISO timestamp after which the invite cannot be accepted.
+   *  Default: 14 days from invitedAt. Firestore rules block any
+   *  accept transition where this is in the past. */
+  expiresAt: string;
+  /** ISO timestamp the invite was accepted. Null until acceptance. */
+  acceptedAt?: string;
+  /** Auth uid of the user who accepted. Null until acceptance. */
+  acceptedByUid?: string;
   /** Optional free-form note from the inviter. */
   note?: string;
 }

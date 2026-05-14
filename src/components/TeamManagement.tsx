@@ -9,8 +9,10 @@ import {
   revokeInvite,
   subscribePendingInvites,
   buildInviteLink,
-  sendInviteEmail,
+  openInviteShareSheet,
+  type CreateInviteResult,
 } from '@/lib/invites';
+import { _auth } from '@/lib/firebase';
 
 // ─────────────────────────────────────────────────────────────────────
 //  TeamManagement
@@ -77,35 +79,33 @@ function InviteForm({ businessId, businessName }: { businessId: string; business
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<'admin' | 'technician'>('technician');
   const [busy, setBusy] = useState(false);
-  // After a successful create, surface the magic link as a fallback —
-  // useful when email sending is misconfigured or the owner just
-  // wants to text it directly.
-  const [lastLink, setLastLink] = useState<string | null>(null);
+  // After a successful create, surface the link + a Share button so
+  // the owner can text/email it via the OS share sheet. Includes the
+  // full result (id/token/link) so we can reuse the same payload for
+  // copy-link and share-sheet actions.
+  const [lastInvite, setLastInvite] = useState<(CreateInviteResult & { email: string }) | null>(null);
 
   const send = async () => {
     const trimmed = email.trim();
     if (!trimmed) { addToast('Email required', 'warn'); return; }
     setBusy(true);
     try {
-      await createInvite({
+      const result = await createInvite({
         email: trimmed,
         businessId,
         role,
         businessName,
+        invitedByDisplayName: _auth?.currentUser?.displayName || _auth?.currentUser?.email || undefined,
       });
-      // Try the email send; if it fails, we still have the invite
-      // doc and the magic-link fallback, so the owner can text the
-      // link manually.
-      const link = buildInviteLink(trimmed);
-      setLastLink(link);
-      try {
-        await sendInviteEmail(trimmed, link);
-        addToast(`Invite sent to ${trimmed}`, 'success');
-      } catch (emailErr) {
-        // eslint-disable-next-line no-console
-        console.warn('[invites] email send failed (showing copy-link fallback):', emailErr);
-        addToast('Invite created — email send failed, copy the link below to share manually', 'warn');
-      }
+      setLastInvite({ ...result, email: trimmed });
+      addToast(`Invite created — share the link with ${trimmed}`, 'success');
+
+      // Auto-open share sheet on mobile. If it's not available (desktop
+      // browser without navigator.share), the helper falls back to a
+      // clipboard copy and we toast accordingly. Wrapped in setTimeout
+      // so the success toast renders first.
+      setTimeout(() => { void shareLatest(result, trimmed); }, 100);
+
       setEmail('');
     } catch (e) {
       addToast((e as Error).message || 'Could not create invite', 'error');
@@ -114,14 +114,30 @@ function InviteForm({ businessId, businessName }: { businessId: string; business
     }
   };
 
+  const shareLatest = async (result: CreateInviteResult, recipientEmail: string) => {
+    const ok = await openInviteShareSheet({
+      businessName,
+      role,
+      link: result.link,
+      inviterName: _auth?.currentUser?.displayName || undefined,
+      email: recipientEmail,
+    });
+    if (!ok) addToast('Could not open share menu — use Copy link below', 'warn');
+  };
+
   const copyLink = async () => {
-    if (!lastLink) return;
+    if (!lastInvite) return;
     try {
-      await navigator.clipboard.writeText(lastLink);
+      await navigator.clipboard.writeText(lastInvite.link);
       addToast('Link copied', 'success');
     } catch {
       addToast('Copy failed — long-press the link to copy', 'warn');
     }
+  };
+
+  const shareAgain = async () => {
+    if (!lastInvite) return;
+    await shareLatest(lastInvite, lastInvite.email);
   };
 
   return (
@@ -170,7 +186,7 @@ function InviteForm({ businessId, businessName }: { businessId: string; business
         {busy ? 'Sending…' : 'Send invite'}
       </button>
 
-      {lastLink && (
+      {lastInvite && (
         <div style={{
           marginTop: 10,
           padding: 10,
@@ -182,7 +198,7 @@ function InviteForm({ businessId, businessName }: { businessId: string; business
           lineHeight: 1.5,
         }}>
           <div style={{ fontWeight: 700, color: 'var(--t1)', marginBottom: 4 }}>
-            Share this link directly
+            Share this invite
           </div>
           <div style={{
             wordBreak: 'break-all',
@@ -191,11 +207,16 @@ function InviteForm({ businessId, businessName }: { businessId: string; business
             color: 'var(--t3)',
             marginBottom: 8,
           }}>
-            {lastLink}
+            {lastInvite.link}
           </div>
-          <button className="btn sm secondary" onClick={copyLink}>
-            Copy link
-          </button>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button className="btn sm primary" onClick={shareAgain} style={{ flex: 1, minWidth: 120 }}>
+              Share via…
+            </button>
+            <button className="btn sm secondary" onClick={copyLink} style={{ flex: 1, minWidth: 100 }}>
+              Copy link
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -219,25 +240,36 @@ function PendingInvitesList({ businessId }: { businessId: string }) {
     return () => unsub();
   }, [businessId]);
 
-  const revoke = async (email: string) => {
-    const ok = window.confirm(`Revoke invite for ${email}?`);
+  const revoke = async (inv: InviteDoc) => {
+    const ok = window.confirm(`Revoke invite for ${inv.email}?`);
     if (!ok) return;
     try {
-      await revokeInvite(email);
-      addToast(`Invite for ${email} revoked`, 'info');
+      await revokeInvite(inv.token);
+      addToast(`Invite for ${inv.email} revoked`, 'info');
     } catch (e) {
       addToast((e as Error).message || 'Revoke failed', 'error');
     }
   };
 
-  const copyLink = async (email: string) => {
-    const link = buildInviteLink(email);
+  const copyLink = async (inv: InviteDoc) => {
+    const link = buildInviteLink(inv.token);
     try {
       await navigator.clipboard.writeText(link);
       addToast('Link copied', 'success');
     } catch {
       addToast('Copy failed', 'error');
     }
+  };
+
+  const share = async (inv: InviteDoc) => {
+    const ok = await openInviteShareSheet({
+      businessName: inv.businessName,
+      role: inv.role,
+      link: buildInviteLink(inv.token),
+      inviterName: inv.invitedByDisplayName,
+      email: inv.email,
+    });
+    if (!ok) addToast('Share menu unavailable — link copied instead', 'info');
   };
 
   if (loading) {
@@ -274,16 +306,17 @@ function PendingInvitesList({ businessId }: { businessId: string }) {
         }}>
           {invites.map((inv, idx) => (
             <div
-              key={inv.email}
+              key={inv.token || inv.email}
               style={{
                 padding: 10,
                 borderTop: idx === 0 ? 'none' : '1px solid var(--border2)',
                 display: 'flex',
                 alignItems: 'center',
-                gap: 10,
+                gap: 8,
+                flexWrap: 'wrap',
               }}
             >
-              <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ flex: '1 1 160px', minWidth: 0 }}>
                 <div style={{
                   fontSize: 13, fontWeight: 700, color: 'var(--t1)',
                   whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
@@ -296,14 +329,22 @@ function PendingInvitesList({ businessId }: { businessId: string }) {
               </div>
               <button
                 className="btn sm secondary"
-                onClick={() => copyLink(inv.email)}
+                onClick={() => share(inv)}
+                style={{ flexShrink: 0 }}
+                title="Share via iMessage / Mail / etc"
+              >
+                Share
+              </button>
+              <button
+                className="btn sm secondary"
+                onClick={() => copyLink(inv)}
                 style={{ flexShrink: 0 }}
               >
-                Copy link
+                Copy
               </button>
               <button
                 className="btn sm danger"
-                onClick={() => revoke(inv.email)}
+                onClick={() => revoke(inv)}
                 style={{ flexShrink: 0 }}
               >
                 Revoke
