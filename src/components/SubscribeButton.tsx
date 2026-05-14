@@ -4,82 +4,80 @@ import { _auth } from '@/lib/firebase';
 import { addToast } from '@/lib/toast';
 import { startCheckout, createPortalLink } from '@/lib/stripeSync';
 import { isBillingExempt } from '@/lib/planAccess';
-import { PRO_PRICE_LINE } from '@/lib/pricing-display';
+import { PRO_PRICE_LINE, CORE_PRICE_LINE } from '@/lib/pricing-display';
 
 // ─────────────────────────────────────────────────────────────────────
 //  SubscribeButton
 //
-//  Drop-in button for the Settings → Subscription accordion. Auto-
-//  detects which Stripe flow to launch:
+//  Drop-in button for the Settings → Subscription accordion. Supports
+//  both Pro and Core plans. Auto-detects which flow to launch:
 //
 //    - subscriptionStatus is 'active' / 'past_due'  → Stripe Customer Portal
-//      (manage card, cancel, view invoices)
+//      (manage card, cancel, view invoices). The plan prop is ignored
+//      here — the portal handles everything.
 //
 //    - subscriptionStatus is 'trialing' / 'inactive' / 'canceled' →
-//      Stripe Checkout Session (start or restart paid subscription)
+//      Stripe Checkout Session using the price ID for the selected plan.
 //
-//  Billing-exempt accounts (VIP / founder / comp / internal) render
-//  NOTHING — these accounts bypass Stripe entirely and the parent
-//  Settings page already hides them, but defending here too keeps the
-//  component safe to drop in anywhere without the caller having to
-//  pre-check the exemption flag.
+//  Billing-exempt accounts render NOTHING — those bypass Stripe entirely.
 //
-//  The Stripe price ID is read from VITE_STRIPE_PRO_PRICE_ID at build
-//  time. Setting up the env var is the only step required after the
-//  Stripe Extension is installed and the Pro product is configured in
-//  the Stripe dashboard. See docs/STRIPE-SETUP.md for the full setup.
-//
-//  If the env var is missing (e.g. during development before Stripe
-//  is wired), the button shows "Billing coming soon" and is disabled
-//  rather than crashing on click.
+//  Stripe price IDs are read from VITE_STRIPE_PRO_PRICE_ID and
+//  VITE_STRIPE_CORE_PRICE_ID at build time. If a plan's price ID is
+//  missing, that plan's button shows "Coming soon" instead of crashing.
 // ─────────────────────────────────────────────────────────────────────
 
 interface Props {
   settings: Settings;
+  /** Which plan this button is for. Defaults to 'pro' for back-compat
+   *  with existing call sites that don't pass the prop. */
+  plan?: 'pro' | 'core';
 }
 
-// Read the Pro price ID from Vite env. The value is inlined at build
-// time by Vite — if the env var isn't set in CI when `npm run build`
-// runs, we fall through to an empty string and the button renders
-// disabled. Cast through `unknown` so TS doesn't complain in setups
-// without `vite/client` types loaded.
-const PRO_PRICE_ID: string = (() => {
+// Read both price IDs once at module load. Vite inlines these at build
+// time. If a secret isn't injected (e.g. local dev or missing CI var),
+// the corresponding string is empty and the button shows a disabled
+// state instead of trying to open Stripe.
+const PRICE_IDS = (() => {
   try {
     const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env;
-    return env?.VITE_STRIPE_PRO_PRICE_ID || '';
+    return {
+      pro: env?.VITE_STRIPE_PRO_PRICE_ID || '',
+      core: env?.VITE_STRIPE_CORE_PRICE_ID || '',
+    };
   } catch {
-    return '';
+    return { pro: '', core: '' };
   }
 })();
 
-export function SubscribeButton({ settings }: Props) {
+export function SubscribeButton({ settings, plan = 'pro' }: Props) {
   const [busy, setBusy] = useState(false);
 
-  // Defensive exemption check: billing-exempt accounts never see any
-  // Stripe UI — including this button. Returning null here means the
-  // button can be dropped into any layout without the caller having to
-  // gate on `isBillingExempt()` separately.
-  if (isBillingExempt(settings)) {
-    return null;
-  }
+  // Defensive exemption check.
+  if (isBillingExempt(settings)) return null;
 
-  // Resolve which CTA to show based on subscription state. Active/past
-  // accounts get portal access; everyone else gets checkout.
   const status = settings.subscriptionStatus;
   const isPaid = status === 'active' || status === 'past_due';
 
-  // Pre-flight: if the price ID isn't configured, show a friendly
-  // disabled state rather than a broken click. Same applies if the
-  // user isn't authed yet (race condition during initial load).
-  if (!PRO_PRICE_ID) {
+  // If user already has an active subscription, only render the manage-
+  // billing button on the FIRST instance of this component on the page
+  // (the Pro button). The Core button hides because there's nothing
+  // to do — you can't have two simultaneous subscriptions.
+  if (isPaid && plan === 'core') return null;
+
+  const priceId = PRICE_IDS[plan];
+  const priceLine = plan === 'pro' ? PRO_PRICE_LINE : CORE_PRICE_LINE;
+  const planLabel = plan === 'pro' ? 'Pro' : 'Core';
+
+  // Pre-flight: missing price ID for this plan → disabled "coming soon".
+  if (!priceId) {
     return (
       <button
         className="btn secondary"
         disabled
-        style={{ width: '100%', opacity: 0.6 }}
-        title="Stripe price ID not configured — see docs/STRIPE-SETUP.md"
+        style={{ width: '100%', opacity: 0.6, marginTop: 8 }}
+        title={`Stripe price ID not configured for ${planLabel} plan`}
       >
-        Billing coming soon
+        {planLabel} · Coming soon
       </button>
     );
   }
@@ -93,37 +91,30 @@ export function SubscribeButton({ settings }: Props) {
     setBusy(true);
     try {
       if (isPaid) {
-        // Portal: redirects user to Stripe-hosted billing page.
         const url = await createPortalLink();
         window.location.assign(url);
       } else {
-        // Checkout: creates a session, listens for the URL, then
-        // redirects. startCheckout resolves only AFTER assigning
-        // window.location, so resetting `busy` below is mostly
-        // a safety net in case the redirect is blocked.
-        await startCheckout(uid, PRO_PRICE_ID);
+        await startCheckout(uid, priceId);
       }
     } catch (e) {
       addToast((e as Error).message || 'Could not start checkout', 'error');
       setBusy(false);
     }
-    // Intentionally do not setBusy(false) on success — the redirect
-    // is in flight and resetting state would briefly flash the
-    // button back to active before navigation completes.
+    // Intentionally don't reset busy on success — redirect is mid-flight.
   };
 
   return (
     <button
-      className="btn primary"
+      className={plan === 'pro' ? 'btn primary' : 'btn secondary'}
       onClick={handleClick}
       disabled={busy}
-      style={{ width: '100%' }}
+      style={{ width: '100%', marginTop: plan === 'core' ? 8 : 0 }}
     >
       {busy
         ? 'Opening Stripe…'
         : isPaid
           ? 'Manage billing'
-          : `Subscribe to Pro · ${PRO_PRICE_LINE}`}
+          : `Subscribe to ${planLabel} · ${priceLine}`}
     </button>
   );
 }
