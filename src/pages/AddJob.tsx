@@ -106,6 +106,45 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
   const receiptInputRef = useRef<HTMLInputElement | null>(null);
   const [receiptUploading, setReceiptUploading] = useState(false);
 
+  /**
+   * Live quote suggestion — same engine as the Dashboard's Quick Quote.
+   * Recomputes as the user types miles / tire cost / surcharges so the
+   * technician always sees the recommended price WHILE filling the
+   * form, not only after saving. When revenue is locked (technician
+   * without override), this number IS what gets used. When unlocked,
+   * the actor can compare manual vs suggested.
+   */
+  const liveQuote = useMemo(() => calcQuote({
+    service: job.service,
+    vehicleType: job.vehicleType,
+    miles: job.miles,
+    tireCost: job.tireCost,
+    materialCost: job.materialCost,
+    qty: job.qty,
+    emergency: job.emergency,
+    lateNight: job.lateNight,
+    highway: job.highway,
+    weekend: job.weekend,
+  }, settings), [
+    job.service, job.vehicleType, job.miles, job.tireCost, job.materialCost,
+    job.qty, job.emergency, job.lateNight, job.highway, job.weekend, settings,
+  ]);
+
+  /**
+   * Apply the live suggested price to the revenue field. Used by both
+   * the "Use suggested" button in the quote preview and the auto-fill
+   * effect when a technician toggles surcharges. When revenue is
+   * locked, we ALWAYS write the suggested to revenue so the field
+   * value stays in sync with what's displayed.
+   */
+  useEffect(() => {
+    if (!revenueLocked) return;
+    if (Number(job.revenue) !== Number(liveQuote.suggested)) {
+      set('revenue', String(liveQuote.suggested));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revenueLocked, liveQuote.suggested]);
+
   const handleReceipt = async (file: File) => {
     if (!businessId) { addToast('Sign in required', 'warn'); return; }
     setReceiptUploading(true);
@@ -126,6 +165,46 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
           Pre-filled from Quick Quote · Adjust details below
         </div>
       )}
+
+      {/* Live suggested-price preview — same engine as Dashboard's
+          Quick Quote. Sits at the top of the form so the technician
+          sees the recommended number BEFORE drilling into the rest
+          of the inputs. Updates live as service/vehicle/miles/tire
+          cost/surcharges change. When revenue is locked (technician
+          without override), this number IS what gets saved. */}
+      <div className="quote-box card-anim" style={{ marginBottom: 14 }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          gap: 12, padding: '12px 14px',
+        }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{
+              fontSize: 9, fontWeight: 800,
+              color: 'var(--brand-primary)',
+              textTransform: 'uppercase', letterSpacing: 1.5,
+              marginBottom: 4,
+            }}>
+              Suggested price
+            </div>
+            <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--t1)', lineHeight: 1 }}>
+              {money(liveQuote.suggested)}
+            </div>
+            <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 4 }}>
+              Premium: {money(liveQuote.premium)} · updates as you type
+            </div>
+          </div>
+          {!revenueLocked && (
+            <button
+              type="button"
+              className="btn sm primary"
+              onClick={() => set('revenue', String(liveQuote.suggested))}
+              style={{ flexShrink: 0 }}
+            >
+              Use suggested
+            </button>
+          )}
+        </div>
+      </div>
 
       <div className="form-group card-anim">
         <div className="form-group-title">Service</div>
@@ -265,6 +344,37 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
           <div className="field">
             <label>Miles to job</label>
             <input type="number" inputMode="decimal" value={job.miles} onChange={(e) => set('miles', e.target.value)} placeholder="0" />
+          </div>
+          <div className="field">
+            <label>Quantity</label>
+            <input type="number" inputMode="numeric" value={job.qty} onChange={(e) => set('qty', e.target.value)} placeholder="1" />
+          </div>
+        </div>
+        {/* Tire cost + Material cost — both visible regardless of service
+            type. Previously tire cost was hidden behind the "Tire Details
+            → Purchase Details" panel which only renders for material
+            services (Tire Replacement/Installation/Mounting/etc). That
+            meant a Flat Tire Repair job had NO way to capture a tire
+            cost when one was actually purchased (e.g. patch failed,
+            customer wanted replacement). Lifting these to the top-level
+            Job & Travel section keeps Quick Quote and Log Job in
+            parity — same inputs, same pricing engine, same result. */}
+        <div className="field-row">
+          <div className="field">
+            <label>Tire cost ($)</label>
+            <input
+              type="number"
+              inputMode="decimal"
+              value={job.tireCost}
+              onChange={(e) => set('tireCost', e.target.value)}
+              placeholder="0"
+              disabled={tireSource === 'Customer supplied'}
+            />
+            {tireSource === 'Customer supplied' && (
+              <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 4 }}>
+                Customer-supplied tires — cost stays $0.
+              </div>
+            )}
           </div>
           <div className="field">
             <label>Material $</label>
