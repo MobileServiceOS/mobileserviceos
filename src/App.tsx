@@ -537,6 +537,7 @@ function AuthenticatedApp({ user }: { user: User }) {
           onStartJob={handleStartJob}
           onViewJob={handleViewJob}
           onGenerateInvoice={handleGenerateInvoice}
+          onSendInvoice={handleSendInvoice}
           onSendReview={handleSendReview}
           onMarkPaid={handleMarkPaid}
           onEditJob={handleEditJob}
@@ -557,7 +558,18 @@ function AuthenticatedApp({ user }: { user: User }) {
         />
       );
     }
-    if (tab === 'history') return <History jobs={jobs} settings={settings} onViewJob={handleViewJob} />;
+    if (tab === 'history') return (
+      <History
+        jobs={jobs}
+        settings={settings}
+        onViewJob={handleViewJob}
+        onMarkPaid={handleMarkPaid}
+        onEditJob={handleEditJob}
+        onGenerateInvoice={handleGenerateInvoice}
+        onSendInvoice={handleSendInvoice}
+        onSendReview={handleSendReview}
+      />
+    );
     if (tab === 'customers') return <Customers jobs={jobs} settings={settings} />;
     if (tab === 'payouts') return <Payouts jobs={jobs} settings={settings} />;
     if (tab === 'expenses') return <Expenses expenses={settings.expenses || []} onSave={persistExpenses} />;
@@ -574,6 +586,7 @@ function AuthenticatedApp({ user }: { user: User }) {
           onEditJob={() => handleEditJob(savedJob)}
           onViewJob={() => handleViewJob(savedJob)}
           onDuplicate={() => handleDuplicate(savedJob)}
+          onMarkPaid={() => handleMarkPaid(savedJob)}
           onClose={() => { setSavedJob(null); setTab('dashboard'); }}
         />
       );
@@ -638,6 +651,7 @@ function AuthenticatedApp({ user }: { user: User }) {
           onGenerateInvoice={() => handleGenerateInvoice(detailJob)}
           onSendInvoice={() => handleSendInvoice(detailJob)}
           onSendReview={() => handleSendReview(detailJob)}
+          onMarkPaid={() => handleMarkPaid(detailJob)}
         />
       )}
       <InstallBanner />
