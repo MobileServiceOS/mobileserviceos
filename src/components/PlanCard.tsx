@@ -1,10 +1,11 @@
 import type { Settings } from '@/types';
 import { isBillingExempt } from '@/lib/planAccess';
+import { PRO_PRICE } from '@/lib/pricing-display';
 
 /**
  * Single-plan subscription card for the Settings page.
  *
- * Mobile Service OS offers ONE plan (Pro, $99/mo, 14-day trial). This
+ * Mobile Service OS offers ONE plan (Pro, $89.99/mo, 14-day trial). This
  * card replaces the old Core-vs-Pro comparison UI. No plan picker, no
  * upgrade CTAs — every account is Pro by default; the card simply
  * surfaces trial status, billing copy, and the included feature list.
@@ -186,7 +187,7 @@ export default function PlanCard({ settings }: Props) {
             color: 'var(--t2)',
             marginTop: 4,
           }}>
-            <span style={{ fontWeight: 700, color: 'var(--brand-primary)' }}>$99</span>
+            <span style={{ fontWeight: 700, color: 'var(--brand-primary)' }}>{PRO_PRICE}</span>
             <span> / month · 14-day free trial</span>
           </div>
         </div>

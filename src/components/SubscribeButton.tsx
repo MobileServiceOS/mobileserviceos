@@ -4,6 +4,7 @@ import { _auth } from '@/lib/firebase';
 import { addToast } from '@/lib/toast';
 import { startCheckout, createPortalLink } from '@/lib/stripeSync';
 import { isBillingExempt } from '@/lib/planAccess';
+import { PRO_PRICE_LINE } from '@/lib/pricing-display';
 
 // ─────────────────────────────────────────────────────────────────────
 //  SubscribeButton
@@ -122,7 +123,7 @@ export function SubscribeButton({ settings }: Props) {
         ? 'Opening Stripe…'
         : isPaid
           ? 'Manage billing'
-          : 'Subscribe to Pro · $99 / month'}
+          : `Subscribe to Pro · ${PRO_PRICE_LINE}`}
     </button>
   );
 }

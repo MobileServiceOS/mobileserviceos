@@ -1,6 +1,7 @@
 import {
   collection,
   doc,
+  getDoc,
   getFirestore,
   onSnapshot,
   query,
@@ -207,8 +208,35 @@ export function attachStripeSync(uid: string, businessId: string): Unsubscribe {
     const trialEndsAt = trialEndMs ? new Date(trialEndMs).toISOString() : undefined;
 
     try {
+      // ─── Billing exemption guardrail ──────────────────────────────
+      // Before touching the Settings doc, read it and check the
+      // exemption flag. If `billingExempt === true`, this account is
+      // immune to Stripe-driven downgrades; we skip the mirror
+      // entirely so a failed payment, cancellation, or any other
+      // Stripe event can never silently demote a VIP/founder account.
+      //
+      // The read is cheap (single-document fetch) and runs once per
+      // snapshot event — not per request. Stripe webhook traffic for
+      // a single user is bursty but low-volume in absolute terms, so
+      // the extra read is well within Firestore's free tier.
+      const settingsRef = doc(db, 'businesses', businessId, 'settings', 'main');
+      const settingsSnap = await getDoc(settingsRef);
+      const currentSettings = settingsSnap.data();
+      if (currentSettings?.billingExempt === true) {
+        // eslint-disable-next-line no-console
+        console.info(
+          '[stripeSync] mirror skipped — account is billing-exempt',
+          {
+            businessId,
+            stripeStatus: status,
+            override: currentSettings.subscriptionOverride || 'lifetime',
+          },
+        );
+        return;
+      }
+
       await setDoc(
-        doc(db, 'businesses', businessId, 'settings', 'main'),
+        settingsRef,
         {
           plan,
           subscriptionStatus: status,
@@ -236,7 +264,7 @@ export function attachStripeSync(uid: string, businessId: string): Unsubscribe {
  *
  * @param uid       Authed user's Firebase uid
  * @param priceId   Stripe price ID (set up in the Stripe dashboard,
- *                  matches the `$99/month` recurring price we configured)
+ *                  matches the `$89.99/month` recurring price we configured)
  * @param returnUrl Where to send the user after checkout completes or
  *                  is cancelled. Defaults to the current page.
  */

@@ -72,7 +72,7 @@ export type TabId =
 
 /**
  * Subscription tier. Two-tier architecture preserved internally
- * (Core $39/mo, Pro $99/mo) even though only Pro is offered publicly
+ * (Core $39.99/mo, Pro $89.99/mo) even though only Pro is offered publicly
  * today — this lets us turn Core marketing on later without touching
  * the type system or backend.
  *

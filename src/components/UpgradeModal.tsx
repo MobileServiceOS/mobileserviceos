@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { upgradeRequiredCopy } from '@/lib/planAccess';
+import { PRO_PRICE_LINE } from '@/lib/pricing-display';
 
 // ─────────────────────────────────────────────────────────────────────
 //  UpgradeModal — surfaced when a Core user attempts a Pro-gated
@@ -111,7 +112,7 @@ export function UpgradeModal({ onClose, onUpgrade, body }: Props) {
           lineHeight: 1.5,
         }}>
           <div style={{ fontWeight: 700, color: 'var(--t1)', marginBottom: 4 }}>
-            Pro Plan · $99 / month
+            Pro Plan · {PRO_PRICE_LINE}
           </div>
           14-day free trial · Team management, advanced analytics, technician
           accounts, and dispatch workflow included.

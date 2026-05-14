@@ -11,6 +11,13 @@ import { APP_LOGO } from '@/lib/defaults';
 import { money } from '@/lib/utils';
 import { attachStripeSync } from '@/lib/stripeSync';
 import { SubscribeButton } from '@/components/SubscribeButton';
+import { isBillingExempt } from '@/lib/planAccess';
+import { PRO_PRICE, PRO_PRICE_LINE_COMPACT } from '@/lib/pricing-display';
+import {
+  setLifetimeAccess,
+  revokeLifetimeAccess,
+  isLifetimeOwner,
+} from '@/lib/lifetimeAccess';
 
 interface Props {
   settings: SettingsT;
@@ -45,7 +52,7 @@ const TRIAL_DAYS = 14;
  * Section order matches the spec: Brand → Business → Pricing →
  * Vehicle Add-ons → Team → Subscription → Account.
  *
- * Plan model: single Pro plan ($99/mo, 14-day trial). The
+ * Plan model: single Pro plan ($89.99/mo, 14-day trial). The
  * Subscription section renders the new PlanCard layout; Team
  * management is no longer plan-gated because every account is Pro.
  */
@@ -125,6 +132,22 @@ export function Settings({ settings, onSave }: Props) {
           settings={settings}
           open={openSection === 'subscription'}
           onToggle={() => setOpenSection(openSection === 'subscription' ? null : 'subscription')}
+        />
+      )}
+
+      {/* Lifetime Pro Access — hidden owner-only panel. Renders only
+          when:
+            (a) this account is already billing-exempt (so the owner
+                can see the grant + revoke), OR
+            (b) localStorage has `msos_show_dev_tools=1` (so a developer
+                can grant themselves for testing).
+          Always gated by canSeeBilling (== canManageBilling permission)
+          so technicians never see this section. */}
+      {canSeeBilling && (isBillingExempt(settings) || _isDevToolsEnabled()) && (
+        <LifetimeAccessAccordion
+          settings={settings}
+          open={openSection === 'lifetime'}
+          onToggle={() => setOpenSection(openSection === 'lifetime' ? null : 'lifetime')}
         />
       )}
 
@@ -683,7 +706,7 @@ function TeamAccordion({ open, onToggle }: { open: boolean; onToggle: () => void
 //  Subscription accordion — single Pro plan card
 //
 //  Replaces the old Core-vs-Pro comparison UI. Mobile Service OS now
-//  offers one plan ($99/mo Pro with a 14-day free trial). Shows:
+//  offers one plan ($89.99/mo Pro with a 14-day free trial). Shows:
 //    - Plan name + price
 //    - Trial countdown pill when subscriptionStatus === 'trialing'
 //    - "Billing integration coming soon" notice
@@ -743,9 +766,13 @@ function trialDaysLeft(settings: SettingsT): number | null {
 function SubscriptionAccordion({ settings, open, onToggle }: { settings: SettingsT; open: boolean; onToggle: () => void }) {
   const daysLeft = trialDaysLeft(settings);
   const isTrialing = settings.subscriptionStatus === 'trialing';
-  const summary = isTrialing && daysLeft !== null
-    ? `Pro · Trial · ${daysLeft} ${daysLeft === 1 ? 'day' : 'days'} left`
-    : 'Pro Plan · $99/month';
+  const exempt = isBillingExempt(settings);
+  const summary = exempt
+    ? `Pro · Lifetime${settings.subscriptionOverride && settings.subscriptionOverride !== 'lifetime'
+        ? ` (${settings.subscriptionOverride})` : ''}`
+    : isTrialing && daysLeft !== null
+      ? `Pro · Trial · ${daysLeft} ${daysLeft === 1 ? 'day' : 'days'} left`
+      : `Pro Plan · ${PRO_PRICE_LINE_COMPACT}`;
 
   return (
     <AccordionShell
@@ -754,7 +781,7 @@ function SubscriptionAccordion({ settings, open, onToggle }: { settings: Setting
       summary={summary}
       open={open}
       onToggle={onToggle}
-      badge="Pro"
+      badge={exempt ? 'Lifetime' : 'Pro'}
     >
       <div style={{
         display: 'flex',
@@ -771,19 +798,27 @@ function SubscriptionAccordion({ settings, open, onToggle }: { settings: Setting
             letterSpacing: '-.3px',
             lineHeight: 1.1,
           }}>
-            Pro Plan
+            {exempt ? 'Lifetime Pro Access' : 'Pro Plan'}
           </div>
           <div style={{
             fontSize: 13,
             color: 'var(--t2)',
             marginTop: 6,
           }}>
-            <span style={{ fontWeight: 800, color: 'var(--brand-primary)' }}>$99</span>
-            <span> / month · {TRIAL_DAYS}-day free trial</span>
+            {exempt ? (
+              <span style={{ fontWeight: 700, color: 'var(--brand-primary)' }}>
+                No billing required — full Pro features unlocked permanently
+              </span>
+            ) : (
+              <>
+                <span style={{ fontWeight: 800, color: 'var(--brand-primary)' }}>{PRO_PRICE}</span>
+                <span> / month · {TRIAL_DAYS}-day free trial</span>
+              </>
+            )}
           </div>
         </div>
 
-        {isTrialing && daysLeft !== null && (
+        {!exempt && isTrialing && daysLeft !== null && (
           <div
             title="Free trial in progress"
             style={{
@@ -812,15 +847,17 @@ function SubscriptionAccordion({ settings, open, onToggle }: { settings: Setting
         marginBottom: 14,
         lineHeight: 1.5,
       }}>
-        {isTrialing
-          ? 'Your free trial is active. Subscribe any time to keep your Pro features when the trial ends.'
-          : settings.subscriptionStatus === 'active'
-            ? 'Subscription active. Use Manage billing to update card, view invoices, or cancel.'
-            : settings.subscriptionStatus === 'past_due'
-              ? 'Payment past due. Update your card via Manage billing to keep Pro features.'
-              : settings.subscriptionStatus === 'canceled'
-                ? 'Subscription canceled. Subscribe again to restore Pro features.'
-                : 'Subscribe to keep Pro features active after the trial.'}
+        {exempt
+          ? 'This account has lifetime Pro access. Stripe billing checks are bypassed; no payment is ever required. Manage exemption details in the Lifetime Pro Access panel below.'
+          : isTrialing
+            ? 'Your free trial is active. Subscribe any time to keep your Pro features when the trial ends.'
+            : settings.subscriptionStatus === 'active'
+              ? 'Subscription active. Use Manage billing to update card, view invoices, or cancel.'
+              : settings.subscriptionStatus === 'past_due'
+                ? 'Payment past due. Update your card via Manage billing to keep Pro features.'
+                : settings.subscriptionStatus === 'canceled'
+                  ? 'Subscription canceled. Subscribe again to restore Pro features.'
+                  : 'Subscribe to keep Pro features active after the trial.'}
       </div>
 
       <div style={{
@@ -857,11 +894,186 @@ function SubscriptionAccordion({ settings, open, onToggle }: { settings: Setting
         ))}
       </div>
 
-      {/* Stripe subscribe / portal button. Auto-detects which flow to
-          launch based on the current subscriptionStatus. Renders a
-          disabled "coming soon" placeholder if the Stripe price ID
-          env var isn't configured at build time. */}
-      <SubscribeButton settings={settings} />
+      {/* Stripe subscribe / portal button — hidden entirely for exempt
+          accounts since billing doesn't apply. Renders a disabled
+          "coming soon" placeholder if the Stripe price ID env var
+          isn't configured at build time. */}
+      {!exempt && <SubscribeButton settings={settings} />}
+    </AccordionShell>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+//  Lifetime Pro Access — hidden owner-only panel
+//
+//  Renders only when:
+//    (a) account is currently billing-exempt — owner sees grant details
+//        + revoke button, OR
+//    (b) developer mode is enabled (localStorage `msos_show_dev_tools=1`)
+//        — owner sees the grant form
+//
+//  Permission gating happens at the parent (canSeeBilling), so this
+//  component does not re-check; it trusts its parent.
+// ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Read the developer-tools flag from localStorage. Returns false during
+ * SSR / build (no window). Used to gate visibility of the grant UI for
+ * non-exempt accounts so a regular owner can't see "Grant Lifetime
+ * Access" by default.
+ */
+function _isDevToolsEnabled(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem('msos_show_dev_tools') === '1';
+  } catch {
+    return false;
+  }
+}
+
+function LifetimeAccessAccordion({
+  settings, open, onToggle,
+}: { settings: SettingsT; open: boolean; onToggle: () => void }) {
+  const { businessId } = useBrand();
+  const exempt = isBillingExempt(settings);
+  const lifetime = isLifetimeOwner(settings);
+  const summary = exempt
+    ? `Granted${settings.subscriptionOverride ? ` · ${settings.subscriptionOverride}` : ''}`
+    : 'Developer · grant lifetime access';
+
+  // ─── Grant form state ────────────────────────────────────────────
+  const [reason, setReason] = useState('Founder account');
+  const [override, setOverride] = useState<'lifetime' | 'beta' | 'comp' | 'internal'>('lifetime');
+  const [busy, setBusy] = useState(false);
+
+  const grant = async () => {
+    if (!businessId) { addToast('No business context', 'warn'); return; }
+    if (!reason.trim()) { addToast('Reason is required', 'warn'); return; }
+    setBusy(true);
+    try {
+      await setLifetimeAccess(businessId, { reason: reason.trim(), override });
+      addToast('Lifetime Pro access granted', 'success');
+    } catch (e) {
+      addToast((e as Error).message || 'Grant failed', 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const revoke = async () => {
+    if (!businessId) { addToast('No business context', 'warn'); return; }
+    const ok = window.confirm(
+      'Revoke lifetime access? The account will fall back to whatever Stripe says — likely Core if no active subscription exists.',
+    );
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await revokeLifetimeAccess(businessId, 'Manual revoke from Settings');
+      addToast('Lifetime access revoked', 'info');
+    } catch (e) {
+      addToast((e as Error).message || 'Revoke failed', 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <AccordionShell
+      title="Lifetime Pro Access"
+      icon="🛡️"
+      summary={summary}
+      open={open}
+      onToggle={onToggle}
+      badge={lifetime ? 'Lifetime' : exempt ? 'Exempt' : 'Dev'}
+    >
+      {exempt ? (
+        <>
+          <div style={{
+            padding: 14,
+            background: 'linear-gradient(160deg, rgba(200,164,74,.08) 0%, var(--s1) 100%)',
+            border: '1px solid rgba(200,164,74,.3)',
+            borderRadius: 10,
+            marginBottom: 14,
+          }}>
+            <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--brand-primary)', marginBottom: 8 }}>
+              ✓ Lifetime Pro access active
+            </div>
+            <div style={{ display: 'grid', gap: 6, fontSize: 12, color: 'var(--t2)' }}>
+              <div>
+                <strong style={{ color: 'var(--t1)' }}>Override type:</strong>{' '}
+                {settings.subscriptionOverride || 'lifetime'}
+              </div>
+              {settings.exemptionReason && (
+                <div>
+                  <strong style={{ color: 'var(--t1)' }}>Reason:</strong> {settings.exemptionReason}
+                </div>
+              )}
+              {settings.exemptionGrantedAt && (
+                <div>
+                  <strong style={{ color: 'var(--t1)' }}>Granted:</strong>{' '}
+                  {new Date(settings.exemptionGrantedAt).toLocaleDateString()}
+                </div>
+              )}
+              {settings.exemptionGrantedBy && (
+                <div>
+                  <strong style={{ color: 'var(--t1)' }}>By:</strong>{' '}
+                  <code style={{ fontSize: 10 }}>{settings.exemptionGrantedBy.slice(0, 12)}…</code>
+                </div>
+              )}
+            </div>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--t3)', lineHeight: 1.5, marginBottom: 12 }}>
+            This account bypasses all Stripe checks. Webhook events, payment
+            failures, and subscription expirations cannot revoke access.
+            Revocation is manual only.
+          </div>
+          <button
+            className="btn danger"
+            onClick={revoke}
+            disabled={busy}
+            style={{ width: '100%' }}
+          >
+            {busy ? 'Revoking…' : 'Revoke lifetime access'}
+          </button>
+        </>
+      ) : (
+        <>
+          <div style={{ fontSize: 11, color: 'var(--t3)', marginBottom: 12, lineHeight: 1.5 }}>
+            Developer mode. Grant this business lifetime Pro access — bypasses
+            Stripe billing permanently. Use for founder accounts, beta
+            participants, or comp grants.
+          </div>
+          <div className="field">
+            <label>Reason</label>
+            <input
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="e.g. Founder account"
+            />
+          </div>
+          <div className="field">
+            <label>Override type</label>
+            <select
+              value={override}
+              onChange={(e) => setOverride(e.target.value as typeof override)}
+              style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--s1)', color: 'var(--t1)' }}
+            >
+              <option value="lifetime">Lifetime (founder)</option>
+              <option value="beta">Beta tester</option>
+              <option value="comp">Comp account</option>
+              <option value="internal">Internal / team</option>
+            </select>
+          </div>
+          <button
+            className="btn primary"
+            onClick={grant}
+            disabled={busy || !reason.trim()}
+            style={{ width: '100%' }}
+          >
+            {busy ? 'Granting…' : 'Grant Lifetime Pro Access'}
+          </button>
+        </>
+      )}
     </AccordionShell>
   );
 }
