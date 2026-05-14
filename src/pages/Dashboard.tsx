@@ -199,6 +199,13 @@ export function Dashboard({
   );
   const todayJobs = useMemo(() => completedJobs.filter((j) => j.date === today), [completedJobs, today]);
 
+  // Today's totals — revenue, costs, profit. Sits under the weekly
+  // hero so the operator gets an instant "what did today actually
+  // produce?" snapshot. For technicians, costs/profit are hidden;
+  // only the count is shown.
+  const todayTotals = useMemo(() => weekSummary(todayJobs, settings), [todayJobs, settings]);
+  const todayCosts = r2(Math.max(0, (todayTotals.revenue || 0) - (todayTotals.grossProfit || 0)));
+
   const totals = useMemo(() => weekSummary(weekJobs, settings), [weekJobs, settings]);
   const lastWeekTotals = useMemo(() => weekSummary(lastWeekJobs, settings), [lastWeekJobs, settings]);
   const avgProfit = weekJobs.length ? r2(totals.grossProfit / weekJobs.length) : 0;
@@ -413,6 +420,67 @@ export function Dashboard({
             </>
           )}
         </div>
+      </div>
+
+      {/* ─── 2b. Today block — quick "what did today produce" card ── */}
+      {/* Shows job count + revenue + profit (owner) or just job count
+          + pending count (technician). Sits under the weekly hero so
+          the operator gets a daily pulse without scrolling. */}
+      <div className="card-anim" style={{
+        background: 'var(--s2)',
+        border: '1px solid var(--border)',
+        borderRadius: 14,
+        padding: '14px 16px',
+        marginBottom: 14,
+      }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          marginBottom: 10,
+        }}>
+          <div style={{
+            fontSize: 10, fontWeight: 800,
+            color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: 1.5,
+          }}>
+            Today
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--t3)' }}>
+            {new Date(today + 'T12:00:00').toLocaleDateString('en-US', {
+              weekday: 'short', month: 'short', day: 'numeric',
+              timeZone: 'America/New_York',
+            })}
+          </div>
+        </div>
+        <div style={{
+          display: 'grid', gridTemplateColumns: '1fr 1fr 1fr',
+          gap: 8,
+        }}>
+          <SubKpi
+            label="Jobs"
+            value={`${todayJobs.length}`}
+            tone="neutral"
+          />
+          {showCompanyData ? (
+            <>
+              <SubKpi label="Net" value={money(todayTotals.revenue)} tone="neutral" />
+              <SubKpi label="Profit" value={money(todayTotals.grossProfit)} tone="success" />
+            </>
+          ) : (
+            <>
+              <SubKpi label="Pending" value={`${pendingJobs.length}`} tone="neutral" />
+              <SubKpi label="Avg / Job" value={money(avgProfit)} tone="neutral" />
+            </>
+          )}
+        </div>
+        {showCompanyData && todayCosts > 0 && (
+          <div style={{
+            fontSize: 11, color: 'var(--t3)',
+            marginTop: 8, paddingTop: 8,
+            borderTop: '1px solid var(--border)',
+            textAlign: 'center',
+          }}>
+            {money(todayCosts)} in costs today
+          </div>
+        )}
       </div>
 
       {/* ─── 3. Quick actions row ────────────────────────────────── */}
