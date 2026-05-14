@@ -65,10 +65,30 @@ export function InviteAccept({ token, onAuth }: Props) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const invite = await getInviteByToken(token);
+      let invite;
+      try {
+        invite = await getInviteByToken(token);
+      } catch (err) {
+        if (cancelled) return;
+        // Surface the real Firestore error to the UI so permission /
+        // network / config issues are diagnosable from the screen
+        // instead of being silently swallowed. The error's code (e.g.
+        // "permission-denied") + message tell us exactly what went
+        // wrong on the server side.
+        const e = err as { code?: string; message?: string };
+        const detail = e.code ? `${e.code}: ${e.message || ''}` : (e.message || String(err));
+        setState({
+          kind: 'invalid',
+          reason: `Could not load the invite. ${detail}`,
+        });
+        return;
+      }
       if (cancelled) return;
       if (!invite) {
-        setState({ kind: 'invalid', reason: 'This invite link is invalid or no longer exists.' });
+        setState({
+          kind: 'invalid',
+          reason: `This invite link is invalid or no longer exists. (token: ${token.slice(0, 8)}…)`,
+        });
         return;
       }
       if (invite.status === 'accepted') {
