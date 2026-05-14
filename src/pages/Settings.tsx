@@ -14,6 +14,7 @@ import { SubscribeButton } from '@/components/SubscribeButton';
 import { isBillingExempt } from '@/lib/planAccess';
 import { PRO_PRICE, PRO_PRICE_LINE_COMPACT } from '@/lib/pricing-display';
 import { TeamManagement } from '@/components/TeamManagement';
+import { WheelRushBackupImport } from '@/pages/WheelRushBackupImport';
 import {
   setLifetimeAccess,
   revokeLifetimeAccess,
@@ -155,6 +156,8 @@ export function Settings({ settings, onSave }: Props) {
           onToggle={() => setOpenSection(openSection === 'lifetime' ? null : 'lifetime')}
         />
       )}
+
+      {canSeeBilling && <WheelRushBackupImport />}
 
       <AccountAccordion
         open={openSection === 'account'}
@@ -1313,4 +1316,3 @@ function AccordionShell({ title, icon, summary, badge, open, onToggle, logoUrl, 
     </div>
   );
 }
-
