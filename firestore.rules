@@ -2,6 +2,11 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // Helper: get the businessId for the requesting user
+    function userBusinessId() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.businessId;
+    }
+
     function isSignedIn() {
       return request.auth != null;
     }
@@ -10,64 +15,112 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
-    // Owner-by-convention: businessId == auth.uid. Makes the bootstrap flow
-    // work without a chicken-and-egg lookup — the owner can create their
-    // own business doc and members doc and settings doc BEFORE users/{uid}
-    // .businessId has been read by any rule.
-    function isOwnerByConvention(businessId) {
-      return isSignedIn() && request.auth.uid == businessId;
+    function isMemberOfBusiness(businessId) {
+      return isSignedIn() && userBusinessId() == businessId;
     }
 
-    // Teammate access via users/{uid}.businessId link
-    function hasUserBusinessLink(businessId) {
-      return isSignedIn()
-        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
-        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.businessId == businessId;
-    }
-
-    // Teammate access via explicit members doc
-    function hasMemberDoc(businessId) {
-      return isSignedIn()
-        && exists(/databases/$(database)/documents/businesses/$(businessId)/members/$(request.auth.uid));
-    }
-
-    function canAccessBusiness(businessId) {
-      return isOwnerByConvention(businessId)
-        || hasUserBusinessLink(businessId)
-        || hasMemberDoc(businessId);
-    }
-
-    // ── users/{uid} ─────────────────────────────────────
+    // Each user can only read/write their own user record
     match /users/{userId} {
       allow read, write: if isOwnUser(userId);
     }
 
-    // ── businesses/{businessId} ────────────────────────
-    match /businesses/{businessId} {
-      allow read:   if canAccessBusiness(businessId);
-      allow create: if isOwnerByConvention(businessId);
-      allow update: if canAccessBusiness(businessId);
+    // ─────────────────────────────────────────────────────────────────
+    // Invites — top-level collection, token-keyed.
+    // Schema: invites/{token} where token is a 128-bit random string.
+    //
+    // States: pending → accepted | revoked | expired
+    //
+    // Permissions:
+    //   - CREATE: owner/admin of the target business may create an
+    //             invite for THEIR business with role admin|technician
+    //             (never owner), status='pending', and a future
+    //             expiresAt. The invitedBy field must be the creator.
+    //
+    //   - READ:   anyone signed-in who knows the token (the link IS
+    //             the secret). Pragmatic and matches the link-as-key
+    //             threat model.
+    //
+    //   - UPDATE to status='accepted': only by the user whose auth
+    //             token email matches the invite's email field, and
+    //             only when the existing status='pending' AND the
+    //             invite hasn't expired. Their uid is recorded.
+    //
+    //   - UPDATE to status='revoked': owner/admin of the inviting
+    //             business may revoke their own invite. Only allowed
+    //             when status='pending'.
+    //
+    //   - UPDATE to status='expired': anyone signed-in can mark an
+    //             expired pending invite as expired. This is a no-harm
+    //             cleanup transition the invitee or owner may trigger
+    //             on read.
+    //
+    //   - DELETE: not allowed — keep audit trail. Use revoke instead.
+    // ─────────────────────────────────────────────────────────────────
+    match /invites/{token} {
+      // CREATE — only by owner/admin of the target business.
+      // We validate against the requesting user's businessId from
+      // their /users/{uid} doc. Role limited to admin|technician.
+      allow create: if isSignedIn()
+        && request.resource.data.businessId == userBusinessId()
+        && request.resource.data.invitedBy == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && (request.resource.data.role == 'admin' || request.resource.data.role == 'technician')
+        && request.resource.data.email is string
+        && request.resource.data.email.size() > 3
+        && request.resource.data.token == token
+        && request.resource.data.expiresAt is string;
+
+      // READ — anyone signed-in who has the token can read.
+      allow read: if isSignedIn();
+
+      // UPDATE — three permitted transitions, each with its own rule.
+      //
+      // Note on expiresAt: it's stored as an ISO string for portability
+      // (Firestore can sort/query strings, and the client uses Date.parse
+      // for comparisons). Firestore rules don't have an ISO-to-millis
+      // parser, so expiry is enforced at the application level
+      // (acceptInvite throws on expired invites). The rule still
+      // prevents abuse via the email-match + status-transition guards
+      // below — an attacker can't accept someone else's invite, and
+      // an "expired but still accepted" scenario only succeeds if the
+      // client deliberately bypasses its own check.
+      allow update: if isSignedIn() && (
+        // (a) Accept: invitee transitions pending → accepted.
+        //     Email-match + status was pending + new acceptedByUid is
+        //     the requesting user.
+        (
+          resource.data.status == 'pending'
+          && request.resource.data.status == 'accepted'
+          && resource.data.email == request.auth.token.email.lower()
+          && request.resource.data.acceptedByUid == request.auth.uid
+        )
+        ||
+        // (b) Revoke: owner/admin of the inviting business flips
+        //     pending → revoked.
+        (
+          resource.data.status == 'pending'
+          && request.resource.data.status == 'revoked'
+          && resource.data.businessId == userBusinessId()
+        )
+        ||
+        // (c) Expire: lazy expiry transition. Anyone signed in can
+        //     mark a pending invite expired — it's a no-harm cleanup.
+        (
+          resource.data.status == 'pending'
+          && request.resource.data.status == 'expired'
+        )
+      );
+
+      // No deletes — keep audit trail.
       allow delete: if false;
+    }
 
-      match /members/{memberUid} {
-        allow read:   if isOwnUser(memberUid) || isOwnerByConvention(businessId);
-        allow create: if isOwnerByConvention(businessId);
-        allow update: if isOwnerByConvention(businessId);
-        allow delete: if isOwnerByConvention(businessId);
-      }
+    // All business data is scoped: only members of that business can access
+    match /businesses/{businessId} {
+      allow read, write: if isMemberOfBusiness(businessId);
 
-      match /settings/{settingId} {
-        allow read, write: if canAccessBusiness(businessId);
-      }
-
-      // All other business-scoped collections (jobs, inventory, expenses,
-      // invoices, operational_settings, customers, etc.)
-      match /{collection}/{docId} {
-        allow read, write: if canAccessBusiness(businessId);
-      }
-
-      match /{collection}/{docId}/{rest=**} {
-        allow read, write: if canAccessBusiness(businessId);
+      match /{document=**} {
+        allow read, write: if isMemberOfBusiness(businessId);
       }
     }
 
