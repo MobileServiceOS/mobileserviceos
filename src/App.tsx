@@ -16,6 +16,7 @@ import { Settings } from '@/pages/Settings';
 import { Header } from '@/components/Header';
 import { ToastHost } from '@/components/ToastHost';
 import { InstallBanner } from '@/components/InstallBanner';
+import { MoreSheet } from '@/components/MoreSheet';
 import { JobSuccessPanel } from '@/components/JobSuccessPanel';
 import { JobDetailModal } from '@/components/JobDetailModal';
 import { Onboarding } from '@/components/Onboarding';
@@ -167,6 +168,11 @@ export function App() {
 function AuthenticatedApp({ user }: { user: User }) {
   const { brand, businessId, loading: brandLoading, onboardingComplete, updateBrand } = useBrand();
   const [tab, setTab] = useState<TabId>('dashboard');
+  // Bottom-sheet visibility for the "More" tab. Replaces the previous
+  // behavior of routing the More button straight to Settings, since
+  // owners also need access to Payouts, Expenses, and Customers —
+  // tabs that previously had no UI entry point.
+  const [moreOpen, setMoreOpen] = useState(false);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [inventory, setInventoryRaw] = useState<InventoryItem[]>([]);
   const [settings, setSettingsRaw] = useState<SettingsT>(DEFAULT_SETTINGS);
@@ -717,10 +723,19 @@ function AuthenticatedApp({ user }: { user: User }) {
         <button className={'nav-btn' + (tab === 'inventory' ? ' active' : '')} onClick={() => setTab('inventory')}>
           <span className="nav-ico">🛞</span><span>Inv</span>
         </button>
-        <button className={'nav-btn' + (tab === 'settings' ? ' active' : '')} onClick={() => setTab('settings')}>
+        <button
+          className={'nav-btn' + ((tab === 'settings' || tab === 'payouts' || tab === 'expenses' || tab === 'customers') ? ' active' : '')}
+          onClick={() => setMoreOpen(true)}
+        >
           <span className="nav-ico">⚙</span><span>More</span>
         </button>
       </nav>
+      {moreOpen && (
+        <MoreSheet
+          onClose={() => setMoreOpen(false)}
+          onPick={(t) => { setTab(t); setMoreOpen(false); }}
+        />
+      )}
       {detailJob && (
         <JobDetailModal
           job={detailJob}
