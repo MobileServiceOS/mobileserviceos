@@ -12,6 +12,7 @@ import {
   deleteUser,
   reauthenticateWithCredential,
   reauthenticateWithPopup,
+  sendEmailVerification,
   EmailAuthProvider,
   GoogleAuthProvider,
 } from 'firebase/auth';
@@ -1301,6 +1302,28 @@ function AccountForm() {
   const providerId = _auth?.currentUser?.providerData?.[0]?.providerId;
   const needsPassword = providerId === 'password';
   const isOwner = permissions.canManageBilling;
+  // Verification status — only relevant for email/password users.
+  // Google sign-ins are pre-verified by Firebase.
+  const emailVerified = Boolean(_auth?.currentUser?.emailVerified);
+  const showVerifyRow = providerId === 'password' && !emailVerified;
+  const [verifyBusy, setVerifyBusy] = useState(false);
+
+  const resendVerify = async () => {
+    if (!_auth?.currentUser) return;
+    setVerifyBusy(true);
+    try {
+      await sendEmailVerification(_auth.currentUser);
+      addToast('Verification email sent — check your inbox', 'success');
+    } catch (e) {
+      const msg = (e as Error).message || 'Failed to send';
+      const friendly = /too-many-requests/i.test(msg)
+        ? 'Hold on — too many attempts. Try again in a few minutes.'
+        : msg;
+      addToast(friendly, 'error');
+    } finally {
+      setVerifyBusy(false);
+    }
+  };
 
   return (
     <>
@@ -1308,6 +1331,36 @@ function AccountForm() {
         <label>Email</label>
         <input value={_auth?.currentUser?.email || ''} disabled />
       </div>
+      {showVerifyRow && (
+        <div style={{
+          marginTop: -8, marginBottom: 14,
+          padding: '8px 10px',
+          background: 'rgba(245,158,11,.1)',
+          border: '1px solid rgba(245,158,11,.3)',
+          borderRadius: 8,
+          display: 'flex', alignItems: 'center', gap: 10,
+          fontSize: 11,
+        }}>
+          <span style={{ flex: 1, color: 'var(--t2)' }}>
+            ⚠ Email not yet verified
+          </span>
+          <button
+            onClick={resendVerify}
+            disabled={verifyBusy}
+            style={{
+              padding: '4px 10px',
+              background: 'var(--brand-primary)',
+              color: '#000',
+              border: 'none', borderRadius: 6,
+              fontSize: 11, fontWeight: 800,
+              cursor: 'pointer',
+              opacity: verifyBusy ? 0.5 : 1,
+            }}
+          >
+            Resend
+          </button>
+        </div>
+      )}
       <div className="field">
         <label>New password</label>
         <input type="password" value={newPass} onChange={(e) => setNewPass(e.target.value)} placeholder="At least 6 characters" />
