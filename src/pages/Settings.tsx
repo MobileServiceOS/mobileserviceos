@@ -163,9 +163,13 @@ function BrandForm() {
     setLogoUploading(true);
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     try {
-      const url = await Promise.race<string>([
+      // `uploadLogo` returns `Promise<string | null>` (null on a quietly-
+      // skipped upload). The timeout race arm must use the same union
+      // so the generic type-checks; we narrow back to a non-null string
+      // at the use site below.
+      const url = await Promise.race<string | null>([
         uploadLogo(businessId, file),
-        new Promise<string>((_, reject) => {
+        new Promise<string | null>((_, reject) => {
           timeoutId = setTimeout(
             () => reject(new Error('Logo upload timed out — please try again')),
             LOGO_UPLOAD_TIMEOUT_MS,
