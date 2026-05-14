@@ -85,14 +85,20 @@ const MembershipContext = createContext<MembershipState>({
 
 interface ProviderProps {
   /**
-   * Settings is passed in from App.tsx so we can re-resolve permissions
-   * when the owner toggles `allowTechnicianPriceOverride` or upgrades the
-   * plan. We use the FULL settings type here (not Pick) so we can also
-   * read `ownerUid` / `ownerEmail` / `billingExempt` for the owner
-   * fallback logic. Settings doesn't actually carry ownerUid (that lives
-   * on the business root doc), but the brand context exposes it.
+   * Full Settings object. App.tsx already passes the complete settings
+   * here at runtime; the type is widened to match so we can:
+   *   - Read plan + allowTechnicianPriceOverride for getPermissions()
+   *   - Read billingExempt + subscriptionOverride for exemption logic
+   *   - Read subscriptionStatus for trial-state-aware permissions
+   *   - Pass settings directly to getPermissions() without a Pick that
+   *     might drift out of sync with what permissions.ts expects
+   *
+   * Earlier iterations used a narrower Pick, but that created an
+   * impedance mismatch with permissions.ts's getPermissions(settings: Settings)
+   * signature. Widening to the full type keeps both sides aligned and
+   * makes future field additions zero-friction.
    */
-  settings: Pick<Settings, 'plan' | 'allowTechnicianPriceOverride' | 'billingExempt' | 'subscriptionOverride'>;
+  settings: Settings;
   children: ReactNode;
 }
 
@@ -244,19 +250,13 @@ export function MembershipProvider({ settings, children }: ProviderProps) {
   // when settings.plan is technically null/undefined.
   const permissions = useMemo(() => {
     const exempt = isBillingExempt(settings);
-    // Pass the FULL settings object (cast to Settings — the parent
-    // App.tsx always passes the real Settings here, but TypeScript only
-    // sees our narrower Pick prop type). For exempt accounts we spread
-    // in plan='pro' so plan caps can't strip canManageTeam from a
-    // lifetime-exempt owner — even when settings.plan is briefly
-    // undefined during the initial load.
-    //
-    // The cast is safe — getPermissions() reads only `plan` and
-    // `allowTechnicianPriceOverride` per lib/permissions.ts.
-    const fullSettings = settings as unknown as Settings;
+    // For exempt accounts, spread plan='pro' so plan caps in
+    // permissions.ts can't strip canManageTeam from a lifetime-exempt
+    // owner — even when settings.plan is briefly undefined during the
+    // initial settings load.
     const permsInput: Settings = exempt
-      ? { ...fullSettings, plan: 'pro' }
-      : fullSettings;
+      ? { ...settings, plan: 'pro' }
+      : settings;
     const p = getPermissions(member, permsInput);
 
     // Diagnostic log on every recompute — surfaces the full state for
