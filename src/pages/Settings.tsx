@@ -1416,7 +1416,7 @@ function AccountForm() {
         marginTop: 18, paddingTop: 14,
         borderTop: '1px solid var(--border)',
         display: 'flex', gap: 12, justifyContent: 'center',
-        fontSize: 11,
+        fontSize: 11, flexWrap: 'wrap',
       }}>
         <a
           href="?legal=privacy"
@@ -1430,6 +1430,13 @@ function AccountForm() {
           style={{ color: 'var(--t3)', textDecoration: 'none' }}
         >
           Terms of Service
+        </a>
+        <span style={{ color: 'var(--t3)' }}>·</span>
+        <a
+          href="?help=1"
+          style={{ color: 'var(--t3)', textDecoration: 'none' }}
+        >
+          Help
         </a>
         <span style={{ color: 'var(--t3)' }}>·</span>
         <a
