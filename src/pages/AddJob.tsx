@@ -206,6 +206,88 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
         </div>
       </div>
 
+      {/* ─── Revenue section — TOP of form ─────────────────────────
+         Per the operator's request: revenue is the most important
+         data on a job. Miles + tire cost + revenue charged all live
+         here at the top so the technician fills the numbers that
+         actually matter FIRST, then drills into details below. The
+         live pricing breakdown sits beneath the inputs so the
+         technician sees how each value contributes to profit. */}
+      <div className="form-group card-anim">
+        <div className="form-group-title">Revenue</div>
+        <div className="field-row">
+          <div className="field">
+            <label>Miles to job</label>
+            <input
+              type="number"
+              inputMode="decimal"
+              value={job.miles}
+              onChange={(e) => set('miles', e.target.value)}
+              placeholder="0"
+            />
+          </div>
+          <div className="field">
+            <label>Tire cost ($)</label>
+            <input
+              type="number"
+              inputMode="decimal"
+              value={job.tireCost}
+              onChange={(e) => set('tireCost', e.target.value)}
+              placeholder="0"
+              disabled={tireSource === 'Customer supplied'}
+            />
+            {tireSource === 'Customer supplied' && (
+              <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 4 }}>
+                Customer-supplied · $0
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="field">
+          <label>
+            Revenue charged ($)
+            {revenueLocked && (
+              <span style={{
+                marginLeft: 8, fontSize: 9, fontWeight: 800,
+                color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: 1,
+              }}>
+                · suggested price (locked)
+              </span>
+            )}
+          </label>
+          <input
+            type="number"
+            inputMode="decimal"
+            value={job.revenue}
+            onChange={(e) => set('revenue', e.target.value)}
+            placeholder="0"
+            disabled={revenueLocked}
+            readOnly={revenueLocked}
+            style={revenueLocked ? { opacity: 0.7, cursor: 'not-allowed' } : undefined}
+          />
+          {revenueLocked && (
+            <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 4, lineHeight: 1.4 }}>
+              The system-suggested price is used. Ask an owner to enable
+              technician price overrides if a manual adjustment is needed.
+            </div>
+          )}
+        </div>
+
+        <div className="pricing-breakdown">
+          <div className="pricing-breakdown-row"><span>Revenue</span><span className="num green">{money(breakdown.revenue)}</span></div>
+          <div className="pricing-breakdown-row"><span>Tire cost</span><span className="num red">-{money(breakdown.tireCost)}</span></div>
+          <div className="pricing-breakdown-row"><span>Material cost</span><span className="num red">-{money(breakdown.materialCost)}</span></div>
+          <div className="pricing-breakdown-row">
+            <span>Travel ({breakdown.travelMiles} mi{breakdown.freeMilesIncluded ? `, ${breakdown.freeMilesIncluded} free` : ''})</span>
+            <span className="num red">-{money(breakdown.travelCost)}</span>
+          </div>
+          <div className="pricing-breakdown-row total">
+            <span>Profit</span>
+            <span className={'num ' + (breakdown.profit >= 0 ? 'green' : 'red')}>{money(breakdown.profit)}</span>
+          </div>
+        </div>
+      </div>
+
       <div className="form-group card-anim">
         <div className="form-group-title">Service</div>
         <div className="chip-grid">
@@ -339,42 +421,11 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
       )}
 
       <div className="form-group card-anim">
-        <div className="form-group-title">Job & Travel</div>
+        <div className="form-group-title">Job Details</div>
         <div className="field-row">
-          <div className="field">
-            <label>Miles to job</label>
-            <input type="number" inputMode="decimal" value={job.miles} onChange={(e) => set('miles', e.target.value)} placeholder="0" />
-          </div>
           <div className="field">
             <label>Quantity</label>
             <input type="number" inputMode="numeric" value={job.qty} onChange={(e) => set('qty', e.target.value)} placeholder="1" />
-          </div>
-        </div>
-        {/* Tire cost + Material cost — both visible regardless of service
-            type. Previously tire cost was hidden behind the "Tire Details
-            → Purchase Details" panel which only renders for material
-            services (Tire Replacement/Installation/Mounting/etc). That
-            meant a Flat Tire Repair job had NO way to capture a tire
-            cost when one was actually purchased (e.g. patch failed,
-            customer wanted replacement). Lifting these to the top-level
-            Job & Travel section keeps Quick Quote and Log Job in
-            parity — same inputs, same pricing engine, same result. */}
-        <div className="field-row">
-          <div className="field">
-            <label>Tire cost ($)</label>
-            <input
-              type="number"
-              inputMode="decimal"
-              value={job.tireCost}
-              onChange={(e) => set('tireCost', e.target.value)}
-              placeholder="0"
-              disabled={tireSource === 'Customer supplied'}
-            />
-            {tireSource === 'Customer supplied' && (
-              <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 4 }}>
-                Customer-supplied tires — cost stays $0.
-              </div>
-            )}
           </div>
           <div className="field">
             <label>Material $</label>
@@ -433,53 +484,13 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
       </div>
 
       <div className="form-group card-anim">
-        <div className="form-group-title">Revenue</div>
+        <div className="form-group-title">Note</div>
         <div className="field">
-          <label>
-            Revenue charged ($)
-            {revenueLocked && (
-              <span style={{
-                marginLeft: 8, fontSize: 9, fontWeight: 800,
-                color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: 1,
-              }}>
-                · suggested price (locked)
-              </span>
-            )}
-          </label>
-          <input
-            type="number"
-            inputMode="decimal"
-            value={job.revenue}
-            onChange={(e) => set('revenue', e.target.value)}
-            placeholder="0"
-            disabled={revenueLocked}
-            readOnly={revenueLocked}
-            style={revenueLocked ? { opacity: 0.7, cursor: 'not-allowed' } : undefined}
+          <textarea
+            value={job.note}
+            onChange={(e) => set('note', e.target.value)}
+            placeholder="Any special details for this job…"
           />
-          {revenueLocked && (
-            <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 4, lineHeight: 1.4 }}>
-              The system-suggested price is used. Ask an owner to enable
-              technician price overrides if a manual adjustment is needed.
-            </div>
-          )}
-        </div>
-        <div className="field">
-          <label>Note (optional)</label>
-          <textarea value={job.note} onChange={(e) => set('note', e.target.value)} placeholder="Any special details…" />
-        </div>
-
-        <div className="pricing-breakdown">
-          <div className="pricing-breakdown-row"><span>Revenue</span><span className="num green">{money(breakdown.revenue)}</span></div>
-          <div className="pricing-breakdown-row"><span>Tire cost</span><span className="num red">-{money(breakdown.tireCost)}</span></div>
-          <div className="pricing-breakdown-row"><span>Material cost</span><span className="num red">-{money(breakdown.materialCost)}</span></div>
-          <div className="pricing-breakdown-row">
-            <span>Travel ({breakdown.travelMiles} mi{breakdown.freeMilesIncluded ? `, ${breakdown.freeMilesIncluded} free` : ''})</span>
-            <span className="num red">-{money(breakdown.travelCost)}</span>
-          </div>
-          <div className="pricing-breakdown-row total">
-            <span>Profit</span>
-            <span className={'num ' + (breakdown.profit >= 0 ? 'green' : 'red')}>{money(breakdown.profit)}</span>
-          </div>
         </div>
       </div>
 
