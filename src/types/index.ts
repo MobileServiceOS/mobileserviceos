@@ -64,6 +64,7 @@ export type TabId =
   | 'expenses'
   | 'inventory'
   | 'settings'
+  | 'help'
   | 'success';
 
 // ─────────────────────────────────────────────────────────────────────
