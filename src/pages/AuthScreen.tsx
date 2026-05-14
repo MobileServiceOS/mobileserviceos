@@ -161,6 +161,13 @@ export function AuthScreen({ onAuth }: Props) {
         >
           Terms of Service
         </a>
+        ·
+        <a
+          href="?help=1"
+          style={{ color: 'var(--t3)', textDecoration: 'none', padding: '0 8px' }}
+        >
+          Help
+        </a>
       </div>
     </div>
   );
