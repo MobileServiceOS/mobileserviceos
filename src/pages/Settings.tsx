@@ -1181,6 +1181,37 @@ function AccountForm() {
         </button>
         <button className="btn danger" onClick={logout} style={{ flex: 1 }}>Sign out</button>
       </div>
+
+      {/* Legal links — direct routes via ?legal= URL param, opens the
+          PrivacyTerms page in the same window. Visible to all roles
+          including technicians (who otherwise only see this accordion). */}
+      <div style={{
+        marginTop: 18, paddingTop: 14,
+        borderTop: '1px solid var(--border)',
+        display: 'flex', gap: 12, justifyContent: 'center',
+        fontSize: 11,
+      }}>
+        <a
+          href="?legal=privacy"
+          style={{ color: 'var(--t3)', textDecoration: 'none' }}
+        >
+          Privacy Policy
+        </a>
+        <span style={{ color: 'var(--t3)' }}>·</span>
+        <a
+          href="?legal=terms"
+          style={{ color: 'var(--t3)', textDecoration: 'none' }}
+        >
+          Terms of Service
+        </a>
+        <span style={{ color: 'var(--t3)' }}>·</span>
+        <a
+          href="mailto:info@mobileserviceos.app"
+          style={{ color: 'var(--t3)', textDecoration: 'none' }}
+        >
+          Support
+        </a>
+      </div>
     </>
   );
 }
