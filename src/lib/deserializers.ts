@@ -188,3 +188,51 @@ export function mergeMissingDefaultServices(
   return { map: merged, added };
 }
 
+/**
+ * List of services that were once shipped as defaults but have since
+ * been retired. Existing accounts may have these in their stored
+ * servicePricing map from a prior auto-backfill — we strip them on
+ * load so they don't keep appearing in the Pricing settings UI.
+ *
+ * Add a service name to this list when removing it from
+ * DEFAULT_SERVICE_PRICING so existing accounts get cleaned up
+ * automatically on next load.
+ *
+ * Note: this ONLY strips services that the system originally seeded.
+ * If a user manually added a service with one of these names through
+ * the Settings UI, it would also be removed — that's an acceptable
+ * tradeoff for the rare case (vs leaving zombie services forever).
+ */
+const RETIRED_DEFAULT_SERVICES: ReadonlyArray<string> = [
+  'Spare Change',
+];
+
+/**
+ * Remove retired default services from a stored servicePricing map.
+ * Returns `{ map, removed }` — `removed` lists keys that were
+ * present and got stripped. Caller should persist back if anything
+ * was removed so the cleanup is sticky.
+ *
+ * Returns the original reference (no copy) if nothing was removed,
+ * so callers can compare `result.map === input` as a no-change check.
+ */
+export function stripRetiredServices(
+  current: Record<string, ServicePricing> | undefined | null,
+): { map: Record<string, ServicePricing>; removed: string[] } {
+  const userMap = current && typeof current === 'object' ? current : {};
+  const removed: string[] = [];
+  let cleaned: Record<string, ServicePricing> | null = null;
+
+  for (const key of RETIRED_DEFAULT_SERVICES) {
+    if (key in userMap) {
+      if (!cleaned) cleaned = { ...userMap };
+      delete cleaned[key];
+      removed.push(key);
+    }
+  }
+
+  if (!cleaned) return { map: userMap as Record<string, ServicePricing>, removed: [] };
+  return { map: cleaned, removed };
+}
+
+

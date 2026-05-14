@@ -29,6 +29,7 @@ import {
   deserializeJob,
   deserializeOperationalSettings,
   mergeMissingDefaultServices,
+  stripRetiredServices,
 } from '@/lib/deserializers';
 import type {
   Brand, Expense, InventoryItem, Job, QuoteForm, Settings as SettingsT, SyncStatus, TabId,
@@ -204,11 +205,10 @@ function AuthenticatedApp({ user }: { user: User }) {
         const parsed = deserializeOperationalSettings(main);
 
         // Backfill: merge any newly-shipped default services into the
-        // user's existing servicePricing map. Lets new services (e.g.
-        // "Spare Change" added 2026-05) appear automatically without
-        // a one-off migration. The user's price customizations on
-        // existing services are NEVER touched — only missing keys
-        // are added.
+        // user's existing servicePricing map. Lets new default services
+        // appear automatically without a one-off migration. The user's
+        // price customizations on existing services are NEVER touched
+        // — only missing keys are added.
         const merge = mergeMissingDefaultServices(parsed.servicePricing);
         if (merge.added.length > 0) {
           parsed.servicePricing = merge.map;
@@ -222,6 +222,24 @@ function AuthenticatedApp({ user }: { user: User }) {
           }).catch((e: unknown) => {
             // eslint-disable-next-line no-console
             console.warn('[settings] service backfill persist failed (non-fatal):', e);
+          });
+        }
+
+        // Cleanup: strip retired default services from the stored
+        // map. Catches accounts that auto-received a service (via a
+        // previous backfill) that has since been removed from the
+        // catalog (e.g. "Spare Change" added then retired in 2026-05).
+        // Like the backfill, persists back so the cleanup is sticky.
+        const strip = stripRetiredServices(parsed.servicePricing);
+        if (strip.removed.length > 0) {
+          parsed.servicePricing = strip.map;
+          // eslint-disable-next-line no-console
+          console.info('[settings] stripping retired services', strip.removed);
+          fbSet(scopedCol(businessId, 'operational_settings'), 'main', {
+            servicePricing: strip.map,
+          }).catch((e: unknown) => {
+            // eslint-disable-next-line no-console
+            console.warn('[settings] service cleanup persist failed (non-fatal):', e);
           });
         }
 
