@@ -5,6 +5,7 @@ import { BrandProvider, useBrand } from '@/context/BrandContext';
 import { MembershipProvider } from '@/context/MembershipContext';
 import { AuthScreen } from '@/pages/AuthScreen';
 import { InviteAccept } from '@/pages/InviteAccept';
+import { PrivacyTerms } from '@/pages/PrivacyTerms';
 import { Dashboard } from '@/pages/Dashboard';
 import { AddJob } from '@/pages/AddJob';
 import { History } from '@/pages/History';
@@ -75,13 +76,42 @@ function readInviteTokenFromUrl(): string | null {
 
 const INITIAL_INVITE_TOKEN: string | null = readInviteTokenFromUrl();
 
+/**
+ * Parse the legal-doc param from `?legal=privacy` or `?legal=terms`.
+ * Public, shareable URL — works both signed-in and signed-out so
+ * Stripe / App Store / email footers can link to the docs directly.
+ */
+function readLegalTabFromUrl(): 'privacy' | 'terms' | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const url = new URL(window.location.href);
+    const t = url.searchParams.get('legal');
+    if (t === 'privacy' || t === 'terms') return t;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+const INITIAL_LEGAL_TAB: 'privacy' | 'terms' | null = readLegalTabFromUrl();
+
 export function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
-  // Held in state so InviteAccept can clear it (e.g. on "Continue to
-  // sign in" from an invalid-invite screen) without forcing a hard
-  // page reload.
   const [inviteToken, setInviteToken] = useState<string | null>(INITIAL_INVITE_TOKEN);
+  // Legal docs are publicly viewable — auth-independent. Gated BEFORE
+  // the splash/auth checks so an unauthenticated user landing on
+  // ?legal=privacy can read the policy without signing up.
+  const [legalTab, setLegalTab] = useState<'privacy' | 'terms' | null>(INITIAL_LEGAL_TAB);
+
+  const closeLegal = useCallback(() => {
+    setLegalTab(null);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('legal');
+      window.history.replaceState({}, document.title, url.toString());
+    } catch { /* */ }
+  }, []);
 
   useEffect(() => {
     if (!_auth) {
@@ -112,6 +142,12 @@ export function App() {
         <pre>{initError.message}</pre>
       </div>
     );
+  }
+
+  // Legal docs are publicly viewable BEFORE auth — checked here so the
+  // share URL works for prospective customers, Stripe, App Store, etc.
+  if (legalTab) {
+    return <PrivacyTerms initialTab={legalTab} onBack={closeLegal} />;
   }
 
   if (!authReady) {
