@@ -5,6 +5,7 @@ import { CityStateSelect } from '@/components/CityStateSelect';
 import { uploadLogo } from '@/lib/firebase';
 import { addToast } from '@/lib/toast';
 import { APP_LOGO } from '@/lib/defaults';
+import { sanitizeSubscriptionWrite } from '@/lib/planAccess';
 
 interface Props {
   settings: Settings;
@@ -172,7 +173,14 @@ export function Onboarding({ settings, onComplete }: Props) {
         },
       };
 
-      await onComplete(brandPatch, settingsPatch);
+      // Defensive: if an exempt account somehow lands back on
+      // onboarding (e.g. onboardingComplete got cleared), the
+      // sanitizer strips plan / subscriptionStatus / trialStartedAt /
+      // trialEndsAt from the patch so the exemption is preserved.
+      // Non-exempt accounts pass through unchanged.
+      const safePatch = sanitizeSubscriptionWrite(settings, settingsPatch);
+
+      await onComplete(brandPatch, safePatch);
     } catch (e) {
       addToast((e as Error).message || 'Could not save', 'error');
     } finally {

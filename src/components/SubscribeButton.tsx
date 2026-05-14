@@ -3,6 +3,7 @@ import type { Settings } from '@/types';
 import { _auth } from '@/lib/firebase';
 import { addToast } from '@/lib/toast';
 import { startCheckout, createPortalLink } from '@/lib/stripeSync';
+import { isBillingExempt } from '@/lib/planAccess';
 
 // ─────────────────────────────────────────────────────────────────────
 //  SubscribeButton
@@ -15,6 +16,12 @@ import { startCheckout, createPortalLink } from '@/lib/stripeSync';
 //
 //    - subscriptionStatus is 'trialing' / 'inactive' / 'canceled' →
 //      Stripe Checkout Session (start or restart paid subscription)
+//
+//  Billing-exempt accounts (VIP / founder / comp / internal) render
+//  NOTHING — these accounts bypass Stripe entirely and the parent
+//  Settings page already hides them, but defending here too keeps the
+//  component safe to drop in anywhere without the caller having to
+//  pre-check the exemption flag.
 //
 //  The Stripe price ID is read from VITE_STRIPE_PRO_PRICE_ID at build
 //  time. Setting up the env var is the only step required after the
@@ -46,6 +53,14 @@ const PRO_PRICE_ID: string = (() => {
 
 export function SubscribeButton({ settings }: Props) {
   const [busy, setBusy] = useState(false);
+
+  // Defensive exemption check: billing-exempt accounts never see any
+  // Stripe UI — including this button. Returning null here means the
+  // button can be dropped into any layout without the caller having to
+  // gate on `isBillingExempt()` separately.
+  if (isBillingExempt(settings)) {
+    return null;
+  }
 
   // Resolve which CTA to show based on subscription state. Active/past
   // accounts get portal access; everyone else gets checkout.

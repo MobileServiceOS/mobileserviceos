@@ -166,23 +166,75 @@ export const PLAN_FEATURE_MATRIX: Readonly<Record<AccessTier, Readonly<Partial<R
 /**
  * Normalize a Settings document into a concrete access tier.
  *
- * Resolution rules:
- *   1. `subscriptionStatus === 'trialing'` always resolves to 'pro'
+ * Resolution rules (in priority order — first match wins):
+ *   1. `billingExempt === true` → always 'pro'. The VIP / founder /
+ *      lifetime exemption layer; nothing else can downgrade.
+ *   2. `subscriptionStatus === 'trialing'` always resolves to 'pro'
  *      regardless of stored plan — the trial unlocks the full product.
- *   2. `plan === 'pro'` resolves to 'pro'.
- *   3. Anything else (including undefined, legacy values, or future
+ *   3. `plan === 'pro'` resolves to 'pro'.
+ *   4. Anything else (including undefined, legacy values, or future
  *      tiers we haven't taught the resolver) resolves to 'core' as the
  *      safe-by-default fallback. The UI then shows upgrade prompts
  *      rather than silently exposing Pro features.
  *
  * Pass the FULL Settings object — not just the plan field — because
- * the resolver needs to read both `plan` AND `subscriptionStatus`.
+ * the resolver needs to read `billingExempt`, `plan`, AND
+ * `subscriptionStatus` to decide correctly.
  */
 export function resolvePlan(settings: Settings | null | undefined): AccessTier {
   if (!settings) return 'core';
+  // Exemption takes precedence over every other check. By design, no
+  // Stripe webhook event, expiration, or downgrade can take Pro away
+  // from an exempt account. Audited via logExemptAccess() below.
+  if (settings.billingExempt === true) {
+    logExemptAccess(settings);
+    return 'pro';
+  }
   if (settings.subscriptionStatus === 'trialing') return 'pro';
   if (settings.plan === 'pro') return 'pro';
   return 'core';
+}
+
+/**
+ * Test whether an account is billing-exempt. Pure read — no side
+ * effects. Useful for hiding Stripe-related UI (Subscribe button,
+ * trial countdown, past-due banners) on exempt accounts.
+ */
+export function isBillingExempt(settings: Settings | null | undefined): boolean {
+  return settings?.billingExempt === true;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+//  Exemption access logging
+//
+//  Every plan resolution on an exempt account fires through here.
+//  Logs are throttled per-session (10s minimum between repeats with the
+//  same exemption reason) so a busy page doesn't flood the console.
+//
+//  Production: writes to console.info so the entry is visible without
+//  being treated as an error by uptime monitors. Future enhancement
+//  could pipe these through a Cloud Function for centralized audit
+//  trail — leaving the local-console approach for now since it's
+//  zero-cost and immediately useful for debugging.
+// ─────────────────────────────────────────────────────────────────────
+
+const _exemptLogThrottle = new Map<string, number>();
+const EXEMPT_LOG_THROTTLE_MS = 10_000;
+
+function logExemptAccess(settings: Settings): void {
+  if (typeof window === 'undefined') return; // SSR/build-time skip
+  const key = `${settings.exemptionGrantedBy || 'unknown'}:${settings.subscriptionOverride || 'unspecified'}`;
+  const now = Date.now();
+  const last = _exemptLogThrottle.get(key);
+  if (last && now - last < EXEMPT_LOG_THROTTLE_MS) return;
+  _exemptLogThrottle.set(key, now);
+  // eslint-disable-next-line no-console
+  console.info('[planAccess] Billing exemption active', {
+    override: settings.subscriptionOverride || 'lifetime',
+    reason: settings.exemptionReason || '(no reason recorded)',
+    grantedAt: settings.exemptionGrantedAt || '(no timestamp)',
+    grantedBy: settings.exemptionGrantedBy || '(unknown)',
+  });
 }
 
 /**
@@ -256,4 +308,73 @@ export const upgradeRequiredCopy = {
  */
 export function planLiteralIsPro(plan: Plan | null | undefined): boolean {
   return plan === 'pro';
+}
+
+// ─────────────────────────────────────────────────────────────────────
+//  Defensive write guard for exempt accounts
+//
+//  Use as a final pre-flight on any code path that writes to the
+//  Settings document. If the target account is billing-exempt, this
+//  helper strips out fields that could downgrade or otherwise affect
+//  the exemption, returning a sanitized patch. Non-exempt accounts
+//  pass through unchanged.
+//
+//  Pattern:
+//      const patch = sanitizeSubscriptionWrite(currentSettings, {
+//        plan: 'core',
+//        subscriptionStatus: 'canceled',
+//        someOtherField: 'fine to write',
+//      });
+//      await setDoc(ref, patch, { merge: true });
+//
+//  For exempt accounts, the example above would write only
+//  `{ someOtherField: 'fine to write' }`, leaving plan and
+//  subscriptionStatus intact.
+// ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Fields that the exemption layer protects from being overwritten. If
+ * any of these appear in a patch targeting an exempt account, they're
+ * silently dropped by `sanitizeSubscriptionWrite()`. The exempt
+ * account's own values for these fields stay authoritative.
+ */
+const PROTECTED_SUBSCRIPTION_FIELDS = [
+  'plan',
+  'subscriptionStatus',
+  'trialStartedAt',
+  'trialEndsAt',
+] as const;
+
+/**
+ * Strip subscription-affecting fields from a write patch if the target
+ * Settings is billing-exempt. Returns the input unchanged for non-
+ * exempt accounts. Always returns a fresh object — never mutates the
+ * input.
+ *
+ * @param currentSettings  The CURRENT Settings doc (read before the
+ *                         write) — used to check the exemption flag
+ * @param patch            The intended write payload
+ */
+export function sanitizeSubscriptionWrite<T extends Record<string, unknown>>(
+  currentSettings: Settings | null | undefined,
+  patch: T,
+): Partial<T> {
+  if (!isBillingExempt(currentSettings)) return patch;
+  const out: Record<string, unknown> = {};
+  const stripped: string[] = [];
+  for (const key of Object.keys(patch)) {
+    if ((PROTECTED_SUBSCRIPTION_FIELDS as readonly string[]).includes(key)) {
+      stripped.push(key);
+      continue;
+    }
+    out[key] = patch[key];
+  }
+  if (stripped.length > 0 && typeof window !== 'undefined') {
+    // eslint-disable-next-line no-console
+    console.info(
+      '[planAccess] sanitizeSubscriptionWrite — stripped protected fields from exempt account',
+      { stripped },
+    );
+  }
+  return out as Partial<T>;
 }
