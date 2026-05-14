@@ -10,6 +10,30 @@ import { useCountUp } from '@/lib/useCountUp';
 import { useMembership } from '@/context/MembershipContext';
 import { _auth } from '@/lib/firebase';
 
+// ─────────────────────────────────────────────────────────────────────
+//  Dashboard — hybrid premium + operational
+//
+//  Combines the visual polish of the redesigned hero (circular progress
+//  ring, growth %, premium KPI cards) with the operational density of
+//  the production dashboard (pending jobs, pending payments, low stock,
+//  quick quote, recent jobs).
+//
+//  Role-aware:
+//    OWNER / ADMIN — see company-wide profit, revenue, costs, goal %,
+//                    growth vs last week, pending payments, low stock,
+//                    lead sources, all jobs in recent feed
+//    TECHNICIAN   — see ONLY their own jobs (filtered by createdByUid).
+//                   Hero shows completed-jobs progress vs personal
+//                   weekly goal, not company $$. Growth % is their own
+//                   week-over-week. No pending payments. No company
+//                   revenue/costs. Job-count framing throughout.
+//
+//  Defensive defaults: if membership is loading or role can't be
+//  resolved, default to the technician (safer) view to avoid leaking
+//  company financials. Owners and admins explicitly need a resolved
+//  role to see financial data.
+// ─────────────────────────────────────────────────────────────────────
+
 interface Props {
   jobs: Job[];
   settings: Settings;
@@ -18,15 +42,90 @@ interface Props {
   onStartJob: (form: QuoteForm) => void;
   onViewJob: (j: Job) => void;
   onGenerateInvoice: (j: Job) => void;
-  /** Send invoice action — passed through from App.tsx. Used by
-   *  job-row actions when present; declared here so the call-site
-   *  type checks even if the current render path doesn't wire it
-   *  up to a button. Reserved for future invoice-send shortcuts
-   *  on the Dashboard. */
+  /** Optional invoice-send handler. Reserved for future per-job
+   *  shortcut buttons; declared so the call-site type checks. */
   onSendInvoice?: (j: Job) => void;
   onSendReview: (j: Job) => void;
   onMarkPaid: (j: Job) => void;
   onEditJob: (j: Job) => void;
+}
+
+// ────── Circular progress ring (SVG, no library) ────────────────────
+//
+// Renders a circular ring with track + filled arc and centered content.
+// Stroke uses semantic colors: green ≥ 100%, gold 50-99%, amber 25-49%,
+// dim < 25%. Standard SVG circumference math (2πr) maps the arc length
+// to a 0..100 percentage.
+function ProgressRing({
+  pct, size = 132, stroke = 10, children,
+}: {
+  pct: number; size?: number; stroke?: number; children: React.ReactNode;
+}) {
+  const radius = (size - stroke) / 2;
+  const circ = 2 * Math.PI * radius;
+  const safePct = clamp(pct, 0, 100);
+  const dash = (safePct / 100) * circ;
+  const color = safePct >= 100
+    ? '#22c55e'
+    : safePct >= 50
+      ? 'var(--brand-primary)'
+      : safePct >= 25
+        ? '#eab308'
+        : 'var(--t3)';
+
+  return (
+    <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
+      <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
+        <circle
+          cx={size / 2} cy={size / 2} r={radius}
+          fill="none"
+          stroke="var(--border)"
+          strokeWidth={stroke}
+        />
+        <circle
+          cx={size / 2} cy={size / 2} r={radius}
+          fill="none"
+          stroke={color}
+          strokeWidth={stroke}
+          strokeLinecap="round"
+          strokeDasharray={`${dash} ${circ}`}
+          style={{ transition: 'stroke-dasharray 700ms cubic-bezier(.2,.8,.2,1)' }}
+        />
+      </svg>
+      <div style={{
+        position: 'absolute', inset: 0,
+        display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center',
+        textAlign: 'center', padding: 8,
+      }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// Small sub-KPI cell rendered under the hero. Three of these sit
+// side-by-side in a 1fr 1fr 1fr grid.
+function SubKpi({ label, value, tone }: { label: string; value: string; tone: 'neutral' | 'cost' | 'success' }) {
+  const valueColor = tone === 'cost' ? '#ef4444' : tone === 'success' ? '#22c55e' : 'var(--t1)';
+  return (
+    <div style={{ minWidth: 0 }}>
+      <div style={{
+        fontSize: 9, fontWeight: 800,
+        color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: 1,
+        marginBottom: 4,
+      }}>
+        {label}
+      </div>
+      <div style={{
+        fontSize: 14, fontWeight: 700,
+        color: valueColor,
+        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+      }}>
+        {value}
+      </div>
+    </div>
+  );
 }
 
 export function Dashboard({
@@ -56,52 +155,102 @@ export function Dashboard({
   const [qqMode, setQqMode] = useState<'suggested' | 'premium'>('suggested');
   const qqChange = <K extends keyof QuoteForm>(k: K, v: QuoteForm[K]) => setQqForm((p) => ({ ...p, [k]: v }));
 
-  const safeJobs = Array.isArray(jobs) ? jobs : [];
-  const today = TODAY();
-
-  // ─── Role-aware job filter ──────────────────────────────────────
-  // Technicians see ONLY the jobs they created (createdByUid === their
-  // uid). Owners and admins see everything. The filter applies to
-  // EVERY downstream calculation on this page — weekly profit,
-  // pending payments, recent jobs, lead sources — so a technician's
-  // dashboard reflects only their own work and earnings.
-  //
-  // Resolution:
-  //   - useMembership() gives us the resolved role from MembershipContext
-  //   - role === 'technician' → filter to own jobs
-  //   - any other role (owner / admin / null while loading) → see all
-  //
-  // Loading state: while membership hasn't resolved yet, we DON'T
-  // filter (default to all). The owner-fallback in MembershipContext
-  // covers the convention-owner case quickly enough that this rarely
-  // shows stale-all data to a technician — and if it briefly does,
-  // it self-corrects when the member doc loads.
+  // ─── Role resolution ─────────────────────────────────────────────
   const membership = useMembership();
   const myUid = _auth?.currentUser?.uid ?? null;
   const isTechnician = membership.role === 'technician';
+  // Defensive: only owner/admin see company financials. Loading state
+  // OR unresolved role → safer non-financial view.
+  const showCompanyData = membership.role === 'owner' || membership.role === 'admin';
 
+  const safeJobs = Array.isArray(jobs) ? jobs : [];
+  const today = TODAY();
+
+  // ─── Per-role job visibility ────────────────────────────────────
   const visibleJobs = useMemo(() => {
     if (!isTechnician || !myUid) return safeJobs;
     return safeJobs.filter((j) => j.createdByUid === myUid);
   }, [safeJobs, isTechnician, myUid]);
 
-  // Week-start day is per-business — read from settings, default to
-  // Monday (1) if unset.
+  // ─── Week math ──────────────────────────────────────────────────
   const weekStartDay = typeof settings.workWeekStartDay === 'number'
     ? settings.workWeekStartDay
     : 1;
   const thisWeek = getWeekStart(today, weekStartDay);
 
-  const completedJobs = useMemo(() => visibleJobs.filter((j) => j.status === 'Completed'), [visibleJobs]);
+  // Previous week start = subtract 7 days from this week's anchor.
+  const lastWeek = useMemo(() => {
+    const dt = new Date(thisWeek + 'T12:00:00');
+    dt.setDate(dt.getDate() - 7);
+    return dt.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  }, [thisWeek]);
+
+  const completedJobs = useMemo(
+    () => visibleJobs.filter((j) => j.status === 'Completed'),
+    [visibleJobs],
+  );
   const weekJobs = useMemo(
     () => completedJobs.filter((j) => getWeekStart(j.date, weekStartDay) === thisWeek),
     [completedJobs, thisWeek, weekStartDay],
   );
+  const lastWeekJobs = useMemo(
+    () => completedJobs.filter((j) => getWeekStart(j.date, weekStartDay) === lastWeek),
+    [completedJobs, lastWeek, weekStartDay],
+  );
   const todayJobs = useMemo(() => completedJobs.filter((j) => j.date === today), [completedJobs, today]);
+
   const totals = useMemo(() => weekSummary(weekJobs, settings), [weekJobs, settings]);
+  const lastWeekTotals = useMemo(() => weekSummary(lastWeekJobs, settings), [lastWeekJobs, settings]);
   const avgProfit = weekJobs.length ? r2(totals.grossProfit / weekJobs.length) : 0;
-  const goalPct = clamp((totals.grossProfit / (settings.weeklyGoal || 1)) * 100, 0, 100);
-  const jobsNeeded = avgProfit > 0 ? Math.max(0, Math.ceil(((settings.weeklyGoal || 0) - totals.grossProfit) / avgProfit)) : '—';
+
+  // Costs = revenue - profit. Visible to owner/admin only.
+  const weekCosts = r2(Math.max(0, (totals.revenue || 0) - (totals.grossProfit || 0)));
+
+  // ─── Growth % vs previous week ──────────────────────────────────
+  // Owner/admin: profit-based growth. Technician: jobs-count growth.
+  // Edge case: when last week was 0 but this week has data, show "New"
+  // instead of an infinity %.
+  const growth = useMemo(() => {
+    if (showCompanyData) {
+      const prev = lastWeekTotals.grossProfit || 0;
+      const curr = totals.grossProfit || 0;
+      if (prev === 0 && curr === 0) return { label: '—', positive: null as boolean | null };
+      if (prev === 0) return { label: 'New', positive: true };
+      const delta = ((curr - prev) / prev) * 100;
+      return { label: `${delta >= 0 ? '+' : ''}${Math.round(delta)}%`, positive: delta >= 0 };
+    }
+    const prev = lastWeekJobs.length;
+    const curr = weekJobs.length;
+    if (prev === 0 && curr === 0) return { label: '—', positive: null as boolean | null };
+    if (prev === 0) return { label: 'New', positive: true };
+    const delta = ((curr - prev) / prev) * 100;
+    return { label: `${delta >= 0 ? '+' : ''}${Math.round(delta)}%`, positive: delta >= 0 };
+  }, [showCompanyData, totals.grossProfit, lastWeekTotals.grossProfit, weekJobs.length, lastWeekJobs.length]);
+
+  // ─── Progress ring percentage ───────────────────────────────────
+  // Owner/admin: profit / weekly $ goal. Technician: jobs / weekly
+  // jobs goal (technicianWeeklyJobsGoal, default 5).
+  const technicianGoal = Number(settings.technicianWeeklyJobsGoal || 5);
+  const progressPct = showCompanyData
+    ? clamp((totals.grossProfit / (settings.weeklyGoal || 1)) * 100, 0, 100)
+    : clamp((weekJobs.length / Math.max(1, technicianGoal)) * 100, 0, 100);
+
+  const remainingToGoal = showCompanyData
+    ? Math.max(0, (settings.weeklyGoal || 0) - totals.grossProfit)
+    : Math.max(0, technicianGoal - weekJobs.length);
+
+  // ─── Pending / payments / sources / low stock ────────────────────
+  const pendingJobs = useMemo(
+    () => visibleJobs.filter((j) => j.status === 'Pending'),
+    [visibleJobs],
+  );
+  const pendingTotal = pendingJobs.reduce((s, j) => s + Number(j.revenue || 0), 0);
+
+  const pendingPaymentJobs = useMemo(
+    () => visibleJobs.filter((j) => resolvePaymentStatus(j) === 'Pending Payment'),
+    [visibleJobs],
+  );
+  const pendingPaymentTotal = pendingPaymentJobs.reduce((s, j) => s + Number(j.revenue || 0), 0);
 
   const sources = useMemo(() => {
     const m: Record<string, number> = {};
@@ -110,19 +259,11 @@ export function Dashboard({
   }, [visibleJobs]);
   const maxSrc = sources.length ? sources[0][1] : 1;
 
-  const pendingPaymentJobs = useMemo(
-    () => visibleJobs.filter((j) => resolvePaymentStatus(j) === 'Pending Payment'),
-    [visibleJobs]
-  );
-  const pendingPaymentTotal = pendingPaymentJobs.reduce((s, j) => s + Number(j.revenue || 0), 0);
-  const pendingJobs = useMemo(() => visibleJobs.filter((j) => j.status === 'Pending'), [visibleJobs]);
-  const pendingTotal = pendingJobs.reduce((s, j) => s + Number(j.revenue || 0), 0);
-
-  const recentCompleted = useMemo(() =>
-    [...completedJobs]
+  const recentCompleted = useMemo(
+    () => [...completedJobs]
       .sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.id || '').localeCompare(a.id || ''))
       .slice(0, 5),
-    [completedJobs]
+    [completedJobs],
   );
 
   const lowStock = useMemo(() => {
@@ -145,65 +286,174 @@ export function Dashboard({
   }, [visibleJobs, inventory]);
 
   const quote = useMemo(() => calcQuote(qqForm, settings), [qqForm, settings]);
-  const heroValue = useCountUp(totals.grossProfit);
+
+  // Count-up animation target: profit for owner, jobs count for tech.
+  const heroAnimTarget = showCompanyData ? totals.grossProfit : weekJobs.length;
+  const heroValue = useCountUp(heroAnimTarget);
 
   const handleStartJob = () => {
     onStartJob({ ...qqForm, revenue: qqMode === 'suggested' ? quote.suggested : quote.premium });
   };
 
+  // Development-only role-resolution log (spec: defensive check).
+  useEffect(() => {
+    if (import.meta.env?.DEV) {
+      // eslint-disable-next-line no-console
+      console.debug('[dashboard] role resolution:', {
+        role: membership.role,
+        showCompanyData,
+        isTechnician,
+        myUid,
+      });
+    }
+  }, [membership.role, showCompanyData, isTechnician, myUid]);
+
   return (
     <div className="page page-enter dashboard-page">
+      {/* ─── 1. Pending alert strip ───────────────────────────────── */}
       {pendingJobs.length > 0 && (
         <div className="pending-banner card-anim" onClick={() => setTab('history')}>
           <div>
-            <div className="pending-banner-title">{pendingJobs.length} Pending Job{pendingJobs.length > 1 ? 's' : ''}</div>
-            <div className="pending-banner-sub">{money(pendingTotal)} awaiting completion</div>
+            <div className="pending-banner-title">
+              {pendingJobs.length} {isTechnician ? 'Assigned' : 'Pending'} Job{pendingJobs.length > 1 ? 's' : ''}
+            </div>
+            <div className="pending-banner-sub">
+              {showCompanyData
+                ? `${money(pendingTotal)} awaiting completion`
+                : `${pendingJobs.length} to complete`}
+            </div>
           </div>
           <span style={{ fontSize: 18 }}>→</span>
         </div>
       )}
 
-      <div className="pro-hero card-anim">
-        <div className="pro-hero-label">
-          {isTechnician ? "My Week's Earnings" : "This Week's Profit"}
-        </div>
-        <div className="hero-amount">
-          <span className="currency">$</span>{Math.floor(heroValue).toLocaleString()}
-        </div>
-        {!isTechnician && (
-          <>
-            <div className="goal-track">
-              <div className={'goal-fill ' + (goalPct >= 100 ? 'full' : goalPct >= 50 ? 'mid' : 'low')}
-                style={{ width: goalPct + '%' }} />
+      {/* ─── 2. Hero KPI card — circular ring + role-aware content ── */}
+      <div className="card-anim" style={{
+        background: 'linear-gradient(155deg, var(--s2) 0%, var(--s1) 100%)',
+        border: '1px solid var(--border)',
+        borderRadius: 16,
+        padding: '20px 18px',
+        marginBottom: 14,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+          <ProgressRing pct={progressPct} size={132} stroke={10}>
+            <div style={{
+              fontSize: 9, fontWeight: 800,
+              color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: 1,
+              marginBottom: 2,
+            }}>
+              {showCompanyData ? "This Week" : "Your Week"}
             </div>
-            <div className="pro-hero-foot">
-              <span>{Math.round(goalPct)}% of {money(settings.weeklyGoal || 0)} goal</span>
-              <span>{jobsNeeded === '—' ? '—' : jobsNeeded + ' more needed'}</span>
+            <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--t1)', lineHeight: 1 }}>
+              {Math.round(progressPct)}%
             </div>
-          </>
-        )}
-        {isTechnician && (
-          <div className="pro-hero-foot">
-            <span>{weekJobs.length} job{weekJobs.length !== 1 ? 's' : ''} this week</span>
-            <span>Avg {money(avgProfit)} per job</span>
+            <div style={{ fontSize: 9, color: 'var(--t3)', marginTop: 2 }}>
+              {showCompanyData ? 'of goal' : `${weekJobs.length}/${technicianGoal} jobs`}
+            </div>
+          </ProgressRing>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{
+              fontSize: 10, fontWeight: 800,
+              color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: 1.5,
+              marginBottom: 6,
+            }}>
+              {showCompanyData ? "This Week's Profit" : "Your Earnings"}
+            </div>
+            <div style={{ fontSize: 30, fontWeight: 800, color: 'var(--t1)', lineHeight: 1.05, marginBottom: 4 }}>
+              {showCompanyData
+                ? <><span style={{ fontSize: 18, color: 'var(--t3)', marginRight: 2 }}>$</span>{Math.floor(heroValue).toLocaleString()}</>
+                : <>{Math.floor(heroValue)} <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--t3)' }}>job{Math.floor(heroValue) !== 1 ? 's' : ''}</span></>}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, flexWrap: 'wrap' }}>
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: 3,
+                padding: '2px 7px', borderRadius: 12, fontWeight: 700,
+                background: growth.positive === null
+                  ? 'var(--s3)'
+                  : growth.positive
+                    ? 'rgba(34,197,94,.15)'
+                    : 'rgba(239,68,68,.15)',
+                color: growth.positive === null
+                  ? 'var(--t3)'
+                  : growth.positive ? '#22c55e' : '#ef4444',
+              }}>
+                {growth.positive === null ? '' : growth.positive ? '↑' : '↓'} {growth.label}
+              </span>
+              <span style={{ color: 'var(--t3)' }}>vs last week</span>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 6 }}>
+              {showCompanyData
+                ? (remainingToGoal > 0
+                    ? `${money(remainingToGoal)} to ${money(settings.weeklyGoal || 0)} goal`
+                    : '🎯 Goal hit')
+                : (remainingToGoal > 0
+                    ? `${remainingToGoal} more to hit weekly goal`
+                    : '🎯 Weekly goal hit')}
+            </div>
           </div>
-        )}
+        </div>
+
+        {/* Sub-metrics — three small cells beneath the ring/copy. */}
+        <div style={{
+          display: 'grid', gridTemplateColumns: '1fr 1fr 1fr',
+          gap: 8, marginTop: 16,
+          paddingTop: 14, borderTop: '1px solid var(--border)',
+        }}>
+          {showCompanyData ? (
+            <>
+              <SubKpi label="Revenue" value={money(totals.revenue)} tone="neutral" />
+              <SubKpi label="Costs" value={money(weekCosts)} tone="cost" />
+              <SubKpi label="Avg / Job" value={money(avgProfit)} tone="neutral" />
+            </>
+          ) : (
+            <>
+              <SubKpi label="Today" value={`${todayJobs.length}`} tone="neutral" />
+              <SubKpi label="Pending" value={`${pendingJobs.length}`} tone="neutral" />
+              <SubKpi label="Avg / Job" value={money(avgProfit)} tone="neutral" />
+            </>
+          )}
+        </div>
       </div>
 
-      <div className="kpi-grid card-anim">
-        <div className="kpi"><div className="kpi-label">Today</div><div className="kpi-value">{todayJobs.length} job{todayJobs.length !== 1 ? 's' : ''}</div></div>
-        <div className="kpi"><div className="kpi-label">Week Jobs</div><div className="kpi-value">{weekJobs.length}</div></div>
-        {/* Revenue KPI is owner/admin only — technicians see only their
-            profit (already shown in the hero) and Avg Profit. The
-            distinction matters: revenue is company-wide; technician
-            "earnings" is profit from jobs they completed. */}
-        {!isTechnician && (
-          <div className="kpi"><div className="kpi-label">Revenue</div><div className="kpi-value">{money(totals.revenue)}</div></div>
-        )}
-        <div className="kpi"><div className="kpi-label">Avg Profit</div><div className="kpi-value">{money(avgProfit)}</div></div>
+      {/* ─── 3. Quick actions row ────────────────────────────────── */}
+      <div style={{
+        display: 'grid', gridTemplateColumns: '1fr 1fr',
+        gap: 10, marginBottom: 14,
+      }}>
+        <button
+          className="press-scale"
+          onClick={() => setTab('add')}
+          style={{
+            padding: '14px 12px',
+            background: 'var(--brand-primary)',
+            color: '#000',
+            border: 'none', borderRadius: 12,
+            fontSize: 14, fontWeight: 800,
+            cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+          }}
+        >
+          ＋ Log Job
+        </button>
+        <button
+          className="press-scale"
+          onClick={() => setTab('history')}
+          style={{
+            padding: '14px 12px',
+            background: 'var(--s2)',
+            color: 'var(--t1)',
+            border: '1px solid var(--border)', borderRadius: 12,
+            fontSize: 14, fontWeight: 700,
+            cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+          }}
+        >
+          📋 {isTechnician ? 'Assigned' : 'All Jobs'}
+        </button>
       </div>
 
-      {pendingPaymentJobs.length > 0 && (
+      {/* ─── 4. Pending Payments — owner/admin only ──────────────── */}
+      {showCompanyData && pendingPaymentJobs.length > 0 && (
         <>
           <div className="section-label">Pending Payments</div>
           <div className="card card-anim">
@@ -231,7 +481,8 @@ export function Dashboard({
         </>
       )}
 
-      {lowStock.length > 0 && (
+      {/* ─── 5. Low Stock — owner/admin only ─────────────────────── */}
+      {showCompanyData && lowStock.length > 0 && (
         <div className="card card-anim" style={{ borderColor: 'rgba(245,158,11,.2)' }}>
           <div className="card-pad">
             <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 8 }}>
@@ -247,6 +498,7 @@ export function Dashboard({
         </div>
       )}
 
+      {/* ─── 6. Quick Quote ─────────────────────────────────────── */}
       <div className="section-label with-action">
         <span>Quick Quote</span>
         <span className="section-label-hint">Suggested pricing feeds straight into Log Job</span>
@@ -308,7 +560,8 @@ export function Dashboard({
         </button>
       </div>
 
-      {sources.length > 0 && (
+      {/* ─── 7. Lead Sources — owner/admin only ──────────────────── */}
+      {showCompanyData && sources.length > 0 && (
         <>
           <div className="section-label">Lead Sources</div>
           <div className="card card-anim">
@@ -325,9 +578,12 @@ export function Dashboard({
         </>
       )}
 
+      {/* ─── 8. Recent Completed Jobs ────────────────────────────── */}
       {recentCompleted.length > 0 && (
         <>
-          <div className="section-label">Recent Completed Jobs</div>
+          <div className="section-label">
+            {isTechnician ? 'Your Recent Jobs' : 'Recent Completed Jobs'}
+          </div>
           <div className="stack">
             {recentCompleted.map((j) => {
               const pr = jobGrossProfit(j, settings);
@@ -344,8 +600,15 @@ export function Dashboard({
                       </div>
                     </div>
                     <div className="job-right">
-                      <div className="value green">{money(j.revenue)}</div>
-                      <div style={{ fontSize: 11, color: pr >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>{money(pr)} profit</div>
+                      {/* Revenue is owner/admin-only on the job card.
+                          Technicians see profit + payment pill but
+                          not company revenue. */}
+                      {showCompanyData && (
+                        <div className="value green">{money(j.revenue)}</div>
+                      )}
+                      <div style={{ fontSize: 11, color: pr >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>
+                        {money(pr)} profit
+                      </div>
                       <span className={'pill ' + paymentPillClass(ps)} style={{ marginTop: 4 }}>{ps}</span>
                     </div>
                   </div>
@@ -361,8 +624,10 @@ export function Dashboard({
         </>
       )}
 
-      <div style={{ marginTop: 28 }}>
-        <button className="cta-btn press-scale" onClick={() => setTab('add')}>＋ Log New Job</button>
+      <div style={{ marginTop: 28, marginBottom: 4 }}>
+        <button className="cta-btn press-scale" onClick={() => setTab('add')}>
+          ＋ Log New Job
+        </button>
       </div>
     </div>
   );
