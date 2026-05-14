@@ -18,6 +18,12 @@ interface Props {
   onStartJob: (form: QuoteForm) => void;
   onViewJob: (j: Job) => void;
   onGenerateInvoice: (j: Job) => void;
+  /** Send invoice action — passed through from App.tsx. Used by
+   *  job-row actions when present; declared here so the call-site
+   *  type checks even if the current render path doesn't wire it
+   *  up to a button. Reserved for future invoice-send shortcuts
+   *  on the Dashboard. */
+  onSendInvoice?: (j: Job) => void;
   onSendReview: (j: Job) => void;
   onMarkPaid: (j: Job) => void;
   onEditJob: (j: Job) => void;
@@ -25,7 +31,8 @@ interface Props {
 
 export function Dashboard({
   jobs, settings, inventory, setTab,
-  onStartJob, onViewJob, onGenerateInvoice, onSendReview, onMarkPaid, onEditJob,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  onStartJob, onViewJob, onGenerateInvoice, onSendInvoice, onSendReview, onMarkPaid, onEditJob,
 }: Props) {
   const enabledServices = useMemo(() => {
     const sp = settings.servicePricing || DEFAULT_SERVICE_PRICING;
