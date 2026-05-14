@@ -73,6 +73,13 @@ export function MoreSheet({ onClose, onPick }: Props) {
       visible: true,
     },
     {
+      id: 'help',
+      label: 'Help & FAQ',
+      icon: '❓',
+      hint: 'Common questions · contact support',
+      visible: true,
+    },
+    {
       id: 'settings',
       label: 'Settings',
       icon: '⚙️',
