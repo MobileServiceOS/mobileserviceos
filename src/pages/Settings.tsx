@@ -23,6 +23,7 @@ import { SubscribeButton } from '@/components/SubscribeButton';
 import { isBillingExempt, resolvePlan, hasActiveSubscription } from '@/lib/planAccess';
 import { PRO_PRICE, CORE_PRICE, PRO_PRICE_LINE_COMPACT, CORE_PRICE_LINE_COMPACT } from '@/lib/pricing-display';
 import { TeamManagement } from '@/components/TeamManagement';
+import { ReferralCard } from '@/components/ReferralCard';
 
 interface Props {
   settings: SettingsT;
@@ -178,11 +179,55 @@ export function Settings({ settings, onSave }: Props) {
         />
       )}
 
+      {/* Referrals — every business has a referral link. Free-month
+          rewards apply automatically when a referred business completes
+          their first paid month. Always visible (no permission gate)
+          since referral revenue is owner-relevant data. */}
+      <ReferralAccordion
+        businessId={businessId}
+        settings={settings}
+        open={openSection === 'referrals'}
+        onToggle={() => setOpenSection(openSection === 'referrals' ? null : 'referrals')}
+      />
+
       <AccountAccordion
         open={openSection === 'account'}
         onToggle={() => setOpenSection(openSection === 'account' ? null : 'account')}
       />
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+//  Referrals accordion — wraps ReferralCard in the standard shell
+// ─────────────────────────────────────────────────────────────────────
+
+function ReferralAccordion({
+  businessId, settings, open, onToggle,
+}: {
+  businessId: string;
+  settings: SettingsT;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const credits = settings.referralCreditsMonths || 0;
+  const total = settings.totalSuccessfulReferrals || 0;
+  const summary = credits > 0
+    ? `${credits} free month${credits === 1 ? '' : 's'} earned · ${total} referral${total === 1 ? '' : 's'}`
+    : total > 0
+      ? `${total} referral${total === 1 ? '' : 's'} in progress`
+      : 'Invite businesses, earn free months';
+  return (
+    <AccordionShell
+      title="Referrals"
+      icon="🎁"
+      summary={summary}
+      open={open}
+      onToggle={onToggle}
+      badge={credits > 0 ? `+${credits}` : undefined}
+    >
+      <ReferralCard businessId={businessId} settings={settings} />
+    </AccordionShell>
   );
 }
 
@@ -1858,3 +1903,4 @@ function AccordionShell({ title, icon, summary, badge, open, onToggle, logoUrl, 
     </div>
   );
 }
+
