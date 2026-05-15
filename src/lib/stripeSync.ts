@@ -2,7 +2,6 @@ import {
   collection,
   doc,
   getDoc,
-  getFirestore,
   onSnapshot,
   query,
   setDoc,
@@ -11,6 +10,7 @@ import {
 } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import type { SubscriptionStatus, Plan } from '@/types';
+import { _db } from '@/lib/firebase';
 
 // ─────────────────────────────────────────────────────────────────────
 //  Stripe → Firestore subscription mirror
@@ -168,7 +168,17 @@ function pickPrimary(docs: StripeSubscriptionDoc[]): StripeSubscriptionDoc | nul
  * writes ever fire.
  */
 export function attachStripeSync(uid: string, businessId: string): Unsubscribe {
-  const db = getFirestore();
+  const db = _db;
+  if (!db) {
+    // eslint-disable-next-line no-console
+    console.warn('[stripeSync] attachStripeSync skipped — Firestore not initialized');
+    return () => {}; // no-op unsubscribe; safe to call
+  }
+  if (!uid || !businessId) {
+    // eslint-disable-next-line no-console
+    console.warn('[stripeSync] attachStripeSync skipped — missing uid or businessId', { uid, businessId });
+    return () => {};
+  }
   // The extension creates subscription docs only for "valid" Stripe
   // statuses; canceled/past_due are still written so the listener
   // captures the downgrade. We listen to ALL docs and let pickPrimary
@@ -269,7 +279,7 @@ export function attachStripeSync(uid: string, businessId: string): Unsubscribe {
  *                  is cancelled. Defaults to the current page.
  */
 export async function startCheckout(uid: string, priceId: string, returnUrl?: string): Promise<void> {
-  const db = getFirestore();
+  const db = _db; if (!db) throw new Error("Firestore not initialized");
   const sessionsRef = collection(db, 'customers', uid, 'checkout_sessions');
   const sessionDoc = doc(sessionsRef);
   const here = returnUrl || window.location.href;
