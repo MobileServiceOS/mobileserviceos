@@ -25,7 +25,7 @@
 // ─────────────────────────────────────────────────────────────────────
 
 /** Pro plan monthly price, dollar-formatted for inline use (no period). */
-export const PRO_PRICE = '$89' as const;
+export const PRO_PRICE = '$89.99' as const;
 
 /** Core plan monthly price. */
 export const CORE_PRICE = '$39' as const;
