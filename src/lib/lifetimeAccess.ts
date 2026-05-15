@@ -1,16 +1,14 @@
 import {
   collection,
   doc,
-  getDoc,
   getDocs,
-  getFirestore,
   query,
   setDoc,
   serverTimestamp,
   where,
 } from 'firebase/firestore';
 import type { Settings } from '@/types';
-import { _auth } from '@/lib/firebase';
+import { _auth, _db } from '@/lib/firebase';
 
 // ─────────────────────────────────────────────────────────────────────
 //  Lifetime Access — VIP / founder / promotional account utility
@@ -94,37 +92,44 @@ export async function setLifetimeAccess(
     throw new Error('reason is required for audit trail');
   }
 
-  const db = getFirestore();
+  const db = _db; if (!db) throw new Error("Firestore not initialized");
   const settingsRef = doc(db, 'businesses', businessId, 'settings', 'main');
-  // Verify the business exists before writing. Prevents typos /
-  // wrong-business mistakes from creating phantom Settings docs.
-  const businessDoc = await getDoc(doc(db, 'businesses', businessId));
-  if (!businessDoc.exists()) {
-    throw new Error(`Business ${businessId} does not exist`);
-  }
 
   const granterUid = _auth?.currentUser?.uid || 'system';
   const now = new Date().toISOString();
 
-  await setDoc(
-    settingsRef,
-    {
-      billingExempt: true,
-      subscriptionOverride: options.override || 'lifetime',
-      exemptionGrantedAt: now,
-      exemptionGrantedBy: granterUid,
-      exemptionReason: options.reason.trim(),
-      plan: 'pro',
-      subscriptionStatus: 'active',
-      // Touch the audit timestamp via server time as well — useful when
-      // ordering grants chronologically across timezones.
-      _exemptionWrittenAt: serverTimestamp(),
-    },
-    { merge: true },
-  );
+  // eslint-disable-next-line no-console
+  console.info('[lifetimeAccess] grant: starting write', {
+    businessId,
+    granterUid,
+    settingsPath: `businesses/${businessId}/settings/main`,
+  });
+
+  try {
+    await setDoc(
+      settingsRef,
+      {
+        billingExempt: true,
+        subscriptionOverride: options.override || 'lifetime',
+        exemptionGrantedAt: now,
+        exemptionGrantedBy: granterUid,
+        exemptionReason: options.reason.trim(),
+        plan: 'pro',
+        subscriptionStatus: 'active',
+        // Touch the audit timestamp via server time as well — useful when
+        // ordering grants chronologically across timezones.
+        _exemptionWrittenAt: serverTimestamp(),
+      },
+      { merge: true },
+    );
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error('[lifetimeAccess] grant: setDoc failed', e);
+    throw e;
+  }
 
   // eslint-disable-next-line no-console
-  console.info('[lifetimeAccess] grant written', {
+  console.info('[lifetimeAccess] grant: write complete', {
     businessId,
     override: options.override || 'lifetime',
     reason: options.reason,
@@ -151,7 +156,7 @@ export async function revokeLifetimeAccess(
   if (!businessId) throw new Error('businessId is required');
   if (!reason?.trim()) throw new Error('reason is required for audit trail');
 
-  const db = getFirestore();
+  const db = _db; if (!db) throw new Error("Firestore not initialized");
   const settingsRef = doc(db, 'businesses', businessId, 'settings', 'main');
 
   await setDoc(
@@ -188,7 +193,7 @@ export async function revokeLifetimeAccess(
 export async function listExemptBusinesses(): Promise<
   Array<{ businessId: string; settings: Settings }>
 > {
-  const db = getFirestore();
+  const db = _db; if (!db) throw new Error("Firestore not initialized");
   // Settings docs live at `businesses/{bid}/settings/main`. Firestore
   // doesn't support cross-collection-group `where` without collection-
   // group queries. Use a collectionGroup so we can scan every
