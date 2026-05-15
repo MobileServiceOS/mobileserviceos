@@ -184,15 +184,12 @@ export function Settings({ settings, onSave }: Props) {
         />
       )}
 
-      {/* Lifetime Pro Access — hidden owner-only panel. Renders only
-          when:
-            (a) this account is already billing-exempt (so the owner
-                can see the grant + revoke), OR
-            (b) localStorage has `msos_show_dev_tools=1` (so a developer
-                can grant themselves for testing).
-          Always gated by canSeeBilling (== canManageBilling permission)
-          so technicians never see this section. */}
-      {canSeeBilling && (isBillingExempt(settings) || _isDevToolsEnabled()) && (
+      {/* Lifetime Pro Access — founder-only panel. Renders only for
+          the Wheel Rush founder account OR for accounts already marked
+          billing-exempt (so you can see Revoke after granting). Gated
+          by email + canSeeBilling so no other owner ever sees this
+          section regardless of their permission level. */}
+      {canSeeBilling && (isBillingExempt(settings) || _isFounderEmail()) && (
         <LifetimeAccessAccordion
           settings={settings}
           open={openSection === 'lifetime'}
@@ -1256,18 +1253,23 @@ function ManageBillingLink() {
 // ─────────────────────────────────────────────────────────────────────
 
 /**
- * Read the developer-tools flag from localStorage. Returns false during
- * SSR / build (no window). Used to gate visibility of the grant UI for
- * non-exempt accounts so a regular owner can't see "Grant Lifetime
- * Access" by default.
+ * Wheel Rush founder email allow-list. Only this account can grant
+ * itself Lifetime Pro Access. Once exempt, the panel stays visible
+ * for grant/revoke management; before exemption, this check is what
+ * lets the founder access the grant UI in the first place (avoids the
+ * chicken-and-egg of "you must be exempt to see how to become exempt").
+ *
+ * Why email instead of UID: UIDs vary across dev/staging/prod Firebase
+ * projects; email is portable. Lowercased + trimmed for safety against
+ * casing or trailing whitespace from Firebase Auth tokens.
  */
-function _isDevToolsEnabled(): boolean {
-  if (typeof window === 'undefined') return false;
-  try {
-    return window.localStorage.getItem('msos_show_dev_tools') === '1';
-  } catch {
-    return false;
-  }
+const FOUNDER_EMAILS: ReadonlySet<string> = new Set([
+  'contact@wheelrush.net',
+]);
+
+function _isFounderEmail(): boolean {
+  const email = (_auth?.currentUser?.email || '').trim().toLowerCase();
+  return FOUNDER_EMAILS.has(email);
 }
 
 function LifetimeAccessAccordion({
