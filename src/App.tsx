@@ -30,6 +30,7 @@ import { applyBrandColors, planInventoryDeduction, r2, uid } from '@/lib/utils';
 import { generateInvoicePDF } from '@/lib/invoice';
 import { openReviewSMS } from '@/lib/review';
 import { APP_LOGO, DEFAULT_SETTINGS, EMPTY_JOB } from '@/lib/defaults';
+import { attachStripeSync } from '@/lib/stripeSync';
 import {
   deserializeExpense,
   deserializeInventoryItem,
@@ -425,6 +426,23 @@ function AuthenticatedApp({ user }: { user: User }) {
 
     return () => unsubs.forEach((u) => u());
   }, [businessId]);
+
+  // ─── Stripe → Firestore subscription mirror ──────────────────
+  // Attach a listener that watches the Stripe Extension's subscription
+  // docs (written by Stripe webhooks → Cloud Functions → Firestore)
+  // and mirrors the canonical subscription state into the business's
+  // settings/main doc. WITHOUT this listener wired, no Stripe webhook
+  // event ever reaches the app — checkouts succeed in Stripe but the
+  // app shows them as still "trialing" or "inactive".
+  //
+  // Skips entirely for exempt accounts (Wheel Rush founder) — the
+  // mirror has a billingExempt check that prevents downgrades, and
+  // exempt accounts have no Stripe subscription to mirror anyway.
+  useEffect(() => {
+    if (!user?.uid || !businessId) return;
+    const unsub = attachStripeSync(user.uid, businessId);
+    return () => unsub();
+  }, [user?.uid, businessId]);
 
   // Online/offline awareness
   useEffect(() => {
