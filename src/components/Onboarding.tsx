@@ -6,6 +6,14 @@ import { uploadLogo } from '@/lib/firebase';
 import { addToast } from '@/lib/toast';
 import { APP_LOGO } from '@/lib/defaults';
 import { sanitizeSubscriptionWrite } from '@/lib/planAccess';
+import {
+  readPendingRefCode,
+  resolveRefCode,
+  createReferralDoc,
+  ensureReferralCode,
+  clearPendingRefCode,
+} from '@/lib/referral';
+import { _auth } from '@/lib/firebase';
 
 interface Props {
   settings: Settings;
@@ -178,6 +186,68 @@ export function Onboarding({ settings, onComplete }: Props) {
       const safePatch = sanitizeSubscriptionWrite(settings, settingsPatch);
 
       await onComplete(brandPatch, safePatch);
+
+      // ─── Post-save: referral system bookkeeping ────────────────
+      // After the business is created, do TWO referral-related things:
+      //
+      //   1. Ensure THIS business has its own referral code (so it
+      //      can refer others starting day one).
+      //   2. If signup happened via a `?ref=CODE` link, create the
+      //      `referrals/{id}` doc that ties this new business to the
+      //      referrer. Once a Stripe subscription becomes active for
+      //      this account, a Cloud Function reads that doc and applies
+      //      a free-month credit to the referrer.
+      //
+      // Both ops are best-effort: if they fail, we log and continue.
+      // The business is already saved — referral bookkeeping is
+      // additive, not blocking the user's first dashboard load.
+      try {
+        const uid = _auth?.currentUser?.uid;
+        const email = (_auth?.currentUser?.email || '').toLowerCase().trim();
+        const myBusinessId = uid; // businessId == uid for owner accounts
+        if (myBusinessId) {
+          // (1) Generate own code if missing.
+          await ensureReferralCode(myBusinessId, settings).catch((err) => {
+            // eslint-disable-next-line no-console
+            console.warn('[Onboarding] ensureReferralCode failed (non-fatal):', err);
+          });
+
+          // (2) If signup came via a referral link, attach.
+          const pendingCode = readPendingRefCode();
+          if (pendingCode) {
+            const referrerBusinessId = await resolveRefCode(pendingCode, myBusinessId);
+            if (referrerBusinessId) {
+              const refDocId = await createReferralDoc({
+                referrerBusinessId,
+                referredBusinessId: myBusinessId,
+                referredUid: uid || '',
+                referredEmail: email,
+                referralCode: pendingCode,
+              });
+              if (refDocId) {
+                // Record the referrer relationship on THIS business's
+                // settings so the dashboard can show "Referred by …".
+                // referralDocId is a useful cross-link too.
+                await onComplete({}, {
+                  referredBy: referrerBusinessId,
+                  referredByCode: pendingCode,
+                  referralDocId: refDocId,
+                });
+              }
+              // Clear the pending code regardless — we've either
+              // recorded it or it was unresolvable.
+              clearPendingRefCode();
+            } else {
+              // Code didn't resolve (unknown, expired, or self-referral
+              // attempt). Drop it silently.
+              clearPendingRefCode();
+            }
+          }
+        }
+      } catch (referralErr) {
+        // eslint-disable-next-line no-console
+        console.warn('[Onboarding] referral bookkeeping failed (non-fatal):', referralErr);
+      }
     } catch (e) {
       addToast((e as Error).message || 'Could not save', 'error');
     } finally {
