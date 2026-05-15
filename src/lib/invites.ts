@@ -3,7 +3,6 @@ import {
   doc,
   getDoc,
   getDocs,
-  getFirestore,
   query,
   serverTimestamp,
   setDoc,
@@ -13,7 +12,7 @@ import {
   onSnapshot,
 } from 'firebase/firestore';
 import type { InviteDoc, InviteStatus, MemberDoc, Role } from '@/types';
-import { _auth } from '@/lib/firebase';
+import { _auth, _db } from '@/lib/firebase';
 
 // ─────────────────────────────────────────────────────────────────────
 //  Team invites — token-based, no Cloud Functions
@@ -135,7 +134,7 @@ export async function createInvite(opts: CreateInviteOptions): Promise<CreateInv
     if (v !== undefined) clean[k] = v;
   }
 
-  const db = getFirestore();
+  const db = _db; if (!db) throw new Error("Firestore not initialized");
   await setDoc(doc(db, 'invites', token), clean);
   // eslint-disable-next-line no-console
   console.info('[invites] created', { token, email, role: opts.role, businessId: opts.businessId });
@@ -153,7 +152,7 @@ export async function getInviteByToken(token: string): Promise<InviteDoc | null>
     console.warn('[invites] getInviteByToken called with empty token');
     return null;
   }
-  const db = getFirestore();
+  const db = _db; if (!db) throw new Error("Firestore not initialized");
   const ref = doc(db, 'invites', token);
   // eslint-disable-next-line no-console
   console.info('[invites] fetching invite', { token, path: `invites/${token}` });
@@ -243,7 +242,7 @@ export async function acceptInvite(
     throw new Error("This invite was sent to a different email address");
   }
 
-  const db = getFirestore();
+  const db = _db; if (!db) throw new Error("Firestore not initialized");
   const now = new Date().toISOString();
 
   // Write users/{uid} first.
@@ -312,7 +311,7 @@ export async function acceptInviteIfPresent(uid: string, email: string): Promise
   const e = normalizeEmail(email);
   if (!isValidEmail(e)) return null;
 
-  const db = getFirestore();
+  const db = _db; if (!db) throw new Error("Firestore not initialized");
   const q = query(
     collection(db, 'invites'),
     where('email', '==', e),
@@ -354,7 +353,7 @@ export async function acceptInviteIfPresent(uid: string, email: string): Promise
 
 export async function revokeInvite(idOrEmail: string): Promise<void> {
   if (!idOrEmail) throw new Error('Invite ID required');
-  const db = getFirestore();
+  const db = _db; if (!db) throw new Error("Firestore not initialized");
 
   const looksLikeEmail = idOrEmail.includes('@');
   let token: string | null = null;
@@ -403,7 +402,7 @@ export async function revokeInvite(idOrEmail: string): Promise<void> {
 
 export async function listPendingInvites(businessId: string): Promise<InviteDoc[]> {
   if (!businessId) return [];
-  const db = getFirestore();
+  const db = _db; if (!db) throw new Error("Firestore not initialized");
   const q = query(
     collection(db, 'invites'),
     where('businessId', '==', businessId),
@@ -429,7 +428,13 @@ export function subscribePendingInvites(
     onChange([]);
     return () => {};
   }
-  const db = getFirestore();
+  const db = _db;
+  if (!db) {
+    // eslint-disable-next-line no-console
+    console.warn('[invites] subscribePendingInvites skipped — Firestore not initialized');
+    onChange([]);
+    return () => {};
+  }
   const q = query(
     collection(db, 'invites'),
     where('businessId', '==', businessId),
