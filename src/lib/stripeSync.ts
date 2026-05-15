@@ -296,47 +296,91 @@ export async function startCheckout(uid: string, priceId: string, returnUrl?: st
   const sessionsRef = collection(db, 'customers', uid, 'checkout_sessions');
   const sessionDoc = doc(sessionsRef);
   const here = returnUrl || window.location.href;
-  await setDoc(sessionDoc, {
-    price: priceId,
-    success_url: here,
-    cancel_url: here,
-    allow_promotion_codes: true,
-    // 14-day free trial. The Stripe Firebase Extension passes this
-    // through to subscription_data.trial_period_days on the
-    // Checkout Session. Result: customer signs up → subscription
-    // status = 'trialing' for 14 days → automatic charge attempt on
-    // day 15. No app-side trial bookkeeping required.
-    trial_period_days: 14,
-    // Stripe Checkout will auto-collect taxes if Stripe Tax is
-    // enabled on the account; otherwise this is silently ignored.
-    automatic_tax: { enabled: false },
+  // eslint-disable-next-line no-console
+  console.info('[stripeSync] startCheckout: creating session', {
+    sessionPath: sessionDoc.path,
+    priceId,
   });
-  // The extension fills in `url` on this doc once Stripe responds.
-  // Listen for it and redirect.
-  return new Promise<void>((resolve, reject) => {
-    const unsub = onSnapshot(sessionDoc, (snap) => {
-      const data = snap.data() as { url?: string; error?: { message: string } } | undefined;
-      if (!data) return;
-      if (data.error) {
-        unsub();
-        reject(new Error(data.error.message || 'Checkout failed'));
-        return;
-      }
-      if (data.url) {
-        unsub();
-        window.location.assign(data.url);
-        resolve();
-      }
-    }, (err) => {
-      unsub();
-      reject(err);
+  try {
+    await setDoc(sessionDoc, {
+      // Required fields for the Stripe Firebase Extension.
+      // See: https://github.com/stripe/stripe-firebase-extensions
+      mode: 'subscription',
+      price: priceId,
+      success_url: here,
+      cancel_url: here,
+      allow_promotion_codes: true,
+      // 14-day free trial. The extension passes this through to the
+      // Checkout Session's subscription_data.trial_period_days.
+      trial_period_days: 14,
+      automatic_tax: { enabled: false },
     });
-    // Safety timeout — if Stripe never responds, surface an error
-    // instead of hanging the user on a spinner forever.
-    setTimeout(() => {
-      unsub();
-      reject(new Error('Checkout took too long — please try again'));
-    }, 30_000);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('[stripeSync] startCheckout: failed to write session doc', err);
+    throw new Error('Checkout could not start. Please try again.');
+  }
+
+  // Listen for the extension to fill in `url` (success) or `error`.
+  // Returns a clean promise that resolves on redirect, rejects on
+  // error/timeout. Listener is GUARANTEED to be cleaned up exactly
+  // once via the cleanup function — no retry loops, no leaked
+  // subscriptions.
+  return new Promise<void>((resolve, reject) => {
+    let finished = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let unsub: (() => void) | null = null;
+
+    const cleanup = () => {
+      if (finished) return;
+      finished = true;
+      if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+      if (unsub) { try { unsub(); } catch { /* no-op */ } unsub = null; }
+    };
+
+    unsub = onSnapshot(
+      sessionDoc,
+      (snap) => {
+        if (finished) return;
+        const data = snap.data() as { url?: string; error?: { message?: string } } | undefined;
+        if (!data) return;
+        if (data.error) {
+          // eslint-disable-next-line no-console
+          console.error('[stripeSync] startCheckout: extension returned error', data.error);
+          cleanup();
+          reject(new Error(data.error.message || 'Checkout could not start. Please try again.'));
+          return;
+        }
+        if (data.url) {
+          // eslint-disable-next-line no-console
+          console.info('[stripeSync] startCheckout: redirecting to Stripe', { url: data.url });
+          cleanup();
+          window.location.assign(data.url);
+          resolve();
+        }
+      },
+      (err) => {
+        if (finished) return;
+        // eslint-disable-next-line no-console
+        console.error('[stripeSync] startCheckout: listener error', err);
+        cleanup();
+        reject(new Error('Checkout could not start. Please try again.'));
+      },
+    );
+
+    // 10s safety timeout. If the extension's Cloud Function isn't
+    // deployed yet, or webhook config is broken, we'll never get a
+    // `url` back. Surface the failure instead of hanging the UI.
+    timeoutId = setTimeout(() => {
+      if (finished) return;
+      // eslint-disable-next-line no-console
+      console.warn('[stripeSync] startCheckout: 10s timeout — no response from extension', {
+        sessionPath: sessionDoc.path,
+        hint: 'Check that the Stripe Firebase Extension is deployed and its Cloud Functions are running.',
+      });
+      cleanup();
+      reject(new Error('Checkout could not start. Please try again.'));
+    }, 10_000);
   });
 }
 
