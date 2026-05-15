@@ -19,8 +19,8 @@ import {
 import { APP_LOGO } from '@/lib/defaults';
 import { money } from '@/lib/utils';
 import { attachStripeSync, createPortalLink } from '@/lib/stripeSync';
-import { SubscribeButton, hasPriceId } from '@/components/SubscribeButton';
-import { isBillingExempt, resolvePlan } from '@/lib/planAccess';
+import { SubscribeButton } from '@/components/SubscribeButton';
+import { isBillingExempt, resolvePlan, hasActiveSubscription } from '@/lib/planAccess';
 import { PRO_PRICE, CORE_PRICE, PRO_PRICE_LINE_COMPACT, CORE_PRICE_LINE_COMPACT } from '@/lib/pricing-display';
 import { TeamManagement } from '@/components/TeamManagement';
 
@@ -822,13 +822,22 @@ function SubscriptionAccordion({ settings, open, onToggle }: { settings: Setting
   const isPaid = status === 'active' || status === 'past_due';
   const isPastDue = status === 'past_due';
   const isCanceled = status === 'canceled';
+  // `hasActive` tells us whether the user has a CONFIRMED Stripe
+  // subscription (active/trialing/past_due) or is billing-exempt.
+  // We never show "Current Plan" for accounts without an active
+  // subscription — they're free-tier signups picking their first plan.
+  const hasActive = hasActiveSubscription(settings);
   const currentPlan = resolvePlan(settings);
 
-  // Which plans are configured at build time? Only render cards
-  // for plans with a Stripe price ID set in CI. No "Coming soon"
-  // placeholders, no fake tiers.
-  const showPro = exempt || hasPriceId('pro');
-  const showCore = exempt || hasPriceId('core');
+  // Render BOTH plan cards for every non-exempt account, regardless
+  // of whether the build-time price IDs were injected. If a price ID
+  // is missing at build time the SubscribeButton inside the card
+  // shows an inline diagnostic instead of silently hiding the card —
+  // hidden cards are worse than a clear error message.
+  // Exempt accounts (founder) see only the Pro card with a Lifetime
+  // pill — no Core card since switching plans isn't applicable.
+  const showPro = true;
+  const showCore = !exempt;
 
   // Accordion summary line — adapts to state.
   const summary = exempt
@@ -840,11 +849,17 @@ function SubscriptionAccordion({ settings, open, onToggle }: { settings: Setting
         ? `${currentPlan === 'pro' ? 'Pro' : 'Core'} · ${currentPlan === 'pro' ? PRO_PRICE_LINE_COMPACT : CORE_PRICE_LINE_COMPACT}`
         : 'Choose a plan';
 
+  // Summary badge — pill shown in the closed-accordion header.
+  // Only show the plan name when we KNOW the user is on that plan;
+  // otherwise show a neutral "Trial" or "Free" badge to avoid the
+  // misleading "Core" badge appearing on accounts with no real plan.
   const summaryBadge = exempt
     ? 'Lifetime'
     : isTrialing
       ? 'Trial'
-      : currentPlan === 'pro' ? 'Pro' : 'Core';
+      : hasActive
+        ? (currentPlan === 'pro' ? 'Pro' : 'Core')
+        : 'Free';
 
   return (
     <div data-section="subscription">
@@ -934,7 +949,7 @@ function SubscriptionAccordion({ settings, open, onToggle }: { settings: Setting
             price={CORE_PRICE}
             tagline="Perfect for solo mobile operators"
             features={CORE_FEATURES}
-            isCurrent={isPaid && currentPlan === 'core'}
+            isCurrent={hasActive && currentPlan === 'core' && !exempt}
             isRecommended={false}
             settings={settings}
             exempt={exempt}
@@ -946,8 +961,8 @@ function SubscriptionAccordion({ settings, open, onToggle }: { settings: Setting
             price={PRO_PRICE}
             tagline="Built for multi-tech roadside businesses"
             features={PRO_FEATURES}
-            isCurrent={isPaid && currentPlan === 'pro'}
-            isRecommended={!isPaid || currentPlan === 'core'}
+            isCurrent={(hasActive && currentPlan === 'pro') || exempt}
+            isRecommended={!hasActive || (currentPlan === 'core' && !exempt)}
             settings={settings}
             exempt={exempt}
           />
