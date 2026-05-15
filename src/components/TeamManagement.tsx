@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { collection, getFirestore, onSnapshot, deleteDoc, doc, type Unsubscribe } from 'firebase/firestore';
+import { collection, onSnapshot, deleteDoc, doc, type Unsubscribe } from 'firebase/firestore';
 import type { InviteDoc, MemberDoc, Role } from '@/types';
 import { useBrand } from '@/context/BrandContext';
 import { usePermissions } from '@/context/MembershipContext';
@@ -12,7 +12,7 @@ import {
   openInviteShareSheet,
   type CreateInviteResult,
 } from '@/lib/invites';
-import { _auth } from '@/lib/firebase';
+import { _auth, _db } from '@/lib/firebase';
 
 // ─────────────────────────────────────────────────────────────────────
 //  TeamManagement
@@ -366,7 +366,17 @@ function ActiveMembersList({ businessId }: { businessId: string }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const db = getFirestore();
+    const db = _db;
+    if (!db) {
+      // eslint-disable-next-line no-console
+      console.warn('[team] members listener skipped — Firestore not initialized');
+      setLoading(false);
+      return;
+    }
+    if (!businessId) {
+      setLoading(false);
+      return;
+    }
     const ref = collection(db, 'businesses', businessId, 'members');
     let unsub: Unsubscribe | undefined;
     try {
@@ -411,7 +421,7 @@ function ActiveMembersList({ businessId }: { businessId: string }) {
     const ok = window.confirm(`Remove ${member.email} from the team?`);
     if (!ok) return;
     try {
-      const db = getFirestore();
+      const db = _db; if (!db) throw new Error("Firestore not initialized");
       await deleteDoc(doc(db, 'businesses', businessId, 'members', member.uid));
       addToast(`${member.email} removed`, 'info');
     } catch (e) {
