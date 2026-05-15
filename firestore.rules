@@ -149,9 +149,63 @@ service cloud.firestore {
 
       // Sensitive config — owner/admin only writes.
       // Reads stay member-scoped for the rest of the app to function.
+      //
+      // EXEMPTION FIELDS LOCKDOWN:
+      //   The following fields on settings/main are NEVER writable from
+      //   the client, regardless of role. They control lifetime Pro
+      //   access and must only be modified by Admin SDK (Cloud Functions
+      //   running with admin privilege):
+      //
+      //     - billingExempt
+      //     - subscriptionOverride
+      //     - exemptionGrantedAt
+      //     - exemptionGrantedBy
+      //     - exemptionReason
+      //
+      //   Why lock these: a client write that flips `billingExempt: true`
+      //   would grant the user permanent Pro access without paying.
+      //   The Wheel Rush founder document already has these set in
+      //   Firestore via prior grant; no client code needs to write them
+      //   ever again.
+      //
+      //   The helper below returns true ONLY when the incoming write
+      //   does NOT modify any of the locked fields (either omits them,
+      //   or sets them to the same value already in the document).
+      function exemptionFieldsUnchanged(beforeData, afterData) {
+        return (
+          (!('billingExempt' in afterData) || beforeData.billingExempt == afterData.billingExempt)
+          && (!('subscriptionOverride' in afterData) || beforeData.subscriptionOverride == afterData.subscriptionOverride)
+          && (!('exemptionGrantedAt' in afterData) || beforeData.exemptionGrantedAt == afterData.exemptionGrantedAt)
+          && (!('exemptionGrantedBy' in afterData) || beforeData.exemptionGrantedBy == afterData.exemptionGrantedBy)
+          && (!('exemptionReason' in afterData) || beforeData.exemptionReason == afterData.exemptionReason)
+        );
+      }
+      // For CREATE on settings/main: deny ALL exemption fields entirely
+      // (a brand new settings doc must never start exempt — only Admin
+      // SDK can later flip these via a separate write path).
+      function noExemptionFieldsOnCreate(afterData) {
+        return (
+          !('billingExempt' in afterData)
+          && !('subscriptionOverride' in afterData)
+          && !('exemptionGrantedAt' in afterData)
+          && !('exemptionGrantedBy' in afterData)
+          && !('exemptionReason' in afterData)
+        );
+      }
+
       match /settings/{docId} {
         allow read: if isMemberOfBusiness(businessId);
-        allow write: if isOwnerOrAdmin(businessId) || request.auth.uid == businessId;
+        // CREATE: owner/admin only, AND must not include any exemption
+        // field (would let a fresh signup self-grant Pro forever).
+        allow create: if (isOwnerOrAdmin(businessId) || request.auth.uid == businessId)
+          && noExemptionFieldsOnCreate(request.resource.data);
+        // UPDATE: owner/admin only, AND every locked exemption field
+        // must match the existing value (no client can flip them).
+        allow update: if (isOwnerOrAdmin(businessId) || request.auth.uid == businessId)
+          && exemptionFieldsUnchanged(resource.data, request.resource.data);
+        // DELETE: owner/admin only. Rare in practice; settings is
+        // typically reset by overwriting, not deleting.
+        allow delete: if isOwnerOrAdmin(businessId) || request.auth.uid == businessId;
       }
       match /operational_settings/{docId} {
         allow read: if isMemberOfBusiness(businessId);
