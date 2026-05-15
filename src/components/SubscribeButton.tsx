@@ -3,40 +3,48 @@ import type { Settings } from '@/types';
 import { _auth } from '@/lib/firebase';
 import { addToast } from '@/lib/toast';
 import { startCheckout, createPortalLink } from '@/lib/stripeSync';
-import { isBillingExempt } from '@/lib/planAccess';
+import { isBillingExempt, resolvePlan } from '@/lib/planAccess';
 import { PRO_PRICE_LINE, CORE_PRICE_LINE } from '@/lib/pricing-display';
 
 // ─────────────────────────────────────────────────────────────────────
-//  SubscribeButton
+//  SubscribeButton — production subscription CTA
 //
-//  Drop-in button for the Settings → Subscription accordion. Supports
-//  both Pro and Core plans. Auto-detects which flow to launch:
+//  Renders the right action for the right user, no clutter.
 //
-//    - subscriptionStatus is 'active' / 'past_due'  → Stripe Customer Portal
-//      (manage card, cancel, view invoices). The plan prop is ignored
-//      here — the portal handles everything.
+//  Decision matrix:
 //
-//    - subscriptionStatus is 'trialing' / 'inactive' / 'canceled' →
-//      Stripe Checkout Session using the price ID for the selected plan.
+//    Account state              | Pro button       | Core button
+//    ────────────────────────── | ──────────────── | ──────────────────
+//    Billing exempt             | (no render)      | (no render)
+//    Trialing                   | Start Pro …      | Start Core …
+//    Active on Pro              | Current Plan ✓   | Switch to Core
+//    Active on Core             | Upgrade to Pro   | Current Plan ✓
+//    Past due                   | Manage billing   | Manage billing
+//    Canceled / inactive        | Subscribe to Pro | Subscribe to Core
 //
-//  Billing-exempt accounts render NOTHING — those bypass Stripe entirely.
+//  The "Current Plan" badge is a non-interactive button — it's visually
+//  the most premium signal and doesn't tempt the user into clicking
+//  something that would create a duplicate subscription.
 //
-//  Stripe price IDs are read from VITE_STRIPE_PRO_PRICE_ID and
-//  VITE_STRIPE_CORE_PRICE_ID at build time. If a plan's price ID is
-//  missing, that plan's button shows "Coming soon" instead of crashing.
+//  Switch direction (Core ↔ Pro) routes through the Stripe Customer
+//  Portal where the user can change their subscription plan. We
+//  don't try to charge a new Checkout Session over an existing one —
+//  Stripe handles proration cleanly via the portal.
+//
+//  If a plan's Stripe price ID isn't configured at build time, this
+//  button simply does not render. The parent component should check
+//  hasPriceId() before placing the card on the page.
 // ─────────────────────────────────────────────────────────────────────
 
 interface Props {
   settings: Settings;
-  /** Which plan this button is for. Defaults to 'pro' for back-compat
-   *  with existing call sites that don't pass the prop. */
-  plan?: 'pro' | 'core';
+  /** Which plan this button is for. */
+  plan: 'pro' | 'core';
 }
 
 // Read both price IDs once at module load. Vite inlines these at build
-// time. If a secret isn't injected (e.g. local dev or missing CI var),
-// the corresponding string is empty and the button shows a disabled
-// state instead of trying to open Stripe.
+// time. If a secret isn't injected, the corresponding string is empty
+// and the button refuses to render.
 const PRICE_IDS = (() => {
   try {
     const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env;
@@ -49,39 +57,60 @@ const PRICE_IDS = (() => {
   }
 })();
 
-export function SubscribeButton({ settings, plan = 'pro' }: Props) {
+/**
+ * Check if a given plan has a configured Stripe price ID at build
+ * time. Use this in parent components to decide whether to render
+ * the entire plan card — keeps the UI clean by hiding unconfigured
+ * plans entirely instead of showing disabled placeholders.
+ */
+export function hasPriceId(plan: 'pro' | 'core'): boolean {
+  return Boolean(PRICE_IDS[plan]);
+}
+
+export function SubscribeButton({ settings, plan }: Props) {
   const [busy, setBusy] = useState(false);
 
   // Defensive exemption check.
   if (isBillingExempt(settings)) return null;
 
+  // No price ID for this plan → don't render anything. The parent
+  // card should also not exist in this state.
+  const priceId = PRICE_IDS[plan];
+  if (!priceId) return null;
+
   const status = settings.subscriptionStatus;
   const isPaid = status === 'active' || status === 'past_due';
+  const pastDue = status === 'past_due';
+  const isTrialing = status === 'trialing';
+  const currentPlan = resolvePlan(settings);
+  const isThisCurrentPlan = isPaid && currentPlan === plan;
 
-  // If user already has an active subscription, only render the manage-
-  // billing button on the FIRST instance of this component on the page
-  // (the Pro button). The Core button hides because there's nothing
-  // to do — you can't have two simultaneous subscriptions.
-  if (isPaid && plan === 'core') return null;
-
-  const priceId = PRICE_IDS[plan];
-  const priceLine = plan === 'pro' ? PRO_PRICE_LINE : CORE_PRICE_LINE;
   const planLabel = plan === 'pro' ? 'Pro' : 'Core';
+  const priceLine = plan === 'pro' ? PRO_PRICE_LINE : CORE_PRICE_LINE;
 
-  // Pre-flight: missing price ID for this plan → disabled "coming soon".
-  if (!priceId) {
+  // ─── Current plan: non-interactive badge ─────────────────────
+  if (isThisCurrentPlan) {
     return (
       <button
-        className="btn secondary"
+        className="btn"
         disabled
-        style={{ width: '100%', opacity: 0.6, marginTop: 8 }}
-        title={`Stripe price ID not configured for ${planLabel} plan`}
+        style={{
+          width: '100%',
+          marginTop: 8,
+          background: 'rgba(200,164,74,.1)',
+          border: '1px solid rgba(200,164,74,.4)',
+          color: 'var(--brand-primary)',
+          fontWeight: 700,
+          cursor: 'default',
+          opacity: 1,
+        }}
       >
-        {planLabel} · Coming soon
+        ✓ Current Plan
       </button>
     );
   }
 
+  // ─── Click handler ───────────────────────────────────────────
   const handleClick = async () => {
     const uid = _auth?.currentUser?.uid;
     if (!uid) {
@@ -91,6 +120,9 @@ export function SubscribeButton({ settings, plan = 'pro' }: Props) {
     setBusy(true);
     try {
       if (isPaid) {
+        // User has an active subscription — switching plans goes
+        // through the Stripe Customer Portal, which handles proration
+        // and avoids duplicate subscriptions.
         const url = await createPortalLink();
         window.location.assign(url);
       } else {
@@ -103,18 +135,32 @@ export function SubscribeButton({ settings, plan = 'pro' }: Props) {
     // Intentionally don't reset busy on success — redirect is mid-flight.
   };
 
+  // ─── Compute button label based on context ──────────────────
+  let label: string;
+  if (busy) {
+    label = 'Opening Stripe…';
+  } else if (pastDue) {
+    label = 'Update payment method';
+  } else if (isPaid) {
+    // User is on the OTHER plan → offer the swap
+    label = plan === 'pro' ? 'Upgrade to Pro' : 'Switch to Core';
+  } else if (isTrialing) {
+    label = `Start ${planLabel} · ${priceLine}`;
+  } else {
+    label = `Subscribe to ${planLabel} · ${priceLine}`;
+  }
+
+  // ─── Pro = gold primary, Core = secondary outline ───────────
+  const isPrimary = plan === 'pro';
+
   return (
     <button
-      className={plan === 'pro' ? 'btn primary' : 'btn secondary'}
+      className={isPrimary ? 'btn primary' : 'btn secondary'}
       onClick={handleClick}
       disabled={busy}
-      style={{ width: '100%', marginTop: plan === 'core' ? 8 : 0 }}
+      style={{ width: '100%', marginTop: 8 }}
     >
-      {busy
-        ? 'Opening Stripe…'
-        : isPaid
-          ? 'Manage billing'
-          : `Subscribe to ${planLabel} · ${priceLine}`}
+      {label}
     </button>
   );
 }
