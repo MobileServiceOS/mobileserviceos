@@ -277,6 +277,66 @@ service cloud.firestore {
       }
     }
 
+    // ─────────────────────────────────────────────────────────────────
+    // STRIPE FIREBASE EXTENSION COLLECTIONS
+    //
+    // The "Run Subscription Payments with Stripe" extension writes to
+    // these top-level collections. The extension itself uses Admin SDK
+    // and bypasses these rules — but the client app MUST be able to:
+    //
+    //   1. WRITE checkout_sessions and portal_links sub-docs (these are
+    //      how the client requests a checkout URL — the extension reads
+    //      these writes and fills in the URL).
+    //   2. READ its own customer doc + subscriptions + payments + the
+    //      checkout_session it just wrote (to receive the resolved URL).
+    //   3. READ products + prices + tax_rates publicly (these are the
+    //      catalog the client reads to display plan options if it ever
+    //      needs to).
+    //
+    // Strict isolation: a user can only access their OWN /customers/{uid}
+    // sub-tree (uid matches request.auth.uid). No cross-user reads.
+    // ─────────────────────────────────────────────────────────────────
+
+    match /customers/{uid} {
+      // A user can read their own Stripe customer doc.
+      allow read: if isSignedIn() && request.auth.uid == uid;
+      // No client writes — Stripe extension creates this via Admin SDK.
+
+      match /checkout_sessions/{id} {
+        // Client creates the request doc; extension fills in `url`.
+        // Client reads the doc to learn the URL.
+        allow read, write: if isSignedIn() && request.auth.uid == uid;
+      }
+
+      match /subscriptions/{id} {
+        // Read-only: the extension mirrors subscription state here.
+        allow read: if isSignedIn() && request.auth.uid == uid;
+        // No client writes.
+
+        match /{path=**} {
+          allow read: if isSignedIn() && request.auth.uid == uid;
+        }
+      }
+
+      match /payments/{id} {
+        // Read-only: extension writes invoice/payment history here.
+        allow read: if isSignedIn() && request.auth.uid == uid;
+      }
+    }
+
+    // Stripe products + prices — public catalog read.
+    // These are mirrored from Stripe by the extension. Any signed-in
+    // user can read them so plan selection UIs render.
+    match /products/{productId} {
+      allow read: if isSignedIn();
+      match /prices/{priceId} {
+        allow read: if isSignedIn();
+      }
+      match /tax_rates/{taxRateId} {
+        allow read: if isSignedIn();
+      }
+    }
+
     // Default deny
     match /{document=**} {
       allow read, write: if false;
