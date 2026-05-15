@@ -18,10 +18,10 @@ import {
 } from 'firebase/auth';
 import { APP_LOGO } from '@/lib/defaults';
 import { money } from '@/lib/utils';
-import { attachStripeSync } from '@/lib/stripeSync';
-import { SubscribeButton } from '@/components/SubscribeButton';
-import { isBillingExempt } from '@/lib/planAccess';
-import { PRO_PRICE, PRO_PRICE_LINE_COMPACT } from '@/lib/pricing-display';
+import { attachStripeSync, createPortalLink } from '@/lib/stripeSync';
+import { SubscribeButton, hasPriceId } from '@/components/SubscribeButton';
+import { isBillingExempt, resolvePlan } from '@/lib/planAccess';
+import { PRO_PRICE, CORE_PRICE, PRO_PRICE_LINE_COMPACT, CORE_PRICE_LINE_COMPACT } from '@/lib/pricing-display';
 import { TeamManagement } from '@/components/TeamManagement';
 import { WheelRushBackupImport } from '@/pages/WheelRushBackupImport';
 import {
@@ -46,7 +46,6 @@ const LOGO_UPLOAD_TIMEOUT_MS = 30_000;
  * 14-day free trial — matches the value used in Onboarding. Surfaced
  * in the Subscription card so the user can see how many days remain.
  */
-const TRIAL_DAYS = 14;
 
 /**
  * Settings — refactored for mobile-first one-handed use.
@@ -787,24 +786,28 @@ function TeamAccordion({ open, onToggle }: { open: boolean; onToggle: () => void
 //  No upgrade button, no plan toggle, no Core comparison.
 // ─────────────────────────────────────────────────────────────────────
 
-const PRO_FEATURES: ReadonlyArray<string> = [
+const CORE_FEATURES: ReadonlyArray<string> = [
   'Quick Quote',
   'Job Logging',
+  'Basic Invoices',
+  'Inventory Tracking',
   'Customer Management',
-  'Branded Invoices',
-  'Review Requests',
-  'Expense Tracking',
-  'Tire Inventory',
-  'Profit Dashboard',
-  'Pending Payment Tracking',
+  'Pending Payments',
+  'PWA Install',
+  'Single User Access',
+];
+
+const PRO_FEATURES: ReadonlyArray<string> = [
+  'Everything in Core',
   'Technician Accounts',
   'Role Permissions',
-  'Technician Attribution',
   'Team Inventory Workflow',
+  'Technician Attribution',
   'Advanced Analytics',
-  'Owner / Admin Visibility',
+  'Profit Dashboard',
   'Multi-user Operations',
-  'PWA Install',
+  'Owner / Admin Visibility',
+  'Branded Invoices',
 ];
 
 /**
@@ -839,12 +842,33 @@ function SubscriptionAccordion({ settings, open, onToggle }: { settings: Setting
   const daysLeft = trialDaysLeft(settings);
   const isTrialing = settings.subscriptionStatus === 'trialing';
   const exempt = isBillingExempt(settings);
+  const status = settings.subscriptionStatus;
+  const isPaid = status === 'active' || status === 'past_due';
+  const isPastDue = status === 'past_due';
+  const isCanceled = status === 'canceled';
+  const currentPlan = resolvePlan(settings);
+
+  // Which plans are configured at build time? Only render cards
+  // for plans with a Stripe price ID set in CI. No "Coming soon"
+  // placeholders, no fake tiers.
+  const showPro = exempt || hasPriceId('pro');
+  const showCore = exempt || hasPriceId('core');
+
+  // Accordion summary line — adapts to state.
   const summary = exempt
     ? `Pro · Lifetime${settings.subscriptionOverride && settings.subscriptionOverride !== 'lifetime'
         ? ` (${settings.subscriptionOverride})` : ''}`
     : isTrialing && daysLeft !== null
-      ? `Pro · Trial · ${daysLeft} ${daysLeft === 1 ? 'day' : 'days'} left`
-      : `Pro Plan · ${PRO_PRICE_LINE_COMPACT}`;
+      ? `${currentPlan === 'pro' ? 'Pro' : 'Core'} · Trial · ${daysLeft} ${daysLeft === 1 ? 'day' : 'days'} left`
+      : isPaid
+        ? `${currentPlan === 'pro' ? 'Pro' : 'Core'} · ${currentPlan === 'pro' ? PRO_PRICE_LINE_COMPACT : CORE_PRICE_LINE_COMPACT}`
+        : 'Choose a plan';
+
+  const summaryBadge = exempt
+    ? 'Lifetime'
+    : isTrialing
+      ? 'Trial'
+      : currentPlan === 'pro' ? 'Pro' : 'Core';
 
   return (
     <div data-section="subscription">
@@ -854,132 +878,367 @@ function SubscriptionAccordion({ settings, open, onToggle }: { settings: Setting
       summary={summary}
       open={open}
       onToggle={onToggle}
-      badge={exempt ? 'Lifetime' : 'Pro'}
+      badge={summaryBadge}
     >
+      {/* ─── State banner — context for the current account ───── */}
       <div style={{
+        background: isPastDue
+          ? 'rgba(239,68,68,0.08)'
+          : isTrialing
+            ? 'rgba(200,164,74,0.08)'
+            : 'var(--s2)',
+        border: `1px solid ${isPastDue
+          ? 'rgba(239,68,68,0.3)'
+          : isTrialing
+            ? 'rgba(200,164,74,0.25)'
+            : 'var(--border)'}`,
+        borderRadius: 10,
+        padding: '12px 14px',
+        fontSize: 13,
+        color: 'var(--t1)',
+        marginBottom: 16,
+        lineHeight: 1.5,
         display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'flex-start',
-        gap: 12,
-        marginBottom: 14,
+        alignItems: 'center',
+        gap: 10,
       }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{
-            fontSize: 22,
-            fontWeight: 800,
-            color: 'var(--t1)',
-            letterSpacing: '-.3px',
-            lineHeight: 1.1,
-          }}>
-            {exempt ? 'Lifetime Pro Access' : 'Pro Plan'}
-          </div>
-          <div style={{
-            fontSize: 13,
-            color: 'var(--t2)',
-            marginTop: 6,
-          }}>
-            {exempt ? (
-              <span style={{ fontWeight: 700, color: 'var(--brand-primary)' }}>
-                No billing required — full Pro features unlocked permanently
-              </span>
-            ) : (
-              <>
-                <span style={{ fontWeight: 800, color: 'var(--brand-primary)' }}>{PRO_PRICE}</span>
-                <span> / month · {TRIAL_DAYS}-day free trial</span>
-              </>
-            )}
-          </div>
-        </div>
-
-        {!exempt && isTrialing && daysLeft !== null && (
-          <div
-            title="Free trial in progress"
-            style={{
-              fontSize: 9, fontWeight: 800,
-              color: 'var(--brand-primary)',
-              textTransform: 'uppercase', letterSpacing: '1px',
-              padding: '4px 9px', borderRadius: 99,
-              background: 'rgba(200,164,74,.1)',
-              border: '1px solid rgba(200,164,74,.3)',
-              flexShrink: 0,
-              whiteSpace: 'nowrap',
-            }}
-          >
-            Trial · {daysLeft}d left
-          </div>
+        {exempt ? (
+          <>
+            <span style={{ fontSize: 16 }}>👑</span>
+            <span>
+              <strong style={{ color: 'var(--brand-primary)' }}>Lifetime Pro access.</strong>{' '}
+              No billing required — full Pro features unlocked permanently.
+            </span>
+          </>
+        ) : isTrialing && daysLeft !== null ? (
+          <>
+            <span style={{ fontSize: 16 }}>⏳</span>
+            <span>
+              <strong style={{ color: 'var(--brand-primary)' }}>14-day free trial active.</strong>{' '}
+              {daysLeft} {daysLeft === 1 ? 'day' : 'days'} remaining. Pick a plan below to continue past the trial.
+            </span>
+          </>
+        ) : isPastDue ? (
+          <>
+            <span style={{ fontSize: 16 }}>⚠️</span>
+            <span>
+              <strong style={{ color: '#ef4444' }}>Payment past due.</strong>{' '}
+              Update your card to keep your features active.
+            </span>
+          </>
+        ) : isCanceled ? (
+          <>
+            <span style={{ fontSize: 16 }}>📭</span>
+            <span>
+              <strong>Subscription canceled.</strong>{' '}
+              Pick a plan below to restore access.
+            </span>
+          </>
+        ) : isPaid ? (
+          <>
+            <span style={{ fontSize: 16 }}>✓</span>
+            <span>
+              <strong style={{ color: 'var(--brand-primary)' }}>Subscription active.</strong>{' '}
+              You're on the {currentPlan === 'pro' ? 'Pro' : 'Core'} plan.
+            </span>
+          </>
+        ) : (
+          <>
+            <span style={{ fontSize: 16 }}>🚀</span>
+            <span>Pick a plan below to get started. Both include a 14-day free trial.</span>
+          </>
         )}
       </div>
 
-      <div style={{
-        background: 'var(--s2)',
-        border: '1px solid var(--border)',
-        borderRadius: 10,
-        padding: '10px 12px',
-        fontSize: 12,
-        color: 'var(--t2)',
-        marginBottom: 14,
-        lineHeight: 1.5,
-      }}>
-        {exempt
-          ? 'This account has lifetime Pro access. Stripe billing checks are bypassed; no payment is ever required. Manage exemption details in the Lifetime Pro Access panel below.'
-          : isTrialing
-            ? 'Your free trial is active. Subscribe any time to keep your Pro features when the trial ends.'
-            : settings.subscriptionStatus === 'active'
-              ? 'Subscription active. Use Manage billing to update card, view invoices, or cancel.'
-              : settings.subscriptionStatus === 'past_due'
-                ? 'Payment past due. Update your card via Manage billing to keep Pro features.'
-                : settings.subscriptionStatus === 'canceled'
-                  ? 'Subscription canceled. Subscribe again to restore Pro features.'
-                  : 'Subscribe to keep Pro features active after the trial.'}
+      {/* ─── Plan cards — Core (left) + Pro (right) ───────────── */}
+      <div className="plan-card-grid">
+        {showCore && (
+          <PlanCard
+            tier="core"
+            price={CORE_PRICE}
+            tagline="Perfect for solo mobile operators"
+            features={CORE_FEATURES}
+            isCurrent={isPaid && currentPlan === 'core'}
+            isRecommended={false}
+            settings={settings}
+            exempt={exempt}
+          />
+        )}
+        {showPro && (
+          <PlanCard
+            tier="pro"
+            price={PRO_PRICE}
+            tagline="Built for multi-tech roadside businesses"
+            features={PRO_FEATURES}
+            isCurrent={isPaid && currentPlan === 'pro'}
+            isRecommended={!isPaid || currentPlan === 'core'}
+            settings={settings}
+            exempt={exempt}
+          />
+        )}
       </div>
 
-      <div style={{
-        fontSize: 11,
-        color: 'var(--t3)',
-        fontWeight: 800,
-        textTransform: 'uppercase',
-        letterSpacing: 1,
-        marginBottom: 10,
-      }}>
-        What's included
+      {/* Manage billing — only when paid, lets users hit Stripe portal
+          for any other action (cancel, view invoices, update card). */}
+      {isPaid && !exempt && (
+        <ManageBillingLink />
+      )}
+
+      <style>{`
+        .plan-card-grid {
+          display: grid;
+          grid-template-columns: 1fr;
+          gap: 12px;
+          margin-bottom: 12px;
+        }
+        @media (min-width: 600px) {
+          .plan-card-grid {
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+          }
+        }
+      `}</style>
+    </AccordionShell>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+//  PlanCard — single subscription plan card
+//
+//  Renders inside the Subscription accordion. Two of these appear
+//  side-by-side on tablet/desktop, stacked on mobile.
+//
+//  Visual treatment:
+//    - Current plan: gold border + gold tint background + "Current Plan"
+//      pill badge in the corner. The CTA inside renders as a non-
+//      interactive "Current Plan ✓" button.
+//    - Recommended plan (Pro when user is on Core/trial/none): subtle
+//      gold accent + "Recommended" badge in the corner.
+//    - Otherwise: plain card.
+// ─────────────────────────────────────────────────────────────────────
+
+function PlanCard({
+  tier,
+  price,
+  tagline,
+  features,
+  isCurrent,
+  isRecommended,
+  settings,
+  exempt,
+}: {
+  tier: 'core' | 'pro';
+  price: string;
+  tagline: string;
+  features: ReadonlyArray<string>;
+  isCurrent: boolean;
+  isRecommended: boolean;
+  settings: SettingsT;
+  exempt: boolean;
+}) {
+  const label = tier === 'pro' ? 'Pro' : 'Core';
+
+  // Visual treatment: gold border on either current plan or recommended.
+  const accent = isCurrent || (isRecommended && tier === 'pro');
+
+  return (
+    <div
+      style={{
+        position: 'relative',
+        background: accent
+          ? 'linear-gradient(180deg, rgba(200,164,74,0.06) 0%, var(--s1) 100%)'
+          : 'var(--s1)',
+        border: accent
+          ? '1px solid rgba(200,164,74,0.35)'
+          : '1px solid var(--border)',
+        borderRadius: 14,
+        padding: '18px 16px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 12,
+        minWidth: 0,
+      }}
+    >
+      {/* Top-right badge — only one shows at a time */}
+      {isCurrent ? (
+        <div style={{
+          position: 'absolute',
+          top: -10,
+          right: 14,
+          background: 'var(--brand-primary)',
+          color: '#0a0a0a',
+          fontSize: 10,
+          fontWeight: 800,
+          letterSpacing: 0.8,
+          padding: '4px 10px',
+          borderRadius: 99,
+          textTransform: 'uppercase',
+        }}>
+          Current Plan
+        </div>
+      ) : (isRecommended && tier === 'pro') ? (
+        <div style={{
+          position: 'absolute',
+          top: -10,
+          right: 14,
+          background: 'rgba(200,164,74,0.15)',
+          color: 'var(--brand-primary)',
+          fontSize: 10,
+          fontWeight: 800,
+          letterSpacing: 0.8,
+          padding: '4px 10px',
+          borderRadius: 99,
+          border: '1px solid rgba(200,164,74,0.4)',
+          textTransform: 'uppercase',
+        }}>
+          Recommended
+        </div>
+      ) : null}
+
+      {/* Header: plan name + price */}
+      <div>
+        <div style={{
+          fontSize: 11,
+          fontWeight: 800,
+          color: 'var(--t3)',
+          textTransform: 'uppercase',
+          letterSpacing: 1.5,
+          marginBottom: 4,
+        }}>
+          {label}
+        </div>
+        <div style={{
+          display: 'flex',
+          alignItems: 'baseline',
+          gap: 4,
+        }}>
+          <span style={{
+            fontSize: 28,
+            fontWeight: 800,
+            color: 'var(--t1)',
+            letterSpacing: '-0.5px',
+            lineHeight: 1,
+          }}>
+            {price}
+          </span>
+          <span style={{
+            fontSize: 13,
+            color: 'var(--t3)',
+            fontWeight: 600,
+          }}>
+            /month
+          </span>
+        </div>
+        <div style={{
+          fontSize: 12,
+          color: 'var(--t2)',
+          marginTop: 8,
+          lineHeight: 1.4,
+        }}>
+          {tagline}
+        </div>
       </div>
 
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: '1fr 1fr',
-        gap: '6px 14px',
-        marginBottom: 16,
+      {/* Feature checklist */}
+      <ul style={{
+        listStyle: 'none',
+        padding: 0,
+        margin: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
+        flex: 1,
       }}>
-        {PRO_FEATURES.map((feat) => (
-          <div key={feat} style={{
+        {features.map((feat) => (
+          <li key={feat} style={{
             fontSize: 12,
             color: 'var(--t1)',
             display: 'flex',
-            alignItems: 'center',
+            alignItems: 'flex-start',
             gap: 6,
-            minWidth: 0,
+            lineHeight: 1.4,
           }}>
-            <span style={{ color: 'var(--brand-primary)', fontWeight: 800, flexShrink: 0 }}>✓</span>
-            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {feat}
-            </span>
-          </div>
+            <span style={{
+              color: 'var(--brand-primary)',
+              fontWeight: 800,
+              flexShrink: 0,
+            }}>✓</span>
+            <span>{feat}</span>
+          </li>
         ))}
-      </div>
+      </ul>
 
-      {/* Stripe subscribe / portal buttons — hidden entirely for exempt
-          accounts since billing doesn't apply. Renders disabled
-          "Coming soon" placeholders if a plan's Stripe price ID env
-          var isn't configured at build time. Pro renders first
-          (primary CTA), Core renders below as the secondary option. */}
-      {!exempt && (
-        <>
-          <SubscribeButton settings={settings} plan="pro" />
-          <SubscribeButton settings={settings} plan="core" />
-        </>
+      {/* CTA — context-aware via SubscribeButton. For exempt accounts,
+          show a static "Active · Lifetime" pill instead. */}
+      {exempt ? (
+        <div style={{
+          width: '100%',
+          marginTop: 8,
+          padding: '10px',
+          background: tier === 'pro'
+            ? 'rgba(200,164,74,.12)'
+            : 'var(--s2)',
+          border: tier === 'pro'
+            ? '1px solid rgba(200,164,74,.4)'
+            : '1px solid var(--border)',
+          borderRadius: 10,
+          color: tier === 'pro' ? 'var(--brand-primary)' : 'var(--t3)',
+          fontWeight: 700,
+          fontSize: 12,
+          textAlign: 'center',
+        }}>
+          {tier === 'pro' ? '✓ Active · Lifetime' : 'Not applicable'}
+        </div>
+      ) : (
+        <SubscribeButton settings={settings} plan={tier} />
       )}
-    </AccordionShell>
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+//  ManageBillingLink — secondary "Manage in Stripe" link
+//
+//  Shown beneath the plan cards when the user has an active or past-
+//  due subscription. Provides access to the Stripe Customer Portal
+//  for actions not handled by the plan cards: update card, view
+//  invoices, cancel subscription.
+// ─────────────────────────────────────────────────────────────────────
+
+function ManageBillingLink() {
+  const [busy, setBusy] = useState(false);
+
+  const handleClick = async () => {
+    setBusy(true);
+    try {
+      const url = await createPortalLink();
+      window.location.assign(url);
+    } catch (e) {
+      addToast((e as Error).message || 'Could not open Stripe', 'error');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <button
+      onClick={handleClick}
+      disabled={busy}
+      style={{
+        width: '100%',
+        padding: '10px',
+        background: 'transparent',
+        border: '1px solid var(--border)',
+        borderRadius: 10,
+        color: 'var(--t2)',
+        fontSize: 12,
+        fontWeight: 600,
+        cursor: 'pointer',
+        marginTop: 4,
+      }}
+    >
+      {busy ? 'Opening Stripe…' : 'Manage billing in Stripe →'}
+    </button>
   );
 }
 
