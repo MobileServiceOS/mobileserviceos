@@ -25,12 +25,10 @@
 // ─────────────────────────────────────────────────────────────────────
 
 /** Pro plan monthly price, dollar-formatted for inline use (no period). */
-export const PRO_PRICE = '$89.99' as const;
+export const PRO_PRICE = '$89' as const;
 
-/** Core plan monthly price. Reserved for future public-facing Core
- *  marketing — Core is internal-only today but the architecture is
- *  preserved (see planAccess.ts and types/index.ts). */
-export const CORE_PRICE = '$39.99' as const;
+/** Core plan monthly price. */
+export const CORE_PRICE = '$39' as const;
 
 /** Pre-composed "$89.99 / month" line used in buttons and headers. */
 export const PRO_PRICE_LINE = `${PRO_PRICE} / month` as const;
@@ -41,3 +39,6 @@ export const CORE_PRICE_LINE = `${CORE_PRICE} / month` as const;
 /** "$89.99/month" without spaces — used in summary lines where the
  *  spaced version takes too much horizontal space. */
 export const PRO_PRICE_LINE_COMPACT = `${PRO_PRICE}/month` as const;
+
+/** "$39.99/month" compact. */
+export const CORE_PRICE_LINE_COMPACT = `${CORE_PRICE}/month` as const;
