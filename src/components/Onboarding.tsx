@@ -146,13 +146,15 @@ export function Onboarding({ settings, onComplete }: Props) {
       update('Tire Replacement', tireReplaceProfit);
       update('Tire Installation', installationProfit);
 
-      // Single-plan auto-assignment. Every new account starts on Pro
-      // with a 14-day free trial. trialStartedAt / trialEndsAt are
-      // ISO strings (type Settings allows Timestamp | Date | string;
-      // ISO is the safest round-trip across SSR/CSR boundaries).
-      const trialStart = new Date();
-      const trialEnd = new Date(trialStart.getTime() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
-
+      // New accounts complete onboarding with NO subscription state.
+      // The user lands in the app and must click Subscribe on Core or
+      // Pro to enter the 14-day free trial. Stripe's Checkout Session
+      // is configured with `trial_period_days: 14` (see startCheckout
+      // in src/lib/stripeSync.ts) — Stripe writes the trial dates back
+      // to Firestore via the Firebase Extension. The mirror in
+      // stripeSync.ts then populates `subscriptionStatus`, `plan`,
+      // and `trialEndsAt` on the Settings doc. The app reads those
+      // from there. No app-side trial bookkeeping.
       const settingsPatch: Partial<Settings> = {
         weeklyGoal,
         costPerMile,
@@ -161,10 +163,6 @@ export function Onboarding({ settings, onComplete }: Props) {
         tireReplacementTargetProfit: tireReplaceProfit,
         defaultTargetProfit: Math.round((tireRepairProfit + tireReplaceProfit + installationProfit) / 3),
         servicePricing: sp,
-        plan: 'pro',
-        subscriptionStatus: 'trialing',
-        trialStartedAt: trialStart.toISOString(),
-        trialEndsAt: trialEnd.toISOString(),
         maxUsers: 5,
         featureFlags: {
           teamAccess: true,
@@ -174,10 +172,9 @@ export function Onboarding({ settings, onComplete }: Props) {
       };
 
       // Defensive: if an exempt account somehow lands back on
-      // onboarding (e.g. onboardingComplete got cleared), the
-      // sanitizer strips plan / subscriptionStatus / trialStartedAt /
-      // trialEndsAt from the patch so the exemption is preserved.
-      // Non-exempt accounts pass through unchanged.
+      // onboarding, the sanitizer strips plan / subscriptionStatus /
+      // trialStartedAt / trialEndsAt from the patch so the exemption
+      // is preserved. Non-exempt accounts pass through unchanged.
       const safePatch = sanitizeSubscriptionWrite(settings, settingsPatch);
 
       await onComplete(brandPatch, safePatch);
@@ -312,7 +309,6 @@ export function Onboarding({ settings, onComplete }: Props) {
               <div className="onboarding-summary">
                 <div className="onboarding-summary-row"><span>Business</span><strong>{businessName || '—'}</strong></div>
                 <div className="onboarding-summary-row"><span>Service area</span><strong>{mainCity}{stateCode ? `, ${stateCode}` : ''}</strong></div>
-                <div className="onboarding-summary-row"><span>Plan</span><strong>Pro · {TRIAL_DAYS}-day free trial</strong></div>
                 <div className="onboarding-summary-row"><span>Weekly goal</span><strong>${weeklyGoal.toLocaleString()}</strong></div>
                 <div className="onboarding-summary-row"><span>Profit targets</span><strong>${tireRepairProfit} / ${tireReplaceProfit} / ${installationProfit}</strong></div>
                 <div className="onboarding-summary-row"><span>Travel</span><strong>${costPerMile.toFixed(2)}/mi · {freeMiles} free</strong></div>
@@ -323,8 +319,8 @@ export function Onboarding({ settings, onComplete }: Props) {
                 border: '1px solid rgba(200,164,74,.2)',
                 borderRadius: 10, fontSize: 11, color: 'var(--t2)', lineHeight: 1.5,
               }}>
-                <strong style={{ color: 'var(--brand-primary)' }}>14-day free trial</strong>
-                <span> — full Pro features unlocked. Billing integration coming soon. No card required.</span>
+                <strong style={{ color: 'var(--brand-primary)' }}>{TRIAL_DAYS}-day free trial</strong>
+                <span> — pick Core or Pro after setup. Full features unlocked during trial. No card required.</span>
               </div>
             </div>
           )}
