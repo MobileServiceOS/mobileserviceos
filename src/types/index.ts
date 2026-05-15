@@ -569,6 +569,53 @@ export interface Settings {
    *  "Beta tester comp through 2027-01-01"). Surfaced in the hidden
    *  Settings panel for owner visibility. */
   exemptionReason?: string;
+
+  // ───────────────────────────────────────────────────────────────
+  // REFERRAL SYSTEM
+  // ───────────────────────────────────────────────────────────────
+  /**
+   * Unique short referral code for this business. Generated on first
+   * write of the Settings doc (via referral.ts ensureReferralCode).
+   * Used in `?ref=CODE` URL params on signup. Human-readable, 6-7
+   * uppercase alphanumerics. Collision-checked before commit.
+   *
+   * Examples: 'MSOS7F3', 'WRUSH24', 'ROAD89X'.
+   */
+  referralCode?: string;
+  /**
+   * Number of free-month credits this business has been awarded for
+   * successful referrals. Each credit = 1 paid month covered by a
+   * Stripe Customer Balance adjustment. Incremented by the
+   * `onSubscriptionFirstPayment` Cloud Function ONLY. Client cannot
+   * write this field (locked in firestore.rules).
+   */
+  referralCreditsMonths?: number;
+  /**
+   * Total count of referrals that converted to a paid subscription.
+   * Audit counter — never decremented. If a fraudulent referral is
+   * revoked via admin, `referralCreditsMonths` is debited but this
+   * counter stays so we have a true historical count.
+   */
+  totalSuccessfulReferrals?: number;
+  /**
+   * If this business was referred by another business, stores the
+   * referrer's businessId. Set during signup from the URL `ref=`
+   * parameter. NEVER set by the user after signup — locked in
+   * firestore.rules after initial create.
+   */
+  referredBy?: string;
+  /**
+   * The referral code that brought this business in. Stored for
+   * audit even though `referredBy` is the canonical link.
+   */
+  referredByCode?: string;
+  /**
+   * Document id of the corresponding `referrals/{id}` doc that
+   * tracks this business's signup. Allows fast lookup of referral
+   * state from the business doc.
+   */
+  referralDocId?: string;
+
   /**
    * Owner-set flag: whether technicians on this business are allowed to
    * manually override the system-suggested revenue on jobs they log.
@@ -685,3 +732,78 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   google_pay: 'Google Pay',
   other: 'Other',
 };
+
+// ─────────────────────────────────────────────────────────────────────
+// REFERRAL SYSTEM TYPES
+//
+// Top-level `referrals/{referralId}` collection tracks every referral
+// signup. Lifecycle:
+//
+//   pending    → New business signed up via ref code, no Stripe sub yet
+//   trialing   → Stripe sub created, in 14-day free trial
+//   converted  → First successful PAID invoice processed (post-trial)
+//   rewarded   → Credit applied to referrer's Stripe balance
+//   canceled   → Referred business canceled before first paid payment
+//   fraudulent → Flagged by anti-fraud heuristics, no reward granted
+//
+// All writes happen server-side via Cloud Functions or Admin SDK.
+// Firestore rules block client writes entirely.
+// ─────────────────────────────────────────────────────────────────────
+
+export type ReferralStatus =
+  | 'pending'
+  | 'trialing'
+  | 'converted'
+  | 'rewarded'
+  | 'canceled'
+  | 'fraudulent';
+
+export interface ReferralDoc {
+  /** Document id — random ULID-like string. */
+  id: string;
+  /** Business id of the referrer (the one who shared their link). */
+  referrerBusinessId: string;
+  /** Business id of the new account that signed up via the link. */
+  referredBusinessId: string;
+  /** Auth uid of the new account. Used for tying back to the
+   *  Stripe customer doc at /customers/{uid}. */
+  referredUid: string;
+  /** Email of the new account at signup time. Used for fraud
+   *  velocity checks and human audit. */
+  referredEmail: string;
+  /** The exact code that was used (denormalized for audit even
+   *  though we have referrerBusinessId). */
+  referralCode: string;
+  /** Lifecycle state. See ReferralStatus union. */
+  status: ReferralStatus;
+
+  /** ISO timestamps. */
+  createdAt: string;
+  /** When the new account started a Stripe trial. */
+  trialingAt?: string;
+  /** When the new account's first paid invoice succeeded. */
+  convertedAt?: string;
+  /** When the referrer's credit was applied. */
+  rewardedAt?: string;
+  /** When the referral was canceled (subscription canceled before
+   *  first paid invoice). */
+  canceledAt?: string;
+
+  /** Stripe IDs — populated by the Cloud Function as the lifecycle
+   *  progresses. */
+  stripeCustomerId?: string;
+  stripeSubscriptionId?: string;
+  stripeBalanceTransactionId?: string;
+  /** ISO timestamp of the first successful paid invoice from Stripe. */
+  firstSuccessfulPaymentAt?: string;
+  /** Dollar amount of the credit applied (typically the referrer's
+   *  current monthly plan price). Stored for audit. */
+  creditAmountUsd?: number;
+
+  /** Anti-fraud flags raised during evaluation. Empty array = clean.
+   *  Cloud Function refuses to reward referrals with any flags
+   *  unless an admin manually approves via the admin tool. */
+  fraudFlags?: string[];
+  /** Free-text admin notes — added via admin tools. */
+  notes?: string;
+}
