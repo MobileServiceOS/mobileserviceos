@@ -272,9 +272,22 @@ export function attachStripeSync(uid: string, businessId: string): Unsubscribe {
  * session. Writes a checkout-session-request doc that the extension
  * picks up; the extension fills in `url`; we redirect.
  *
+ * The session is configured with `trial_period_days: 14` so Stripe
+ * issues a 14-day free trial on the resulting subscription. The user
+ * is NOT charged until the trial ends, AND no card is required to
+ * start the trial (Stripe's payment_method_collection: 'if_required'
+ * keeps the friction minimal). When the trial expires, Stripe either
+ * charges the card on file or, if none exists, flips the subscription
+ * to `past_due` — which stripeSync.ts mirrors to Firestore.
+ *
+ * Stripe is the SOURCE OF TRUTH for trial state. The app does NOT
+ * calculate trial days locally; it reads `trialEndsAt` from the
+ * Settings doc which is written by the stripeSync mirror from
+ * authentic Stripe subscription data.
+ *
  * @param uid       Authed user's Firebase uid
- * @param priceId   Stripe price ID (set up in the Stripe dashboard,
- *                  matches the `$89.99/month` recurring price we configured)
+ * @param priceId   Stripe price ID (Core or Pro, set up in Stripe dashboard
+ *                  with `msos_plan` metadata = 'core' or 'pro')
  * @param returnUrl Where to send the user after checkout completes or
  *                  is cancelled. Defaults to the current page.
  */
@@ -288,6 +301,12 @@ export async function startCheckout(uid: string, priceId: string, returnUrl?: st
     success_url: here,
     cancel_url: here,
     allow_promotion_codes: true,
+    // 14-day free trial. The Stripe Firebase Extension passes this
+    // through to subscription_data.trial_period_days on the
+    // Checkout Session. Result: customer signs up → subscription
+    // status = 'trialing' for 14 days → automatic charge attempt on
+    // day 15. No app-side trial bookkeeping required.
+    trial_period_days: 14,
     // Stripe Checkout will auto-collect taxes if Stripe Tax is
     // enabled on the account; otherwise this is silently ignored.
     automatic_tax: { enabled: false },
