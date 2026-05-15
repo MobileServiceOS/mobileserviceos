@@ -25,6 +25,11 @@ interface Props {
 export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledFromQuote, onSave, onSaveAndNew }: Props) {
   const { businessId } = useBrand();
   const permissions = usePermissions();
+  // Save-in-progress guard. While a save is mid-flight, the buttons
+  // are disabled to prevent a double-tap from creating a duplicate
+  // job. Cleared in the finally block of the click handler.
+  const [savingMode, setSavingMode] = useState<null | 'save' | 'saveAndNew'>(null);
+  const isSaving = savingMode !== null;
   // Revenue lock: when the actor does NOT have canOverrideJobPrice
   // (technician with allowTechnicianPriceOverride === false), the
   // suggested price is used as-is and the input is read-only.
@@ -518,10 +523,30 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
             <div className={'save-footer-value ' + (breakdown.profit >= 0 ? 'green' : 'red')}>{money(breakdown.profit)}</div>
           </div>
           {!isEditing && (
-            <button className="btn secondary" onClick={() => void onSaveAndNew()}>＋ Another</button>
+            <button
+              className="btn secondary"
+              disabled={isSaving}
+              style={isSaving ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
+              onClick={async () => {
+                if (isSaving) return;
+                setSavingMode('saveAndNew');
+                try { await onSaveAndNew(); } finally { setSavingMode(null); }
+              }}
+            >
+              {savingMode === 'saveAndNew' ? 'Saving…' : '＋ Another'}
+            </button>
           )}
-          <button className="btn primary" onClick={() => void onSave()}>
-            {isEditing ? 'Update Job' : 'Save Job'}
+          <button
+            className="btn primary"
+            disabled={isSaving}
+            style={isSaving ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
+            onClick={async () => {
+              if (isSaving) return;
+              setSavingMode('save');
+              try { await onSave(); } finally { setSavingMode(null); }
+            }}
+          >
+            {savingMode === 'save' ? 'Saving…' : (isEditing ? 'Update Job' : 'Save Job')}
           </button>
         </div>
       </div>
