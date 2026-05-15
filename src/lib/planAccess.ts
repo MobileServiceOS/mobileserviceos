@@ -204,6 +204,29 @@ export function isBillingExempt(settings: Settings | null | undefined): boolean 
   return settings?.billingExempt === true;
 }
 
+/**
+ * Does the account have a confirmed PAID or TRIALING subscription
+ * mirrored from Stripe? Used by the Settings UI to decide whether to
+ * show a "Current Plan" badge — never show that badge for accounts
+ * that just have a defaulted plan field (i.e. brand-new signups that
+ * haven't subscribed yet).
+ *
+ * Returns true when:
+ *   - account is billing-exempt (Wheel Rush founder), OR
+ *   - subscriptionStatus is 'active', 'trialing', or 'past_due'
+ *     (past_due still shows current plan so the user knows what to
+ *     update payment for).
+ *
+ * Returns false for new signups with no subscription, canceled
+ * subscriptions, and any unknown / inactive state.
+ */
+export function hasActiveSubscription(settings: Settings | null | undefined): boolean {
+  if (!settings) return false;
+  if (settings.billingExempt === true) return true;
+  const s = settings.subscriptionStatus;
+  return s === 'active' || s === 'trialing' || s === 'past_due';
+}
+
 // ─────────────────────────────────────────────────────────────────────
 //  Exemption access logging
 //
