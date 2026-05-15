@@ -607,6 +607,14 @@ function AuthenticatedApp({ user }: { user: User }) {
         setPrefilledFromQuote(false);
         setTab('add');
       } else {
+        // Defensive: assign the finalized id back onto the draft so
+        // that if the success-screen transition is delayed and the
+        // user manages to tap Save again (despite the busy guard),
+        // the second save OVERWRITES the same Firestore doc instead
+        // of creating a duplicate. Without this, j.id stays empty
+        // and the next save generates a fresh uid() → duplicate.
+        setJobDraft({ ...j, id: finalJob.id, createdAt: finalJob.createdAt, createdByUid: finalJob.createdByUid });
+        setEditingJobId(finalJob.id);
         setTab('success');
       }
       return finalJob;
