@@ -4,7 +4,6 @@ import { _auth } from '@/lib/firebase';
 import { addToast } from '@/lib/toast';
 import { startCheckout, createPortalLink } from '@/lib/stripeSync';
 import { isBillingExempt, resolvePlan } from '@/lib/planAccess';
-import { PRO_PRICE_LINE, CORE_PRICE_LINE } from '@/lib/pricing-display';
 
 // ─────────────────────────────────────────────────────────────────────
 //  SubscribeButton — production subscription CTA
@@ -42,20 +41,28 @@ interface Props {
   plan: 'pro' | 'core';
 }
 
-// Read both price IDs once at module load. Vite inlines these at build
-// time. If a secret isn't injected, the corresponding string is empty
-// and the button refuses to render.
-const PRICE_IDS = (() => {
-  try {
-    const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env;
-    return {
-      pro: env?.VITE_STRIPE_PRO_PRICE_ID || '',
-      core: env?.VITE_STRIPE_CORE_PRICE_ID || '',
-    };
-  } catch {
-    return { pro: '', core: '' };
-  }
-})();
+// Read both price IDs once at module load. Vite STATICALLY inlines
+// these at build time — but only when accessed via the literal
+// `import.meta.env.VITE_X` pattern. Any dynamic access (typed cast,
+// destructuring through a generic Record, computed property) defeats
+// the static replacement and leaves the value undefined in production.
+//
+// The // @ts-ignore is necessary because TypeScript doesn't know
+// about Vite-injected env vars without a separate vite-env.d.ts.
+const PRICE_IDS = {
+  // @ts-ignore — Vite injects this at build time
+  pro: (import.meta.env.VITE_STRIPE_PRO_PRICE_ID as string | undefined) || '',
+  // @ts-ignore — Vite injects this at build time
+  core: (import.meta.env.VITE_STRIPE_CORE_PRICE_ID as string | undefined) || '',
+} as const;
+
+// Surface in console at boot — helps diagnose "cards not showing"
+// issues without having to grep the bundle.
+// eslint-disable-next-line no-console
+console.info('[subscribe] price IDs configured:', {
+  pro: PRICE_IDS.pro ? `${PRICE_IDS.pro.slice(0, 12)}…` : 'MISSING',
+  core: PRICE_IDS.core ? `${PRICE_IDS.core.slice(0, 12)}…` : 'MISSING',
+});
 
 /**
  * Check if a given plan has a configured Stripe price ID at build
@@ -73,10 +80,38 @@ export function SubscribeButton({ settings, plan }: Props) {
   // Defensive exemption check.
   if (isBillingExempt(settings)) return null;
 
-  // No price ID for this plan → don't render anything. The parent
-  // card should also not exist in this state.
+  const planLabel = plan === 'pro' ? 'Pro' : 'Core';
+
+  // No price ID for this plan → show a clear inline diagnostic
+  // instead of silently hiding. A hidden card is worse than a
+  // visible error: the user sees nothing wrong, the dev has nothing
+  // to grep for. With the diagnostic, both audiences know exactly
+  // what's missing.
   const priceId = PRICE_IDS[plan];
-  if (!priceId) return null;
+  if (!priceId) {
+    return (
+      <button
+        className="btn"
+        disabled
+        style={{
+          width: '100%',
+          marginTop: 8,
+          background: 'var(--s2)',
+          border: '1px solid var(--border)',
+          color: 'var(--t3)',
+          fontWeight: 600,
+          fontSize: 12,
+          cursor: 'not-allowed',
+          opacity: 1,
+          padding: '12px 10px',
+          lineHeight: 1.3,
+        }}
+        title={`Missing build-time env var VITE_STRIPE_${plan.toUpperCase()}_PRICE_ID`}
+      >
+        {planLabel} checkout unavailable
+      </button>
+    );
+  }
 
   const status = settings.subscriptionStatus;
   const isPaid = status === 'active' || status === 'past_due';
@@ -84,9 +119,6 @@ export function SubscribeButton({ settings, plan }: Props) {
   const isTrialing = status === 'trialing';
   const currentPlan = resolvePlan(settings);
   const isThisCurrentPlan = isPaid && currentPlan === plan;
-
-  const planLabel = plan === 'pro' ? 'Pro' : 'Core';
-  const priceLine = plan === 'pro' ? PRO_PRICE_LINE : CORE_PRICE_LINE;
 
   // ─── Current plan: non-interactive badge ─────────────────────
   if (isThisCurrentPlan) {
@@ -145,9 +177,11 @@ export function SubscribeButton({ settings, plan }: Props) {
     // User is on the OTHER plan → offer the swap
     label = plan === 'pro' ? 'Upgrade to Pro' : 'Switch to Core';
   } else if (isTrialing) {
-    label = `Start ${planLabel} · ${priceLine}`;
+    // User is already trialing on the other plan — switch to this one
+    label = plan === 'pro' ? 'Switch trial to Pro' : 'Switch trial to Core';
   } else {
-    label = `Subscribe to ${planLabel} · ${priceLine}`;
+    // Fresh signup with no subscription yet — start the 14-day trial
+    label = `Start ${planLabel} Trial`;
   }
 
   // ─── Pro = gold primary, Core = secondary outline ───────────
