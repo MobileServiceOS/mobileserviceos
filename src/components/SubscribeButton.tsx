@@ -150,6 +150,16 @@ export function SubscribeButton({ settings, plan }: Props) {
       return;
     }
     setBusy(true);
+    // Safety timeout — if startCheckout's internal 10s timeout for
+    // some reason doesn't fire (e.g., promise chain swallowed),
+    // make absolutely sure the button doesn't get stuck. 12s gives
+    // the internal timeout a beat to surface its own error.
+    const stuckGuard = setTimeout(() => {
+      // eslint-disable-next-line no-console
+      console.warn('[SubscribeButton] stuck-guard fired — checkout never completed');
+      setBusy(false);
+      addToast('Checkout could not start. Please try again.', 'error');
+    }, 12_000);
     try {
       if (isPaid) {
         // User has an active subscription — switching plans goes
@@ -160,8 +170,12 @@ export function SubscribeButton({ settings, plan }: Props) {
       } else {
         await startCheckout(uid, priceId);
       }
+      // If we reach here without a redirect, the operation succeeded
+      // but didn't navigate away — unusual, but clear the guard.
+      clearTimeout(stuckGuard);
     } catch (e) {
-      addToast((e as Error).message || 'Could not start checkout', 'error');
+      clearTimeout(stuckGuard);
+      addToast((e as Error).message || 'Checkout could not start. Please try again.', 'error');
       setBusy(false);
     }
     // Intentionally don't reset busy on success — redirect is mid-flight.
