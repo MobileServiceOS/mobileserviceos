@@ -380,6 +380,49 @@ function AuthenticatedApp({ user }: { user: User }) {
       markReady('ops');
     }, handleErr('settings')));
 
+    // Subscription + exemption mirror — reads /businesses/{id}/settings/main
+    // (different doc from operational_settings/main above) where
+    // BrandContext + stripeSync write the canonical subscription state:
+    //   - subscriptionStatus, plan, trialEndsAt, trialStartedAt (Stripe-mirrored)
+    //   - billingExempt, subscriptionOverride, exemptionGrantedAt/By/Reason
+    //     (lifetime/founder fields, written via Admin SDK only)
+    //
+    // Without this listener, the client never sees billingExempt and
+    // every gating check (resolvePlan, isBillingExempt) returns false
+    // even when the Firestore doc says otherwise. Merging into the
+    // shared settings state means useBrand/usePlan/isBillingExempt
+    // throughout the app see consistent data.
+    unsubs.push(fbListen(scopedCol(businessId, 'settings'), (docs) => {
+      const main = docs.find((d) => d.id === 'main');
+      if (main) {
+        // Whitelist the subscription/exemption fields we care about.
+        // The rest of settings/main (brand info, owner email, etc.)
+        // is already handled by BrandContext; we don't want to
+        // double-process those here.
+        const subscriptionFields: Partial<SettingsT> = {};
+        const keys: Array<keyof SettingsT> = [
+          'subscriptionStatus',
+          'plan',
+          'trialStartedAt',
+          'trialEndsAt',
+          'billingExempt',
+          'subscriptionOverride',
+          'exemptionGrantedAt',
+          'exemptionGrantedBy',
+          'exemptionReason',
+        ];
+        for (const k of keys) {
+          const v = (main as unknown as Record<string, unknown>)[k as string];
+          if (v !== undefined) {
+            (subscriptionFields as Record<string, unknown>)[k as string] = v;
+          }
+        }
+        if (Object.keys(subscriptionFields).length > 0) {
+          setSettingsRaw((p) => ({ ...p, ...subscriptionFields }));
+        }
+      }
+    }, handleErr('subscription')));
+
     return () => unsubs.forEach((u) => u());
   }, [businessId]);
 
