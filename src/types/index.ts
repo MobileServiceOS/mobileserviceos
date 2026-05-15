@@ -534,16 +534,22 @@ export interface Settings {
    *   - Stripe webhook events MUST NOT downgrade exempt accounts; the
    *     `stripeSync.ts` mirror checks `billingExempt` before writing
    *     `subscriptionStatus` / `plan` changes from Stripe.
-   *   - Firestore security rules also block client-side modification
-   *     of exemption fields (see firestore.rules — only Cloud Functions
-   *     with admin privilege may write these fields).
+   *   - Firestore security rules block client-side modification of
+   *     exemption fields (see firestore.rules `exemptionFieldsUnchanged`
+   *     helper — only Cloud Functions with Admin SDK may write these).
    *
-   * To grant lifetime access, call:
-   *   import { setLifetimeAccess } from '@/lib/lifetimeAccess';
-   *   await setLifetimeAccess(uid, { reason: 'Founder account' });
+   * To grant lifetime access (NOT client-callable):
+   *   Use the Firebase Admin SDK from a Cloud Function or the
+   *   Firebase Console directly. Set on `businesses/{id}/settings/main`:
+   *     billingExempt: true
+   *     subscriptionOverride: 'lifetime'
+   *     exemptionGrantedAt: <ISO timestamp>
+   *     exemptionGrantedBy: <granter uid or 'admin'>
+   *     exemptionReason: <free-form audit string>
    *
-   * Reusable across any future VIP / founder / promotional grant —
-   * NOT hardcoded to any specific business.
+   * Currently only the Wheel Rush founder account has this set.
+   * Reusable for any future VIP / founder / promotional grant via
+   * Admin SDK — never via client code.
    */
   /** Master kill-switch for Stripe billing on this account. When true,
    *  every plan check resolves to Pro regardless of Stripe state. */
