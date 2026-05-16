@@ -1,22 +1,44 @@
+# Mobile Service OS — Deploy to GitHub Pages
+# Repository: MobileServiceOS/mobileserviceos
+# Production:  https://mobileserviceos.github.io/mobileserviceos/
+#
+# One-time GitHub setup (in repo Settings → Pages):
+#   1. Source: "GitHub Actions"
+#   2. (Optional) Add repository secrets for Firebase env (see "env" block below).
+#      Without them, the build falls back to the dev project hard-coded in src/lib/firebase.ts.
+#
+# Triggers:
+#   - push to main
+#   - manual dispatch from the Actions tab
+
 name: Deploy to GitHub Pages
-# Custom domain: https://app.mobileserviceos.app (served at root /).
-# All guardrails below are advisory (continue-on-error: true) so that
-# verification heuristics can never block a deploy — they only print
-# diagnostic info into the workflow log.
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
+# Pages deploys need these scopes; nothing else does.
 permissions:
   contents: read
   pages: write
   id-token: write
 
+# Cancel in-flight runs from the same branch — the latest commit wins.
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+# Node 20 runtime deprecation safety net.
+# actions/checkout + setup-node are pinned to v5 (native Node 24).
+# The GitHub Pages actions (configure-pages, upload-pages-artifact,
+# deploy-pages) have not yet shipped Node 24 releases as of mid-2026.
+# Setting this flag forces ANY action still bundled on Node 20 to run
+# on the Node 24 runtime instead — GitHub's documented opt-in ahead of
+# the June 2, 2026 enforced cutover. Safe to keep after the cutover;
+# it becomes a no-op once all actions ship Node 24 natively.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build:
@@ -26,18 +48,21 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      # Node 22 is the current LTS. Node 20 GitHub-hosted runners hit a
-      # forced-upgrade deprecation on June 2nd 2026.
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
         with:
           node-version: '22'
+          # Cache only when a lockfile exists; setup-node@v4 fails the step
+          # otherwise. The shell expression resolves to 'npm' or '' at runtime.
+          cache: ${{ hashFiles('package-lock.json', 'npm-shrinkwrap.json') != '' && 'npm' || '' }}
 
+      # Install: prefer reproducible `npm ci` when a lockfile is committed,
+      # fall back to `npm install` otherwise (first-deploy scenario).
       - name: Install dependencies
         run: |
-          if [ -f package-lock.json ]; then
+          if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
             echo "Lockfile found — using npm ci"
             npm ci --no-audit --no-fund
           else
@@ -47,12 +72,12 @@ jobs:
 
       - name: Build
         env:
-          # Custom domain serves at root. Override with /mobileserviceos/
-          # to re-enable the legacy GitHub Pages project URL.
-          VITE_BASE_PATH: /
+          # Pin the Vite base path to match the GitHub Pages project URL.
+          VITE_BASE_PATH: /mobileserviceos/
         run: |
-          # Firebase config: .env.production is the default; repo secrets
-          # override when set. Empty secrets fall through to the committed file.
+          # Firebase config lives in .env.production (committed). For private
+          # white-label deploys, set repo secrets and they override at build time.
+          # Empty secrets are filtered out so .env.production stays authoritative.
           if [ -n "${{ secrets.VITE_FIREBASE_API_KEY }}" ]; then
             echo "VITE_FIREBASE_API_KEY=${{ secrets.VITE_FIREBASE_API_KEY }}" >> .env.production.local
             echo "VITE_FIREBASE_AUTH_DOMAIN=${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}" >> .env.production.local
@@ -64,71 +89,49 @@ jobs:
           else
             echo "Using Firebase config from .env.production (committed)."
           fi
+          # Stripe price IDs — separate from Firebase so each can be
+          # added/rotated independently. Empty values are tolerated:
+          # the SubscribeButton renders a "Billing coming soon" disabled
+          # state when the relevant price ID isn't present.
+          if [ -n "${{ secrets.VITE_STRIPE_PRO_PRICE_ID }}" ]; then
+            echo "VITE_STRIPE_PRO_PRICE_ID=${{ secrets.VITE_STRIPE_PRO_PRICE_ID }}" >> .env.production.local
+            echo "Pro price ID injected."
+          fi
+          if [ -n "${{ secrets.VITE_STRIPE_CORE_PRICE_ID }}" ]; then
+            echo "VITE_STRIPE_CORE_PRICE_ID=${{ secrets.VITE_STRIPE_CORE_PRICE_ID }}" >> .env.production.local
+            echo "Core price ID injected."
+          fi
           npm run build
 
-      # Stamp the service worker with a unique VERSION per deploy. Forces
-      # browsers holding the previous SW to detect a new install. ADVISORY.
-      - name: Stamp service worker version
-        continue-on-error: true
-        run: |
-          SHORT_SHA="${GITHUB_SHA:0:7}"
-          BUILD_TIME=$(date -u +%Y%m%d-%H%M%S)
-          NEW_VERSION="msos-${SHORT_SHA}-${BUILD_TIME}"
-          if [ -f dist/sw.js ]; then
-            sed -i.bak "s/^const VERSION = '[^']*';/const VERSION = '${NEW_VERSION}';/" dist/sw.js
-            rm -f dist/sw.js.bak
-            echo "✓ Service worker stamped: ${NEW_VERSION}"
-          else
-            echo "::warning::dist/sw.js missing — version stamp skipped"
-          fi
-
-      # Write CNAME so GitHub Pages serves the custom domain. ADVISORY in
-      # case public/CNAME is already present (Vite copies it from public/).
-      - name: Write CNAME for custom domain
-        continue-on-error: true
-        run: echo "app.mobileserviceos.app" > dist/CNAME
-
-      # .nojekyll prevents GitHub Pages from running Jekyll processing.
+      # GitHub Pages disables Jekyll only when .nojekyll is at the published root.
+      # Vite copies public/.nojekyll into dist automatically — verify and re-create
+      # if missing so a stripped checkout never produces a Jekyll-processed deploy.
       - name: Ensure .nojekyll
-        continue-on-error: true
         run: touch dist/.nojekyll
 
-      # Diagnostic dump of dist/ contents. Always runs, never fails.
-      # If anything's wrong, the log shows exactly what was built.
-      - name: List dist/ contents (diagnostic)
-        continue-on-error: true
+      # Sanity-check: verify the build produced the entry HTML and that asset
+      # references use the correct base path. Fails the deploy fast on misconfig.
+      - name: Verify build output
         run: |
-          echo "═══ dist/ ═══"
-          ls -la dist/ || echo "dist/ missing"
-          echo ""
-          echo "═══ dist/assets/ ═══"
-          ls -la dist/assets/ 2>/dev/null || echo "dist/assets/ missing"
-          echo ""
-          echo "═══ dist/index.html (first 60 lines) ═══"
-          head -60 dist/index.html 2>/dev/null || echo "dist/index.html missing"
-          echo ""
-          echo "═══ Asset reference check ═══"
-          grep -E "src=|href=" dist/index.html 2>/dev/null | head -20 || true
-          echo ""
-          echo "═══ Size ═══"
-          du -sh dist 2>/dev/null || true
-
-      # All sanity checks below are ADVISORY — they print warnings but
-      # never block the deploy. Production breakage is caught at the
-      # CDN/browser level, not by these heuristics.
-      - name: Verify build output (advisory)
-        continue-on-error: true
-        run: |
-          [ -f dist/index.html ] || echo "::warning::dist/index.html missing"
-          [ -f dist/manifest.webmanifest ] || echo "::warning::manifest missing"
-          [ -f dist/sw.js ] || echo "::warning::service worker missing"
-          [ -d dist/icons ] || echo "::warning::icons folder missing"
-          [ -d dist/assets ] || echo "::warning::dist/assets/ folder missing"
-          if [ -d dist/assets ]; then
-            JS_COUNT=$(find dist/assets -name "*.js" -type f 2>/dev/null | wc -l | tr -d ' ')
-            echo "dist/assets/ JS bundles: ${JS_COUNT}"
+          set -e
+          test -f dist/index.html || { echo "::error::dist/index.html missing"; exit 1; }
+          test -f dist/manifest.webmanifest || { echo "::error::manifest missing"; exit 1; }
+          test -f dist/sw.js || { echo "::error::service worker missing"; exit 1; }
+          test -f dist/404.html || { echo "::error::SPA 404 fallback missing"; exit 1; }
+          test -d dist/icons || { echo "::error::icons folder missing"; exit 1; }
+          if ! grep -q '/mobileserviceos/' dist/index.html; then
+            echo "::error::dist/index.html has no /mobileserviceos/ asset references — check Vite base path"
+            exit 1
           fi
-          echo "✓ Diagnostic complete"
+          # Verify the bundled JS embeds the correct Firebase project. Vite
+          # inlines `import.meta.env.VITE_*` at build time, so the project ID
+          # appears as a string literal in the bundle.
+          if ! grep -rq 'mobile-service-os' dist/assets/ 2>/dev/null; then
+            echo "::error::Bundled JS does not contain 'mobile-service-os' — Firebase config did not get baked in"
+            exit 1
+          fi
+          echo "Build verification passed."
+          echo "::notice::dist size: $(du -sh dist | cut -f1)"
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
