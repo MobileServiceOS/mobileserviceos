@@ -956,10 +956,9 @@ function SubscriptionAccordion({ settings, open, onToggle }: { settings: Setting
           <>
             <span style={{ fontSize: 16 }}>👑</span>
             <span>
-              <strong style={{ color: 'var(--brand-primary)' }}>You have Founding Member access.</strong>{' '}
-              Full Pro features, free during early access. Your founder rate —{' '}
-              {founderPct}% off for your first {founderTerm} months — is locked in
-              and applies when paid plans launch.
+              <strong style={{ color: 'var(--brand-primary)' }}>Founding Member access enabled.</strong>{' '}
+              Full Pro features unlocked, with your {founderPct}% founder rate
+              reserved to your account.
             </span>
           </>
         ) : exempt ? (
@@ -1010,51 +1009,123 @@ function SubscriptionAccordion({ settings, open, onToggle }: { settings: Setting
         )}
       </div>
 
-      {/* ─── Founding Member panel (early-access phase) ───────────
-          During growthMode the plan-card grid is replaced by this
-          panel. It states the offer honestly: free now, founder
-          discount applies when paid plans launch. The Stripe plan
-          cards re-appear automatically when growthMode is turned
-          off (see src/lib/growthMode.ts). */}
+      {/* ─── Founding Member panel ────────────────────────────────
+          Premium membership panel shown while growthMode is on. The
+          plan-card grid (below, in the else branch) returns
+          automatically when growthMode is turned off — see
+          src/lib/growthMode.ts. */}
       {founder ? (
         <div style={{
-          background: 'linear-gradient(135deg, rgba(200,164,74,0.10), rgba(200,164,74,0.03))',
-          border: '1px solid rgba(200,164,74,0.30)',
-          borderRadius: 12,
-          padding: '16px 16px 14px',
+          background: 'linear-gradient(160deg, rgba(200,164,74,0.13) 0%, rgba(200,164,74,0.04) 45%, rgba(200,164,74,0.02) 100%)',
+          border: '1px solid rgba(200,164,74,0.32)',
+          borderRadius: 14,
+          padding: '20px 18px 16px',
           marginBottom: 12,
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <span style={{ fontSize: 18 }}>👑</span>
-            <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--brand-primary)' }}>
-              Founder Access
+          {/* Eyebrow + header */}
+          <div style={{
+            fontSize: 10,
+            fontWeight: 700,
+            letterSpacing: '1.4px',
+            textTransform: 'uppercase',
+            color: 'var(--brand-primary)',
+            opacity: 0.85,
+            marginBottom: 6,
+          }}>
+            👑 Early Access
+          </div>
+          <h3 style={{
+            fontSize: 19,
+            fontWeight: 700,
+            color: 'var(--t1)',
+            margin: '0 0 4px',
+            letterSpacing: '-0.2px',
+          }}>
+            Founding Member Access
+          </h3>
+          <p style={{ fontSize: 12.5, color: 'var(--t3)', margin: '0 0 16px', lineHeight: 1.5 }}>
+            Your account has Founder access enabled with full Pro features unlocked.
+          </p>
+
+          {/* Headline rate — the hero number */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'baseline',
+            gap: 8,
+            padding: '12px 14px',
+            background: 'rgba(200,164,74,0.10)',
+            border: '1px solid rgba(200,164,74,0.22)',
+            borderRadius: 10,
+            marginBottom: 14,
+          }}>
+            <span style={{ fontSize: 28, fontWeight: 800, color: 'var(--brand-primary)', lineHeight: 1, letterSpacing: '-1px' }}>
+              {founderPct}% off
+            </span>
+            <span style={{ fontSize: 12, color: 'var(--t2)', fontWeight: 600 }}>
+              founder rate, reserved to your account
             </span>
           </div>
-          <p style={{ fontSize: 13, color: 'var(--t1)', lineHeight: 1.55, margin: '0 0 12px' }}>
-            You're a Founding Member of Mobile Service OS. Every Pro feature is
-            unlocked and the platform is free to use during early access. When
-            paid plans launch, your founder rate — <strong style={{ color: 'var(--brand-primary)' }}>
-            {founderPct}% off for your first {founderTerm} months</strong> — is
-            already locked to your account.
+
+          {/* Main message */}
+          <p style={{ fontSize: 13, color: 'var(--t1)', lineHeight: 1.6, margin: '0 0 16px' }}>
+            You're one of the early businesses building on Mobile Service OS.
+            Your founder rate — <strong style={{ color: 'var(--brand-primary)' }}>
+            {founderPct}% off your first {founderTerm} months</strong> — is locked
+            to your account and stays with you as the platform grows.
           </p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+
+          {/* Benefits */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
             {[
-              'Full Pro feature set — nothing held back',
-              'Free to use throughout early access',
-              `Founder rate locked: ${founderPct}% off your first ${founderTerm} months when billing begins`,
-              'Referral rewards active — invite businesses, earn free months',
+              'Full Pro feature access',
+              'Founder pricing locked in',
+              'Referral rewards active',
+              'Priority access to future upgrades',
             ].map((line) => (
-              <div key={line} style={{ display: 'flex', gap: 8, fontSize: 12.5, color: 'var(--t2)', lineHeight: 1.5 }}>
-                <span style={{ color: 'var(--brand-primary)', flexShrink: 0 }}>✓</span>
+              <div key={line} style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                fontSize: 13,
+                color: 'var(--t1)',
+                fontWeight: 500,
+              }}>
+                <span style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 18,
+                  height: 18,
+                  borderRadius: 5,
+                  background: 'rgba(200,164,74,0.16)',
+                  color: 'var(--brand-primary)',
+                  fontSize: 11,
+                  fontWeight: 800,
+                  flexShrink: 0,
+                }}>✓</span>
                 <span>{line}</span>
               </div>
             ))}
           </div>
-          {settings.foundingJoinedAt && (
-            <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)', fontSize: 11, color: 'var(--t3)' }}>
-              Founding Member since {new Date(settings.foundingJoinedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}
-            </div>
-          )}
+
+          {/* Footer — membership date + reassurance */}
+          <div style={{
+            marginTop: 16,
+            paddingTop: 12,
+            borderTop: '1px solid rgba(200,164,74,0.18)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4,
+          }}>
+            <span style={{ fontSize: 11, color: 'var(--t3)', lineHeight: 1.5 }}>
+              Founding Member accounts retain preferred pricing as the platform expands.
+            </span>
+            {settings.foundingJoinedAt && (
+              <span style={{ fontSize: 11, color: 'var(--t3)', fontWeight: 600 }}>
+                Member since {new Date(settings.foundingJoinedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}
+              </span>
+            )}
+          </div>
         </div>
       ) : (
         <>
@@ -1977,4 +2048,3 @@ function AccordionShell({ title, icon, summary, badge, open, onToggle, logoUrl, 
     </div>
   );
 }
-
