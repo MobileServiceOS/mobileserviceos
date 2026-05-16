@@ -2,9 +2,15 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
 
-// GitHub Pages project path: /mobileserviceos/
-// Override with VITE_BASE_PATH env var (e.g. '/' for root domains)
-const base = process.env.VITE_BASE_PATH ?? '/mobileserviceos/';
+// Asset base path.
+//
+// The app is served from a CUSTOM DOMAIN root: https://app.mobileserviceos.app
+// → assets must resolve at /assets/... (NOT /mobileserviceos/assets/...).
+//
+// Default base is '/'. The VITE_BASE_PATH env var can still override it
+// for a subpath deploy (e.g. a GitHub Pages project URL would set
+// '/mobileserviceos/'), but the production custom-domain build uses '/'.
+const base = process.env.VITE_BASE_PATH ?? '/';
 
 export default defineConfig({
   base,
