@@ -121,12 +121,20 @@ jobs:
           test -f dist/sw.js || { echo "::error::service worker missing"; exit 1; }
           test -f dist/404.html || { echo "::error::SPA 404 fallback missing"; exit 1; }
           test -d dist/icons || { echo "::error::icons folder missing"; exit 1; }
-          # Asset-path sanity: the custom domain serves from root, so the
-          # built index.html must reference /assets/... — NEVER a
-          # /mobileserviceos/ subpath. A subpath prefix here means a stale
+          # Asset-path sanity: the custom domain serves from root, so
+          # built asset references must point at /assets/... — NEVER a
+          # /mobileserviceos/ subpath. A subpath here means a stale
           # VITE_BASE_PATH leaked in and every asset would 404 in prod.
-          if grep -q '/mobileserviceos/' dist/index.html; then
-            echo "::error::dist/index.html contains a /mobileserviceos/ subpath — Vite base path must be '/' for the custom domain"
+          #
+          # IMPORTANT: only inspect ASSET REFERENCE attributes
+          # (src="..."/href="...) — not the whole file. index.html
+          # legitimately contains the literal string "/mobileserviceos/"
+          # inside the service-worker migration script (it detects and
+          # unregisters the OLD GitHub Pages SW scope). A blunt
+          # whole-file grep would false-positive on that script.
+          if grep -oE '(src|href)="[^"]*"' dist/index.html | grep -q '/mobileserviceos/'; then
+            echo "::error::dist/index.html has an asset reference under /mobileserviceos/ — Vite base path must be '/' for the custom domain"
+            grep -oE '(src|href)="[^"]*"' dist/index.html | grep '/mobileserviceos/' || true
             exit 1
           fi
           if ! grep -q '/assets/' dist/index.html; then
