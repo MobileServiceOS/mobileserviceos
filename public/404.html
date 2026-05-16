@@ -7,14 +7,21 @@
   <meta name="theme-color" content="#0B0B0B" />
   <style>html,body{margin:0;background:#0a0a0f;color:#f0f0fa;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}</style>
   <script>
-    // GitHub Pages SPA fallback. The base path MUST match Vite's `base` config.
-    // Pages serves 404.html when no static file matches the URL; we use it to
-    // bounce deep links back into the SPA, preserving the original path.
+    // SPA deep-link fallback. GitHub Pages serves this 404.html whenever
+    // no static file matches the requested URL. We use it to bounce a
+    // deep link back into the single-page app while preserving the
+    // original path (index.html reads `msos_redirect` on boot and
+    // restores it via history.replaceState).
+    //
+    // BASE is '/' — the app is served from the custom-domain root
+    // (https://app.mobileserviceos.app). It must match Vite's `base`.
     (function () {
       var BASE = '/';
       try {
         var path = location.pathname + location.search + location.hash;
-        if (path.indexOf(BASE) === 0) {
+        // Stash the original deep-link path so index.html can restore it.
+        // Skip storing when we're already at the bare root.
+        if (path && path !== BASE) {
           sessionStorage.setItem('msos_redirect', path);
         }
       } catch (e) {}
