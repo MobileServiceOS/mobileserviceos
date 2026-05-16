@@ -189,50 +189,31 @@ export function mergeMissingDefaultServices(
 }
 
 /**
- * List of services that were once shipped as defaults but have since
- * been retired. Existing accounts may have these in their stored
- * servicePricing map from a prior auto-backfill — we strip them on
- * load so they don't keep appearing in the Pricing settings UI.
+ * Inverse of mergeMissingDefaultServices: removes services from the
+ * user's saved servicePricing map that are NOT present in the current
+ * DEFAULT_SERVICE_PRICING catalog. Used to clean up accounts that
+ * received a service via a past backfill but the service has since
+ * been retired from the catalog.
  *
- * Add a service name to this list when removing it from
- * DEFAULT_SERVICE_PRICING so existing accounts get cleaned up
- * automatically on next load.
- *
- * Note: this ONLY strips services that the system originally seeded.
- * If a user manually added a service with one of these names through
- * the Settings UI, it would also be removed — that's an acceptable
- * tradeoff for the rare case (vs leaving zombie services forever).
- */
-const RETIRED_DEFAULT_SERVICES: ReadonlyArray<string> = [
-  'Spare Change',
-];
-
-/**
- * Remove retired default services from a stored servicePricing map.
- * Returns `{ map, removed }` — `removed` lists keys that were
- * present and got stripped. Caller should persist back if anything
- * was removed so the cleanup is sticky.
- *
- * Returns the original reference (no copy) if nothing was removed,
- * so callers can compare `result.map === input` as a no-change check.
+ * Returns a new map (only if changes occurred) and the list of removed
+ * service names. If nothing was removed, the original map is returned
+ * by reference so callers can cheaply detect "no-op" via identity.
  */
 export function stripRetiredServices(
   current: Record<string, ServicePricing> | undefined | null,
 ): { map: Record<string, ServicePricing>; removed: string[] } {
   const userMap = current && typeof current === 'object' ? current : {};
   const removed: string[] = [];
-  let cleaned: Record<string, ServicePricing> | null = null;
+  let stripped: Record<string, ServicePricing> | null = null;
 
-  for (const key of RETIRED_DEFAULT_SERVICES) {
-    if (key in userMap) {
-      if (!cleaned) cleaned = { ...userMap };
-      delete cleaned[key];
+  for (const key of Object.keys(userMap)) {
+    if (!(key in DEFAULT_SERVICE_PRICING)) {
+      if (!stripped) stripped = { ...userMap };
+      delete stripped[key];
       removed.push(key);
     }
   }
 
-  if (!cleaned) return { map: userMap as Record<string, ServicePricing>, removed: [] };
-  return { map: cleaned, removed };
+  if (!stripped) return { map: userMap as Record<string, ServicePricing>, removed: [] };
+  return { map: stripped, removed };
 }
-
-
