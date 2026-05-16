@@ -571,6 +571,52 @@ export interface Settings {
   exemptionReason?: string;
 
   // ───────────────────────────────────────────────────────────────
+  // FOUNDING MEMBER — early-access growth phase
+  // ───────────────────────────────────────────────────────────────
+  /**
+   * Founding Member program (early-access growth phase).
+   *
+   * During the early-access phase the app runs with `growthMode`
+   * enabled (see `src/lib/growthMode.ts`). New signups are stamped
+   * `foundingMember: true` and use the product free of charge while
+   * Stripe billing enforcement is bypassed.
+   *
+   * The Stripe architecture underneath is fully preserved — when
+   * `growthMode` is later turned off, NEW signups go through the
+   * normal Stripe checkout flow, and EXISTING Founding Members get
+   * their locked founder discount applied at that point.
+   *
+   * IMPORTANT — honest framing: Founding Members receive a fixed-term
+   * founder discount (`founderDiscountPercent` off, for
+   * `founderDiscountTermMonths` months) that is applied WHEN paid
+   * billing begins. They are NOT charged during early access, and
+   * they are NOT comped forever. The UI copy reflects this exactly:
+   * "free during early access, then your founder discount applies."
+   *
+   * These fields are stamped at signup (Onboarding finish) and are
+   * audit data — the billing bypass itself is driven by `growthMode`
+   * + `isBillingExempt`, NOT by reading these fields, so turning
+   * growthMode off cleanly re-enables enforcement.
+   */
+  /** True when this account joined during the Founding Member phase. */
+  foundingMember?: boolean;
+  /** Founder discount percentage locked at signup (e.g. 69 = 69% off).
+   *  Applied as a Stripe coupon when paid billing begins. */
+  founderDiscountPercent?: number;
+  /** How many months the founder discount lasts once billing starts.
+   *  After this term the account moves to standard pricing. */
+  founderDiscountTermMonths?: number;
+  /** True while billing is deferred for this account (early-access
+   *  phase). Informational/audit — enforcement is driven by
+   *  growthMode, not this flag. */
+  billingDeferred?: boolean;
+  /** True once the founder rate is locked for this account. Set at
+   *  signup; never cleared, so the discount survives reactivation. */
+  founderPricingLocked?: boolean;
+  /** ISO timestamp of when this account joined as a Founding Member. */
+  foundingJoinedAt?: string;
+
+  // ───────────────────────────────────────────────────────────────
   // REFERRAL SYSTEM
   // ───────────────────────────────────────────────────────────────
   /**
