@@ -21,6 +21,7 @@ import { money } from '@/lib/utils';
 import { attachStripeSync, createPortalLink } from '@/lib/stripeSync';
 import { SubscribeButton } from '@/components/SubscribeButton';
 import { isBillingExempt, resolvePlan, hasActiveSubscription } from '@/lib/planAccess';
+import { isGrowthMode, FOUNDER_DISCOUNT_PERCENT, FOUNDER_DISCOUNT_TERM_MONTHS } from '@/lib/growthMode';
 import { PRO_PRICE, CORE_PRICE, PRO_PRICE_LINE_COMPACT, CORE_PRICE_LINE_COMPACT } from '@/lib/pricing-display';
 import { TeamManagement } from '@/components/TeamManagement';
 import { ReferralCard } from '@/components/ReferralCard';
@@ -865,6 +866,13 @@ function SubscriptionAccordion({ settings, open, onToggle }: { settings: Setting
   const daysLeft = trialDaysLeft(settings);
   const isTrialing = settings.subscriptionStatus === 'trialing';
   const exempt = isBillingExempt(settings);
+  // Founding Member early-access phase. When growthMode is on, the
+  // account is "exempt" via isBillingExempt — but we present the
+  // premium Founding Member panel rather than the internal "Lifetime
+  // Pro" panel (which is reserved for Admin-granted comp accounts).
+  const founder = isGrowthMode();
+  const founderPct = settings.founderDiscountPercent ?? FOUNDER_DISCOUNT_PERCENT;
+  const founderTerm = settings.founderDiscountTermMonths ?? FOUNDER_DISCOUNT_TERM_MONTHS;
   const status = settings.subscriptionStatus;
   const isPaid = status === 'active' || status === 'past_due';
   const isPastDue = status === 'past_due';
@@ -887,7 +895,9 @@ function SubscriptionAccordion({ settings, open, onToggle }: { settings: Setting
   const showCore = !exempt;
 
   // Accordion summary line — adapts to state.
-  const summary = exempt
+  const summary = founder
+    ? 'Founding Member · Early Access'
+    : exempt
     ? `Pro · Lifetime${settings.subscriptionOverride && settings.subscriptionOverride !== 'lifetime'
         ? ` (${settings.subscriptionOverride})` : ''}`
     : isTrialing && daysLeft !== null
@@ -900,7 +910,9 @@ function SubscriptionAccordion({ settings, open, onToggle }: { settings: Setting
   // Only show the plan name when we KNOW the user is on that plan;
   // otherwise show a neutral "Trial" or "Free" badge to avoid the
   // misleading "Core" badge appearing on accounts with no real plan.
-  const summaryBadge = exempt
+  const summaryBadge = founder
+    ? 'Founder'
+    : exempt
     ? 'Lifetime'
     : isTrialing
       ? 'Trial'
@@ -940,7 +952,17 @@ function SubscriptionAccordion({ settings, open, onToggle }: { settings: Setting
         alignItems: 'center',
         gap: 10,
       }}>
-        {exempt ? (
+        {founder ? (
+          <>
+            <span style={{ fontSize: 16 }}>👑</span>
+            <span>
+              <strong style={{ color: 'var(--brand-primary)' }}>You have Founding Member access.</strong>{' '}
+              Full Pro features, free during early access. Your founder rate —{' '}
+              {founderPct}% off for your first {founderTerm} months — is locked in
+              and applies when paid plans launch.
+            </span>
+          </>
+        ) : exempt ? (
           <>
             <span style={{ fontSize: 16 }}>👑</span>
             <span>
@@ -988,38 +1010,88 @@ function SubscriptionAccordion({ settings, open, onToggle }: { settings: Setting
         )}
       </div>
 
-      {/* ─── Plan cards — Core (left) + Pro (right) ───────────── */}
-      <div className="plan-card-grid">
-        {showCore && (
-          <PlanCard
-            tier="core"
-            price={CORE_PRICE}
-            tagline="Perfect for solo mobile operators"
-            features={CORE_FEATURES}
-            isCurrent={hasActive && currentPlan === 'core' && !exempt}
-            isRecommended={false}
-            settings={settings}
-            exempt={exempt}
-          />
-        )}
-        {showPro && (
-          <PlanCard
-            tier="pro"
-            price={PRO_PRICE}
-            tagline="Built for multi-tech roadside businesses"
-            features={PRO_FEATURES}
-            isCurrent={(hasActive && currentPlan === 'pro') || exempt}
-            isRecommended={!hasActive || (currentPlan === 'core' && !exempt)}
-            settings={settings}
-            exempt={exempt}
-          />
-        )}
-      </div>
+      {/* ─── Founding Member panel (early-access phase) ───────────
+          During growthMode the plan-card grid is replaced by this
+          panel. It states the offer honestly: free now, founder
+          discount applies when paid plans launch. The Stripe plan
+          cards re-appear automatically when growthMode is turned
+          off (see src/lib/growthMode.ts). */}
+      {founder ? (
+        <div style={{
+          background: 'linear-gradient(135deg, rgba(200,164,74,0.10), rgba(200,164,74,0.03))',
+          border: '1px solid rgba(200,164,74,0.30)',
+          borderRadius: 12,
+          padding: '16px 16px 14px',
+          marginBottom: 12,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <span style={{ fontSize: 18 }}>👑</span>
+            <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--brand-primary)' }}>
+              Founder Access
+            </span>
+          </div>
+          <p style={{ fontSize: 13, color: 'var(--t1)', lineHeight: 1.55, margin: '0 0 12px' }}>
+            You're a Founding Member of Mobile Service OS. Every Pro feature is
+            unlocked and the platform is free to use during early access. When
+            paid plans launch, your founder rate — <strong style={{ color: 'var(--brand-primary)' }}>
+            {founderPct}% off for your first {founderTerm} months</strong> — is
+            already locked to your account.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {[
+              'Full Pro feature set — nothing held back',
+              'Free to use throughout early access',
+              `Founder rate locked: ${founderPct}% off your first ${founderTerm} months when billing begins`,
+              'Referral rewards active — invite businesses, earn free months',
+            ].map((line) => (
+              <div key={line} style={{ display: 'flex', gap: 8, fontSize: 12.5, color: 'var(--t2)', lineHeight: 1.5 }}>
+                <span style={{ color: 'var(--brand-primary)', flexShrink: 0 }}>✓</span>
+                <span>{line}</span>
+              </div>
+            ))}
+          </div>
+          {settings.foundingJoinedAt && (
+            <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)', fontSize: 11, color: 'var(--t3)' }}>
+              Founding Member since {new Date(settings.foundingJoinedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}
+            </div>
+          )}
+        </div>
+      ) : (
+        <>
+          {/* ─── Plan cards — Core (left) + Pro (right) ───────────── */}
+          <div className="plan-card-grid">
+            {showCore && (
+              <PlanCard
+                tier="core"
+                price={CORE_PRICE}
+                tagline="Perfect for solo mobile operators"
+                features={CORE_FEATURES}
+                isCurrent={hasActive && currentPlan === 'core' && !exempt}
+                isRecommended={false}
+                settings={settings}
+                exempt={exempt}
+              />
+            )}
+            {showPro && (
+              <PlanCard
+                tier="pro"
+                price={PRO_PRICE}
+                tagline="Built for multi-tech roadside businesses"
+                features={PRO_FEATURES}
+                isCurrent={(hasActive && currentPlan === 'pro') || exempt}
+                isRecommended={!hasActive || (currentPlan === 'core' && !exempt)}
+                settings={settings}
+                exempt={exempt}
+              />
+            )}
+          </div>
 
-      {/* Manage billing — only when paid, lets users hit Stripe portal
-          for any other action (cancel, view invoices, update card). */}
-      {isPaid && !exempt && (
-        <ManageBillingLink />
+          {/* Manage billing — only when paid, lets users hit Stripe portal
+              for any other action (cancel, view invoices, update card). */}
+          {isPaid && !exempt && (
+            <ManageBillingLink />
+          )}
+        </>
       )}
 
       <style>{`
@@ -1905,3 +1977,4 @@ function AccordionShell({ title, icon, summary, badge, open, onToggle, logoUrl, 
     </div>
   );
 }
+
