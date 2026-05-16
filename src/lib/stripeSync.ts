@@ -339,21 +339,37 @@ export async function startCheckout(uid: string, priceId: string, returnUrl?: st
   try {
     await setDoc(sessionDoc, payload);
   } catch (err) {
-    // Surface the FULL Firestore error so the exact failure (invalid
-    // field, permission, malformed path, offline) is visible in the
-    // console — the generic rethrow below hides err.code/err.message.
-    const e = err as { code?: string; message?: string; name?: string };
+    // Surface the FULL Firestore error. The generic rethrow below
+    // hides err.code/err.message — without this, a "400 Bad Request"
+    // is undiagnosable. JSON.stringify with a replacer captures the
+    // non-enumerable Error fields (code/name/message) that a plain
+    // stringify would drop.
+    const e = err as { code?: string; message?: string; name?: string; stack?: string };
+    const full = JSON.stringify(
+      err,
+      Object.getOwnPropertyNames(err || {}),
+      2,
+    );
     // eslint-disable-next-line no-console
-    console.error('[stripeSync] startCheckout: failed to write session doc', {
-      code: e.code,
-      name: e.name,
-      message: e.message,
-      sessionPath: sessionDoc.path,
-      payload,
-      raw: err,
-    });
-    throw new Error('Checkout could not start. Please try again.');
+    console.error(
+      '[stripeSync] startCheckout: WRITE FAILED\n' +
+        `  code:    ${e.code}\n` +
+        `  name:    ${e.name}\n` +
+        `  message: ${e.message}\n` +
+        `  path:    ${sessionDoc.path}\n` +
+        `  payload: ${JSON.stringify(payload)}\n` +
+        `  full:    ${full}`,
+    );
+    // Include the real Firestore message in the thrown error so it
+    // also surfaces in the user-facing toast (truncated) and any
+    // upstream logging — no more opaque "try again".
+    throw new Error(
+      `Checkout could not start (${e.code || 'unknown'}): ${e.message || 'Firestore write failed'}`,
+    );
   }
+
+  // eslint-disable-next-line no-console
+  console.info('[stripeSync] startCheckout: session doc written OK, awaiting extension');
 
   // Listen for the extension to fill in `url` (success) or `error`.
   // Returns a clean promise that resolves on redirect, rejects on
