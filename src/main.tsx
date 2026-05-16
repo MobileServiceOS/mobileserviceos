@@ -25,12 +25,37 @@ if (root) {
   );
 }
 
-// Register service worker (PWA)
+// Register service worker (PWA).
+//
+// Self-healing registration: a previously-deployed SW can cache a
+// broken bundle. To recover automatically WITHOUT the user having to
+// manually clear site data:
+//   1. register() then immediately call update() to fetch the newest
+//      sw.js (the new SW has a bumped VERSION → its activate handler
+//      purges every stale cache).
+//   2. Listen for `controllerchange` — fired when a new SW takes
+//      control — and reload ONCE so the page runs against the fresh
+//      caches/bundle. The `reloadedForSW` guard prevents a reload loop.
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     const swPath = (import.meta.env.BASE_URL || '/') + 'sw.js';
-    navigator.serviceWorker.register(swPath).catch((err) => {
-      console.warn('[sw] registration failed:', err);
+    navigator.serviceWorker
+      .register(swPath)
+      .then((reg) => {
+        // Proactively check for a newer sw.js on every load.
+        reg.update().catch(() => {});
+      })
+      .catch((err) => {
+        console.warn('[sw] registration failed:', err);
+      });
+
+    let reloadedForSW = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (reloadedForSW) return;
+      reloadedForSW = true;
+      // A new SW just took control — reload so the page is served by
+      // the fresh worker with purged caches and the current bundle.
+      window.location.reload();
     });
   });
 }
