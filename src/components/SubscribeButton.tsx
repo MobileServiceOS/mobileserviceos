@@ -42,18 +42,15 @@ interface Props {
 }
 
 // Read both price IDs once at module load. Vite STATICALLY inlines
-// these at build time — but only when accessed via the literal
+// these at build time — but ONLY when accessed via the literal
 // `import.meta.env.VITE_X` pattern. Any dynamic access (typed cast,
 // destructuring through a generic Record, computed property) defeats
 // the static replacement and leaves the value undefined in production.
-//
-// The // @ts-ignore is necessary because TypeScript doesn't know
-// about Vite-injected env vars without a separate vite-env.d.ts.
+// The env vars are declared in src/vite-env.d.ts so no cast or
+// @ts-ignore is needed — keep these as bare expressions.
 const PRICE_IDS = {
-  // @ts-ignore — Vite injects this at build time
-  pro: (import.meta.env.VITE_STRIPE_PRO_PRICE_ID as string | undefined) || '',
-  // @ts-ignore — Vite injects this at build time
-  core: (import.meta.env.VITE_STRIPE_CORE_PRICE_ID as string | undefined) || '',
+  pro: import.meta.env.VITE_STRIPE_PRO_PRICE_ID || '',
+  core: import.meta.env.VITE_STRIPE_CORE_PRICE_ID || '',
 } as const;
 
 // Surface in console at boot — helps diagnose "cards not showing"
