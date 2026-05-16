@@ -182,14 +182,16 @@ export function Settings({ settings, onSave }: Props) {
       {/* Referrals — every business has a referral link. Free-month
           rewards apply automatically when a referred business completes
           their first paid month. Always visible (no permission gate)
-          since referral revenue is owner-relevant data. */}
-      <ReferralAccordion
-        businessId={businessId}
-        settings={settings}
-        open={openSection === 'referrals'}
-        onToggle={() => setOpenSection(openSection === 'referrals' ? null : 'referrals')}
-      />
-
+          since referral revenue is owner-relevant data. Hidden until
+          businessId resolves (BrandContext race on first auth load). */}
+      {businessId && (
+        <ReferralAccordion
+          businessId={businessId}
+          settings={settings}
+          open={openSection === 'referrals'}
+          onToggle={() => setOpenSection(openSection === 'referrals' ? null : 'referrals')}
+        />
+      )}
       <AccountAccordion
         open={openSection === 'account'}
         onToggle={() => setOpenSection(openSection === 'account' ? null : 'account')}
@@ -1903,4 +1905,3 @@ function AccordionShell({ title, icon, summary, badge, open, onToggle, logoUrl, 
     </div>
   );
 }
-
