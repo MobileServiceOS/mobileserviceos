@@ -296,28 +296,62 @@ export async function startCheckout(uid: string, priceId: string, returnUrl?: st
   const sessionsRef = collection(db, 'customers', uid, 'checkout_sessions');
   const sessionDoc = doc(sessionsRef);
   const here = returnUrl || window.location.href;
+
+  // The Stripe Firebase Extension expects success_url / cancel_url to be
+  // plain, fully-qualified https URLs. window.location.href can carry a
+  // hash fragment (#tab) or a ?ref= referral query param — strip those
+  // to a clean origin+pathname so the value handed to Stripe Checkout
+  // is a stable, valid redirect target.
+  let cleanReturn = here;
+  try {
+    const u = new URL(here);
+    cleanReturn = u.origin + u.pathname;
+  } catch {
+    cleanReturn = here;
+  }
+
+  // The price ID is injected from a GitHub Actions secret at build time.
+  // Trim defensively — a trailing newline or stray space in the secret
+  // value would otherwise be sent verbatim to Stripe ("no such price").
+  const cleanPrice = (priceId || '').trim();
+
+  // Build the payload with ONLY the fields the extension accepts.
+  const payload = {
+    // Required fields for the Stripe Firebase Extension.
+    // See: https://github.com/stripe/stripe-firebase-extensions
+    mode: 'subscription',
+    price: cleanPrice,
+    success_url: cleanReturn,
+    cancel_url: cleanReturn,
+    allow_promotion_codes: true,
+    // 14-day free trial. The extension passes this through to the
+    // Checkout Session's subscription_data.trial_period_days.
+    trial_period_days: 14,
+  };
+
   // eslint-disable-next-line no-console
   console.info('[stripeSync] startCheckout: creating session', {
     sessionPath: sessionDoc.path,
-    priceId,
+    uid,
+    payload,
   });
+
   try {
-    await setDoc(sessionDoc, {
-      // Required fields for the Stripe Firebase Extension.
-      // See: https://github.com/stripe/stripe-firebase-extensions
-      mode: 'subscription',
-      price: priceId,
-      success_url: here,
-      cancel_url: here,
-      allow_promotion_codes: true,
-      // 14-day free trial. The extension passes this through to the
-      // Checkout Session's subscription_data.trial_period_days.
-      trial_period_days: 14,
-      automatic_tax: { enabled: false },
-    });
+    await setDoc(sessionDoc, payload);
   } catch (err) {
+    // Surface the FULL Firestore error so the exact failure (invalid
+    // field, permission, malformed path, offline) is visible in the
+    // console — the generic rethrow below hides err.code/err.message.
+    const e = err as { code?: string; message?: string; name?: string };
     // eslint-disable-next-line no-console
-    console.error('[stripeSync] startCheckout: failed to write session doc', err);
+    console.error('[stripeSync] startCheckout: failed to write session doc', {
+      code: e.code,
+      name: e.name,
+      message: e.message,
+      sessionPath: sessionDoc.path,
+      payload,
+      raw: err,
+    });
     throw new Error('Checkout could not start. Please try again.');
   }
 
