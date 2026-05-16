@@ -483,9 +483,15 @@ function AuthenticatedApp({ user }: { user: User }) {
       const prev = settings.expenses || [];
       const nextIds = new Set(next.map((e) => e.id));
       try {
-        for (const e of prev) if (!nextIds.has(e.id)) await fbDelete(expCol, e.id);
-        for (const e of next) await fbSet(expCol, e.id, e);
+        // Parallelize: each fbDelete/fbSet is a Firestore round-trip
+        // (~1-3s). Sequential awaits would multiply that by the
+        // number of expense rows. These ops are independent, so
+        // Promise.all is safe.
+        const ops: Promise<void>[] = [];
+        for (const e of prev) if (!nextIds.has(e.id)) ops.push(fbDelete(expCol, e.id));
+        for (const e of next) ops.push(fbSet(expCol, e.id, e));
         setSettingsRaw((p) => ({ ...p, expenses: next }));
+        await Promise.all(ops);
       } catch (e) {
         setSyncStatus('sync_failed');
         addToast(`Expenses save failed: ${humanizeFirestoreError(e)}`, 'error');
@@ -503,12 +509,16 @@ function AuthenticatedApp({ user }: { user: User }) {
       const validNext = next.filter((i) => (i.size || '').trim());
       const nextIds = new Set(validNext.map((i) => i.id));
       try {
-        for (const p of prev) if (!nextIds.has(p.id)) await fbDelete(invCol, p.id);
+        // Parallelize all delete + set ops — same reasoning as
+        // persistExpenses. Inventory rows are independent docs.
+        const ops: Promise<void>[] = [];
+        for (const p of prev) if (!nextIds.has(p.id)) ops.push(fbDelete(invCol, p.id));
         for (const i of validNext) {
           const { _isNew, ...rest } = i;
-          await fbSet(invCol, i.id, rest);
+          ops.push(fbSet(invCol, i.id, rest));
         }
         setInventoryRaw(validNext);
+        await Promise.all(ops);
       } catch (e) {
         setSyncStatus('sync_failed');
         addToast(`Inventory save failed: ${humanizeFirestoreError(e)}`, 'error');
@@ -567,13 +577,27 @@ function AuthenticatedApp({ user }: { user: User }) {
         // Compute weighted tire cost from FIFO plan
         const planTotal = plan.deductions.reduce((s, d) => s + d.cost * d.qty, 0);
         if (planTotal > 0) computedTireCost = r2(planTotal);
-        // Apply deductions to working inventory
+        // Apply deductions to working inventory.
+        // CRITICAL: do the writes IN PARALLEL — each fbSet is a ~1-3s
+        // Firestore round-trip, so a sequential await-in-loop of 5
+        // deductions takes ~15s. The deductions are independent
+        // (different inventory docs), so Promise.all is safe and
+        // turns the total into ~1-3s. Without this, saving a multi-
+        // tire job feels broken (user thinks the tap was missed and
+        // taps again → duplicates).
+        const invWrites: Promise<void>[] = [];
         for (const d of plan.deductions) {
           const idx = workingInv.findIndex((i) => i.id === d.id);
           if (idx >= 0) workingInv[idx] = { ...workingInv[idx], qty: Math.max(0, Number(workingInv[idx].qty || 0) - Number(d.qty || 0)) };
-          await fbSet(invCol, workingInv[idx >= 0 ? idx : 0]?.id || d.id, workingInv[idx >= 0 ? idx : 0] || {});
+          const docId = workingInv[idx >= 0 ? idx : 0]?.id || d.id;
+          const docData = workingInv[idx >= 0 ? idx : 0] || {};
+          invWrites.push(fbSet(invCol, docId, docData));
         }
+        // Fire all inventory writes concurrently. We also kick off
+        // the local-state update immediately so the UI reflects the
+        // new quantities without waiting on Firestore.
         setInventoryRaw(workingInv);
+        await Promise.all(invWrites);
         if (plan.shortfall > 0) addToast(`Logged with shortfall of ${plan.shortfall} tire(s)`, 'warn');
       } else if (j.tireSource === 'Bought for this job') {
         computedTireCost = Number(j.tirePurchasePrice || j.tireCost || 0);
