@@ -526,11 +526,17 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
             <button
               className="btn secondary"
               disabled={isSaving}
-              style={isSaving ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
+              aria-busy={savingMode === 'saveAndNew'}
               onClick={async () => {
                 if (isSaving) return;
                 setSavingMode('saveAndNew');
                 try { await onSaveAndNew(); } finally { setSavingMode(null); }
+              }}
+              style={{
+                minWidth: 96,
+                opacity: isSaving && savingMode !== 'saveAndNew' ? 0.5 : 1,
+                cursor: isSaving ? 'not-allowed' : 'pointer',
+                transition: 'opacity 120ms ease',
               }}
             >
               {savingMode === 'saveAndNew' ? 'Saving…' : '＋ Another'}
@@ -539,11 +545,17 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
           <button
             className="btn primary"
             disabled={isSaving}
-            style={isSaving ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
+            aria-busy={savingMode === 'save'}
             onClick={async () => {
               if (isSaving) return;
               setSavingMode('save');
               try { await onSave(); } finally { setSavingMode(null); }
+            }}
+            style={{
+              minWidth: 120,
+              opacity: isSaving && savingMode !== 'save' ? 0.5 : 1,
+              cursor: isSaving ? 'not-allowed' : 'pointer',
+              transition: 'opacity 120ms ease',
             }}
           >
             {savingMode === 'save' ? 'Saving…' : (isEditing ? 'Update Job' : 'Save Job')}
