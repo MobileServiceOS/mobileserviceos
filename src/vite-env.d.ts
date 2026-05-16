@@ -9,6 +9,14 @@ interface ImportMetaEnv {
   readonly VITE_FIREBASE_MESSAGING_SENDER_ID?: string;
   readonly VITE_FIREBASE_APP_ID?: string;
   readonly VITE_BASE_PATH?: string;
+  // Stripe price IDs — injected at build time from GitHub Secrets.
+  // Declared here so call sites can use the bare
+  // `import.meta.env.VITE_STRIPE_*` expression WITHOUT a type cast.
+  // The cast (`as string`) defeats Vite's compile-time static
+  // replacement and leaves the value undefined in the production
+  // bundle — declaring the types is the correct fix.
+  readonly VITE_STRIPE_PRO_PRICE_ID?: string;
+  readonly VITE_STRIPE_CORE_PRICE_ID?: string;
 }
 
 // CSS / asset import declarations are provided by `vite/client` above. The block
