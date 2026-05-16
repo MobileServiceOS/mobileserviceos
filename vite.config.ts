@@ -2,10 +2,9 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
 
-// Custom domain: https://app.mobileserviceos.app (served at root /)
-// Override with VITE_BASE_PATH env var (e.g. '/mobileserviceos/' for the
-// legacy project-page URL https://mobileserviceos.github.io/mobileserviceos/)
-const base = process.env.VITE_BASE_PATH ?? '/';
+// GitHub Pages project path: /mobileserviceos/
+// Override with VITE_BASE_PATH env var (e.g. '/' for root domains)
+const base = process.env.VITE_BASE_PATH ?? '/mobileserviceos/';
 
 export default defineConfig({
   base,
@@ -26,17 +25,16 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          // Vendor chunk pre-grouping for better cache hit rate across
-          // deploys. Each entry must be installed in package.json and
-          // actually imported somewhere — Vite/Rollup will fail the build
-          // with "Could not resolve entry module" if a name here isn't
-          // a real installed dependency.
-          //
-          // Tab-based navigation lives in App.tsx (useState<TabId>) so
-          // react-router-dom is intentionally absent — adding it back
-          // here without installing the package will break the build.
-          react: ['react', 'react-dom'],
+          // Group heavy third-party deps into stable, cacheable chunks.
+          // IMPORTANT: every package listed here MUST be a real installed
+          // dependency. Listing a package that isn't installed (e.g. a
+          // router lib the app doesn't use) makes Rollup emit a broken
+          // chunk → the browser loads JS that throws on import → React
+          // never mounts → the boot watchdog reports "No JavaScript
+          // loaded". This app uses a custom tab-state router in App.tsx
+          // (useState<TabId>), NOT react-router — so it is NOT listed.
           firebase: ['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/storage'],
+          react: ['react', 'react-dom'],
           pdf: ['jspdf'],
         },
       },
