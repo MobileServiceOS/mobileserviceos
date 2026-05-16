@@ -29,7 +29,7 @@ import { addToast } from '@/lib/toast';
 import { humanizeFirestoreError, logFirestoreError, isPermissionDenied } from '@/lib/firebaseErrors';
 import { applyBrandColors, planInventoryDeduction, r2, uid } from '@/lib/utils';
 import { generateInvoicePDF } from '@/lib/invoice';
-import { openReviewSMS } from '@/lib/review';
+import { openReviewSMSFromJob } from '@/lib/review';
 import { APP_LOGO, DEFAULT_SETTINGS, EMPTY_JOB } from '@/lib/defaults';
 import { attachStripeSync } from '@/lib/stripeSync';
 import {
@@ -748,7 +748,21 @@ function AuthenticatedApp({ user }: { user: User }) {
   const handleSendReview = useCallback(async (j: Job) => {
     if (!brand.reviewUrl) { addToast('Set review URL in Settings', 'warn'); return; }
     const location = j.fullLocationLabel || j.area || '';
-    openReviewSMS(j.customerPhone || '', brand.reviewUrl, j.customerName || '', j.service, location, brand.businessName, j.state);
+    // Use the seeded template picker (jobId as seed) so the same job
+    // always renders the same variant — important when the owner
+    // previews a message before sending. Also supports the new
+    // channel-aware sharing layer.
+    openReviewSMSFromJob({
+      phone: j.customerPhone || '',
+      reviewUrl: brand.reviewUrl,
+      customerName: j.customerName || '',
+      service: j.service,
+      locationLabel: location,
+      state: j.state,
+      businessName: brand.businessName,
+      jobId: j.id,
+      channel: 'sms',
+    });
     if (!businessId) return;
     const jobsCol = scopedCol(businessId, 'jobs');
     const updated: Job = { ...j, reviewRequested: true, reviewRequestedAt: new Date().toISOString() };
