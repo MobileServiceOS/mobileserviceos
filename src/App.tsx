@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { _auth, _db, scopedCol, fbDelete, fbListen, fbSet, initError } from '@/lib/firebase';
 import { BrandProvider, useBrand } from '@/context/BrandContext';
 import { MembershipProvider } from '@/context/MembershipContext';
@@ -388,41 +389,50 @@ function AuthenticatedApp({ user }: { user: User }) {
     //   - billingExempt, subscriptionOverride, exemptionGrantedAt/By/Reason
     //     (lifetime/founder fields, written via Admin SDK only)
     //
-    // Without this listener, the client never sees billingExempt and
-    // every gating check (resolvePlan, isBillingExempt) returns false
-    // even when the Firestore doc says otherwise. Merging into the
-    // shared settings state means useBrand/usePlan/isBillingExempt
-    // throughout the app see consistent data.
-    unsubs.push(fbListen(scopedCol(businessId, 'settings'), (docs) => {
-      const main = docs.find((d) => d.id === 'main');
-      if (main) {
-        // Whitelist the subscription/exemption fields we care about.
-        // The rest of settings/main (brand info, owner email, etc.)
-        // is already handled by BrandContext; we don't want to
-        // double-process those here.
-        const subscriptionFields: Partial<SettingsT> = {};
-        const keys: Array<keyof SettingsT> = [
-          'subscriptionStatus',
-          'plan',
-          'trialStartedAt',
-          'trialEndsAt',
-          'billingExempt',
-          'subscriptionOverride',
-          'exemptionGrantedAt',
-          'exemptionGrantedBy',
-          'exemptionReason',
-        ];
-        for (const k of keys) {
-          const v = (main as unknown as Record<string, unknown>)[k as string];
-          if (v !== undefined) {
-            (subscriptionFields as Record<string, unknown>)[k as string] = v;
+    // CRITICAL: targets the SINGLE doc 'main' directly via onSnapshot(doc(...))
+    // rather than fbListen() on the whole collection. The collection-list path
+    // triggers a `list` rule evaluation which is heavier (and was implicated
+    // in 20–40s save lag). Single-doc reads only eval the read rule once and
+    // never re-list.
+    if (_db) {
+      const settingsMainRef = doc(_db, `businesses/${businessId}/settings/main`);
+      const unsubSettings = onSnapshot(
+        settingsMainRef,
+        (snap) => {
+          if (!snap.exists()) return;
+          const main = snap.data() as Record<string, unknown>;
+          // Whitelist the subscription/exemption fields. BrandContext
+          // handles brand/onboarding fields on the same doc separately.
+          const subscriptionFields: Partial<SettingsT> = {};
+          const keys: Array<keyof SettingsT> = [
+            'subscriptionStatus',
+            'plan',
+            'trialStartedAt',
+            'trialEndsAt',
+            'billingExempt',
+            'subscriptionOverride',
+            'exemptionGrantedAt',
+            'exemptionGrantedBy',
+            'exemptionReason',
+          ];
+          for (const k of keys) {
+            const v = main[k as string];
+            if (v !== undefined) {
+              (subscriptionFields as Record<string, unknown>)[k as string] = v;
+            }
           }
-        }
-        if (Object.keys(subscriptionFields).length > 0) {
-          setSettingsRaw((p) => ({ ...p, ...subscriptionFields }));
-        }
-      }
-    }, handleErr('subscription')));
+          if (Object.keys(subscriptionFields).length > 0) {
+            setSettingsRaw((p) => ({ ...p, ...subscriptionFields }));
+          }
+        },
+        (err) => {
+          // Quiet — same doc is already being read by BrandContext;
+          // any permission error there is the canonical source.
+          logFirestoreError('settings/main mirror', err as Error, { businessId });
+        },
+      );
+      unsubs.push(unsubSettings);
+    }
 
     return () => unsubs.forEach((u) => u());
   }, [businessId]);
