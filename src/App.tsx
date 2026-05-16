@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
 import { doc, onSnapshot } from 'firebase/firestore';
-import { _auth, _db, scopedCol, fbDelete, fbListen, fbSet, initError } from '@/lib/firebase';
+import { _auth, _db, scopedCol, fbDelete, fbListen, fbSet, fbSetFast, initError } from '@/lib/firebase';
 import { BrandProvider, useBrand } from '@/context/BrandContext';
 import { MembershipProvider } from '@/context/MembershipContext';
 import { AuthScreen } from '@/pages/AuthScreen';
@@ -475,7 +475,7 @@ function AuthenticatedApp({ user }: { user: User }) {
       const rest: Record<string, unknown> = {};
       Object.keys(next).forEach((k) => { if (k !== 'expenses') rest[k] = (next as Record<string, unknown>)[k]; });
       try {
-        if (Object.keys(rest).length) await fbSet(ops, 'main', rest);
+        if (Object.keys(rest).length) await fbSetFast(ops, 'main', rest);
         setSettingsRaw((p) => ({ ...p, ...next }));
       } catch (e) {
         setSyncStatus('sync_failed');
@@ -493,13 +493,14 @@ function AuthenticatedApp({ user }: { user: User }) {
       const prev = settings.expenses || [];
       const nextIds = new Set(next.map((e) => e.id));
       try {
-        // Parallelize: each fbDelete/fbSet is a Firestore round-trip
-        // (~1-3s). Sequential awaits would multiply that by the
+        // Parallelize: each fbDelete/fbSetFast is a Firestore call
+        // (fbSetFast resolves in <2.5s via local-cache write; fbDelete
+        // is similar). Sequential awaits would multiply that by the
         // number of expense rows. These ops are independent, so
         // Promise.all is safe.
         const ops: Promise<void>[] = [];
         for (const e of prev) if (!nextIds.has(e.id)) ops.push(fbDelete(expCol, e.id));
-        for (const e of next) ops.push(fbSet(expCol, e.id, e));
+        for (const e of next) ops.push(fbSetFast(expCol, e.id, e));
         setSettingsRaw((p) => ({ ...p, expenses: next }));
         await Promise.all(ops);
       } catch (e) {
@@ -525,7 +526,7 @@ function AuthenticatedApp({ user }: { user: User }) {
         for (const p of prev) if (!nextIds.has(p.id)) ops.push(fbDelete(invCol, p.id));
         for (const i of validNext) {
           const { _isNew, ...rest } = i;
-          ops.push(fbSet(invCol, i.id, rest));
+          ops.push(fbSetFast(invCol, i.id, rest));
         }
         setInventoryRaw(validNext);
         await Promise.all(ops);
@@ -565,6 +566,16 @@ function AuthenticatedApp({ user }: { user: User }) {
     const jobsCol = scopedCol(businessId, 'jobs');
     const invCol = scopedCol(businessId, 'inventory');
 
+    // Perf instrumentation — sliced phases so a slow save is
+    // diagnosable from the console alone. Total budget under 3s on a
+    // healthy connection; phases that consistently exceed 1s signal a
+    // network or listener problem.
+    const t0 = performance.now();
+    const log = (phase: string) => {
+      // eslint-disable-next-line no-console
+      console.info(`[saveJob] ${phase} @ ${(performance.now() - t0).toFixed(0)}ms`);
+    };
+
     let workingInv: InventoryItem[] = [...(inventoryRef.current || [])];
     let deductions: { id: string; size: string; qty: number; cost: number }[] | null = null;
     let computedTireCost = Number(j.tireCost || 0);
@@ -588,26 +599,26 @@ function AuthenticatedApp({ user }: { user: User }) {
         const planTotal = plan.deductions.reduce((s, d) => s + d.cost * d.qty, 0);
         if (planTotal > 0) computedTireCost = r2(planTotal);
         // Apply deductions to working inventory.
-        // CRITICAL: do the writes IN PARALLEL — each fbSet is a ~1-3s
-        // Firestore round-trip, so a sequential await-in-loop of 5
-        // deductions takes ~15s. The deductions are independent
-        // (different inventory docs), so Promise.all is safe and
-        // turns the total into ~1-3s. Without this, saving a multi-
-        // tire job feels broken (user thinks the tap was missed and
-        // taps again → duplicates).
+        // CRITICAL: fbSetFast writes to local cache instantly + queues
+        // server sync in background. The await unblocks in <2.5s even
+        // on a stalled network. Combined with Promise.all for
+        // independence, multi-deduction saves complete in well under
+        // a second.
         const invWrites: Promise<void>[] = [];
         for (const d of plan.deductions) {
           const idx = workingInv.findIndex((i) => i.id === d.id);
           if (idx >= 0) workingInv[idx] = { ...workingInv[idx], qty: Math.max(0, Number(workingInv[idx].qty || 0) - Number(d.qty || 0)) };
           const docId = workingInv[idx >= 0 ? idx : 0]?.id || d.id;
           const docData = workingInv[idx >= 0 ? idx : 0] || {};
-          invWrites.push(fbSet(invCol, docId, docData));
+          invWrites.push(fbSetFast(invCol, docId, docData));
         }
         // Fire all inventory writes concurrently. We also kick off
         // the local-state update immediately so the UI reflects the
         // new quantities without waiting on Firestore.
         setInventoryRaw(workingInv);
+        log('inv-writes-issued');
         await Promise.all(invWrites);
+        log('inv-writes-acked');
         if (plan.shortfall > 0) addToast(`Logged with shortfall of ${plan.shortfall} tire(s)`, 'warn');
       } else if (j.tireSource === 'Bought for this job') {
         computedTireCost = Number(j.tirePurchasePrice || j.tireCost || 0);
@@ -632,7 +643,9 @@ function AuthenticatedApp({ user }: { user: User }) {
         createdByUid: j.createdByUid || currentUid,
         createdAt: j.createdAt || new Date().toISOString(),
       };
-      await fbSet(jobsCol, finalJob.id, finalJob);
+      log('job-write-issued');
+      await fbSetFast(jobsCol, finalJob.id, finalJob);
+      log('job-write-acked');
       addToast(isEditing ? 'Job updated' : 'Job saved', 'success');
       setSavedJob(finalJob);
       if (resetAfter) {
@@ -651,6 +664,7 @@ function AuthenticatedApp({ user }: { user: User }) {
         setEditingJobId(finalJob.id);
         setTab('success');
       }
+      log('done');
       return finalJob;
     } catch (e) {
       console.error('[saveJob] failed:', e);
@@ -669,14 +683,18 @@ function AuthenticatedApp({ user }: { user: User }) {
       const deds = j && Array.isArray(j.inventoryDeductions) ? j.inventoryDeductions : null;
       if (deds) {
         const inv = [...(inventoryRef.current || [])];
+        // Parallelize inventory restore writes — same reasoning as
+        // saveJob's deduction loop.
+        const restoreWrites: Promise<void>[] = [];
         for (const d of deds) {
           const idx = inv.findIndex((i) => i.id === d.id);
           if (idx >= 0) {
             inv[idx] = { ...inv[idx], qty: Number(inv[idx].qty || 0) + Number(d.qty || 0) };
-            await fbSet(invCol, inv[idx].id, inv[idx]);
+            restoreWrites.push(fbSetFast(invCol, inv[idx].id, inv[idx]));
           }
         }
         setInventoryRaw(inv);
+        await Promise.all(restoreWrites);
       }
       await fbDelete(jobsCol, id);
       addToast('Job deleted', 'success');
@@ -702,7 +720,7 @@ function AuthenticatedApp({ user }: { user: User }) {
       invoiceNumber: result.invoiceNumber,
     };
     try {
-      await fbSet(jobsCol, j.id, updated);
+      await fbSetFast(jobsCol, j.id, updated);
       addToast('Invoice generated', 'success');
     } catch (e) {
       setSyncStatus('sync_failed');
@@ -716,7 +734,7 @@ function AuthenticatedApp({ user }: { user: User }) {
     const jobsCol = scopedCol(businessId, 'jobs');
     const updated: Job = { ...j, invoiceSent: true, invoiceSentAt: new Date().toISOString() };
     try {
-      await fbSet(jobsCol, j.id, updated);
+      await fbSetFast(jobsCol, j.id, updated);
     } catch (e) {
       setSyncStatus('sync_failed');
       addToast(`Invoice update failed: ${humanizeFirestoreError(e)}`, 'error');
@@ -735,7 +753,7 @@ function AuthenticatedApp({ user }: { user: User }) {
     const jobsCol = scopedCol(businessId, 'jobs');
     const updated: Job = { ...j, reviewRequested: true, reviewRequestedAt: new Date().toISOString() };
     try {
-      await fbSet(jobsCol, j.id, updated);
+      await fbSetFast(jobsCol, j.id, updated);
     } catch (e) {
       setSyncStatus('sync_failed');
       addToast(`Review flag save failed: ${humanizeFirestoreError(e)}`, 'error');
@@ -747,7 +765,7 @@ function AuthenticatedApp({ user }: { user: User }) {
     const jobsCol = scopedCol(businessId, 'jobs');
     const updated: Job = { ...j, paymentStatus: 'Paid' };
     try {
-      await fbSet(jobsCol, j.id, updated);
+      await fbSetFast(jobsCol, j.id, updated);
       addToast('Marked as paid', 'success');
     } catch (e) {
       setSyncStatus('sync_failed');
