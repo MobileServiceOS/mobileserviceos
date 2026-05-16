@@ -15,23 +15,8 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
-    // FAST-PATH membership check.
-    //
-    // The architecture pins owner businesses to their auth uid:
-    //   businessId === uid (for owners).
-    // So the cheap path is: request.auth.uid == businessId. This avoids
-    // a 2nd Firestore lookup on EVERY job/inventory/expense write, which
-    // was making writes take ~20s for accounts whose /users/{uid} doc
-    // hadn't been created yet (the get() would race the auth bootstrap
-    // and retry, blocking the write).
-    //
-    // For team members (admin/technician on a business they don't own),
-    // we fall back to the existence-check on their member doc.
     function isMemberOfBusiness(businessId) {
-      return isSignedIn() && (
-        request.auth.uid == businessId
-        || exists(/databases/$(database)/documents/businesses/$(businessId)/members/$(request.auth.uid))
-      );
+      return isSignedIn() && userBusinessId() == businessId;
     }
 
     // Each user can only read/write their own user record
