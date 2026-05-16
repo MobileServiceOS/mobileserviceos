@@ -1,4 +1,5 @@
 import type { Plan, Settings } from '@/types';
+import { isGrowthMode } from '@/lib/growthMode';
 
 // ─────────────────────────────────────────────────────────────────────
 //  Mobile Service OS — Plan Access Module
@@ -183,6 +184,14 @@ export const PLAN_FEATURE_MATRIX: Readonly<Record<AccessTier, Readonly<Partial<R
  */
 export function resolvePlan(settings: Settings | null | undefined): AccessTier {
   if (!settings) return 'core';
+  // Founding Member early-access phase: every account gets full Pro
+  // features. This mirrors the billing bypass in isBillingExempt() —
+  // founders are promised the complete Pro feature set, so plan
+  // resolution must grant it. When growthMode is turned off, this
+  // branch stops applying and normal plan resolution resumes (a
+  // founder who hasn't subscribed would then resolve per their
+  // actual Stripe plan / status, as expected).
+  if (isGrowthMode()) return 'pro';
   // Exemption takes precedence over every other check. By design, no
   // Stripe webhook event, expiration, or downgrade can take Pro away
   // from an exempt account. Audited via logExemptAccess() below.
@@ -199,8 +208,35 @@ export function resolvePlan(settings: Settings | null | undefined): AccessTier {
  * Test whether an account is billing-exempt. Pure read — no side
  * effects. Useful for hiding Stripe-related UI (Subscribe button,
  * trial countdown, past-due banners) on exempt accounts.
+ *
+ * Two ways an account becomes exempt:
+ *
+ *   1. Per-account exemption — `settings.billingExempt === true`.
+ *      Granted via Admin SDK for VIP / lifetime / founder-comp
+ *      accounts (e.g. the Wheel Rush founder account). Permanent
+ *      and account-scoped.
+ *
+ *   2. GROWTH MODE — during the Founding Member early-access phase
+ *      (`isGrowthMode()`), EVERY account is treated as billing-exempt.
+ *      This is the single chokepoint that bypasses forced checkout,
+ *      trial-expiration lockouts, and feature-lock modals while the
+ *      app is in early access. It deletes NO billing architecture —
+ *      Stripe, webhooks, the subscription mirror, and referral
+ *      rewards all stay intact. Flipping `GROWTH_MODE` to false in
+ *      src/lib/growthMode.ts cleanly re-enables enforcement: this
+ *      function stops returning true for non-exempt accounts, and
+ *      every paywall path re-engages automatically.
+ *
+ * Note: a `growthMode`-driven exemption is intentionally NOT written
+ * to Firestore — it is computed at read time. That keeps the toggle
+ * a pure build-time switch with no data migration in either
+ * direction, and prevents an exemption from being "stuck" on an
+ * account after billing reactivates.
  */
 export function isBillingExempt(settings: Settings | null | undefined): boolean {
+  // Early-access phase: billing enforcement is globally bypassed.
+  if (isGrowthMode()) return true;
+  // Normal operation: only explicitly-granted accounts are exempt.
   return settings?.billingExempt === true;
 }
 
@@ -222,6 +258,10 @@ export function isBillingExempt(settings: Settings | null | undefined): boolean 
  */
 export function hasActiveSubscription(settings: Settings | null | undefined): boolean {
   if (!settings) return false;
+  // During the Founding Member early-access phase every account has
+  // active (founder) access — keeps the Settings UI consistent with
+  // isBillingExempt() above.
+  if (isGrowthMode()) return true;
   if (settings.billingExempt === true) return true;
   const s = settings.subscriptionStatus;
   return s === 'active' || s === 'trialing' || s === 'past_due';
