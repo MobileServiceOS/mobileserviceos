@@ -6,6 +6,7 @@ import { uploadLogo } from '@/lib/firebase';
 import { addToast } from '@/lib/toast';
 import { APP_LOGO } from '@/lib/defaults';
 import { sanitizeSubscriptionWrite } from '@/lib/planAccess';
+import { foundingMemberStamp, isGrowthMode, FOUNDER_DISCOUNT_PERCENT, FOUNDER_DISCOUNT_TERM_MONTHS } from '@/lib/growthMode';
 import {
   readPendingRefCode,
   resolveRefCode,
@@ -163,6 +164,14 @@ export function Onboarding({ settings, onComplete }: Props) {
       // stripeSync.ts then populates `subscriptionStatus`, `plan`,
       // and `trialEndsAt` on the Settings doc. The app reads those
       // from there. No app-side trial bookkeeping.
+      //
+      // FOUNDING MEMBER (early-access phase): while growthMode is on,
+      // `foundingMemberStamp()` adds the founder fields (foundingMember,
+      // founderDiscountPercent/Term, billingDeferred, founderPricingLocked,
+      // foundingJoinedAt). The account uses the app free of charge —
+      // billing enforcement is bypassed via isBillingExempt(). When
+      // growthMode is later turned off, foundingMemberStamp() returns
+      // {} and new signups go through normal Stripe checkout instead.
       const settingsPatch: Partial<Settings> = {
         weeklyGoal,
         costPerMile,
@@ -177,6 +186,7 @@ export function Onboarding({ settings, onComplete }: Props) {
           technicianRoles: true,
           advancedReports: true,
         },
+        ...foundingMemberStamp(),
       };
 
       // Defensive: if an exempt account somehow lands back on
@@ -389,8 +399,19 @@ export function Onboarding({ settings, onComplete }: Props) {
                 border: '1px solid rgba(200,164,74,.2)',
                 borderRadius: 10, fontSize: 11, color: 'var(--t2)', lineHeight: 1.5,
               }}>
-                <strong style={{ color: 'var(--brand-primary)' }}>{TRIAL_DAYS}-day free trial</strong>
-                <span> — pick Core or Pro after setup. Full features unlocked during trial. No card required.</span>
+                {isGrowthMode() ? (
+                  <>
+                    <strong style={{ color: 'var(--brand-primary)' }}>Founding Member access</strong>
+                    <span> — full Pro features, free during early access. Your
+                    founder rate ({FOUNDER_DISCOUNT_PERCENT}% off for {FOUNDER_DISCOUNT_TERM_MONTHS} months)
+                    is locked in for when paid plans launch. No card required.</span>
+                  </>
+                ) : (
+                  <>
+                    <strong style={{ color: 'var(--brand-primary)' }}>{TRIAL_DAYS}-day free trial</strong>
+                    <span> — pick Core or Pro after setup. Full features unlocked during trial. No card required.</span>
+                  </>
+                )}
               </div>
             </div>
           )}
