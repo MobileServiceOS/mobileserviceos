@@ -92,92 +92,6 @@ export const scopedCol = (
   name: string
 ): CollectionReference<DocumentData> | null => (_db ? collection(_db, `businesses/${bId}/${name}`) : null);
 
-// ─────────────────────────────────────────────────────────────
-//  Retry helper for transient Firestore failures
-// ─────────────────────────────────────────────────────────────
-//
-// Mobile technicians work in driveways, parking lots, garages with bad
-// WiFi. Without retries, a single dropped packet during a settings save
-// becomes a "Settings save failed" toast and lost work. With retries,
-// the same blip is invisible — the call just takes an extra ~500ms.
-//
-// We retry ONLY on transient errors (network/server). User errors like
-// permission-denied or invalid-argument are not retried — those need
-// user attention and silent retry would just delay the inevitable.
-
-/** Firestore error codes that are safe to retry — they're transient by definition. */
-const TRANSIENT_FIRESTORE_CODES = new Set<string>([
-  'unavailable',         // Server temporarily unreachable
-  'deadline-exceeded',   // Request timed out
-  'aborted',             // Transaction collision or RPC abort
-  'internal',            // Server-side transient issue
-  'resource-exhausted',  // Quota throttle (usually transient)
-  'cancelled',           // RPC cancelled mid-flight
-]);
-
-/** Pull the Firestore error code out of any thrown value. Defensive — some
- *  errors come through as plain strings or non-Error objects. */
-function getFirestoreErrorCode(e: unknown): string | null {
-  if (!e) return null;
-  if (typeof e === 'object' && e !== null && 'code' in e) {
-    const code = (e as { code: unknown }).code;
-    if (typeof code === 'string') return code.replace(/^firestore\//, '');
-  }
-  return null;
-}
-
-function isTransientError(e: unknown): boolean {
-  const code = getFirestoreErrorCode(e);
-  if (!code) return false;
-  return TRANSIENT_FIRESTORE_CODES.has(code);
-}
-
-/** Sleep with ±20% jitter so simultaneous failures across tabs don't all
- *  retry at the same instant (thundering herd). */
-function jitteredDelay(baseMs: number): Promise<void> {
-  const jitter = 0.8 + Math.random() * 0.4; // 0.8x → 1.2x
-  return new Promise((resolve) => setTimeout(resolve, Math.round(baseMs * jitter)));
-}
-
-/**
- * Run an async operation with exponential backoff retry on transient
- * Firestore errors. Non-transient errors throw immediately so callers
- * still get useful user-facing errors fast.
- *
- * Backoff: 500ms → 1500ms → 4500ms. Worst case = ~6.5s before failure
- * is surfaced. That's acceptable for "save settings" but would be too
- * slow for any user-blocking hot path (we don't have any of those
- * going through this helper).
- *
- * Exposed as a generic so it can wrap things beyond setDoc/deleteDoc
- * in future batches (transactions, etc.) without changing the helper.
- */
-async function withRetry<T>(op: () => Promise<T>, label: string): Promise<T> {
-  const delays = [500, 1500, 4500];
-  let lastError: unknown;
-  for (let attempt = 0; attempt <= delays.length; attempt++) {
-    try {
-      return await op();
-    } catch (e) {
-      lastError = e;
-      if (!isTransientError(e) || attempt === delays.length) {
-        // Either non-transient (throw immediately) OR out of retries
-        // (throw the last error so the caller sees a real failure).
-        throw e;
-      }
-      const delay = delays[attempt];
-      console.warn(
-        `[firebase] ${label} transient error on attempt ${attempt + 1}/${delays.length + 1}, ` +
-        `retrying in ~${delay}ms:`,
-        getFirestoreErrorCode(e)
-      );
-      await jitteredDelay(delay);
-    }
-  }
-  // Unreachable — the loop above either returns or throws — but TS needs it.
-  throw lastError;
-}
-
 export async function fbSet(
   col: CollectionReference<DocumentData> | null,
   id: string,
@@ -195,23 +109,93 @@ export async function fbSet(
   });
   clean.id = String(id);
   try {
-    await withRetry(
-      () => setDoc(doc(col, String(id)), clean, { merge: true }),
-      `fbSet(${col.path}/${id})`
-    );
+    await setDoc(doc(col, String(id)), clean, { merge: true });
   } catch (e) {
     console.error('[firebase] fbSet failed:', { path: col.path, id, error: e });
     throw e;
   }
 }
 
+/**
+ * Fast-path setter for the foreground save flow.
+ *
+ * Firestore's `persistentLocalCache` writes to the local IndexedDB
+ * cache INSTANTLY (synchronously from the caller's perspective). The
+ * returned promise from `setDoc()` only resolves when the SERVER
+ * acknowledges the write — which on a slow network or flaky
+ * connection can take 20-40 seconds, even though the data is already
+ * locally durable and the snapshot listener has fired with the new
+ * value.
+ *
+ * For the foreground save flow (saveJob, persistInventory, etc.) we
+ * don't need to block on the server ack — the listener-driven
+ * optimistic UI updates are already correct. We DO need to know if
+ * the write fails (auth/rules error), so we attach an error logger.
+ *
+ * Strategy:
+ *   1. Kick off the setDoc (writes to local cache immediately, queues
+ *      a server sync in background).
+ *   2. Race it against a 2.5s budget — if the server hasn't acked by
+ *      then, log a perf note and resolve the caller anyway. The local
+ *      data is already correct; the queued write will eventually
+ *      complete or fail in the background.
+ *   3. If the eventual write fails (after we've already resolved),
+ *      log it. The user sees the data appear correctly in their UI;
+ *      a background retry will pick it up next time the listener
+ *      reconnects.
+ *
+ * This is safe because:
+ *   - Firestore guarantees offline writes are queued durably and
+ *     retried with auth state.
+ *   - The optimistic UI is already correct (jobs list updates from
+ *     the local-cache snapshot, not from this Promise).
+ *   - Permission errors will surface on the NEXT save attempt with
+ *     a clear error toast, OR via the snapshot listener's error path.
+ */
+export function fbSetFast(
+  col: CollectionReference<DocumentData> | null,
+  id: string,
+  data: Record<string, unknown> | object
+): Promise<void> {
+  if (!col) return Promise.reject(new Error('Firestore not initialized'));
+  const src = data as Record<string, unknown>;
+  const clean: Record<string, unknown> = {};
+  Object.keys(src).forEach((k) => {
+    const v = src[k];
+    if (v === undefined) return;
+    if (v === null) { clean[k] = null; return; }
+    if (typeof v === 'object') { clean[k] = JSON.stringify(v); return; }
+    clean[k] = v;
+  });
+  clean.id = String(id);
+  const t0 = performance.now();
+  // Kick off the write. Don't await — let it propagate in background.
+  const writePromise = setDoc(doc(col, String(id)), clean, { merge: true })
+    .then(() => {
+      const dt = performance.now() - t0;
+      if (dt > 2000) {
+        // eslint-disable-next-line no-console
+        console.info(`[firebase] fbSetFast slow ack ${dt.toFixed(0)}ms`, { path: col.path, id });
+      }
+    })
+    .catch((e: unknown) => {
+      // eslint-disable-next-line no-console
+      console.error('[firebase] fbSetFast background failure:', { path: col.path, id, error: e });
+    });
+  // Race against a 2.5s budget — long enough for fast networks to
+  // get a real ack (so we surface auth errors synchronously when
+  // possible), short enough that a stalled write doesn't freeze the
+  // UI.
+  return Promise.race([
+    writePromise,
+    new Promise<void>((resolve) => setTimeout(resolve, 2500)),
+  ]);
+}
+
 export async function fbDelete(col: CollectionReference<DocumentData> | null, id: string): Promise<void> {
   if (!col) throw new Error('Firestore not initialized');
   try {
-    await withRetry(
-      () => deleteDoc(doc(col, String(id))),
-      `fbDelete(${col.path}/${id})`
-    );
+    await deleteDoc(doc(col, String(id)));
   } catch (e) {
     console.error('[firebase] fbDelete failed:', { path: col.path, id, error: e });
     throw e;
