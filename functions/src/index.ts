@@ -1,4 +1,3 @@
-
 /**
  * Mobile Service OS — Cloud Functions
  *
@@ -38,3 +37,18 @@ export {
   adminApplyReferralReward,
   adminRevokeReferralReward,
 } from './adminReferralTools';
+
+// Supplementary Firestore triggers — defensive consistency layer.
+// Safe to deploy alongside onSubscriptionWrite; idempotent via the
+// _counterIncremented marker on referral docs.
+export {
+  onReferralStatusChanged,
+  onSettingsTrialTransition,
+  onReferralCreated,
+  onReferralCodeDeleted,
+} from './firestoreTriggers';
+
+// Standalone Stripe webhook — DO NOT register in Stripe Dashboard
+// if you're still using the Firebase Stripe Extension's webhook
+// endpoint. See file header for migration guidance.
+export { stripeWebhook } from './stripeWebhook';
