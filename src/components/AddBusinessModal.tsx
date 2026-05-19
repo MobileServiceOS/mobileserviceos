@@ -1,149 +1,171 @@
 // ═══════════════════════════════════════════════════════════════════
-//  src/components/AddBusinessModal.tsx — Add-business UI (STAGE 2b-3)
+//  src/lib/createBusiness.ts — Add-another-business flow (STAGE 2b-3)
 // ═══════════════════════════════════════════════════════════════════
 //
-//  A minimal modal to create an additional business: a name field
-//  and a vertical picker. Stage 2b-3 offers only the tire vertical;
-//  'mechanic' and 'carwash' options arrive in Stages 3 and 4.
+//  WHAT THIS IS
+//  ────────────
+//  Creates an additional business for a user who already has one.
+//  A Pro-plan user may create unlimited businesses; the gating is
+//  enforced by the caller (BusinessSwitcher) via
+//  canCreateAnotherBusiness(). This module does the Firestore writes.
 //
-//  On submit it calls createBusiness(), then switches to the new
-//  business (which reloads the app via BusinessSwitcherContext).
+//  WRITE ORDER — MATCHES THE 1b FIRESTORE RULES
+//  ────────────────────────────────────────────
+//  The Stage 2b-2 rules require a precise order. createBusiness()
+//  writes in dependency order so each write is permitted by the
+//  rule that the PREVIOUS write satisfied:
 //
-//  Pro-gating is enforced by the caller — this modal is only opened
-//  when canCreate is true. It does not re-check entitlement.
+//    1. businesses/{newId}/settings/main  — stamped with
+//       `ownerUid == creator uid`. The settings-create rule allows
+//       this because request.resource.data.ownerUid == auth.uid.
+//
+//    2. businesses/{newId}/members/{uid}  — role 'owner'. The
+//       members-write rule allows this because step 1 set
+//       settings/main.ownerUid to the creator, and the rule's
+//       self-enroll clause checks businessOwnerUid(businessId)
+//       == auth.uid.
+//
+//    3. businesses/{newId} (root doc)     — ownerUid + metadata,
+//       mirroring the first-business bootstrap shape.
+//
+//    4. users/{uid}.ownedBusinesses       — append newId. Done
+//       LAST and on its own: if any earlier step fails, the user's
+//       account is never mutated, so the worst failure case is an
+//       orphaned business doc that nothing references (harmless and
+//       invisible). ownedBusinesses drives the switcher UI only —
+//       it is never trusted for security.
+//
+//  NO CLOUD FUNCTIONS: every write here is a normal client write,
+//  permitted by the 1b rules. No Admin SDK, no Blaze plan.
 // ═══════════════════════════════════════════════════════════════════
 
-import { useState } from 'react';
-import { createBusiness } from '@/lib/createBusiness';
-import { useBusinessSwitcher } from '@/context/BusinessSwitcherContext';
-import { addToast } from '@/lib/toast';
+import { doc, collection, setDoc, getDoc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { _db } from '@/lib/firebase';
+import { DEFAULT_BRAND } from '@/lib/defaults';
+import { foundingMemberStamp } from '@/lib/growthMode';
 import type { VerticalKey } from '@/lib/verticals';
 
-interface Props {
+export interface CreateBusinessInput {
+  /** uid of the creating user — becomes the new business's owner. */
   uid: string;
+  /** Email of the creating user, recorded on the new business. */
   email: string;
-  onClose: () => void;
+  /** Name for the new business. */
+  businessName: string;
+  /**
+   * Which vertical the new business is. Stage 2b-3 only offers
+   * 'tire'; 'mechanic' and 'carwash' become selectable in Stages
+   * 3 and 4. The value is persisted as settings.businessType.
+   */
+  businessType: VerticalKey;
 }
 
-export function AddBusinessModal({ uid, email, onClose }: Props) {
-  const { switchBusiness } = useBusinessSwitcher();
-  const [name, setName] = useState('');
-  const [busy, setBusy] = useState(false);
+export interface CreateBusinessResult {
+  /** The newly created businessId. */
+  businessId: string;
+}
 
-  // Stage 2b-3: tire only. Mechanic / car wash unlock in Stages 3-4.
-  const businessType: VerticalKey = 'tire';
+/**
+ * Create an additional business owned by `uid`.
+ *
+ * Throws on failure. The caller is responsible for the Pro-gating
+ * check (canCreateAnotherBusiness) BEFORE calling this — this
+ * module does the writes, not the entitlement decision.
+ *
+ * On success the new businessId is appended to the user's
+ * ownedBusinesses array; the caller can then switch to it.
+ */
+export async function createBusiness(
+  input: CreateBusinessInput,
+): Promise<CreateBusinessResult> {
+  const db = _db;
+  if (!db) throw new Error('Firestore not initialized');
 
-  async function handleCreate() {
-    const trimmed = name.trim();
-    if (!trimmed) {
-      addToast('Enter a business name', 'warn');
-      return;
-    }
-    setBusy(true);
-    try {
-      const { businessId } = await createBusiness({
-        uid, email, businessName: trimmed, businessType,
-      });
-      addToast('Business created', 'success');
-      // Switching persists the choice and reloads, so the app
-      // re-resolves into the new business cleanly.
-      await switchBusiness(businessId);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Could not create the business.';
-      addToast(msg, 'error');
-      setBusy(false);
-    }
+  const { uid, email, businessName, businessType } = input;
+  const name = businessName.trim();
+  if (!name) throw new Error('Business name is required');
+
+  // Fresh auto-generated id for the new business. Distinct from uid
+  // (uid is the user's FIRST business id); this is an additional one.
+  const newId = doc(collection(db, 'businesses')).id;
+  const now = new Date().toISOString();
+
+  // ── Step 1: settings/main — MUST be first, MUST stamp ownerUid.
+  // The 1b settings-create rule permits this because
+  // request.resource.data.ownerUid === request.auth.uid. The
+  // members-write rule (step 2) then reads this ownerUid.
+  try {
+    await setDoc(doc(db, `businesses/${newId}/settings/main`), {
+      ...DEFAULT_BRAND,
+      businessName: name,
+      businessType,
+      email,
+      ownerUid: uid,
+      createdAt: now,
+      // New businesses created during the Founding Member growth
+      // phase are stamped consistently with first-signup businesses.
+      ...foundingMemberStamp(),
+    });
+  } catch (e) {
+    console.error('[createBusiness] step 1 (settings) failed:', e);
+    throw new Error('Could not create the business. Please try again.');
   }
 
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Add a business"
-      style={{
-        position: 'fixed', inset: 0, zIndex: 200,
-        background: 'rgba(0,0,0,0.6)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: 20,
-      }}
-      onClick={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}
-    >
-      <div style={{
-        width: '100%', maxWidth: 380,
-        background: 'var(--s2)', border: '1px solid var(--border)',
-        borderRadius: 14, padding: 22,
-      }}>
-        <h2 style={{
-          fontSize: 17, fontWeight: 700, color: 'var(--t1)', margin: '0 0 4px',
-        }}>
-          Add a Business
-        </h2>
-        <p style={{ fontSize: 12.5, color: 'var(--t3)', margin: '0 0 16px', lineHeight: 1.5 }}>
-          Create another business under your account. It has its own
-          jobs, inventory, settings, and team — fully separate from
-          your other businesses.
-        </p>
+  // ── Step 2: members/{uid} as owner. Permitted by the 1b
+  // members-write self-enroll clause now that step 1 set ownerUid.
+  try {
+    await setDoc(doc(db, `businesses/${newId}/members/${uid}`), {
+      uid,
+      email,
+      role: 'owner',
+      addedAt: now,
+    });
+  } catch (e) {
+    console.error('[createBusiness] step 2 (member doc) failed:', e);
+    // Step 1 left an orphaned settings doc — harmless, nothing
+    // references it (ownedBusinesses is not yet updated).
+    throw new Error('Could not finish creating the business. Please try again.');
+  }
 
-        <label style={{
-          display: 'block', fontSize: 11, fontWeight: 700,
-          letterSpacing: '0.06em', textTransform: 'uppercase',
-          color: 'var(--t3)', marginBottom: 6,
-        }}>
-          Business Name
-        </label>
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Second Truck Tire Service"
-          disabled={busy}
-          autoFocus
-          style={{
-            width: '100%', boxSizing: 'border-box',
-            background: 'var(--s3)', border: '1px solid var(--border)',
-            borderRadius: 9, padding: '11px 12px', fontSize: 14,
-            color: 'var(--t1)', marginBottom: 16,
-          }}
-        />
+  // ── Step 3: business root doc — ownerUid + metadata, mirroring
+  // the first-business bootstrap shape so downstream code that
+  // reads the root doc behaves identically for every business.
+  try {
+    await setDoc(doc(db, `businesses/${newId}`), {
+      ownerUid: uid,
+      ownerEmail: email,
+      createdAt: now,
+    }, { merge: true });
+  } catch (e) {
+    console.error('[createBusiness] step 3 (root doc) failed:', e);
+    throw new Error('Could not finish creating the business. Please try again.');
+  }
 
-        {/* Vertical is fixed to tire in Stage 2b-3. The picker
-            becomes active when mechanic / car wash ship. */}
-        <div style={{
-          fontSize: 12, color: 'var(--t3)', marginBottom: 18,
-          padding: '9px 11px', background: 'var(--s3)',
-          border: '1px solid var(--border)', borderRadius: 9,
-        }}>
-          Business type: <strong style={{ color: 'var(--t2)' }}>Mobile Tire &amp; Roadside</strong>
-        </div>
+  // ── Step 4: append to ownedBusinesses — LAST. Until this
+  // succeeds the user's account is unchanged, so a failure in any
+  // earlier step leaves no broken state on the user record.
+  try {
+    const userRef = doc(db, `users/${uid}`);
+    const snap = await getDoc(userRef);
+    if (snap.exists()) {
+      // arrayUnion is idempotent — safe even if a retry runs.
+      await updateDoc(userRef, { ownedBusinesses: arrayUnion(uid, newId) });
+    } else {
+      // Defensive: user doc somehow missing — create it with both
+      // the primary (uid) and the new business.
+      await setDoc(userRef, {
+        businessId: uid,
+        ownedBusinesses: [uid, newId],
+      }, { merge: true });
+    }
+  } catch (e) {
+    console.error('[createBusiness] step 4 (ownedBusinesses) failed:', e);
+    throw new Error(
+      'The business was created but could not be linked to your account. ' +
+      'Please refresh — if it does not appear, contact support.',
+    );
+  }
 
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={busy}
-            style={{
-              flex: 1, padding: '11px 0', borderRadius: 9,
-              background: 'transparent', border: '1px solid var(--border)',
-              color: 'var(--t2)', fontSize: 14, fontWeight: 600,
-              cursor: busy ? 'default' : 'pointer',
-            }}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleCreate}
-            disabled={busy}
-            style={{
-              flex: 1, padding: '11px 0', borderRadius: 9,
-              background: 'var(--brand-primary)', border: 'none',
-              color: '#0a0a0a', fontSize: 14, fontWeight: 700,
-              cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.7 : 1,
-            }}
-          >
-            {busy ? 'Creating…' : 'Create Business'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+  console.info('[createBusiness] created business', newId, 'for', uid);
+  return { businessId: newId };
 }
