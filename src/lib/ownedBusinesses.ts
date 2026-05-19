@@ -1,124 +1,141 @@
 // ═══════════════════════════════════════════════════════════════════
-//  tests/ownedBusinesses.test.ts — Stage 2 multi-business tests
+//  src/lib/ownedBusinesses.ts — Multi-business model (STAGE 2)
 // ═══════════════════════════════════════════════════════════════════
-//  Run: npx tsx tests/ownedBusinesses.test.ts
 //
-//  Verifies the multi-business model + Pro gating, and proves the
-//  back-compat guarantee: a pre-Stage-2 user (no ownedBusinesses
-//  field) resolves to exactly one business with no switcher.
+//  WHAT THIS IS
+//  ────────────
+//  Read/write helpers for the set of businesses a single user owns,
+//  plus the Pro-plan gating rule that governs how many businesses a
+//  user may own.
+//
+//  THE MODEL
+//  ─────────
+//  Each business is its own businessId with its own fully-siloed
+//  data under businesses/{businessId}/...  A user's FIRST business
+//  keeps the historical convention businessId === uid (so existing
+//  accounts need zero migration). Additional businesses get fresh
+//  generated ids.
+//
+//  The user's `users/{uid}` doc carries an `ownedBusinesses` array
+//  listing every businessId they own. The user's own uid is always
+//  the first entry (their original business).
+//
+//  BACK-COMPAT GUARANTEE
+//  ─────────────────────
+//  `ownedBusinesses` is OPTIONAL and ADDITIVE. Every user who
+//  existed before Stage 2 has no such field. `getOwnedBusinesses()`
+//  treats an absent/empty array as "exactly one business — your own
+//  uid", which is precisely today's behavior. A single-business
+//  user never sees a switcher and nothing about their app changes.
+//
+//  GATING
+//  ──────
+//  Per product rule: Core plan = 1 business. Pro plan = unlimited.
+//  The gate is computed from resolvePlan() — the same plan source
+//  the rest of the app uses — so it stays consistent with billing.
+//  During the Founder Access growth phase resolvePlan() returns
+//  'pro', so founders can freely create multiple businesses; when
+//  billing is later turned on, Core accounts are held to one.
 // ═══════════════════════════════════════════════════════════════════
 
-import {
-  getOwnedBusinesses,
-  maxBusinessesForPlan,
-  canCreateAnotherBusiness,
-  hasMultipleBusinesses,
-  resolveActiveBusinessId,
-  type UserBusinessDoc,
-} from '../src/lib/ownedBusinesses';
-import type { Settings } from '../src/types';
+import type { Settings } from '@/types';
+import { resolvePlan } from '@/lib/planAccess';
 
-let passed = 0;
-let failed = 0;
-function check(name: string, cond: boolean, detail?: string): void {
-  if (cond) { passed++; console.log(`  ✓ ${name}`); }
-  else { failed++; console.error(`  ✗ ${name}${detail ? `  — ${detail}` : ''}`); }
-}
-function section(t: string): void { console.log(`\n${t}`); }
-
-const UID = 'user-abc';
-const B2 = 'biz-second';
-const B3 = 'biz-third';
-
-// Plan fixtures. Note: during growth mode resolvePlan() returns 'pro'
-// for every account, so the "core" fixture only behaves as Core when
-// growth mode is off. Tests below account for both possibilities.
-const coreSettings = { subscriptionStatus: 'active', plan: 'core' } as unknown as Settings;
-const proSettings = { subscriptionStatus: 'active', plan: 'pro' } as unknown as Settings;
-
-section('BACK-COMPAT — pre-Stage-2 user (no ownedBusinesses field)');
-{
-  const oldUserDoc: UserBusinessDoc = { businessId: UID }; // no ownedBusinesses
-  const owned = getOwnedBusinesses(UID, oldUserDoc);
-  check('resolves to exactly one business', owned.length === 1);
-  check('that business is the user uid', owned[0] === UID);
-  check('no switcher shown (single business)', hasMultipleBusinesses(UID, oldUserDoc) === false);
-  check('active business is the uid', resolveActiveBusinessId(UID, oldUserDoc) === UID);
+/**
+ * The shape of the `users/{uid}` document this module reads/writes.
+ * Declared structurally so Stage 2 does not have to introduce a new
+ * exported type into src/types just for an optional field.
+ */
+export interface UserBusinessDoc {
+  /** The user's primary/original businessId (=== their uid). */
+  businessId?: string;
+  /**
+   * Every businessId this user owns. The user's own uid is always
+   * index 0. Absent on pre-Stage-2 user docs.
+   */
+  ownedBusinesses?: string[];
+  /** The businessId the user last had active (for switcher restore). */
+  activeBusinessId?: string;
 }
 
-section('BACK-COMPAT — null user doc entirely');
-{
-  check('null doc -> one business [uid]', getOwnedBusinesses(UID, null).length === 1);
-  check('null doc -> active is uid', resolveActiveBusinessId(UID, null) === UID);
-  check('null doc -> no switcher', hasMultipleBusinesses(UID, null) === false);
+/**
+ * Resolve the full list of businessIds a user owns.
+ *
+ * Rules:
+ *   - No doc, or no ownedBusinesses field  -> [uid]  (one business,
+ *     today's behavior — every pre-Stage-2 user).
+ *   - ownedBusinesses present              -> that list, with uid
+ *     guaranteed present and first (defensive — never lose the
+ *     user's primary business even if the array is malformed).
+ *
+ * Always returns a non-empty array.
+ */
+export function getOwnedBusinesses(
+  uid: string,
+  userDoc: UserBusinessDoc | null | undefined,
+): string[] {
+  const list = userDoc?.ownedBusinesses;
+  if (!list || list.length === 0) {
+    return [uid];
+  }
+  // Guarantee the primary business (uid) is present and first.
+  const deduped = Array.from(new Set([uid, ...list]));
+  return deduped;
 }
 
-section('MULTI-BUSINESS — user owns three');
-{
-  const doc: UserBusinessDoc = { businessId: UID, ownedBusinesses: [UID, B2, B3] };
-  const owned = getOwnedBusinesses(UID, doc);
-  check('resolves all three', owned.length === 3);
-  check('uid is first', owned[0] === UID);
-  check('switcher IS shown', hasMultipleBusinesses(UID, doc) === true);
+/**
+ * How many businesses a plan allows.
+ *   Core -> 1
+ *   Pro  -> Infinity (unlimited)
+ *
+ * Driven by resolvePlan(), so it honors Founder Access (growth mode
+ * resolves to 'pro') and, once billing is on, the real Stripe plan.
+ */
+export function maxBusinessesForPlan(settings: Settings | null | undefined): number {
+  return resolvePlan(settings) === 'pro' ? Infinity : 1;
 }
 
-section('DEFENSIVE — uid missing from stored array');
-{
-  // Malformed: ownedBusinesses somehow lacks the user's own uid.
-  const doc: UserBusinessDoc = { businessId: UID, ownedBusinesses: [B2, B3] };
-  const owned = getOwnedBusinesses(UID, doc);
-  check('uid is force-added', owned.includes(UID));
-  check('uid is first even when missing from stored array', owned[0] === UID);
-  check('no duplicates', new Set(owned).size === owned.length);
+/**
+ * Can this user create another business right now?
+ *
+ * True only when their plan's business allowance is greater than the
+ * number of businesses they already own. Core users who own their
+ * one business get false (and should be shown an upgrade prompt).
+ */
+export function canCreateAnotherBusiness(
+  settings: Settings | null | undefined,
+  ownedCount: number,
+): boolean {
+  return ownedCount < maxBusinessesForPlan(settings);
 }
 
-section('DEFENSIVE — duplicate ids in stored array');
-{
-  const doc: UserBusinessDoc = { businessId: UID, ownedBusinesses: [UID, B2, B2, UID] };
-  const owned = getOwnedBusinesses(UID, doc);
-  check('duplicates removed', owned.length === 2);
+/**
+ * Does this user own more than one business? Drives whether the
+ * business switcher UI is shown at all — a single-business user
+ * never sees it, so their experience is unchanged from pre-Stage-2.
+ */
+export function hasMultipleBusinesses(
+  uid: string,
+  userDoc: UserBusinessDoc | null | undefined,
+): boolean {
+  return getOwnedBusinesses(uid, userDoc).length > 1;
 }
 
-section('PRO GATING — business allowance per plan');
-{
-  // maxBusinessesForPlan depends on resolvePlan(). Under growth mode
-  // BOTH fixtures resolve to 'pro' (unlimited). With billing on, the
-  // core fixture is limited to 1. Assert the Pro path strictly, and
-  // assert the core path is EITHER 1 (billing on) OR Infinity (growth).
-  const proMax = maxBusinessesForPlan(proSettings);
-  check('Pro plan -> unlimited businesses', proMax === Infinity);
-
-  const coreMax = maxBusinessesForPlan(coreSettings);
-  check('Core plan -> 1 (billing on) or unlimited (growth mode)',
-    coreMax === 1 || coreMax === Infinity,
-    `got ${coreMax}`);
+/**
+ * Resolve which businessId should be active on app load.
+ *
+ * Prefers the user's last-active choice when it is still a business
+ * they own; otherwise falls back to their primary business (uid).
+ * Never returns a businessId the user does not own.
+ */
+export function resolveActiveBusinessId(
+  uid: string,
+  userDoc: UserBusinessDoc | null | undefined,
+): string {
+  const owned = getOwnedBusinesses(uid, userDoc);
+  const last = userDoc?.activeBusinessId;
+  if (last && owned.includes(last)) {
+    return last;
+  }
+  return owned[0];
 }
-
-section('PRO GATING — canCreateAnotherBusiness');
-{
-  // Pro user with 1 business -> can always create another.
-  check('Pro + owns 1 -> can create', canCreateAnotherBusiness(proSettings, 1) === true);
-  check('Pro + owns 5 -> can create', canCreateAnotherBusiness(proSettings, 5) === true);
-
-  // Core user with 1 business: blocked when billing is on, allowed
-  // under growth mode. Assert it matches maxBusinessesForPlan.
-  const coreMax = maxBusinessesForPlan(coreSettings);
-  const expectCore = 1 < coreMax;
-  check('Core + owns 1 -> matches plan allowance',
-    canCreateAnotherBusiness(coreSettings, 1) === expectCore);
-}
-
-section('ACTIVE BUSINESS — last-choice restore');
-{
-  const doc: UserBusinessDoc = { businessId: UID, ownedBusinesses: [UID, B2, B3], activeBusinessId: B2 };
-  check('restores last-active business', resolveActiveBusinessId(UID, doc) === B2);
-
-  // Last-active points at a business the user no longer owns.
-  const stale: UserBusinessDoc = { businessId: UID, ownedBusinesses: [UID, B2], activeBusinessId: 'biz-deleted' };
-  check('stale active id falls back to primary', resolveActiveBusinessId(UID, stale) === UID);
-}
-
-console.log(`\n${'═'.repeat(56)}`);
-console.log(`  PASSED: ${passed}   FAILED: ${failed}`);
-console.log('═'.repeat(56));
-if (failed > 0) process.exit(1);
