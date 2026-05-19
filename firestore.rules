@@ -166,9 +166,19 @@ service cloud.firestore {
     // no ownerUid field (legacy businesses) — never errors, so the
     // members-write self-enroll clause simply fails closed for any
     // business that was not created via the 1b add-business flow.
+    //
+    // Uses getAfter()/existsAfter() — the POST-commit state of the
+    // transaction. This is required because the add-business flow
+    // writes settings/main and members/{uid} in the SAME atomic
+    // writeBatch: a plain get() would see pre-batch state (no
+    // settings doc yet) and wrongly deny the member write. getAfter()
+    // sees the settings doc the same batch is creating. For any write
+    // OUTSIDE a batch, getAfter() equals get() — the post-commit
+    // state of an already-committed doc is just its current state —
+    // so this is correct in every case, not only the batch case.
     function businessOwnerUid(businessId) {
-      return exists(/databases/$(database)/documents/businesses/$(businessId)/settings/main)
-        ? get(/databases/$(database)/documents/businesses/$(businessId)/settings/main).data.get('ownerUid', '')
+      return existsAfter(/databases/$(database)/documents/businesses/$(businessId)/settings/main)
+        ? getAfter(/databases/$(database)/documents/businesses/$(businessId)/settings/main).data.get('ownerUid', '')
         : '';
     }
     function isOwnerOrAdmin(businessId) {
