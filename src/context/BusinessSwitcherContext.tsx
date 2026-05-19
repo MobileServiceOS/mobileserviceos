@@ -54,6 +54,7 @@ import {
   hasMultipleBusinesses,
   type UserBusinessDoc,
 } from '@/lib/ownedBusinesses';
+import { withTimeout } from '@/lib/promiseTimeout';
 
 interface BusinessSwitcherValue {
   /** Every businessId the user owns (always non-empty; index 0 = primary). */
@@ -164,17 +165,27 @@ export function BusinessSwitcherProvider({ user, settings, children }: ProviderP
   const activateBusiness = useCallback(async (businessId: string) => {
     const db = _db;
     if (!db) return;
+    console.info('[business-switcher] activate: writing activeBusinessId', { businessId });
     try {
-      await setDoc(
-        doc(db, `users/${user.uid}`),
-        { activeBusinessId: businessId },
-        { merge: true },
+      await withTimeout(
+        setDoc(
+          doc(db, `users/${user.uid}`),
+          { activeBusinessId: businessId },
+          { merge: true },
+        ),
+        10_000,
+        'activateBusiness:setDoc',
       );
+      console.info('[business-switcher] activate: write OK, reloading');
       // Full reload so BrandContext + every downstream context
       // re-resolve cleanly from scratch — identical to a fresh login.
       window.location.reload();
     } catch (e) {
-      console.error('[business-switcher] activate failed:', e);
+      const err = e as { name?: string; message?: string };
+      console.error('[business-switcher] activate failed:', { name: err.name, message: err.message, raw: e });
+      if (err.name === 'TimeoutError') {
+        throw new Error('Switching businesses timed out. Please check your connection and try again.');
+      }
       throw e;
     }
   }, [user.uid]);
