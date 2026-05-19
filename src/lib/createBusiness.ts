@@ -39,9 +39,13 @@
 
 import { doc, collection, getDoc, writeBatch, arrayUnion } from 'firebase/firestore';
 import { _db } from '@/lib/firebase';
-import { DEFAULT_BRAND } from '@/lib/defaults';
+import { DEFAULT_BRAND, DEFAULT_VEHICLE_PRICING } from '@/lib/defaults';
 import { foundingMemberStamp } from '@/lib/growthMode';
-import type { VerticalKey } from '@/lib/verticals';
+import {
+  type VerticalKey,
+  getVerticalConfig,
+  servicePricingFromVertical,
+} from '@/lib/verticals';
 
 export interface CreateBusinessInput {
   /** uid of the creating user — becomes the new business's owner. */
@@ -102,8 +106,21 @@ export async function createBusiness(
   // ── Build the atomic batch — all four writes commit together.
   const batch = writeBatch(db);
 
+  // Resolve the vertical config for the chosen businessType so the
+  // new business is seeded with the RIGHT service catalog — mechanic
+  // services for a mechanic business, tire services for a tire
+  // business. getVerticalConfig falls back to tire for any unknown
+  // key, so this is always safe.
+  const vertical = getVerticalConfig(businessType);
+  const seededServicePricing = servicePricingFromVertical(vertical);
+
   // 1. settings/main — stamped ownerUid. The 1b settings-create rule
   //    permits this because request.resource.data.ownerUid == uid.
+  //    servicePricing is seeded from the vertical's catalog; vehicle
+  //    pricing uses the shared default (vehicle size add-ons are
+  //    vertical-agnostic). The job service picker reads
+  //    servicePricing directly, so the new business immediately
+  //    shows the correct vertical's services.
   batch.set(doc(db, `businesses/${newId}/settings/main`), {
     ...DEFAULT_BRAND,
     businessName: name,
@@ -111,6 +128,8 @@ export async function createBusiness(
     email,
     ownerUid: uid,
     createdAt: now,
+    servicePricing: seededServicePricing,
+    vehiclePricing: DEFAULT_VEHICLE_PRICING,
     // New businesses created during the Founding Member growth phase
     // are stamped consistently with first-signup businesses.
     ...foundingMemberStamp(),
