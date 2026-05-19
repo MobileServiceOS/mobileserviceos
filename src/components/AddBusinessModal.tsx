@@ -106,22 +106,21 @@ export function AddBusinessModal({ uid, email, onClose }: Props) {
         </p>
 
         <label style={{
-          display: 'block', fontSize: 11, fontWeight: 700,
-          letterSpacing: '0.06em', textTransform: 'uppercase',
-          color: 'var(--t3)', marginBottom: 6,
+          display: 'block', fontSize: 13, fontWeight: 700,
+          color: 'var(--t1)', marginBottom: 6,
         }}>
           Business Name
         </label>
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Second Truck Tire Service"
+          placeholder="Enter business name"
           disabled={busy}
           style={{
             width: '100%', boxSizing: 'border-box',
-            background: 'var(--s3)', border: '1px solid var(--border)',
-            borderRadius: 9, padding: '11px 12px', fontSize: 14,
-            color: 'var(--t1)', marginBottom: 16,
+            background: '#0a0a0a', border: '2px solid var(--brand-primary)',
+            borderRadius: 9, padding: '14px 12px', fontSize: 16,
+            color: '#ffffff', marginBottom: 16,
           }}
         />
 
