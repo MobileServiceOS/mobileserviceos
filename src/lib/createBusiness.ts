@@ -46,6 +46,13 @@ import {
   getVerticalConfig,
   servicePricingFromVertical,
 } from '@/lib/verticals';
+import { withTimeout } from '@/lib/promiseTimeout';
+
+// Per-step timeouts. Generous enough for legitimate slow networks,
+// short enough that a real hang surfaces quickly instead of stranding
+// the user with a Creating… spinner forever.
+const USER_READ_TIMEOUT_MS = 10_000;
+const BATCH_COMMIT_TIMEOUT_MS = 15_000;
 
 export interface CreateBusinessInput {
   /** uid of the creating user — becomes the new business's owner. */
@@ -94,13 +101,22 @@ export async function createBusiness(
   // Read the user doc first (a read, not part of the batch) so the
   // batch can either append to an existing ownedBusinesses array or
   // initialize it. Batches are write-only, so this read is separate.
+  //
+  // Wrapped in withTimeout because under persistentLocalCache a slow
+  // / flaky network can leave this read hanging silently with no
+  // resolution and no error. The timeout converts a hang into a
+  // surfaced error the modal can show.
+  console.info('[createBusiness] step A: reading user doc');
   let userDocExists = false;
   try {
-    const snap = await getDoc(doc(db, `users/${uid}`));
+    type Snap = Awaited<ReturnType<typeof getDoc>>;
+    const readPromise: Promise<Snap> = getDoc(doc(db, `users/${uid}`));
+    const snap = await withTimeout<Snap>(readPromise, USER_READ_TIMEOUT_MS, 'createBusiness:userDocRead');
     userDocExists = snap.exists();
+    console.info('[createBusiness] step A done', { userDocExists });
   } catch (e) {
-    console.error('[createBusiness] could not read user doc:', e);
-    throw new Error('Could not create the business. Please try again.');
+    console.error('[createBusiness] step A failed (user doc read):', e);
+    throw new Error('Could not load your account. Please check your connection and try again.');
   }
 
   // ── Build the atomic batch — all four writes commit together.
@@ -173,17 +189,32 @@ export async function createBusiness(
 
   // ── Commit. One atomic server round-trip. Rules evaluate every
   //    write with getAfter() seeing the batch's post-commit state.
+  //
+  // Wrapped in withTimeout because a getAfter()-based rule MUST be
+  // evaluated against the server (cache cannot evaluate it), so the
+  // commit needs the network. A flaky network can leave the commit
+  // hanging silently — the timeout converts that into a surfaced
+  // error rather than an infinite Creating… loop.
+  console.info('[createBusiness] step B: committing batch', { newId });
   try {
-    await batch.commit();
+    await withTimeout(
+      batch.commit(),
+      BATCH_COMMIT_TIMEOUT_MS,
+      'createBusiness:batchCommit',
+    );
+    console.info('[createBusiness] step B done', { newId });
   } catch (e) {
-    const err = e as { code?: string; message?: string };
-    console.error('[createBusiness] batch commit failed:', {
-      code: err.code, message: err.message, raw: e,
+    const err = e as { name?: string; code?: string; message?: string };
+    console.error('[createBusiness] step B failed (batch commit):', {
+      name: err.name, code: err.code, message: err.message, raw: e,
     });
+    if (err.name === 'TimeoutError') {
+      throw new Error('Creating the business timed out. Please check your connection and try again.');
+    }
     if (err.code === 'permission-denied') {
       throw new Error('Could not create the business — permission denied. Please try again.');
     }
-    throw new Error('Could not create the business. Please try again.');
+    throw new Error(`Could not create the business: ${err.message || 'unknown error'}`);
   }
 
   console.info('[createBusiness] created business', newId, 'for', uid);
