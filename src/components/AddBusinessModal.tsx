@@ -70,8 +70,16 @@ export function AddBusinessModal({ uid, email, onClose }: Props) {
       style={{
         position: 'fixed', inset: 0, zIndex: 200,
         background: 'rgba(0,0,0,0.6)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        display: 'flex',
+        // Top-aligned (not centered): when the mobile keyboard opens
+        // it shrinks the viewport — a centered tall modal would push
+        // the input off-screen. Top alignment + scroll keeps every
+        // field reachable.
+        alignItems: 'flex-start', justifyContent: 'center',
         padding: 20,
+        // The overlay itself scrolls if the card is taller than the
+        // viewport.
+        overflowY: 'auto',
       }}
       onClick={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}
     >
@@ -79,6 +87,13 @@ export function AddBusinessModal({ uid, email, onClose }: Props) {
         width: '100%', maxWidth: 380,
         background: 'var(--s2)', border: '1px solid var(--border)',
         borderRadius: 14, padding: 22,
+        // Cap the card to the viewport and let it scroll internally,
+        // so the name input and every control stay reachable on small
+        // screens and with the keyboard open.
+        maxHeight: 'calc(100vh - 40px)',
+        overflowY: 'auto',
+        // Keep the card clear of the very top edge / notch.
+        marginTop: 12, marginBottom: 12,
       }}>
         <h2 style={{
           fontSize: 17, fontWeight: 700, color: 'var(--t1)', margin: '0 0 4px',
@@ -103,7 +118,6 @@ export function AddBusinessModal({ uid, email, onClose }: Props) {
           onChange={(e) => setName(e.target.value)}
           placeholder="e.g. Second Truck Tire Service"
           disabled={busy}
-          autoFocus
           style={{
             width: '100%', boxSizing: 'border-box',
             background: 'var(--s3)', border: '1px solid var(--border)',
