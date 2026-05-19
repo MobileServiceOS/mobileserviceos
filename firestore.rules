@@ -15,8 +15,35 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    // ───────────────────────────────────────────────────────────
+    //  MEMBERSHIP — members doc is the source of truth
+    //  ───────────────────────────────────────────────────────────
+    //  A user belongs to a business when a members/{uid} doc exists
+    //  for them under that business. That doc is unforgeable: writing
+    //  it is itself rules-protected (only an existing owner/admin of
+    //  the business, or the documented bootstrap path, can create it).
+    //
+    //  LEGACY FALLBACK: every business that predates the multi-
+    //  business work was bootstrapped with businessId == owner uid and
+    //  may have NO members doc. The `request.auth.uid == businessId`
+    //  branch keeps those owners fully recognized with zero migration.
+    //
+    //  The `ownedBusinesses` array on the user doc is NEVER consulted
+    //  here — it drives the switcher UI only. Security is enforced
+    //  solely by the unforgeable members doc, so a tampered array
+    //  cannot grant access to a business the user is not a member of.
+
+    // True when a members/{uid} doc exists for the requesting user
+    // under the given business.
+    function memberDocExists(businessId) {
+      return exists(/databases/$(database)/documents/businesses/$(businessId)/members/$(request.auth.uid));
+    }
+
     function isMemberOfBusiness(businessId) {
-      return isSignedIn() && userBusinessId() == businessId;
+      return isSignedIn() && (
+        memberDocExists(businessId) ||
+        request.auth.uid == businessId   // legacy convention-owner
+      );
     }
 
     // Each user can only read/write their own user record
@@ -133,9 +160,25 @@ service cloud.firestore {
     function memberRole(businessId) {
       return get(/databases/$(database)/documents/businesses/$(businessId)/members/$(request.auth.uid)).data.role;
     }
+
+    // 1b: the ownerUid stamped on a business's settings/main doc at
+    // creation. Returns '' when the settings doc does not exist or has
+    // no ownerUid field (legacy businesses) — never errors, so the
+    // members-write self-enroll clause simply fails closed for any
+    // business that was not created via the 1b add-business flow.
+    function businessOwnerUid(businessId) {
+      return exists(/databases/$(database)/documents/businesses/$(businessId)/settings/main)
+        ? get(/databases/$(database)/documents/businesses/$(businessId)/settings/main).data.get('ownerUid', '')
+        : '';
+    }
     function isOwnerOrAdmin(businessId) {
-      return isMemberOfBusiness(businessId) && (
-        memberRole(businessId) == 'owner' || memberRole(businessId) == 'admin'
+      return isSignedIn() && (
+        // Legacy convention-owner: no members doc, uid == businessId.
+        // Such an owner is always treated as owner of their business.
+        request.auth.uid == businessId ||
+        // Normal path: a members doc exists and grants owner/admin.
+        (memberDocExists(businessId) &&
+          (memberRole(businessId) == 'owner' || memberRole(businessId) == 'admin'))
       );
     }
 
@@ -222,14 +265,43 @@ service cloud.firestore {
         // CREATE: owner/admin only, AND must not include any exemption
         // field (would let a fresh signup self-grant Pro forever) NOR
         // any reward-tally field (would let a fresh signup pre-credit).
-        allow create: if (isOwnerOrAdmin(businessId) || request.auth.uid == businessId)
+        //
+        // MULTI-BUSINESS (1b): a brand-new business created via the
+        // add-business flow has businessId != creator uid, so the
+        // `isOwnerOrAdmin || uid==businessId` branch alone would block
+        // it. We additionally allow create when the doc stamps
+        // `ownerUid` equal to the creator's own uid — this is what
+        // makes the business provably theirs. The stamp can ONLY be
+        // the creator's uid (request.resource.data.ownerUid ==
+        // request.auth.uid), so a user cannot create a business owned
+        // by someone else. The members-write rule below then keys off
+        // this same ownerUid stamp.
+        allow create: if (
+            isOwnerOrAdmin(businessId)
+            || request.auth.uid == businessId
+            || request.resource.data.get('ownerUid', '') == request.auth.uid
+          )
           && noExemptionFieldsOnCreate(request.resource.data)
           && noReferralRewardFieldsOnCreate(request.resource.data);
         // UPDATE: owner/admin only, AND every locked exemption field
         // AND every locked reward field must match the existing value.
+        //
+        // ownerUid immutability: once a settings doc HAS an ownerUid,
+        // it can never change. Legacy tire settings docs have NO
+        // ownerUid field at all — for them this check must be a
+        // no-op, never a block. The clause below holds in both cases:
+        //   - legacy doc (no ownerUid): both sides absent -> passes,
+        //     and an update may not introduce a foreign ownerUid
+        //     because adding one would require it to equal the
+        //     (absent) existing value.
+        //   - 1b doc (has ownerUid): the value must be carried
+        //     through unchanged.
         allow update: if (isOwnerOrAdmin(businessId) || request.auth.uid == businessId)
           && exemptionFieldsUnchanged(resource.data, request.resource.data)
-          && referralRewardFieldsUnchanged(resource.data, request.resource.data);
+          && referralRewardFieldsUnchanged(resource.data, request.resource.data)
+          && (
+            request.resource.data.get('ownerUid', '') == resource.data.get('ownerUid', '')
+          );
         // DELETE: owner/admin only. Rare in practice; settings is
         // typically reset by overwriting, not deleting.
         allow delete: if isOwnerOrAdmin(businessId) || request.auth.uid == businessId;
@@ -251,9 +323,27 @@ service cloud.firestore {
       // written here (status: 'left', leftAt: timestamp).
       match /members/{memberId} {
         allow read: if isMemberOfBusiness(businessId);
+        // WRITE paths:
+        //  1. An existing owner/admin manages members (invites, role
+        //     changes, removals) — normal team management.
+        //  2. Legacy convention-owner (uid == businessId) — the
+        //     pre-multi-business owner of their own business.
+        //  3. 1b SELF-ENROLL: a user may write THEIR OWN member doc
+        //     (memberId == uid) ONLY into a business they provably
+        //     created — i.e. whose settings/main.ownerUid equals their
+        //     uid. This is what lets the add-business flow enroll the
+        //     creator as owner of a new business WITHOUT a Cloud
+        //     Function, while closing the privilege-escalation hole:
+        //     a user CANNOT self-assign into someone else's business,
+        //     because they cannot forge that business's ownerUid
+        //     stamp (the settings-create rule above forces ownerUid
+        //     to equal the creator's own uid).
         allow write: if isOwnerOrAdmin(businessId)
           || request.auth.uid == businessId
-          || request.auth.uid == memberId;
+          || (
+            request.auth.uid == memberId
+            && businessOwnerUid(businessId) == request.auth.uid
+          );
       }
 
       // Meta collection — deletion requests and other admin signals.
