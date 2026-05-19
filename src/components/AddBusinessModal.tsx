@@ -70,30 +70,29 @@ export function AddBusinessModal({ uid, email, onClose }: Props) {
       style={{
         position: 'fixed', inset: 0, zIndex: 200,
         background: 'rgba(0,0,0,0.6)',
-        display: 'flex',
-        // Top-aligned (not centered): when the mobile keyboard opens
-        // it shrinks the viewport — a centered tall modal would push
-        // the input off-screen. Top alignment + scroll keeps every
-        // field reachable.
-        alignItems: 'flex-start', justifyContent: 'center',
-        padding: 20,
-        // The overlay itself scrolls if the card is taller than the
-        // viewport.
+        // ONE scrolling surface (the overlay), not two. Two competing
+        // scroll surfaces on iOS Safari race with the keyboard and
+        // can leave the card stranded. Letting the overlay scroll and
+        // making the card a plain block that grows naturally is the
+        // pattern that actually works on iPhone.
         overflowY: 'auto',
+        WebkitOverflowScrolling: 'touch',
+        // Top-aligned + horizontal-centered via padding/margin on
+        // the card. Avoiding flexbox here so the overlay's scroll
+        // height tracks the card's full height correctly on iOS.
+        padding: '20px 16px',
       }}
       onClick={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}
     >
       <div style={{
         width: '100%', maxWidth: 380,
+        margin: '0 auto',
         background: 'var(--s2)', border: '1px solid var(--border)',
         borderRadius: 14, padding: 22,
-        // Cap the card to the viewport and let it scroll internally,
-        // so the name input and every control stay reachable on small
-        // screens and with the keyboard open.
-        maxHeight: 'calc(100vh - 40px)',
-        overflowY: 'auto',
-        // Keep the card clear of the very top edge / notch.
-        marginTop: 12, marginBottom: 12,
+        // The card grows naturally to fit its content. The overlay
+        // (parent) is the one scrolling surface, so every field is
+        // reachable by scrolling the overlay no matter how tall the
+        // card gets or how much the keyboard shrinks the viewport.
       }}>
         <h2 style={{
           fontSize: 17, fontWeight: 700, color: 'var(--t1)', margin: '0 0 4px',
