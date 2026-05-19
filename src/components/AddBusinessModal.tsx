@@ -1,182 +1,185 @@
 // ═══════════════════════════════════════════════════════════════════
-//  src/components/BusinessSwitcher.tsx — Multi-business UI (STAGE 2b)
+//  src/components/AddBusinessModal.tsx — Add-business UI (STAGE 2b-3)
 // ═══════════════════════════════════════════════════════════════════
 //
-//  WHAT THIS IS
-//  ────────────
-//  A compact dropdown that lets a user with multiple businesses
-//  switch the active one. Rendered inside the Header.
+//  A modal to create an additional business: a name field and a
+//  vertical picker. Tire and Mechanic are both live; car wash /
+//  detailing arrives in Stage 4. The chosen vertical seeds the new
+//  business's service catalog, pricing model, and inventory shape.
 //
-//  BACK-COMPAT — IMPORTANT
-//  ───────────────────────
-//  This component renders NOTHING (returns null) when the user owns
-//  only one business — `canSwitch` is false. A single-business
-//  operator never sees it; the Header looks exactly as it did
-//  before Stage 2b. The switcher only appears once a user has
-//  deliberately created a second business.
+//  On submit it calls createBusiness(), then activates the new
+//  business (which reloads the app via BusinessSwitcherContext).
 //
-//  Switching delegates entirely to BusinessSwitcherContext, which
-//  persists the choice and reloads so BrandContext re-resolves the
-//  active business cleanly.
+//  Pro-gating is enforced by the caller — this modal is only opened
+//  when canCreate is true. It does not re-check entitlement.
 // ═══════════════════════════════════════════════════════════════════
 
-import { useState, useRef, useEffect } from 'react';
+import { useState } from 'react';
+import { createBusiness } from '@/lib/createBusiness';
 import { useBusinessSwitcher } from '@/context/BusinessSwitcherContext';
-import { AddBusinessModal } from '@/components/AddBusinessModal';
-import { _auth } from '@/lib/firebase';
+import { addToast } from '@/lib/toast';
+import type { VerticalKey } from '@/lib/verticals';
 
 interface Props {
-  /** Label for the currently active business (its business name). */
-  activeLabel: string;
+  uid: string;
+  email: string;
+  onClose: () => void;
 }
 
-export function BusinessSwitcher({ activeLabel }: Props) {
-  const { ownedBusinesses, activeBusinessId, canSwitch, canCreate, switchBusiness } = useBusinessSwitcher();
-  const [open, setOpen] = useState(false);
-  const [showAddModal, setShowAddModal] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
+export function AddBusinessModal({ uid, email, onClose }: Props) {
+  const { activateBusiness } = useBusinessSwitcher();
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  // Selectable vertical. Tire and Mechanic are live; car wash /
+  // detailing arrives in Stage 4. Defaults to tire.
+  const [businessType, setBusinessType] = useState<VerticalKey>('tire');
 
-  // Close the dropdown on outside click / Escape.
-  useEffect(() => {
-    if (!open) return;
-    function onDocClick(e: MouseEvent) {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+  async function handleCreate() {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      addToast('Enter a business name', 'warn');
+      return;
     }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setOpen(false);
+    setBusy(true);
+    try {
+      const { businessId } = await createBusiness({
+        uid, email, businessName: trimmed, businessType,
+      });
+      addToast('Business created', 'success');
+      // activateBusiness (not switchBusiness): the new business was
+      // just created and is not yet in the in-memory owned list, so
+      // the owned-list guard in switchBusiness would wrongly reject
+      // it. activateBusiness persists the choice and reloads.
+      await activateBusiness(businessId);
+      // On success the line above reloads the page, so execution
+      // never continues past here. If the reload somehow does not
+      // happen, reset busy so the button is not stuck.
+      setBusy(false);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Could not create the business.';
+      addToast(msg, 'error');
+      setBusy(false);
     }
-    document.addEventListener('mousedown', onDocClick);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDocClick);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [open]);
-
-  // Render nothing only when the user can neither switch (single
-  // business) NOR create another. A single-business Pro user still
-  // sees the control — it is how they create their second business.
-  if (!canSwitch && !canCreate) return null;
+  }
 
   return (
-    <div ref={rootRef} style={{ position: 'relative', flexShrink: 0 }}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        title="Switch business"
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        style={{
-          display: 'flex', alignItems: 'center', gap: 5,
-          background: 'var(--s3)', border: '1px solid var(--border)',
-          borderRadius: 8, height: 32, minHeight: 32, padding: '0 9px',
-          fontSize: 12, fontWeight: 700, color: 'var(--t2)', cursor: 'pointer',
-          maxWidth: 150,
-        }}
-      >
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {activeLabel}
-        </span>
-        <span aria-hidden="true" style={{ fontSize: 9, opacity: 0.7 }}>▼</span>
-      </button>
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Add a business"
+      style={{
+        position: 'fixed', inset: 0, zIndex: 200,
+        background: 'rgba(0,0,0,0.6)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 20,
+      }}
+      onClick={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}
+    >
+      <div style={{
+        width: '100%', maxWidth: 380,
+        background: 'var(--s2)', border: '1px solid var(--border)',
+        borderRadius: 14, padding: 22,
+      }}>
+        <h2 style={{
+          fontSize: 17, fontWeight: 700, color: 'var(--t1)', margin: '0 0 4px',
+        }}>
+          Add a Business
+        </h2>
+        <p style={{ fontSize: 12.5, color: 'var(--t3)', margin: '0 0 16px', lineHeight: 1.5 }}>
+          Create another business under your account. It has its own
+          jobs, inventory, settings, and team — fully separate from
+          your other businesses.
+        </p>
 
-      {open && (
-        <div
-          role="listbox"
+        <label style={{
+          display: 'block', fontSize: 11, fontWeight: 700,
+          letterSpacing: '0.06em', textTransform: 'uppercase',
+          color: 'var(--t3)', marginBottom: 6,
+        }}>
+          Business Name
+        </label>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="e.g. Second Truck Tire Service"
+          disabled={busy}
+          autoFocus
           style={{
-            position: 'absolute', top: 38, right: 0, minWidth: 200,
-            background: 'var(--s2)', border: '1px solid var(--border)',
-            borderRadius: 10, padding: 6, zIndex: 100,
-            boxShadow: '0 12px 32px rgba(0,0,0,.5)',
+            width: '100%', boxSizing: 'border-box',
+            background: 'var(--s3)', border: '1px solid var(--border)',
+            borderRadius: 9, padding: '11px 12px', fontSize: 14,
+            color: 'var(--t1)', marginBottom: 16,
           }}
-        >
-          <div style={{
-            fontSize: 10, fontWeight: 700, letterSpacing: '0.08em',
-            textTransform: 'uppercase', color: 'var(--t3)',
-            padding: '6px 8px 4px',
-          }}>
-            Your Businesses
-          </div>
-          {ownedBusinesses.map((bId) => {
-            const isActive = bId === activeBusinessId;
+        />
+
+        {/* Vertical picker — tire and mechanic are both live. The
+            chosen vertical seeds the new business's service catalog,
+            pricing model, and inventory shape. */}
+        <label style={{
+          display: 'block', fontSize: 11, fontWeight: 700,
+          letterSpacing: '0.06em', textTransform: 'uppercase',
+          color: 'var(--t3)', marginBottom: 6,
+        }}>
+          Business Type
+        </label>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 18 }}>
+          {([
+            { key: 'tire' as VerticalKey, label: 'Mobile Tire & Roadside' },
+            { key: 'mechanic' as VerticalKey, label: 'Mobile Mechanic' },
+          ]).map((opt) => {
+            const selected = businessType === opt.key;
             return (
               <button
-                key={bId}
+                key={opt.key}
                 type="button"
-                role="option"
-                aria-selected={isActive}
-                onClick={() => {
-                  setOpen(false);
-                  if (!isActive) void switchBusiness(bId);
-                }}
+                onClick={() => !busy && setBusinessType(opt.key)}
+                aria-pressed={selected}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: 8, width: '100%',
-                  background: isActive ? 'rgba(200,164,74,0.10)' : 'transparent',
-                  border: 'none', borderRadius: 7, padding: '9px 8px',
-                  fontSize: 13, fontWeight: isActive ? 700 : 500,
-                  color: isActive ? 'var(--brand-primary)' : 'var(--t1)',
-                  cursor: isActive ? 'default' : 'pointer', textAlign: 'left',
+                  flex: 1, padding: '11px 8px', borderRadius: 9,
+                  background: selected ? 'rgba(200,164,74,0.10)' : 'var(--s3)',
+                  border: selected
+                    ? '1px solid var(--brand-primary)'
+                    : '1px solid var(--border)',
+                  color: selected ? 'var(--brand-primary)' : 'var(--t2)',
+                  fontSize: 12.5, fontWeight: selected ? 700 : 600,
+                  cursor: busy ? 'default' : 'pointer', lineHeight: 1.3,
                 }}
               >
-                <span aria-hidden="true" style={{
-                  width: 14, flexShrink: 0, color: 'var(--brand-primary)',
-                }}>
-                  {isActive ? '✓' : ''}
-                </span>
-                <span style={{
-                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                }}>
-                  {/* The active business shows its real name; others
-                      show a short id-derived label. The full name of
-                      a non-active business is not loaded here to keep
-                      this component cheap — switching reloads and the
-                      Header then shows the real name. */}
-                  {isActive ? activeLabel : shortLabel(bId)}
-                </span>
+                {opt.label}
               </button>
             );
           })}
-          {/* + Add Business — shown when the user's plan allows
-              another business (Pro = unlimited). Opens the create
-              modal with a tire/mechanic vertical picker. */}
-          {canCreate && (
-            <button
-              type="button"
-              onClick={() => { setOpen(false); setShowAddModal(true); }}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 8, width: '100%',
-                background: 'transparent', border: 'none', borderRadius: 7,
-                padding: '9px 8px', marginTop: 2, fontSize: 13, fontWeight: 600,
-                color: 'var(--brand-primary)', cursor: 'pointer', textAlign: 'left',
-                borderTop: '1px solid var(--border)',
-              }}
-            >
-              <span aria-hidden="true" style={{ width: 14, flexShrink: 0, fontWeight: 800 }}>+</span>
-              <span>Add Business</span>
-            </button>
-          )}
         </div>
-      )}
 
-      {showAddModal && _auth?.currentUser && (
-        <AddBusinessModal
-          uid={_auth.currentUser.uid}
-          email={_auth.currentUser.email || ''}
-          onClose={() => setShowAddModal(false)}
-        />
-      )}
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            style={{
+              flex: 1, padding: '11px 0', borderRadius: 9,
+              background: 'transparent', border: '1px solid var(--border)',
+              color: 'var(--t2)', fontSize: 14, fontWeight: 600,
+              cursor: busy ? 'default' : 'pointer',
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleCreate}
+            disabled={busy}
+            style={{
+              flex: 1, padding: '11px 0', borderRadius: 9,
+              background: 'var(--brand-primary)', border: 'none',
+              color: '#0a0a0a', fontSize: 14, fontWeight: 700,
+              cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.7 : 1,
+            }}
+          >
+            {busy ? 'Creating…' : 'Create Business'}
+          </button>
+        </div>
+      </div>
     </div>
   );
-}
-
-/**
- * A short, human-ish label for a non-active business when its full
- * name is not loaded. Uses a stable suffix of the businessId so each
- * row is distinguishable.
- */
-function shortLabel(businessId: string): string {
-  const tail = businessId.slice(-4).toUpperCase();
-  return `Business ·${tail}`;
 }
