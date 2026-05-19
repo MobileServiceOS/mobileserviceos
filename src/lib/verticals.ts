@@ -403,3 +403,28 @@ export function getVerticalConfig(key: VerticalKey | null | undefined): Vertical
   }
   return TIRE_VERTICAL;
 }
+
+/**
+ * Build a servicePricing map (the shape stored on a business's
+ * settings/main doc) from a vertical's service catalog.
+ *
+ * Each VerticalService becomes one { enabled, basePrice, minProfit }
+ * entry keyed by the service id. Used when seeding a NEW business so
+ * a mechanic business is created with mechanic services and a tire
+ * business with tire services. The shape matches DEFAULT_SERVICE_
+ * PRICING exactly, so every downstream consumer (the job service
+ * picker, pricing engine, settings) works unchanged.
+ */
+export function servicePricingFromVertical(
+  config: VerticalConfig,
+): Record<string, { enabled: boolean; basePrice: number; minProfit: number }> {
+  const out: Record<string, { enabled: boolean; basePrice: number; minProfit: number }> = {};
+  for (const svc of config.services) {
+    out[svc.id] = {
+      enabled: svc.enabledByDefault,
+      basePrice: svc.defaultBasePrice,
+      minProfit: svc.defaultMinProfit,
+    };
+  }
+  return out;
+}
