@@ -1,5 +1,6 @@
 import { useBrand } from '@/context/BrandContext';
 import { APP_LOGO } from '@/lib/defaults';
+import { BusinessSwitcher } from '@/components/BusinessSwitcher';
 import type { SyncStatus } from '@/types';
 
 interface Props {
@@ -15,12 +16,12 @@ interface PillSpec {
 
 function statusPill(s: SyncStatus): PillSpec {
   switch (s) {
-    case 'connected':   return { label: '● Synced',        className: 'sync-pill synced',  title: 'All changes synced to cloud' };
-    case 'syncing':     return { label: '○ Syncing…',      className: 'sync-pill syncing', title: 'Syncing with Firestore' };
-    case 'offline':     return { label: '⚠ Offline',       className: 'sync-pill offline', title: 'No internet — changes queued locally' };
-    case 'sync_failed': return { label: '↻ Retry queued',  className: 'sync-pill failed',  title: 'Sync failed — will retry automatically' };
+    case 'connected':   return { label: '● Synced',  className: 'sync-pill synced',  title: 'All changes synced to cloud' };
+    case 'syncing':     return { label: '○ Syncing', className: 'sync-pill syncing', title: 'Syncing with Firestore' };
+    case 'offline':     return { label: '⚠ Offline', className: 'sync-pill offline', title: 'No internet — changes queued' };
+    case 'sync_failed': return { label: '✕ Failed',  className: 'sync-pill failed',  title: 'Sync failed — see console' };
     case 'local':
-    default:            return { label: '○ Local',         className: 'sync-pill local',   title: 'Local-only — not yet synced' };
+    default:            return { label: '○ Local',   className: 'sync-pill local',   title: 'Local-only — not yet synced' };
   }
 }
 
@@ -50,6 +51,10 @@ export function Header({ syncStatus, onSignOut }: Props) {
         </div>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+        {/* BusinessSwitcher renders only when the user owns more than
+            one business. For a single-business operator it returns
+            null and the Header is visually unchanged. */}
+        <BusinessSwitcher activeLabel={brand.businessName || 'Mobile Service OS'} />
         <span className={pill.className} title={pill.title}>{pill.label}</span>
         <button
           onClick={onSignOut}
