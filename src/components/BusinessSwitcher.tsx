@@ -22,8 +22,6 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useBusinessSwitcher } from '@/context/BusinessSwitcherContext';
-import { AddBusinessModal } from '@/components/AddBusinessModal';
-import { _auth } from '@/lib/firebase';
 
 interface Props {
   /** Label for the currently active business (its business name). */
@@ -31,9 +29,8 @@ interface Props {
 }
 
 export function BusinessSwitcher({ activeLabel }: Props) {
-  const { ownedBusinesses, activeBusinessId, canSwitch, canCreate, switchBusiness } = useBusinessSwitcher();
+  const { ownedBusinesses, activeBusinessId, canSwitch, switchBusiness } = useBusinessSwitcher();
   const [open, setOpen] = useState(false);
-  const [showAddModal, setShowAddModal] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
   // Close the dropdown on outside click / Escape.
@@ -55,12 +52,10 @@ export function BusinessSwitcher({ activeLabel }: Props) {
     };
   }, [open]);
 
-  // Render nothing only when the user can neither switch (single
-  // business) NOR create another (Core plan, at their limit). A
-  // single-business Pro user still sees the control — it is how
-  // they create their second business. A single-business Core user
-  // sees nothing, exactly as before Stage 2b-3.
-  if (!canSwitch && !canCreate) return null;
+  // Render nothing when the user has only one business — there is
+  // nothing to switch between. A single-business user sees no
+  // switcher at all, exactly as before the multi-business feature.
+  if (!canSwitch) return null;
 
   return (
     <div ref={rootRef} style={{ position: 'relative', flexShrink: 0 }}>
@@ -140,35 +135,7 @@ export function BusinessSwitcher({ activeLabel }: Props) {
               </button>
             );
           })}
-          {/* + Add Business — shown when the user's plan allows
-              another business (Pro = unlimited). Opens the create
-              modal. For a single-business Pro user this is the only
-              row besides their current business. */}
-          {canCreate && (
-            <button
-              type="button"
-              onClick={() => { setOpen(false); setShowAddModal(true); }}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 8, width: '100%',
-                background: 'transparent', border: 'none', borderRadius: 7,
-                padding: '9px 8px', marginTop: 2, fontSize: 13, fontWeight: 600,
-                color: 'var(--brand-primary)', cursor: 'pointer', textAlign: 'left',
-                borderTop: '1px solid var(--border)',
-              }}
-            >
-              <span aria-hidden="true" style={{ width: 14, flexShrink: 0, fontWeight: 800 }}>+</span>
-              <span>Add Business</span>
-            </button>
-          )}
         </div>
-      )}
-
-      {showAddModal && _auth?.currentUser && (
-        <AddBusinessModal
-          uid={_auth.currentUser.uid}
-          email={_auth.currentUser.email || ''}
-          onClose={() => setShowAddModal(false)}
-        />
       )}
     </div>
   );
