@@ -10,6 +10,7 @@ import { doc, onSnapshot, setDoc, getDoc } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { _db } from '@/lib/firebase';
 import { DEFAULT_BRAND } from '@/lib/defaults';
+import { resolveActiveBusinessId } from '@/lib/ownedBusinesses';
 import { applyBrandColors } from '@/lib/utils';
 import { acceptInviteIfPresent } from '@/lib/invites';
 import type { Brand } from '@/types';
@@ -62,7 +63,14 @@ export function BrandProvider({ children, user }: { children: ReactNode; user: U
         if (cancelled) return;
         let bId: string;
         if (snap.exists() && snap.data().businessId) {
-          bId = snap.data().businessId;
+          // Multi-business: resolve which of the user's owned
+          // businesses is active. resolveActiveBusinessId() returns
+          // the last-active choice when it is still owned, else the
+          // primary business. For a single-business user (no
+          // ownedBusinesses field) it returns exactly
+          // snap.data().businessId — identical to prior behavior, so
+          // every existing operator is unaffected.
+          bId = resolveActiveBusinessId(snap.data().businessId, snap.data());
           // Backfill members doc for users who signed up before this structure was added.
           try {
             await setDoc(
