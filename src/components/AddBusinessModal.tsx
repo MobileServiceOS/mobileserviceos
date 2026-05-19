@@ -42,21 +42,26 @@ export function AddBusinessModal({ uid, email, onClose }: Props) {
       return;
     }
     setBusy(true);
+    console.info('[add-business] step 1: starting createBusiness', { businessType });
     try {
       const { businessId } = await createBusiness({
         uid, email, businessName: trimmed, businessType,
       });
+      console.info('[add-business] step 2: createBusiness returned', { businessId });
       addToast('Business created', 'success');
       // activateBusiness (not switchBusiness): the new business was
       // just created and is not yet in the in-memory owned list, so
       // the owned-list guard in switchBusiness would wrongly reject
       // it. activateBusiness persists the choice and reloads.
+      console.info('[add-business] step 3: calling activateBusiness');
       await activateBusiness(businessId);
+      console.info('[add-business] step 4: activateBusiness returned (should reload now)');
       // On success the line above reloads the page, so execution
       // never continues past here. If the reload somehow does not
       // happen, reset busy so the button is not stuck.
       setBusy(false);
     } catch (e) {
+      console.error('[add-business] FAILED', e);
       const msg = e instanceof Error ? e.message : 'Could not create the business.';
       addToast(msg, 'error');
       setBusy(false);
