@@ -73,6 +73,12 @@ interface BusinessSwitcherValue {
    * already active.
    */
   switchBusiness: (businessId: string) => Promise<void>;
+  /**
+   * Activate a business directly, skipping the owned-list guard.
+   * For use immediately after createBusiness(), where the business
+   * is known-valid but the in-memory owned list has not refreshed.
+   */
+  activateBusiness: (businessId: string) => Promise<void>;
 }
 
 const BusinessSwitcherContext = createContext<BusinessSwitcherValue>({
@@ -82,6 +88,7 @@ const BusinessSwitcherContext = createContext<BusinessSwitcherValue>({
   canCreate: false,
   loading: true,
   switchBusiness: async () => {},
+  activateBusiness: async () => {},
 });
 
 export function useBusinessSwitcher(): BusinessSwitcherValue {
@@ -142,6 +149,36 @@ export function BusinessSwitcherProvider({ user, settings, children }: ProviderP
     [settings, ownedBusinesses.length],
   );
 
+  /**
+   * Persist `businessId` as the active business and reload.
+   *
+   * Unlike switchBusiness(), this does NOT check the in-memory
+   * ownedBusinesses list. It is used immediately after
+   * createBusiness(), where the businessId was just created and
+   * written to Firestore but the in-memory list (loaded once on
+   * mount) has not refreshed yet. Routing a freshly-created
+   * business through the stale-list guard would wrongly reject it
+   * and leave the caller hanging. The business is provably valid
+   * here, so the guard is correctly skipped.
+   */
+  const activateBusiness = useCallback(async (businessId: string) => {
+    const db = _db;
+    if (!db) return;
+    try {
+      await setDoc(
+        doc(db, `users/${user.uid}`),
+        { activeBusinessId: businessId },
+        { merge: true },
+      );
+      // Full reload so BrandContext + every downstream context
+      // re-resolve cleanly from scratch — identical to a fresh login.
+      window.location.reload();
+    } catch (e) {
+      console.error('[business-switcher] activate failed:', e);
+      throw e;
+    }
+  }, [user.uid]);
+
   const switchBusiness = useCallback(async (businessId: string) => {
     const db = _db;
     if (!db) return;
@@ -152,23 +189,8 @@ export function BusinessSwitcherProvider({ user, settings, children }: ProviderP
       return;
     }
     if (businessId === activeBusinessId) return;
-    try {
-      // Persist the choice. BrandContext reads activeBusinessId on
-      // its next load via resolveActiveBusinessId().
-      await setDoc(
-        doc(db, `users/${user.uid}`),
-        { activeBusinessId: businessId },
-        { merge: true },
-      );
-      // Full reload so BrandContext + every downstream context
-      // re-resolve cleanly from scratch — identical to a fresh
-      // login. This guarantees no data from the previous business
-      // lingers in memory.
-      window.location.reload();
-    } catch (e) {
-      console.error('[business-switcher] switch failed:', e);
-    }
-  }, [user.uid, ownedBusinesses, activeBusinessId]);
+    await activateBusiness(businessId);
+  }, [ownedBusinesses, activeBusinessId, activateBusiness]);
 
   const value = useMemo<BusinessSwitcherValue>(() => ({
     ownedBusinesses,
@@ -177,7 +199,8 @@ export function BusinessSwitcherProvider({ user, settings, children }: ProviderP
     canCreate,
     loading,
     switchBusiness,
-  }), [ownedBusinesses, activeBusinessId, canSwitch, canCreate, loading, switchBusiness]);
+    activateBusiness,
+  }), [ownedBusinesses, activeBusinessId, canSwitch, canCreate, loading, switchBusiness, activateBusiness]);
 
   return (
     <BusinessSwitcherContext.Provider value={value}>
