@@ -15,8 +15,8 @@ import {
   hasMultipleBusinesses,
   resolveActiveBusinessId,
   type UserBusinessDoc,
-} from '../src/lib/ownedBusinesses';
-import type { Settings } from '../src/types';
+} from '@/lib/ownedBusinesses';
+import type { Settings } from '@/types';
 
 let passed = 0;
 let failed = 0;
