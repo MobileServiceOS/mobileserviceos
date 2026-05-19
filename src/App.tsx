@@ -4,6 +4,7 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { _auth, _db, scopedCol, fbDelete, fbListen, fbSet, fbSetFast, initError } from '@/lib/firebase';
 import { BrandProvider, useBrand } from '@/context/BrandContext';
 import { MembershipProvider } from '@/context/MembershipContext';
+import { BusinessSwitcherProvider } from '@/context/BusinessSwitcherContext';
 import { AuthScreen } from '@/pages/AuthScreen';
 import { InviteAccept } from '@/pages/InviteAccept';
 import { PrivacyTerms } from '@/pages/PrivacyTerms';
@@ -912,8 +913,9 @@ function AuthenticatedApp({ user }: { user: User }) {
 
   return (
     <MembershipProvider settings={settings}>
-      <Header syncStatus={syncStatus} onSignOut={onSignOut} />
-      <EmailVerificationBanner />
+      <BusinessSwitcherProvider user={user} settings={settings}>
+        <Header syncStatus={syncStatus} onSignOut={onSignOut} />
+        <EmailVerificationBanner />
       <TrialCountdownBanner
         settings={settings}
         onSubscribe={() => {
@@ -971,6 +973,7 @@ function AuthenticatedApp({ user }: { user: User }) {
       )}
       <InstallBanner />
       <ToastHost />
+      </BusinessSwitcherProvider>
     </MembershipProvider>
   );
 }
