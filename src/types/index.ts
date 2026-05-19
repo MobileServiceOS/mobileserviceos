@@ -457,6 +457,18 @@ export interface Job {
 
 export interface Settings {
   businessName: string;
+  /**
+   * Which business vertical this is — 'tire' | 'mechanic' | 'carwash'.
+   * Drives the service catalog, job fields, inventory shape, pricing
+   * model, and copy via src/lib/verticals.ts.
+   *
+   * OPTIONAL and ADDITIVE: every business that existed before the
+   * multi-vertical work has no value here. An absent value is
+   * resolved as 'tire' by resolveVerticalKey() in verticalContext.ts,
+   * so all existing businesses are correctly treated as tire shops
+   * with zero migration.
+   */
+  businessType?: 'tire' | 'mechanic' | 'carwash';
   owner1Name: string;
   owner2Name: string;
   owner1Active: boolean;
