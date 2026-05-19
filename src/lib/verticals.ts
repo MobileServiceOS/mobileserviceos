@@ -284,8 +284,111 @@ export const TIRE_VERTICAL: VerticalConfig = {
  * through getVerticalConfig() rather than reading this map directly,
  * so an unknown/missing key safely falls back to tire.
  */
+// ═══════════════════════════════════════════════════════════════════
+//  MOBILE MECHANIC VERTICAL CONFIG  (STAGE 3a)
+//  ──────────────────────────────────────────
+//  Dormant until Stage 3b wires verticals into the UI. Adding this
+//  object and registering it below changes NO behavior — the tire
+//  app does not read it.
+//
+//  Pricing model: labor_parts. A mechanic job's price is built from
+//  billed labor hours x labor rate, plus parts cost x (1 + markup),
+//  plus an optional diagnostic fee, floored at a minimum charge.
+//  The per-service defaultBasePrice below is a typical all-in
+//  starting quote shown before the labor/parts breakdown is filled
+//  in — an operator edits these during onboarding, exactly like the
+//  tire vertical's seed prices. They are starting points, not fixed.
+//
+//  Scope per the agreed spec: 20 core mobile-friendly services, 7
+//  add-ons. Deliberately excludes engine/transmission rebuilds and
+//  deep teardown work — not mobile-suitable.
+// ═══════════════════════════════════════════════════════════════════
+
+export const MECHANIC_VERTICAL: VerticalConfig = {
+  key: 'mechanic',
+  displayName: 'Mobile Mechanic',
+  shortName: 'Mechanic',
+  // Labor + parts pricing. Seeded starting values — an operator
+  // adjusts these during onboarding to their own rates.
+  pricingModel: {
+    kind: 'labor_parts',
+    defaultLaborRate: 110,        // $/hour — typical mobile mechanic rate
+    defaultPartsMarkupPct: 25,    // +25% on parts cost
+    defaultDiagnosticFee: 90,     // flat diagnostic/callout fee
+    defaultMinServiceCharge: 95,  // price floor for any job
+  },
+  // 20 core services. defaultBasePrice = typical all-in starting
+  // quote; defaultMinProfit = seed minimum profit target.
+  services: [
+    { id: 'Diagnostics',                label: 'Diagnostics',                  defaultBasePrice: 90,  defaultMinProfit: 70,  enabledByDefault: true },
+    { id: 'Check Engine Light Diagnosis', label: 'Check Engine Light Diagnosis', defaultBasePrice: 100, defaultMinProfit: 80,  enabledByDefault: true },
+    { id: 'Oil Change',                 label: 'Oil Change',                   defaultBasePrice: 90,  defaultMinProfit: 45,  enabledByDefault: true },
+    { id: 'Battery Replacement',        label: 'Battery Replacement',          defaultBasePrice: 120, defaultMinProfit: 60,  enabledByDefault: true },
+    { id: 'Brake Pads & Rotors',        label: 'Brake Pads & Rotors',          defaultBasePrice: 280, defaultMinProfit: 130, enabledByDefault: true },
+    { id: 'Alternator Replacement',     label: 'Alternator Replacement',       defaultBasePrice: 320, defaultMinProfit: 140, enabledByDefault: true },
+    { id: 'Starter Replacement',        label: 'Starter Replacement',          defaultBasePrice: 300, defaultMinProfit: 135, enabledByDefault: true },
+    { id: 'Spark Plug Replacement',     label: 'Spark Plug Replacement',       defaultBasePrice: 160, defaultMinProfit: 85,  enabledByDefault: true },
+    { id: 'Belt Replacement',           label: 'Belt Replacement',             defaultBasePrice: 150, defaultMinProfit: 80,  enabledByDefault: true },
+    { id: 'Serpentine Belt',            label: 'Serpentine Belt',              defaultBasePrice: 150, defaultMinProfit: 80,  enabledByDefault: true },
+    { id: 'Hose Replacement',           label: 'Hose Replacement',             defaultBasePrice: 130, defaultMinProfit: 70,  enabledByDefault: true },
+    { id: 'Radiator Replacement',       label: 'Radiator Replacement',         defaultBasePrice: 360, defaultMinProfit: 150, enabledByDefault: true },
+    { id: 'Thermostat Replacement',     label: 'Thermostat Replacement',       defaultBasePrice: 180, defaultMinProfit: 90,  enabledByDefault: true },
+    { id: 'Suspension Work',            label: 'Suspension Work',              defaultBasePrice: 350, defaultMinProfit: 150, enabledByDefault: true },
+    { id: 'Pre-Purchase Inspection',    label: 'Pre-Purchase Inspection',      defaultBasePrice: 130, defaultMinProfit: 100, enabledByDefault: true },
+    { id: 'Mobile Tune-Up',             label: 'Mobile Tune-Up',               defaultBasePrice: 200, defaultMinProfit: 110, enabledByDefault: true },
+    { id: 'Fluid Services',             label: 'Fluid Services',               defaultBasePrice: 110, defaultMinProfit: 55,  enabledByDefault: true },
+    { id: 'Fuel Pump Replacement',      label: 'Fuel Pump Replacement',        defaultBasePrice: 400, defaultMinProfit: 170, enabledByDefault: true },
+    { id: 'Ignition Coil Replacement',  label: 'Ignition Coil Replacement',    defaultBasePrice: 190, defaultMinProfit: 95,  enabledByDefault: true },
+    { id: 'General Repair',             label: 'General Repair',               defaultBasePrice: 120, defaultMinProfit: 60,  enabledByDefault: true },
+    // 7 add-ons — surcharges layered on top of a base service.
+    // Listed in the same catalog; an operator enables/prices them
+    // like any other service. defaultMinProfit ≈ basePrice since
+    // add-ons are essentially pure margin.
+    { id: 'Emergency Service',          label: 'Emergency Service',            defaultBasePrice: 75,  defaultMinProfit: 70,  enabledByDefault: true },
+    { id: 'Same-Day Service',           label: 'Same-Day Service',             defaultBasePrice: 50,  defaultMinProfit: 48,  enabledByDefault: true },
+    { id: 'After Hours',                label: 'After Hours',                  defaultBasePrice: 65,  defaultMinProfit: 62,  enabledByDefault: true },
+    { id: 'Highway Call',               label: 'Highway Call',                 defaultBasePrice: 80,  defaultMinProfit: 75,  enabledByDefault: true },
+    { id: 'Parts Pickup',               label: 'Parts Pickup',                 defaultBasePrice: 45,  defaultMinProfit: 40,  enabledByDefault: true },
+    { id: 'Travel Fee',                 label: 'Travel Fee',                   defaultBasePrice: 40,  defaultMinProfit: 38,  enabledByDefault: true },
+    { id: 'Fleet Service',              label: 'Fleet Service',                defaultBasePrice: 250, defaultMinProfit: 180, enabledByDefault: false },
+  ],
+  // Mechanic-specific job fields layered on the shared base Job.
+  jobFields: [
+    { key: 'laborHours',      label: 'Labor Hours',       type: 'number',  required: false },
+    { key: 'partsCost',       label: 'Parts Cost',        type: 'number',  required: false },
+    { key: 'diagnosticCode',  label: 'Diagnostic Code',   type: 'text',    required: false },
+    { key: 'vehicleMakeModel', label: 'Vehicle Make / Model', type: 'text', required: false },
+    { key: 'mileage',         label: 'Vehicle Mileage',   type: 'number',  required: false },
+  ],
+  inventoryFields: [
+    { key: 'partNumber',  label: 'Part Number',  type: 'text' },
+    { key: 'partName',    label: 'Part Name',    type: 'text' },
+    { key: 'supplier',    label: 'Supplier',     type: 'text' },
+    { key: 'unitCost',    label: 'Unit Cost',    type: 'number' },
+    { key: 'quantity',    label: 'Quantity',     type: 'number' },
+  ],
+  copy: {
+    jobNounSingular: 'repair job',
+    jobNounPlural: 'repair jobs',
+    emptyJobsHint: 'No jobs logged yet — quote a repair to get started.',
+    inventoryLabel: 'Parts Inventory',
+  },
+  defaultExpenseCategories: ['Parts', 'Labor', 'Tools & Equipment', 'Vehicle', 'Insurance', 'Misc'],
+};
+
+// ─────────────────────────────────────────────────────────────
+//  Vertical registry
+//  ──────────────────
+//  Stage 3a registers tire + mechanic. Car wash / detailing
+//  (Stage 4) will be appended here. Code that consumes verticals
+//  should always go through getVerticalConfig() rather than
+//  reading this map directly, so an unknown/missing key safely
+//  falls back to tire.
+// ─────────────────────────────────────────────────────────────
+
 export const VERTICAL_REGISTRY: Partial<Record<VerticalKey, VerticalConfig>> = {
   tire: TIRE_VERTICAL,
+  mechanic: MECHANIC_VERTICAL,
 };
 
 /**
