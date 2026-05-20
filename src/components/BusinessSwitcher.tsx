@@ -55,9 +55,10 @@ export function BusinessSwitcher({ activeLabel }: Props) {
     };
   }, [open]);
 
-  // Render nothing when the user has only one business — there is
-  // nothing to switch between, and Add Business is disabled.
-  if (!canSwitch) return null;
+  // Render nothing only when the user can neither switch (single
+  // business) NOR create another. A single-business Pro user still
+  // sees the control — it is how they create their second business.
+  if (!canSwitch && !canCreate) return null;
 
   return (
     <div ref={rootRef} style={{ position: 'relative', flexShrink: 0 }}>
@@ -139,15 +140,8 @@ export function BusinessSwitcher({ activeLabel }: Props) {
           })}
           {/* + Add Business — shown when the user's plan allows
               another business (Pro = unlimited). Opens the create
-              modal with a tire/mechanic vertical picker.
-
-              TEMPORARILY DISABLED: the create flow hits a Firestore
-              transport-layer 400 we have not been able to diagnose
-              remotely. The full create pipeline (createBusiness,
-              AddBusinessModal, vertical seeding) stays in the repo
-              dormant; flipping ENABLE_ADD_BUSINESS to true re-enables
-              the row once the underlying issue is resolved. */}
-          {false && canCreate && (
+              modal with a tire/mechanic vertical picker. */}
+          {canCreate && (
             <button
               type="button"
               onClick={() => { setOpen(false); setShowAddModal(true); }}
