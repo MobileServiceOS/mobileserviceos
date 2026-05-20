@@ -28,7 +28,7 @@ interface Props {
 }
 
 export function AddBusinessModal({ uid, email, onClose }: Props) {
-  const { activateBusiness } = useBusinessSwitcher();
+  const { activateBusiness, ownedBusinesses } = useBusinessSwitcher();
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   // Selectable vertical. Tire and Mechanic are live; car wash /
@@ -43,28 +43,50 @@ export function AddBusinessModal({ uid, email, onClose }: Props) {
     }
     setBusy(true);
     console.info('[add-business] step 1: starting createBusiness', { businessType });
+    // reloadStarted is set ONLY when activateBusiness has begun its
+    // reload sequence. If we reach the finally without it being set,
+    // the page won't actually reload — so we MUST reset busy so the
+    // button is reachable again instead of stuck on Creating…
+    let reloadStarted = false;
     try {
       const { businessId } = await createBusiness({
         uid, email, businessName: trimmed, businessType,
+        // The BusinessSwitcher context loaded users/{uid} on mount.
+        // If ownedBusinesses is non-empty, the user doc exists.
+        // (getOwnedBusinesses returns [uid] when the doc is absent,
+        //  so length > 0 is true either way — but the realistic case
+        //  for Add Business is always 'exists'.)
+        hasExistingUserDoc: ownedBusinesses.length > 0,
       });
       console.info('[add-business] step 2: createBusiness returned', { businessId });
       addToast('Business created', 'success');
-      // activateBusiness (not switchBusiness): the new business was
-      // just created and is not yet in the in-memory owned list, so
-      // the owned-list guard in switchBusiness would wrongly reject
-      // it. activateBusiness persists the choice and reloads.
       console.info('[add-business] step 3: calling activateBusiness');
+      reloadStarted = true;
       await activateBusiness(businessId);
-      console.info('[add-business] step 4: activateBusiness returned (should reload now)');
-      // On success the line above reloads the page, so execution
-      // never continues past here. If the reload somehow does not
-      // happen, reset busy so the button is not stuck.
-      setBusy(false);
+      console.info('[add-business] step 4: activateBusiness returned (reload should be in flight)');
+      // If we get here, activateBusiness completed but reload has not
+      // yet replaced the page. The finally below resets busy as a
+      // safety net so the button isn't stuck.
     } catch (e) {
       console.error('[add-business] FAILED', e);
       const msg = e instanceof Error ? e.message : 'Could not create the business.';
       addToast(msg, 'error');
-      setBusy(false);
+      // On any failure, we never got to reload — guarantee cleanup.
+      reloadStarted = false;
+    } finally {
+      // Guaranteed cleanup. If a reload is genuinely in flight the
+      // page will replace this component momentarily; resetting
+      // busy is harmless in that case. If no reload started (error
+      // path, or activateBusiness failed silently), this releases
+      // the Creating… spinner so the user can retry.
+      if (!reloadStarted) {
+        setBusy(false);
+      } else {
+        // Belt-and-suspenders: if the reload is somehow blocked
+        // (browser policy, etc.), clear the spinner after a moment
+        // so the user is never stranded.
+        setTimeout(() => setBusy(false), 2500);
+      }
     }
   }
 
