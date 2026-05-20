@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Job, Settings, InventoryItem, TireSource } from '@/types';
 import {
   DEFAULT_SERVICE_PRICING, DEFAULT_VEHICLE_PRICING,
-  LEAD_SOURCES, PAYMENT_METHODS, PAYMENT_STATUSES, TIRE_MATERIAL_SERVICES, TIRE_SOURCES,
+  LEAD_SOURCES, PAYMENT_METHODS, PAYMENT_STATUSES, JOB_STATUSES, TIRE_MATERIAL_SERVICES, TIRE_SOURCES,
 } from '@/lib/defaults';
 import { computeBreakdown } from '@/lib/pricing';
 import { calcQuote, money, normalizeTireSize, planInventoryDeduction, serviceIcon } from '@/lib/utils';
@@ -10,6 +10,8 @@ import { addToast } from '@/lib/toast';
 import { uploadReceipt } from '@/lib/firebase';
 import { useBrand } from '@/context/BrandContext';
 import { usePermissions } from '@/context/MembershipContext';
+import { formatPhone, formatPhonePartial } from '@/lib/formatPhone';
+import { searchCities } from '@/lib/locations';
 
 interface Props {
   job: Job;
@@ -110,6 +112,24 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
   const receiptInputRef = useRef<HTMLInputElement | null>(null);
   const [receiptUploading, setReceiptUploading] = useState(false);
 
+  // City autocomplete state. Uses searchCities() against the brand's
+  // home state so a tech in the field gets typeahead suggestions
+  // instead of typing the same city name dozens of times a day.
+  const [cityOpen, setCityOpen] = useState(false);
+  const cityWrapRef = useRef<HTMLDivElement | null>(null);
+  const citySuggestions = useMemo(
+    () => searchCities(brand.state || '', job.city || '', 6),
+    [brand.state, job.city],
+  );
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => {
+      if (!cityWrapRef.current) return;
+      if (!cityWrapRef.current.contains(e.target as Node)) setCityOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
+
   /**
    * Live quote suggestion — same engine as the Dashboard's Quick Quote.
    * Recomputes as the user types miles / tire cost / surcharges so the
@@ -148,6 +168,18 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revenueLocked, liveQuote.suggested]);
+
+  /**
+   * Revenue divergence: when revenue is unlocked AND the actor has
+   * manually entered a number different from the live suggested, we
+   * show a subtle "↻ Suggested: $X" hint under the field so they can
+   * see at a glance that surcharges/inputs they changed since have
+   * moved the suggestion. Threshold is $0.50 so rounding does not
+   * trigger a false-positive hint.
+   */
+  const revenueDiverges = !revenueLocked
+    && job.revenue !== '' && job.revenue != null
+    && Math.abs(Number(job.revenue) - Number(liveQuote.suggested)) > 0.5;
 
   const handleReceipt = async (file: File) => {
     if (!businessId) { addToast('Sign in required', 'warn'); return; }
@@ -202,7 +234,7 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
               type="button"
               className="btn sm primary"
               onClick={() => set('revenue', String(liveQuote.suggested))}
-              style={{ flexShrink: 0 }}
+              style={{ flexShrink: 0, minHeight: 44, padding: '0 14px' }}
             >
               Use suggested
             </button>
@@ -275,6 +307,23 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
               technician price overrides if a manual adjustment is needed.
             </div>
           )}
+          {revenueDiverges && (
+            <button
+              type="button"
+              onClick={() => set('revenue', String(liveQuote.suggested))}
+              style={{
+                marginTop: 6, display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '4px 8px', borderRadius: 6,
+                background: 'transparent', border: '1px solid var(--border)',
+                color: 'var(--t2)', fontSize: 11, fontWeight: 600,
+                cursor: 'pointer',
+              }}
+              aria-label={`Reset revenue to suggested price ${money(liveQuote.suggested)}`}
+            >
+              <span aria-hidden="true">↻</span>
+              Suggested: {money(liveQuote.suggested)} · tap to apply
+            </button>
+          )}
         </div>
 
         <div className="pricing-breakdown">
@@ -326,15 +375,23 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
           </div>
           <div className="field">
             <label>Phone</label>
-            <input type="tel" value={job.customerPhone} onChange={(e) => set('customerPhone', e.target.value)} placeholder="(555) 123-4567" />
+            <input
+              type="tel"
+              inputMode="tel"
+              autoComplete="tel"
+              value={job.customerPhone}
+              onChange={(e) => set('customerPhone', formatPhonePartial(e.target.value))}
+              onBlur={(e) => set('customerPhone', formatPhone(e.target.value))}
+              placeholder="(555) 123-4567"
+            />
           </div>
         </div>
         {/* City — state is implicit (brand.state, set during onboarding).
             Technicians don't need a state picker; they're always serving
-            customers in the business's home state. The job still saves
-            both `city` and `state` so existing reporting/SEO/invoice
-            templates that consume `state` keep working. */}
-        <div className="field">
+            customers in the business's home state. Suggestions come from
+            searchCities() so common cities can be tapped instead of
+            typed every single job. */}
+        <div className="field" ref={cityWrapRef} style={{ position: 'relative' }}>
           <label>City</label>
           <input
             value={job.city || ''}
@@ -348,10 +405,52 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
                 area: c || job.area,
                 fullLocationLabel: c && s ? `${c}, ${s}` : c,
               });
+              setCityOpen(true);
             }}
+            onFocus={() => setCityOpen(true)}
             placeholder="Start typing your city"
-            autoComplete="off"
+            autoComplete="address-level2"
           />
+          {cityOpen && citySuggestions.length > 0 && (
+            <div
+              role="listbox"
+              style={{
+                position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50,
+                marginTop: 4, background: 'var(--s2)',
+                border: '1px solid var(--border)', borderRadius: 9,
+                boxShadow: '0 6px 24px rgba(0,0,0,0.35)',
+                overflow: 'hidden',
+              }}
+            >
+              {citySuggestions.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  role="option"
+                  aria-selected={(job.city || '').toLowerCase() === c.toLowerCase()}
+                  onClick={() => {
+                    const s = brand.state || job.state || '';
+                    setJob({
+                      ...job,
+                      city: c,
+                      state: s,
+                      area: c,
+                      fullLocationLabel: s ? `${c}, ${s}` : c,
+                    });
+                    setCityOpen(false);
+                  }}
+                  style={{
+                    display: 'block', width: '100%', textAlign: 'left',
+                    padding: '11px 12px', background: 'transparent', border: 'none',
+                    color: 'var(--t1)', fontSize: 14, cursor: 'pointer',
+                    minHeight: 44,
+                  }}
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -417,12 +516,30 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
                 <label>Receipt</label>
                 <input ref={receiptInputRef} type="file" accept="image/*" style={{ display: 'none' }}
                   onChange={(e) => { const f = e.target.files?.[0]; if (f) handleReceipt(f); if (receiptInputRef.current) receiptInputRef.current.value = ''; }} />
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                   <button type="button" className="btn sm secondary" onClick={() => receiptInputRef.current?.click()} disabled={receiptUploading}>
                     {receiptUploading ? 'Uploading…' : job.tireReceiptUrl ? 'Replace receipt' : 'Upload receipt'}
                   </button>
                   {job.tireReceiptUrl ? (
-                    <a href={job.tireReceiptUrl} target="_blank" rel="noopener noreferrer" className="receipt-thumb">View ↗</a>
+                    <a
+                      href={job.tireReceiptUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label="View receipt full size"
+                      style={{
+                        display: 'inline-block', width: 56, height: 56,
+                        borderRadius: 8, overflow: 'hidden',
+                        border: '1px solid var(--border)',
+                        background: 'var(--s3)',
+                      }}
+                    >
+                      <img
+                        src={job.tireReceiptUrl}
+                        alt="Receipt thumbnail"
+                        loading="lazy"
+                        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                      />
+                    </a>
                   ) : null}
                 </div>
               </div>
@@ -444,10 +561,16 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
       <div className="form-group card-anim">
         <div className="form-group-title">Job Details</div>
         <div className="field-row">
-          <div className="field">
-            <label>Quantity</label>
-            <input type="number" inputMode="numeric" value={job.qty} onChange={(e) => set('qty', e.target.value)} placeholder="1" />
-          </div>
+          {/* Quantity here ONLY for non-tire services. Tire-material
+              services have Qty in the Tire Details block above, so
+              showing it here too would duplicate the field and let
+              the two inputs drift out of sync. */}
+          {!needsTireDetails && (
+            <div className="field">
+              <label>Quantity</label>
+              <input type="number" inputMode="numeric" value={job.qty} onChange={(e) => set('qty', e.target.value)} placeholder="1" />
+            </div>
+          )}
           <div className="field">
             <label>Material $</label>
             <input type="number" inputMode="decimal" value={job.materialCost} onChange={(e) => set('materialCost', e.target.value)} placeholder="0" />
@@ -486,20 +609,34 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
             ))}
           </div>
         </div>
-        <div className="field-row">
-          <div className="field">
-            <label>Job status</label>
-            <select value={job.status} onChange={(e) => set('status', e.target.value as Job['status'])}>
-              <option value="Completed">Completed</option>
-              <option value="Pending">Pending</option>
-              <option value="Cancelled">Cancelled</option>
-            </select>
+        <div className="field">
+          <label>Job status</label>
+          <div className="chip-grid">
+            {JOB_STATUSES.map((s) => (
+              <button
+                key={s}
+                type="button"
+                className={'chip' + (job.status === s ? ' active' : '')}
+                onClick={() => set('status', s)}
+              >
+                {s}
+              </button>
+            ))}
           </div>
-          <div className="field">
-            <label>Payment status</label>
-            <select value={job.paymentStatus} onChange={(e) => set('paymentStatus', e.target.value as Job['paymentStatus'])}>
-              {PAYMENT_STATUSES.map((p) => <option key={p} value={p}>{p}</option>)}
-            </select>
+        </div>
+        <div className="field">
+          <label>Payment status</label>
+          <div className="chip-grid">
+            {PAYMENT_STATUSES.map((p) => (
+              <button
+                key={p}
+                type="button"
+                className={'chip' + (job.paymentStatus === p ? ' active' : '')}
+                onClick={() => set('paymentStatus', p)}
+              >
+                {p}
+              </button>
+            ))}
           </div>
         </div>
       </div>
