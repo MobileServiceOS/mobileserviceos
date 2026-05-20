@@ -14,7 +14,7 @@
 //  that won't reach the server. Each step now reports independently.
 // ═══════════════════════════════════════════════════════════════════
 
-import { doc, collection, setDoc, updateDoc, arrayUnion, enableNetwork, waitForPendingWrites } from 'firebase/firestore';
+import { doc, collection, setDoc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { _db } from '@/lib/firebase';
 import { DEFAULT_BRAND, DEFAULT_VEHICLE_PRICING } from '@/lib/defaults';
 import { foundingMemberStamp } from '@/lib/growthMode';
@@ -104,33 +104,33 @@ export async function createBusiness(
   // conflicting with the BrandContext realtime listener that is
   // already subscribed to the same doc.
 
-  // ── STEP 0: force-enable the Firestore network connection.
-  //
-  // ROOT CAUSE OF THE HANG (after multiple isolation passes):
-  // The app uses persistentLocalCache. Under that cache, setDoc()
-  // normally resolves on local cache write — fast. BUT when rules
-  // require any server-side resolution (exists / get / getAfter),
-  // the SDK must reach the server to evaluate the rule before
-  // accepting the write. If the SDK is in a "half-online" state
-  // (the browser reports online but the gRPC stream to Firestore is
-  // stale — extremely common on iOS Safari after backgrounding,
-  // PWA tab restore, or service-worker shutdown), the write queues
-  // and never completes — neither resolving nor rejecting.
-  //
-  // enableNetwork() forces the SDK to (re)establish its network
-  // connection. waitForPendingWrites() then blocks until any
-  // already-queued writes finish, ensuring we start the create
-  // flow with a clean, server-acknowledged state.
-  try {
-    await runStep('NETWORK_ENABLE', enableNetwork(db));
-    await runStep('PENDING_WRITES_FLUSH', waitForPendingWrites(db));
-  } catch (e) {
-    console.warn('[createBusiness] network-prime failed (continuing):', e);
-  }
-
   // ── STEP 1: settings/main with ownerUid stamp.
   //    1b rule requires ownerUid == auth.uid. This is the doc the
   //    members-write rule reads via getAfter() in step 2.
+  // Sanitize map keys for Firestore. Field names containing '/' or
+  // '.' are invalid in Firestore document data (the SDK treats them
+  // as path separators) and cause a 400 Bad Request at the wire
+  // layer — not a permission denial, not a transient error, just a
+  // malformed write that times out instead of failing cleanly under
+  // offline persistence.
+  //
+  // DEFAULT_VEHICLE_PRICING ships with the key 'SUV / Truck' (slash
+  // + spaces) which has worked in the live tire app only because
+  // nothing ever WRITES vehiclePricing to Firestore there — the
+  // constant is used as a fallback at read time. createBusiness is
+  // the first code path to actually write it, so it must sanitize.
+  const sanitizeMapKeys = <V,>(m: Record<string, V>): Record<string, V> => {
+    const out: Record<string, V> = {};
+    for (const [k, v] of Object.entries(m)) {
+      // Replace forward slashes (and any other invalid path chars)
+      // with a dash. Preserve everything else verbatim so the UI
+      // labels remain readable.
+      const safeKey = k.replace(/\//g, '-');
+      out[safeKey] = v;
+    }
+    return out;
+  };
+
   await runStep(
     'BUSINESS_DOC_CREATED (settings/main)',
     setDoc(doc(db, `businesses/${newId}/settings/main`), {
@@ -140,8 +140,8 @@ export async function createBusiness(
       email,
       ownerUid: uid,
       createdAt: now,
-      servicePricing: seededServicePricing,
-      vehiclePricing: DEFAULT_VEHICLE_PRICING,
+      servicePricing: sanitizeMapKeys(seededServicePricing),
+      vehiclePricing: sanitizeMapKeys(DEFAULT_VEHICLE_PRICING),
       ...foundingMemberStamp(),
     }),
   );
