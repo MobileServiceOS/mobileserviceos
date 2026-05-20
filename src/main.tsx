@@ -25,39 +25,77 @@ if (root) {
   );
 }
 
-// Register service worker (PWA).
+// Service worker — PRODUCTION ONLY.
 //
-// Self-healing registration: a previously-deployed SW can cache a
-// broken bundle. To recover automatically WITHOUT the user having to
-// manually clear site data:
-//   1. register() then immediately call update() to fetch the newest
-//      sw.js (the new SW has a bumped VERSION → its activate handler
-//      purges every stale cache).
-//   2. Listen for `controllerchange` — fired when a new SW takes
-//      control — and reload ONCE so the page runs against the fresh
-//      caches/bundle. The `reloadedForSW` guard prevents a reload loop.
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    const swPath = (import.meta.env.BASE_URL || '/') + 'sw.js';
-    navigator.serviceWorker
-      .register(swPath)
-      .then((reg) => {
-        // Proactively check for a newer sw.js on every load.
-        reg.update().catch(() => {});
-      })
-      .catch((err) => {
-        console.warn('[sw] registration failed:', err);
-      });
+// We deliberately do NOT register the SW under `npm run dev` or any
+// localhost origin. The dev server's HMR / module pipeline doesn't
+// match the SW's network-first/cache-first assumptions, and a stale
+// dev-registered SW is the most common cause of "stuck on the offline
+// screen" recoveries on localhost.
+//
+// Self-heal: if a previous build (or an old preview session) left a
+// registered SW behind on a dev origin, unregister it and purge any
+// caches it created so the next reload escapes the offline shell.
+const isLocalhost =
+  typeof location !== 'undefined' &&
+  (location.hostname === 'localhost' ||
+    location.hostname === '127.0.0.1' ||
+    location.hostname === '[::1]' ||
+    location.hostname === '::1');
 
-    let reloadedForSW = false;
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (reloadedForSW) return;
-      reloadedForSW = true;
-      // A new SW just took control — reload so the page is served by
-      // the fresh worker with purged caches and the current bundle.
-      window.location.reload();
+if ('serviceWorker' in navigator) {
+  if (import.meta.env.PROD && !isLocalhost) {
+    // Production registration. Self-healing for poisoned caches:
+    //   1. register() then immediately update() to fetch the newest
+    //      sw.js (bumped VERSION → its activate handler purges stale
+    //      caches).
+    //   2. Reload ONCE on `controllerchange` so the page runs against
+    //      the fresh worker + bundle. `reloadedForSW` blocks a loop.
+    window.addEventListener('load', () => {
+      const swPath = (import.meta.env.BASE_URL || '/') + 'sw.js';
+      navigator.serviceWorker
+        .register(swPath)
+        .then((reg) => {
+          reg.update().catch(() => {});
+        })
+        .catch((err) => {
+          console.warn('[sw] registration failed:', err);
+        });
+
+      let reloadedForSW = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (reloadedForSW) return;
+        reloadedForSW = true;
+        window.location.reload();
+      });
     });
-  });
+  } else {
+    // Dev / localhost: tear down any leftover SW + caches so the
+    // user is never trapped behind a stale worker. Best-effort; every
+    // step swallows its own error so a Safari-style restricted SW API
+    // never breaks the page load.
+    navigator.serviceWorker
+      .getRegistrations()
+      .then((regs) => {
+        for (const r of regs) {
+          r.unregister().catch(() => {});
+        }
+        if (regs.length > 0) {
+          console.info('[sw] unregistered', regs.length, 'leftover worker(s) on dev/localhost');
+        }
+      })
+      .catch(() => {});
+    if (typeof caches !== 'undefined') {
+      caches
+        .keys()
+        .then((keys) => {
+          for (const k of keys) {
+            caches.delete(k).catch(() => {});
+          }
+        })
+        .catch(() => {});
+    }
+  }
 }
 
 // Tell the boot HTML we're alive

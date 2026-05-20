@@ -36,29 +36,40 @@ export function EmailVerificationBanner() {
     }
   });
 
-  // Re-render every 30s so the banner picks up verification status
-  // without requiring the user to manually refresh. Cheap because the
-  // banner does nothing when verified.
-  useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), 30000);
-    return () => clearInterval(id);
-  }, []);
-
-  // Eagerly reload the user object whenever this component mounts —
-  // catches the common flow where the user clicks the email link in
-  // another tab, comes back to the app, and expects the banner gone.
+  // Reload the auth user — once eagerly on mount, then on a 30s
+  // interval — so the banner picks up verification done in another tab
+  // without a manual refresh.
+  //
+  // CRITICAL: this effect MUST NOT depend on `tick`. An earlier version
+  // had `[tick]` as its dependency AND called `setTick` after each
+  // reload, which created a runaway loop:
+  //   reload → setTick → effect re-fires → reload → setTick → …
+  // Each `currentUser.reload()` rotates the Firebase auth token, which
+  // triggers Firestore's __PRIVATE_remoteStoreHandleCredentialChange.
+  // That tears down the Listen/Write WebChannel mid-handshake; the next
+  // POST 400s; pending writes (e.g. createBusiness's updateDoc on
+  // users/{uid}) block indefinitely on backend confirmation under
+  // persistentLocalCache + persistentMultipleTabManager and the Add
+  // Business spinner sits on "Creating…" until the per-step timeout
+  // wrapper trips at 8s.
+  //
+  // Running both behaviors in a single mount-only effect with explicit
+  // intervals (no `tick` dep, no re-fire) gives the same UX without
+  // any auth churn.
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    const refresh = async () => {
       try {
-        if (_auth?.currentUser) {
+        if (_auth?.currentUser && !cancelled) {
           await _auth.currentUser.reload();
           if (!cancelled) setTick((t) => t + 1);
         }
       } catch { /* */ }
-    })();
-    return () => { cancelled = true; };
-  }, [tick]);
+    };
+    refresh();
+    const id = setInterval(refresh, 30000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
 
   const u = _auth?.currentUser;
   if (!u) return null;

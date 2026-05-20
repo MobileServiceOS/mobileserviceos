@@ -21,8 +21,11 @@
 // changes, stale caches live forever.
 // ════════════════════════════════════════════════════════════════════
 
-// Bumped to v3 — evicts caches from the broken react-router-dom build.
-const VERSION = 'msos-v3';
+// Bumped to v4 — every respondWith path now guarantees a real Response
+// (no more undefined-from-caches.match leaks → no more "Failed to
+// convert value to 'Response'" TypeError on missing assets like
+// /favicon.ico). Bump evicts any v3 cache from prior production builds.
+const VERSION = 'msos-v4';
 const SHELL_CACHE = VERSION + '-shell';
 const RUNTIME_CACHE = VERSION + '-runtime';
 
@@ -86,6 +89,22 @@ function isHashedAsset(url) {
   );
 }
 
+// `event.respondWith()` requires a Response (or a Promise resolving to
+// one). `caches.match()` resolves to undefined on a miss, and any
+// `.catch(() => caches.match(req))` therefore risks resolving the
+// outer promise to undefined → "Failed to convert value to 'Response'"
+// TypeError + the FetchEvent surfacing as a network error. This helper
+// guarantees a real Response for every fallback path.
+function offlineResponse() {
+  return new Response('', { status: 504, statusText: 'Service Worker Offline' });
+}
+
+// `caches.match()` coerced to always resolve to a Response. Use this
+// anywhere we'd previously written `.catch(() => caches.match(req))`.
+function safeCacheMatch(req) {
+  return caches.match(req).then((r) => r || offlineResponse());
+}
+
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
@@ -108,7 +127,7 @@ self.addEventListener('fetch', (event) => {
     url.hostname.includes('gstatic.com');
 
   if (isFirebase) {
-    event.respondWith(fetch(req).catch(() => caches.match(req)));
+    event.respondWith(fetch(req).catch(() => safeCacheMatch(req)));
     return;
   }
 
@@ -128,7 +147,10 @@ self.addEventListener('fetch', (event) => {
               if (res && res.status === 200) cache.put(req, res.clone());
               return res;
             })
-            .catch(() => cached);
+            // If the network throws and there's no cached copy, fall
+            // through to a synthetic offline Response so respondWith
+            // never sees an undefined value.
+            .catch(() => cached || offlineResponse());
           return cached || fetchPromise;
         })
       )
@@ -177,7 +199,7 @@ self.addEventListener('fetch', (event) => {
           }
           return res;
         })
-        .catch(() => caches.match(req))
+        .catch(() => safeCacheMatch(req))
     );
     return;
   }
@@ -207,7 +229,7 @@ self.addEventListener('fetch', (event) => {
             }
             return res;
           })
-          .catch(() => caches.match(req));
+          .catch(() => safeCacheMatch(req));
       })
     );
   }

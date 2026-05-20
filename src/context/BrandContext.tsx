@@ -237,11 +237,75 @@ export function BrandProvider({ children, user }: { children: ReactNode; user: U
               const m = document.querySelector('meta[name="apple-mobile-web-app-title"]');
               if (m) m.setAttribute('content', merged.businessName || 'Mobile Service OS');
             }
+            // Successful read — clear the ghost-recovery guard so a
+            // SUBSEQUENT ghost (e.g. user switches via the switcher
+            // into another partially-created business) can self-heal
+            // again within the same session.
+            try { sessionStorage.removeItem('msos_brand_recovery_attempted'); } catch { /* */ }
             window.clearTimeout(timeoutId);
             setLoading(false);
           },
           (e) => {
-            console.error('[brand] settings listener error:', e);
+            const err = e as { code?: string; message?: string };
+            console.error('[brand] settings listener error:', {
+              code: err.code,
+              message: err.message,
+              bId,
+            });
+
+            // ─── Auto-recovery: ghost active business ────────────────
+            // A user's `activeBusinessId` can end up pointing at a
+            // business whose creation never finished — typically an
+            // old createBusiness attempt that wrote step 1 (the
+            // users/{uid} arrayUnion + the activateBusiness pointer)
+            // but failed/queued for steps 2-4. The server then sees a
+            // businessId with no settings/main and no members/{uid},
+            // so every read fails the isMemberOfBusiness rule check.
+            // The app would be permanently locked out.
+            //
+            // Recovery: when the settings listener returns
+            // permission-denied AND the resolved business isn't the
+            // user's primary (uid == businessId), rewrite
+            // activeBusinessId back to uid and reload. BrandContext
+            // re-resolves to the primary on the next mount.
+            //
+            // Guard with sessionStorage so a recovery that itself
+            // fails can't trigger a reload loop. The success branch
+            // above clears the guard, so legitimate switches in the
+            // same session aren't blocked.
+            const RECOVERY_KEY = 'msos_brand_recovery_attempted';
+            let alreadyTried = false;
+            try {
+              alreadyTried = sessionStorage.getItem(RECOVERY_KEY) === '1';
+            } catch { /* sessionStorage unavailable */ }
+
+            if (
+              err.code === 'permission-denied' &&
+              bId !== user.uid &&
+              !alreadyTried
+            ) {
+              try { sessionStorage.setItem(RECOVERY_KEY, '1'); } catch { /* */ }
+              console.warn(
+                '[brand] active business inaccessible — recovering to primary',
+                { ghost: bId, primary: user.uid },
+              );
+              void setDoc(
+                userDocRef,
+                { activeBusinessId: user.uid },
+                { merge: true },
+              )
+                .catch((rerr) => {
+                  console.error('[brand] recovery write failed:', rerr);
+                })
+                .finally(() => {
+                  // Hard reload so BrandContext re-resolves cleanly
+                  // from scratch — identical recovery shape to
+                  // BusinessSwitcherContext.activateBusiness.
+                  window.location.reload();
+                });
+              return;
+            }
+
             window.clearTimeout(timeoutId);
             setLoading(false);
           }
