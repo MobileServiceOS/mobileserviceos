@@ -107,18 +107,21 @@ export async function createBusiness(
   // ── STEP 1: settings/main with ownerUid stamp.
   //    1b rule requires ownerUid == auth.uid. This is the doc the
   //    members-write rule reads via getAfter() in step 2.
+  // DIAGNOSTIC: minimum-payload settings/main. If the previous full
+  // payload was hanging on rule evaluation (over-large doc, an
+  // unexpected field tripping a rule, or a Founding-Member-stamp
+  // field causing trouble), this stripped version isolates that.
+  // If THIS still hangs, the issue is not the payload — it is the
+  // rule's getAfter()/existsAfter() chain, or a fundamental write
+  // failure (auth token, region, network).
   await runStep(
     'BUSINESS_DOC_CREATED (settings/main)',
     setDoc(doc(db, `businesses/${newId}/settings/main`), {
-      ...DEFAULT_BRAND,
       businessName: name,
       businessType,
       email,
       ownerUid: uid,
       createdAt: now,
-      servicePricing: seededServicePricing,
-      vehiclePricing: DEFAULT_VEHICLE_PRICING,
-      ...foundingMemberStamp(),
     }),
   );
 
@@ -162,6 +165,39 @@ export async function createBusiness(
         { merge: true },
       ),
     );
+  }
+
+  // ── STEP 5: enrich settings/main with full seed data.
+  //    Now that the member doc exists, the user has full write
+  //    access to settings/main via isOwnerOrAdmin. We can write the
+  //    rest of the seed without depending on the create-only 1b
+  //    clause. This isolates whatever was tripping the rule on the
+  //    initial create; if STEP 1 (minimum payload) works, the
+  //    timeout was caused by something in this enrichment payload.
+  try {
+    await runStep(
+      'SETTINGS_ENRICHED',
+      setDoc(
+        doc(db, `businesses/${newId}/settings/main`),
+        {
+          ...DEFAULT_BRAND,
+          businessName: name,
+          businessType,
+          email,
+          ownerUid: uid,
+          createdAt: now,
+          servicePricing: seededServicePricing,
+          vehiclePricing: DEFAULT_VEHICLE_PRICING,
+          ...foundingMemberStamp(),
+        },
+        { merge: true },
+      ),
+    );
+  } catch (e) {
+    // Non-fatal: the business exists and is usable; the user can
+    // configure settings/pricing manually from Settings if this
+    // enrichment fails for any reason. Log and continue.
+    console.warn('[createBusiness] enrichment failed (non-fatal):', e);
   }
 
   console.info('[createBusiness] ALL STEPS COMPLETE', { newId });
