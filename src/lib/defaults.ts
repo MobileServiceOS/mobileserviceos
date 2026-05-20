@@ -1,4 +1,4 @@
-import type { Brand, Settings, Job, ServicePricing, VehiclePricing, PaymentStatus } from '@/types';
+import type { Brand, Settings, Job, ServicePricing, VehiclePricing, PaymentStatus, JobStatus } from '@/types';
 
 export const APP_LOGO = 'icons/icon-rounded-192.png';
 
@@ -35,10 +35,14 @@ export const DEFAULT_SERVICE_PRICING: Record<string, ServicePricing> = {
   'Tire Installation':        { enabled: true,  basePrice: 120, minProfit: 110 },
   'Mounting & Balancing':     { enabled: true,  basePrice: 100, minProfit: 80 },
   'Spare Tire Installation':  { enabled: true,  basePrice: 95,  minProfit: 70 },
+  'Spare Change':             { enabled: true,  basePrice: 85,  minProfit: 65 },
   'Tire Rotation':            { enabled: true,  basePrice: 80,  minProfit: 60 },
   'Wheel Lock Removal':       { enabled: true,  basePrice: 85,  minProfit: 65 },
   'Roadside Tire Assistance': { enabled: true,  basePrice: 100, minProfit: 70 },
   'Mobile Tire Service':      { enabled: true,  basePrice: 150, minProfit: 110 },
+  'Jump Start':               { enabled: true,  basePrice: 75,  minProfit: 60 },
+  'Fuel Delivery':            { enabled: true,  basePrice: 85,  minProfit: 65 },
+  'Lockout':                  { enabled: true,  basePrice: 75,  minProfit: 60 },
   'Fleet Tire Service':       { enabled: false, basePrice: 200, minProfit: 160 },
   'Heavy-Duty Tire Service':  { enabled: false, basePrice: 350, minProfit: 280 },
 };
@@ -81,10 +85,14 @@ export const SERVICE_PHRASES: Record<string, string> = {
   'Tire Installation': 'tire installation',
   'Mounting & Balancing': 'mounting and balancing',
   'Spare Tire Installation': 'spare tire installation',
+  'Spare Change': 'spare change',
   'Tire Rotation': 'tire rotation',
   'Wheel Lock Removal': 'wheel lock removal',
   'Roadside Tire Assistance': 'roadside tire assistance',
   'Mobile Tire Service': 'mobile tire service',
+  'Jump Start': 'jump start',
+  'Fuel Delivery': 'fuel delivery',
+  'Lockout': 'lockout',
   'Fleet Tire Service': 'fleet tire service',
   'Heavy-Duty Tire Service': 'heavy-duty tire service',
 };
@@ -95,15 +103,20 @@ export const SERVICE_ICONS: Record<string, string> = {
   'Tire Installation': '🛞',
   'Mounting & Balancing': '⚙️',
   'Spare Tire Installation': '🛞',
+  'Spare Change': '🔁',
   'Tire Rotation': '🔄',
   'Wheel Lock Removal': '🔓',
   'Roadside Tire Assistance': '🚨',
   'Mobile Tire Service': '🚐',
+  'Jump Start': '🔋',
+  'Fuel Delivery': '⛽',
+  'Lockout': '🔑',
   'Fleet Tire Service': '🚛',
   'Heavy-Duty Tire Service': '🚜',
 };
 
 export const PAYMENT_STATUSES: PaymentStatus[] = ['Paid', 'Pending Payment', 'Partial Payment', 'Cancelled'];
+export const JOB_STATUSES: JobStatus[] = ['Completed', 'Pending', 'Cancelled'];
 
 export const TIRE_MATERIAL_SERVICES = [
   'Tire Replacement',
