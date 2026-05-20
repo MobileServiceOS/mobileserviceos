@@ -81,6 +81,35 @@ export function BrandProvider({ children, user }: { children: ReactNode; user: U
           } catch (e) {
             console.warn('[brand] members backfill failed (non-fatal):', e);
           }
+        } else if (snap.exists() && Array.isArray(snap.data().ownedBusinesses) && snap.data().ownedBusinesses.length > 0) {
+          // ─── DEFENSIVE GUARD — never re-onboard an existing user ──
+          //
+          //  The user doc exists and HAS owned businesses, but lost
+          //  its `businessId` field somehow (e.g. a partial
+          //  multi-business write that touched the doc without
+          //  setting businessId). Without this guard, the next
+          //  branch would treat the account as a fresh founder and
+          //  re-run Onboarding, which would overwrite settings/main
+          //  with DEFAULT_BRAND placeholders — destroying real
+          //  business data.
+          //
+          //  Instead: pick the first owned business as active, repair
+          //  the user doc by writing businessId, and skip onboarding
+          //  entirely. This is the safe recovery path.
+          //
+          //  Background: this guard was added after a real incident
+          //  where the Wheel Rush founder's settings/main was
+          //  overwritten because BrandContext re-ran the bootstrap
+          //  branch after a failed createBusiness attempt.
+          const owned = snap.data().ownedBusinesses as string[];
+          const recovered = owned.find((id) => id === user.uid) || owned[0];
+          console.warn(
+            '[brand] user doc has ownedBusinesses but no businessId — recovering as',
+            recovered,
+            '(skipping re-onboarding)',
+          );
+          await setDoc(userDocRef, { businessId: recovered }, { merge: true });
+          bId = recovered;
         } else {
           // ─── Pending invite check ─────────────────────────────────
           // BEFORE creating a brand new business, look for a pending
@@ -108,37 +137,89 @@ export function BrandProvider({ children, user }: { children: ReactNode; user: U
             bId = acceptedBid;
             console.info('[brand] joined existing business via invite', bId);
           } else {
-            // First signup, no invite: create the full required
-            // structure in dependency order.
-            bId = user.uid;
-            console.info('[brand] bootstrapping new business for', user.uid);
+            // ─── SAFETY CHECK before bootstrap ───────────────────────
+            //
+            //  Even when the user doc says "fresh signup," double-
+            //  check that there isn't already a business document at
+            //  businesses/{user.uid}. If there is — that means this
+            //  user previously signed up, has real data there, and
+            //  the user doc somehow got wiped or rolled back. We
+            //  MUST NOT overwrite that business's settings/main with
+            //  DEFAULT_BRAND. Repair the user doc and reuse the
+            //  existing business instead.
+            //
+            //  This is a belt-and-suspenders guard on top of the
+            //  ownedBusinesses check above. Without it, a user whose
+            //  user doc never existed (some legacy account) AND
+            //  whose business doc DOES exist could still get
+            //  onboarded over.
+            try {
+              const existingBizSnap = await getDoc(doc(db, `businesses/${user.uid}`));
+              if (existingBizSnap.exists()) {
+                console.warn(
+                  '[brand] business doc already exists for this uid — recovering instead of bootstrapping',
+                );
+                await setDoc(userDocRef, {
+                  businessId: user.uid,
+                  role: 'owner',
+                  email: user.email || '',
+                }, { merge: true });
+                bId = user.uid;
+                if (cancelled) return;
+                setBusinessId(bId);
+                // Continue to the snapshot listener below — no
+                // settings/main write happens.
+                clearTimeout(timeoutId);
+                // We need to fall through to the existing onSnapshot
+                // setup, so we cannot return here. Instead, we
+                // re-route to the listener block by setting a flag.
+                // Simpler: just continue execution; the rest of the
+                // function below (setBusinessId, snapshot listener)
+                // already handles bId-from-existing-business cleanly.
+              } else {
+                // Genuine fresh signup. Bootstrap the full structure.
+                bId = user.uid;
+                console.info('[brand] bootstrapping new business for', user.uid);
 
-            await setDoc(userDocRef, {
-              businessId: bId,
-              role: 'owner',
-              email: user.email || '',
-              createdAt: new Date().toISOString(),
-            }, { merge: true });
+                await setDoc(userDocRef, {
+                  businessId: bId,
+                  role: 'owner',
+                  email: user.email || '',
+                  createdAt: new Date().toISOString(),
+                }, { merge: true });
 
-            await setDoc(doc(db, `businesses/${bId}`), {
-              ownerUid: user.uid,
-              ownerEmail: user.email || '',
-              createdAt: new Date().toISOString(),
-            }, { merge: true });
+                await setDoc(doc(db, `businesses/${bId}`), {
+                  ownerUid: user.uid,
+                  ownerEmail: user.email || '',
+                  createdAt: new Date().toISOString(),
+                }, { merge: true });
 
-            await setDoc(doc(db, `businesses/${bId}/members/${user.uid}`), {
-              uid: user.uid,
-              email: user.email || '',
-              role: 'owner',
-              addedAt: new Date().toISOString(),
-            }, { merge: true });
+                await setDoc(doc(db, `businesses/${bId}/members/${user.uid}`), {
+                  uid: user.uid,
+                  email: user.email || '',
+                  role: 'owner',
+                  addedAt: new Date().toISOString(),
+                }, { merge: true });
 
-            await setDoc(doc(db, `businesses/${bId}/settings/main`), {
-              ...DEFAULT_BRAND,
-              email: user.email || '',
-            }, { merge: true });
+                await setDoc(doc(db, `businesses/${bId}/settings/main`), {
+                  ...DEFAULT_BRAND,
+                  email: user.email || '',
+                }, { merge: true });
 
-            console.info('[brand] bootstrap complete for business', bId);
+                console.info('[brand] bootstrap complete for business', bId);
+              }
+            } catch (preflightErr) {
+              // If the safety check itself fails, REFUSE TO BOOTSTRAP.
+              // It is better to surface an error to the user than to
+              // risk overwriting real data.
+              console.error(
+                '[brand] could not verify business doc before bootstrap — refusing to onboard:',
+                preflightErr,
+              );
+              throw new Error(
+                'Could not verify account state. Please reload the app.',
+              );
+            }
           }
         }
         if (cancelled) return;
