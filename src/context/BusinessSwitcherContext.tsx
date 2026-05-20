@@ -1,188 +1,221 @@
 // ═══════════════════════════════════════════════════════════════════
-//  src/components/BusinessSwitcher.tsx — Multi-business UI (STAGE 2b)
+//  src/context/BusinessSwitcherContext.tsx — Multi-business (STAGE 2b)
 // ═══════════════════════════════════════════════════════════════════
 //
 //  WHAT THIS IS
 //  ────────────
-//  A compact dropdown that lets a user with multiple businesses
-//  switch the active one. Rendered inside the Header.
+//  Holds the multi-business runtime state for the signed-in user:
+//    - the list of businessIds they own
+//    - which one is currently active
+//    - a switch() action to change the active business
+//    - a createBusiness() action to add a new one (Pro-gated)
 //
-//  BACK-COMPAT — IMPORTANT
-//  ───────────────────────
-//  This component renders NOTHING (returns null) when the user owns
-//  only one business — `canSwitch` is false. A single-business
-//  operator never sees it; the Header looks exactly as it did
-//  before Stage 2b. The switcher only appears once a user has
-//  deliberately created a second business.
+//  RELATIONSHIP TO BrandContext
+//  ────────────────────────────
+//  BrandContext resolves the active businessId on load via
+//  resolveActiveBusinessId() and drives the whole app render from it.
+//  This context is the *control surface* for that: switching writes
+//  the new choice to users/{uid}.activeBusinessId, then reloads so
+//  BrandContext re-resolves cleanly from scratch — the same code
+//  path as a fresh login, so no stale data can leak between
+//  businesses.
 //
-//  Switching delegates entirely to BusinessSwitcherContext, which
-//  persists the choice and reloads so BrandContext re-resolves the
-//  active business cleanly.
+//  BACK-COMPAT
+//  ───────────
+//  A single-business user (no ownedBusinesses field) gets a list of
+//  exactly [uid]. canSwitch is false, the switcher UI does not
+//  render, and nothing about their experience changes.
+//
+//  GATING
+//  ──────
+//  createBusiness() is allowed only when canCreateAnotherBusiness()
+//  returns true — Core plan is capped at 1 business, Pro is
+//  unlimited. The cap is computed from resolvePlan(), consistent
+//  with billing and Founder Access.
 // ═══════════════════════════════════════════════════════════════════
 
-import { useState, useRef, useEffect } from 'react';
-import { useBusinessSwitcher } from '@/context/BusinessSwitcherContext';
-import { AddBusinessModal } from '@/components/AddBusinessModal';
-import { _auth } from '@/lib/firebase';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  useCallback,
+  type ReactNode,
+} from 'react';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import type { User } from 'firebase/auth';
+import { _db } from '@/lib/firebase';
+import type { Settings } from '@/types';
+import {
+  getOwnedBusinesses,
+  resolveActiveBusinessId,
+  canCreateAnotherBusiness,
+  hasMultipleBusinesses,
+  type UserBusinessDoc,
+} from '@/lib/ownedBusinesses';
+import { withTimeout } from '@/lib/promiseTimeout';
 
-interface Props {
-  /** Label for the currently active business (its business name). */
-  activeLabel: string;
+interface BusinessSwitcherValue {
+  /** Every businessId the user owns (always non-empty; index 0 = primary). */
+  ownedBusinesses: string[];
+  /** The currently active businessId. */
+  activeBusinessId: string;
+  /** True when the user owns more than one business (switcher shows). */
+  canSwitch: boolean;
+  /** True when the user's plan allows creating another business. */
+  canCreate: boolean;
+  /** Still loading the user's business list. */
+  loading: boolean;
+  /**
+   * Switch the active business. Persists the choice to
+   * users/{uid}.activeBusinessId then reloads so BrandContext
+   * re-resolves from scratch. No-op if the id is not owned or is
+   * already active.
+   */
+  switchBusiness: (businessId: string) => Promise<void>;
+  /**
+   * Activate a business directly, skipping the owned-list guard.
+   * For use immediately after createBusiness(), where the business
+   * is known-valid but the in-memory owned list has not refreshed.
+   */
+  activateBusiness: (businessId: string) => Promise<void>;
 }
 
-export function BusinessSwitcher({ activeLabel }: Props) {
-  const { ownedBusinesses, activeBusinessId, canSwitch, canCreate, switchBusiness } = useBusinessSwitcher();
-  const [open, setOpen] = useState(false);
-  const [showAddModal, setShowAddModal] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
+const BusinessSwitcherContext = createContext<BusinessSwitcherValue>({
+  ownedBusinesses: [],
+  activeBusinessId: '',
+  canSwitch: false,
+  canCreate: false,
+  loading: true,
+  switchBusiness: async () => {},
+  activateBusiness: async () => {},
+});
 
-  // Close the dropdown on outside click / Escape.
+export function useBusinessSwitcher(): BusinessSwitcherValue {
+  return useContext(BusinessSwitcherContext);
+}
+
+interface ProviderProps {
+  user: User;
+  /** Active business settings — used for the Pro-gating check. */
+  settings: Settings | null;
+  children: ReactNode;
+}
+
+export function BusinessSwitcherProvider({ user, settings, children }: ProviderProps) {
+  const [userDoc, setUserDoc] = useState<UserBusinessDoc | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  // Load the user's business doc once on mount / user change.
   useEffect(() => {
-    if (!open) return;
-    function onDocClick(e: MouseEvent) {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
-        setOpen(false);
+    let cancelled = false;
+    const db = _db;
+    if (!db) {
+      setLoading(false);
+      return;
+    }
+    (async () => {
+      try {
+        const snap = await getDoc(doc(db, `users/${user.uid}`));
+        if (cancelled) return;
+        setUserDoc(snap.exists() ? (snap.data() as UserBusinessDoc) : null);
+      } catch (e) {
+        console.warn('[business-switcher] failed to load user doc:', e);
+        if (!cancelled) setUserDoc(null);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setOpen(false);
-    }
-    document.addEventListener('mousedown', onDocClick);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDocClick);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [open]);
+    })();
+    return () => { cancelled = true; };
+  }, [user.uid]);
 
-  // Render nothing when the user has only one business — there is
-  // nothing to switch between, and Add Business is disabled.
-  if (!canSwitch) return null;
+  const ownedBusinesses = useMemo(
+    () => getOwnedBusinesses(user.uid, userDoc),
+    [user.uid, userDoc],
+  );
+
+  const activeBusinessId = useMemo(
+    () => resolveActiveBusinessId(user.uid, userDoc),
+    [user.uid, userDoc],
+  );
+
+  const canSwitch = useMemo(
+    () => hasMultipleBusinesses(user.uid, userDoc),
+    [user.uid, userDoc],
+  );
+
+  const canCreate = useMemo(
+    () => canCreateAnotherBusiness(settings, ownedBusinesses.length),
+    [settings, ownedBusinesses.length],
+  );
+
+  /**
+   * Persist `businessId` as the active business and reload.
+   *
+   * Unlike switchBusiness(), this does NOT check the in-memory
+   * ownedBusinesses list. It is used immediately after
+   * createBusiness(), where the businessId was just created and
+   * written to Firestore but the in-memory list (loaded once on
+   * mount) has not refreshed yet. Routing a freshly-created
+   * business through the stale-list guard would wrongly reject it
+   * and leave the caller hanging. The business is provably valid
+   * here, so the guard is correctly skipped.
+   */
+  const activateBusiness = useCallback(async (businessId: string) => {
+    const db = _db;
+    if (!db) return;
+    console.info('[business-switcher] activate: writing activeBusinessId', { businessId });
+    try {
+      await withTimeout(
+        setDoc(
+          doc(db, `users/${user.uid}`),
+          { activeBusinessId: businessId },
+          { merge: true },
+        ),
+        10_000,
+        'activateBusiness:setDoc',
+      );
+      console.info('[business-switcher] activate: write OK, reloading');
+      // Full reload so BrandContext + every downstream context
+      // re-resolve cleanly from scratch — identical to a fresh login.
+      window.location.reload();
+    } catch (e) {
+      const err = e as { name?: string; message?: string };
+      console.error('[business-switcher] activate failed:', { name: err.name, message: err.message, raw: e });
+      if (err.name === 'TimeoutError') {
+        throw new Error('Switching businesses timed out. Please check your connection and try again.');
+      }
+      throw e;
+    }
+  }, [user.uid]);
+
+  const switchBusiness = useCallback(async (businessId: string) => {
+    const db = _db;
+    if (!db) return;
+    // Guard: only switch to a business the user owns, and skip if
+    // it is already active.
+    if (!ownedBusinesses.includes(businessId)) {
+      console.warn('[business-switcher] refused: not an owned business', businessId);
+      return;
+    }
+    if (businessId === activeBusinessId) return;
+    await activateBusiness(businessId);
+  }, [ownedBusinesses, activeBusinessId, activateBusiness]);
+
+  const value = useMemo<BusinessSwitcherValue>(() => ({
+    ownedBusinesses,
+    activeBusinessId,
+    canSwitch,
+    canCreate,
+    loading,
+    switchBusiness,
+    activateBusiness,
+  }), [ownedBusinesses, activeBusinessId, canSwitch, canCreate, loading, switchBusiness, activateBusiness]);
 
   return (
-    <div ref={rootRef} style={{ position: 'relative', flexShrink: 0 }}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        title="Switch business"
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        style={{
-          display: 'flex', alignItems: 'center', gap: 5,
-          background: 'var(--s3)', border: '1px solid var(--border)',
-          borderRadius: 8, height: 32, minHeight: 32, padding: '0 9px',
-          fontSize: 12, fontWeight: 700, color: 'var(--t2)', cursor: 'pointer',
-          maxWidth: 150,
-        }}
-      >
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {activeLabel}
-        </span>
-        <span aria-hidden="true" style={{ fontSize: 9, opacity: 0.7 }}>▼</span>
-      </button>
-
-      {open && (
-        <div
-          role="listbox"
-          style={{
-            position: 'absolute', top: 38, right: 0, minWidth: 200,
-            background: 'var(--s2)', border: '1px solid var(--border)',
-            borderRadius: 10, padding: 6, zIndex: 100,
-            boxShadow: '0 12px 32px rgba(0,0,0,.5)',
-          }}
-        >
-          <div style={{
-            fontSize: 10, fontWeight: 700, letterSpacing: '0.08em',
-            textTransform: 'uppercase', color: 'var(--t3)',
-            padding: '6px 8px 4px',
-          }}>
-            Your Businesses
-          </div>
-          {ownedBusinesses.map((bId) => {
-            const isActive = bId === activeBusinessId;
-            return (
-              <button
-                key={bId}
-                type="button"
-                role="option"
-                aria-selected={isActive}
-                onClick={() => {
-                  setOpen(false);
-                  if (!isActive) void switchBusiness(bId);
-                }}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 8, width: '100%',
-                  background: isActive ? 'rgba(200,164,74,0.10)' : 'transparent',
-                  border: 'none', borderRadius: 7, padding: '9px 8px',
-                  fontSize: 13, fontWeight: isActive ? 700 : 500,
-                  color: isActive ? 'var(--brand-primary)' : 'var(--t1)',
-                  cursor: isActive ? 'default' : 'pointer', textAlign: 'left',
-                }}
-              >
-                <span aria-hidden="true" style={{
-                  width: 14, flexShrink: 0, color: 'var(--brand-primary)',
-                }}>
-                  {isActive ? '✓' : ''}
-                </span>
-                <span style={{
-                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                }}>
-                  {/* The active business shows its real name; others
-                      show a short id-derived label. The full name of
-                      a non-active business is not loaded here to keep
-                      this component cheap — switching reloads and the
-                      Header then shows the real name. */}
-                  {isActive ? activeLabel : shortLabel(bId)}
-                </span>
-              </button>
-            );
-          })}
-          {/* + Add Business — shown when the user's plan allows
-              another business (Pro = unlimited). Opens the create
-              modal with a tire/mechanic vertical picker.
-
-              TEMPORARILY DISABLED: the create flow hits a Firestore
-              transport-layer 400 we have not been able to diagnose
-              remotely. The full create pipeline (createBusiness,
-              AddBusinessModal, vertical seeding) stays in the repo
-              dormant; flipping ENABLE_ADD_BUSINESS to true re-enables
-              the row once the underlying issue is resolved. */}
-          {false && canCreate && (
-            <button
-              type="button"
-              onClick={() => { setOpen(false); setShowAddModal(true); }}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 8, width: '100%',
-                background: 'transparent', border: 'none', borderRadius: 7,
-                padding: '9px 8px', marginTop: 2, fontSize: 13, fontWeight: 600,
-                color: 'var(--brand-primary)', cursor: 'pointer', textAlign: 'left',
-                borderTop: '1px solid var(--border)',
-              }}
-            >
-              <span aria-hidden="true" style={{ width: 14, flexShrink: 0, fontWeight: 800 }}>+</span>
-              <span>Add Business</span>
-            </button>
-          )}
-        </div>
-      )}
-
-      {showAddModal && _auth?.currentUser && (
-        <AddBusinessModal
-          uid={_auth.currentUser.uid}
-          email={_auth.currentUser.email || ''}
-          onClose={() => setShowAddModal(false)}
-        />
-      )}
-    </div>
+    <BusinessSwitcherContext.Provider value={value}>
+      {children}
+    </BusinessSwitcherContext.Provider>
   );
-}
-
-/**
- * A short, human-ish label for a non-active business when its full
- * name is not loaded. Uses a stable suffix of the businessId so each
- * row is distinguishable.
- */
-function shortLabel(businessId: string): string {
-  const tail = businessId.slice(-4).toUpperCase();
-  return `Business ·${tail}`;
 }
