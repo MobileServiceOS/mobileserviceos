@@ -14,7 +14,7 @@
 //  that won't reach the server. Each step now reports independently.
 // ═══════════════════════════════════════════════════════════════════
 
-import { doc, collection, getDoc, setDoc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { doc, collection, setDoc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { _db } from '@/lib/firebase';
 import { DEFAULT_BRAND, DEFAULT_VEHICLE_PRICING } from '@/lib/defaults';
 import { foundingMemberStamp } from '@/lib/growthMode';
@@ -32,6 +32,14 @@ export interface CreateBusinessInput {
   email: string;
   businessName: string;
   businessType: VerticalKey;
+  /**
+   * Does users/{uid} already exist? The caller (BusinessSwitcher
+   * context) already has this information loaded; passing it in
+   * avoids a fresh getDoc that can hang under Firestore offline
+   * persistence + stale auth token. If unsure, pass true — the
+   * write path uses { merge: true } so it is safe either way.
+   */
+  hasExistingUserDoc: boolean;
 }
 
 export interface CreateBusinessResult {
@@ -76,7 +84,7 @@ export async function createBusiness(
   const db = _db;
   if (!db) throw new Error('Firestore not initialized');
 
-  const { uid, email, businessName, businessType } = input;
+  const { uid, email, businessName, businessType, hasExistingUserDoc } = input;
   const name = businessName.trim();
   if (!name) throw new Error('Business name is required');
 
@@ -86,21 +94,19 @@ export async function createBusiness(
   const seededServicePricing = servicePricingFromVertical(vertical);
 
   console.info('[createBusiness] START_CREATE_BUSINESS', {
-    uid, newId, businessType, businessName: name,
+    uid, newId, businessType, businessName: name, hasExistingUserDoc,
   });
 
-  // ── STEP 1: read users/{uid} so we know whether to init or merge.
-  type Snap = Awaited<ReturnType<typeof getDoc>>;
-  const userSnap = await runStep<Snap>(
-    'READ_USER_DOC',
-    getDoc(doc(db, `users/${uid}`)),
-  );
-  const userDocExists = userSnap.exists();
-  console.info('[createBusiness] user doc exists?', userDocExists);
+  // NOTE: we no longer read users/{uid} here. The caller passes
+  // hasExistingUserDoc from already-loaded context state. This
+  // eliminates a getDoc that was timing out under Firestore offline
+  // persistence — likely caused by stale auth token or cache state
+  // conflicting with the BrandContext realtime listener that is
+  // already subscribed to the same doc.
 
-  // ── STEP 2: settings/main with ownerUid stamp.
+  // ── STEP 1: settings/main with ownerUid stamp.
   //    1b rule requires ownerUid == auth.uid. This is the doc the
-  //    members-write rule reads via getAfter() in step 3.
+  //    members-write rule reads via getAfter() in step 2.
   await runStep(
     'BUSINESS_DOC_CREATED (settings/main)',
     setDoc(doc(db, `businesses/${newId}/settings/main`), {
@@ -116,8 +122,8 @@ export async function createBusiness(
     }),
   );
 
-  // ── STEP 3: members/{uid} as owner.
-  //    Permitted because step 2 wrote ownerUid; rule reads it with
+  // ── STEP 2: members/{uid} as owner.
+  //    Permitted because step 1 wrote ownerUid; rule reads it with
   //    getAfter() so even cached writes are visible to the rule.
   await runStep(
     'OWNER_MEMBER_DOC_CREATED',
@@ -129,7 +135,7 @@ export async function createBusiness(
     }),
   );
 
-  // ── STEP 4: business root doc.
+  // ── STEP 3: business root doc.
   await runStep(
     'BUSINESS_ROOT_DOC_CREATED',
     setDoc(doc(db, `businesses/${newId}`), {
@@ -139,8 +145,8 @@ export async function createBusiness(
     }, { merge: true }),
   );
 
-  // ── STEP 5: append to users/{uid}.ownedBusinesses.
-  if (userDocExists) {
+  // ── STEP 4: append to users/{uid}.ownedBusinesses.
+  if (hasExistingUserDoc) {
     await runStep(
       'OWNED_BUSINESSES_UPDATED',
       updateDoc(doc(db, `users/${uid}`), {
