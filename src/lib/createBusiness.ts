@@ -14,7 +14,7 @@
 //  that won't reach the server. Each step now reports independently.
 // ═══════════════════════════════════════════════════════════════════
 
-import { doc, collection, setDoc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { doc, collection, setDoc, updateDoc, arrayUnion, enableNetwork, waitForPendingWrites } from 'firebase/firestore';
 import { _db } from '@/lib/firebase';
 import { DEFAULT_BRAND, DEFAULT_VEHICLE_PRICING } from '@/lib/defaults';
 import { foundingMemberStamp } from '@/lib/growthMode';
@@ -104,24 +104,45 @@ export async function createBusiness(
   // conflicting with the BrandContext realtime listener that is
   // already subscribed to the same doc.
 
+  // ── STEP 0: force-enable the Firestore network connection.
+  //
+  // ROOT CAUSE OF THE HANG (after multiple isolation passes):
+  // The app uses persistentLocalCache. Under that cache, setDoc()
+  // normally resolves on local cache write — fast. BUT when rules
+  // require any server-side resolution (exists / get / getAfter),
+  // the SDK must reach the server to evaluate the rule before
+  // accepting the write. If the SDK is in a "half-online" state
+  // (the browser reports online but the gRPC stream to Firestore is
+  // stale — extremely common on iOS Safari after backgrounding,
+  // PWA tab restore, or service-worker shutdown), the write queues
+  // and never completes — neither resolving nor rejecting.
+  //
+  // enableNetwork() forces the SDK to (re)establish its network
+  // connection. waitForPendingWrites() then blocks until any
+  // already-queued writes finish, ensuring we start the create
+  // flow with a clean, server-acknowledged state.
+  try {
+    await runStep('NETWORK_ENABLE', enableNetwork(db));
+    await runStep('PENDING_WRITES_FLUSH', waitForPendingWrites(db));
+  } catch (e) {
+    console.warn('[createBusiness] network-prime failed (continuing):', e);
+  }
+
   // ── STEP 1: settings/main with ownerUid stamp.
   //    1b rule requires ownerUid == auth.uid. This is the doc the
   //    members-write rule reads via getAfter() in step 2.
-  // DIAGNOSTIC: minimum-payload settings/main. If the previous full
-  // payload was hanging on rule evaluation (over-large doc, an
-  // unexpected field tripping a rule, or a Founding-Member-stamp
-  // field causing trouble), this stripped version isolates that.
-  // If THIS still hangs, the issue is not the payload — it is the
-  // rule's getAfter()/existsAfter() chain, or a fundamental write
-  // failure (auth token, region, network).
   await runStep(
     'BUSINESS_DOC_CREATED (settings/main)',
     setDoc(doc(db, `businesses/${newId}/settings/main`), {
+      ...DEFAULT_BRAND,
       businessName: name,
       businessType,
       email,
       ownerUid: uid,
       createdAt: now,
+      servicePricing: seededServicePricing,
+      vehiclePricing: DEFAULT_VEHICLE_PRICING,
+      ...foundingMemberStamp(),
     }),
   );
 
@@ -165,39 +186,6 @@ export async function createBusiness(
         { merge: true },
       ),
     );
-  }
-
-  // ── STEP 5: enrich settings/main with full seed data.
-  //    Now that the member doc exists, the user has full write
-  //    access to settings/main via isOwnerOrAdmin. We can write the
-  //    rest of the seed without depending on the create-only 1b
-  //    clause. This isolates whatever was tripping the rule on the
-  //    initial create; if STEP 1 (minimum payload) works, the
-  //    timeout was caused by something in this enrichment payload.
-  try {
-    await runStep(
-      'SETTINGS_ENRICHED',
-      setDoc(
-        doc(db, `businesses/${newId}/settings/main`),
-        {
-          ...DEFAULT_BRAND,
-          businessName: name,
-          businessType,
-          email,
-          ownerUid: uid,
-          createdAt: now,
-          servicePricing: seededServicePricing,
-          vehiclePricing: DEFAULT_VEHICLE_PRICING,
-          ...foundingMemberStamp(),
-        },
-        { merge: true },
-      ),
-    );
-  } catch (e) {
-    // Non-fatal: the business exists and is usable; the user can
-    // configure settings/pricing manually from Settings if this
-    // enrichment fails for any reason. Log and continue.
-    console.warn('[createBusiness] enrichment failed (non-fatal):', e);
   }
 
   console.info('[createBusiness] ALL STEPS COMPLETE', { newId });
