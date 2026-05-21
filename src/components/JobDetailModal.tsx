@@ -3,6 +3,7 @@ import type { Job, Settings, InventoryDeduction, PaymentMethod } from '@/types';
 import { PAYMENT_METHOD_LABELS } from '@/types';
 import { fmtDate, jobGrossProfit, money, paymentPillClass, resolvePaymentStatus, serviceIcon } from '@/lib/utils';
 import { useActiveLifecycle } from '@/lib/useActiveLifecycle';
+import { useActiveVertical } from '@/lib/useActiveVertical';
 import { useMembership } from '@/context/MembershipContext';
 import { useBrand } from '@/context/BrandContext';
 import { useMembersDirectory } from '@/lib/useMembersDirectory';
@@ -32,6 +33,16 @@ export function JobDetailModal({
 }: Props) {
   const profit = jobGrossProfit(job, settings);
   const ps = resolvePaymentStatus(job);
+  const vertical = useActiveVertical();
+  // Tire Details block shows only when the active vertical uses
+  // tire-style inventory OR the job itself carries tire data
+  // (back-compat: a mechanic-account user viewing a legacy tire job
+  // imported via WheelRushBackupImport should still see its details).
+  // Without this gate, mechanic/detailing accounts saw an empty
+  // "Tire Details — Size: — / Qty: 0 / Source:" block on every job.
+  const showTireBlock =
+    vertical.features.inventoryDeduction ||
+    !!(job.tireSize || job.tireBrand || job.tireSource);
   // Method selection for the Mark Paid action. Defaults to cash (the
   // common case for roadside operators); operator can tap a different
   // chip before hitting Mark Paid. Pre-paid jobs (already 'Paid')
@@ -86,21 +97,54 @@ export function JobDetailModal({
             <Row label="Source" value={job.source || '—'} />
           </div>
 
-          <div className="form-group" style={{ marginBottom: 12 }}>
-            <div className="form-group-title">Tire Details</div>
-            <Row label="Size" value={job.tireSize || '—'} />
-            <Row label="Qty" value={String(job.qty || 0)} />
-            <Row label="Source" value={job.tireSource} />
-            {job.tireVendor ? <Row label="Vendor" value={job.tireVendor} /> : null}
-            {job.tireCondition ? <Row label="Condition" value={job.tireCondition} /> : null}
-            {job.tireReceiptUrl ? (
-              <div style={{ padding: '6px 0' }}>
-                <a href={job.tireReceiptUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--brand-primary)', fontSize: 12 }}>
-                  View receipt →
-                </a>
-              </div>
-            ) : null}
-          </div>
+          {showTireBlock && (
+            <div className="form-group" style={{ marginBottom: 12 }}>
+              <div className="form-group-title">Tire Details</div>
+              <Row label="Size" value={job.tireSize || '—'} />
+              <Row label="Qty" value={String(job.qty || 0)} />
+              <Row label="Source" value={job.tireSource} />
+              {job.tireVendor ? <Row label="Vendor" value={job.tireVendor} /> : null}
+              {job.tireCondition ? <Row label="Condition" value={job.tireCondition} /> : null}
+              {job.tireReceiptUrl ? (
+                <div style={{ padding: '6px 0' }}>
+                  <a href={job.tireReceiptUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--brand-primary)', fontSize: 12 }}>
+                    View receipt →
+                  </a>
+                </div>
+              ) : null}
+            </div>
+          )}
+
+          {/* Mechanic-specific service details. Only renders when the
+              job actually carries any of these fields, so a tire job
+              accidentally viewed in mechanic mode stays clean. */}
+          {vertical.key === 'mechanic' && (
+            job.laborHours || job.partsCost || job.diagnosticCode ||
+            job.vehicleMakeModel || job.mileage || job.diagnosticFee
+          ) ? (
+            <div className="form-group" style={{ marginBottom: 12 }}>
+              <div className="form-group-title">Service Details</div>
+              {job.vehicleMakeModel ? <Row label="Vehicle" value={job.vehicleMakeModel} /> : null}
+              {job.mileage ? <Row label="Mileage" value={String(job.mileage)} /> : null}
+              {job.diagnosticCode ? <Row label="Diagnostic" value={job.diagnosticCode} /> : null}
+              {job.laborHours ? <Row label="Labor (hrs)" value={String(job.laborHours)} /> : null}
+              {job.diagnosticFee ? <Row label="Diagnostic Fee" value={money(Number(job.diagnosticFee))} /> : null}
+              {Array.isArray(job.parts) && job.parts.length > 0 ? (
+                <Row label="Parts" value={`${job.parts.length} line${job.parts.length === 1 ? '' : 's'}`} />
+              ) : null}
+            </div>
+          ) : null}
+
+          {/* Detailing-specific service details. Vehicle size + add-ons. */}
+          {vertical.key === 'detailing' && (job.vehicleSize || (Array.isArray(job.detailingAddons) && job.detailingAddons.length > 0)) ? (
+            <div className="form-group" style={{ marginBottom: 12 }}>
+              <div className="form-group-title">Service Details</div>
+              {job.vehicleSize ? <Row label="Vehicle Size" value={job.vehicleSize} /> : null}
+              {Array.isArray(job.detailingAddons) && job.detailingAddons.length > 0 ? (
+                <Row label="Add-ons" value={job.detailingAddons.join(', ')} />
+              ) : null}
+            </div>
+          ) : null}
 
           {invDeds && invDeds.length > 0 ? (
             <div className="form-group" style={{ marginBottom: 12 }}>
