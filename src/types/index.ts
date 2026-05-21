@@ -449,6 +449,20 @@ export interface Job {
    *  job-creation time from `date` (the service date, which can be
    *  any day). */
   createdAt?: string;
+
+  // ─── Mechanic-specific job fields (Phase 2.1) ────────────────────
+  // Declared optional so tire jobs are unaffected. The Add Job form
+  // binding for these lands in task D.5 — until then they remain
+  // unwritten on tire saves and read as undefined.
+  laborHours?: number | string;
+  partsCost?: number | string;
+  diagnosticCode?: string;
+  vehicleMakeModel?: string;
+  mileage?: number | string;
+  diagnosticFee?: number | string;
+
+  // ─── Detailing-specific job field (Phase 2.1; populated in 2.3) ──
+  vehicleSize?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────
