@@ -30,7 +30,16 @@ function BusinessForm({ settings, onSave, showOwners }: Props & { showOwners: bo
   const [draft, setDraft] = useState<SettingsT>(settings);
   const [dirty, setDirty] = useState(false);
   const vertical = useActiveVertical();
-  useEffect(() => { setDraft(settings); setDirty(false); }, [settings]);
+  // Dirty-aware re-sync. The parent `settings` reference changes on
+  // every Firestore snapshot — including background writes (Stripe
+  // mirror, services-backfill loop, other tabs). The previous
+  // implementation reset draft + cleared dirty unconditionally, so
+  // a snapshot mid-edit wiped the user's in-progress changes.
+  // Symptom: "I edit and it goes right back" reported on Wheel Rush.
+  // Only re-sync when the user has no unsaved edits.
+  useEffect(() => {
+    if (!dirty) setDraft(settings);
+  }, [settings, dirty]);
 
   const set = <K extends keyof SettingsT>(k: K, v: SettingsT[K]) => {
     setDraft((d) => ({ ...d, [k]: v })); setDirty(true);

@@ -31,10 +31,13 @@ function VehicleAddonsForm({ settings, onSave }: Props) {
   const [vp, setVp] = useState<Record<string, VehiclePricing>>(settings.vehiclePricing || {});
   const [dirty, setDirty] = useState(false);
 
+  // Dirty-aware re-sync. settings re-emits on every Firestore
+  // snapshot (Stripe mirror, services-backfill, etc.). Resetting
+  // unconditionally wiped in-progress edits — the production
+  // "settings revert" bug on Wheel Rush. Only re-sync when clean.
   useEffect(() => {
-    setVp(settings.vehiclePricing || {});
-    setDirty(false);
-  }, [settings.vehiclePricing]);
+    if (!dirty) setVp(settings.vehiclePricing || {});
+  }, [settings.vehiclePricing, dirty]);
 
   const updateVehicle = (k: string, patch: Partial<VehiclePricing>) => {
     setVp((p) => ({ ...p, [k]: { ...p[k], ...patch } })); setDirty(true);

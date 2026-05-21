@@ -41,10 +41,13 @@ function PricingForm({ settings, onSave }: Props) {
   const [sp, setSp] = useState<Record<string, ServicePricing>>(settings.servicePricing || {});
   const [dirty, setDirty] = useState(false);
 
+  // Dirty-aware re-sync. settings re-emits on every Firestore
+  // snapshot (Stripe mirror, services-backfill, etc.). Resetting
+  // unconditionally wiped in-progress edits — the production
+  // "settings revert" bug on Wheel Rush. Only re-sync when clean.
   useEffect(() => {
-    setSp(settings.servicePricing || {});
-    setDirty(false);
-  }, [settings.servicePricing]);
+    if (!dirty) setSp(settings.servicePricing || {});
+  }, [settings.servicePricing, dirty]);
 
   // Resolve the canonical list of service IDs to render — vertical
   // catalog order, ALL services (including ones the operator hasn't

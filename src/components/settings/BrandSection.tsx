@@ -44,13 +44,28 @@ export function BrandAccordion({ open, onToggle }: { open: boolean; onToggle: ()
 function BrandForm() {
   const { brand, businessId, updateBrand } = useBrand();
   const [draft, setDraft] = useState<Brand>(brand);
+  const [dirty, setDirty] = useState(false);
   const [logoUploading, setLogoUploading] = useState(false);
   const [busy, setBusy] = useState(false);
   const logoInputRef = useRef<HTMLInputElement | null>(null);
 
-  useEffect(() => { setDraft(brand); }, [brand]);
+  // Dirty-aware re-sync. BrandContext's snapshot listener emits a NEW
+  // brand object on every Firestore round-trip, including:
+  //   - The optimistic update after our own save
+  //   - Background writes (e.g. subscription-mirror, services-backfill)
+  //   - Any other tab modifying the same doc
+  // Resetting draft unconditionally meant any of those would wipe a
+  // user's in-progress edit. This is the production "I edit and it
+  // goes right back" bug on Wheel Rush. Guard with `dirty`: only
+  // re-sync when the user has no unsaved changes.
+  useEffect(() => {
+    if (!dirty) setDraft(brand);
+  }, [brand, dirty]);
 
-  const set = <K extends keyof Brand>(k: K, v: Brand[K]) => setDraft((d) => ({ ...d, [k]: v }));
+  const set = <K extends keyof Brand>(k: K, v: Brand[K]) => {
+    setDraft((d) => ({ ...d, [k]: v }));
+    setDirty(true);
+  };
 
   /**
    * Logo upload with a hard timeout so the spinner can never get stuck.
@@ -78,7 +93,11 @@ function BrandForm() {
         }),
       ]);
       if (url) {
-        set('logoUrl', url);
+        // Logo upload auto-saves immediately. Use setDraft directly
+        // (not the dirty-setting `set` helper) so the form doesn't
+        // think the user has unsaved changes after a successful
+        // upload — there's nothing left to save.
+        setDraft((d) => ({ ...d, logoUrl: url }));
         await updateBrand({ logoUrl: url });
         addToast('Logo updated', 'success');
       } else {
@@ -108,6 +127,7 @@ function BrandForm() {
       };
       await updateBrand(cleanDraft);
       setDraft(cleanDraft);
+      setDirty(false);
       addToast('Brand saved', 'success');
     } catch (e) {
       addToast((e as Error).message || 'Save failed', 'error');
@@ -150,7 +170,10 @@ function BrandForm() {
       <CityStateSelect
         state={draft.state || ''}
         city={draft.mainCity || ''}
-        onChange={({ city, state, fullLocationLabel }) => setDraft((d) => ({ ...d, mainCity: city, state, fullLocationLabel }))}
+        onChange={({ city, state, fullLocationLabel }) => {
+          setDraft((d) => ({ ...d, mainCity: city, state, fullLocationLabel }));
+          setDirty(true);
+        }}
         cityLabel="Main city" stateLabel="State"
       />
       <div className="field" style={{ marginTop: 14 }}>
