@@ -116,6 +116,21 @@ export function deserializeInventoryItem(raw: RawDoc): InventoryItem {
     condition: asString(raw.condition, 'New'),
     brand: asString(raw.brand, ''),
     model: asString(raw.model, ''),
+
+    // Mechanic-specific (Phase 2.1 + 2.2). All optional; undefined when absent.
+    partNumber: raw.partNumber == null ? undefined : asString(raw.partNumber),
+    partName: raw.partName == null ? undefined : asString(raw.partName),
+    supplier: raw.supplier == null ? undefined : asString(raw.supplier),
+    unitCost: raw.unitCost == null ? undefined : asNumber(raw.unitCost),
+    retailPrice: raw.retailPrice == null ? undefined : asNumber(raw.retailPrice),
+    category: raw.category == null ? undefined : asString(raw.category),
+    subcategory: raw.subcategory == null ? undefined : asString(raw.subcategory),
+    laborHoursDefault: raw.laborHoursDefault == null ? undefined : asNumber(raw.laborHoursDefault),
+    compatibleVehicles: Array.isArray(raw.compatibleVehicles)
+      ? (raw.compatibleVehicles as unknown[]).map((v) => asString(v))
+      : undefined,
+    warrantyDays: raw.warrantyDays == null ? undefined : asNumber(raw.warrantyDays),
+    locationBin: raw.locationBin == null ? undefined : asString(raw.locationBin),
   };
 }
 

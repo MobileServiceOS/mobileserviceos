@@ -374,20 +374,33 @@ export interface InventoryItem {
   model?: string;
   _isNew?: boolean;
 
-  // ─── Mechanic-specific optional fields (Phase 2.1 widening) ──────
+  // ─── Mechanic-specific optional fields (Phase 2.1 + 2.2) ──────────
   // Declared on the shared InventoryItem type so the same Firestore
-  // collection holds both tire and mechanic stock without a schema
-  // migration. Mechanic UI writes partNumber/partName/supplier/
-  // unitCost; tire UI ignores them. `unitCost` is the mechanic-side
-  // analogue of `cost`; the deduction engine still reads `cost`.
+  // collection holds tire / mechanic / detailing stock without a
+  // schema migration. Mechanic UI writes the partNumber / partName /
+  // supplier / unitCost / retailPrice block; tire UI ignores them.
+  // `unitCost` is the mechanic-side analogue of `cost`; on save the
+  // mechanic UI mirrors unitCost → cost so the existing deduction
+  // engine continues to read `cost` without modification.
   partNumber?: string;
   partName?: string;
   supplier?: string;
   unitCost?: number;
+  retailPrice?: number;
+  subcategory?: string;
+  laborHoursDefault?: number;
+  compatibleVehicles?: ReadonlyArray<string>;
+  warrantyDays?: number;
+  locationBin?: string;
+
+  // ─── Shared mechanic + detailing optional field ──────────────────
+  // `category` is config-driven via vertical.inventoryFields[].options;
+  // mechanic seeds 10 categories, detailing seeds its own. Same field,
+  // different option lists per vertical.
+  category?: string;
 
   // ─── Detailing-specific optional fields ──────────────────────────
   chemicalName?: string;
-  category?: string;
   dilutionRatio?: string;
 }
 
