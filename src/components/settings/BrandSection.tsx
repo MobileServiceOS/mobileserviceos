@@ -190,40 +190,82 @@ function BrandForm() {
 // ─────────────────────────────────────────────────────────────────────
 //  ColorPicker
 // ─────────────────────────────────────────────────────────────────────
-//  Native HTML5 color picker paired with a hex text input. Tapping
-//  the swatch on mobile opens the OS color picker (iOS Safari, Chrome,
-//  Firefox Mobile all support type="color"). The hex input stays for
-//  designers who want to paste an exact value.
-//
-//  Normalizes any input to a 7-char `#rrggbb` form before emitting so
-//  Brand consumers (applyBrandColors → CSS vars) get a value they can
-//  pass straight to the renderer. Invalid input falls back to the
-//  fallback prop rather than emitting garbage.
+//  Curated palette of brand-ready swatches as the primary input. One
+//  tap = brand color, no hex knowledge required. Native HTML5 picker
+//  and hex input remain as power-user fallbacks. Why: field operators
+//  on mobile don't carry their brand book — they recognize "the gold
+//  one" or "the red one" instantly.
 // ─────────────────────────────────────────────────────────────────────
+
+const PRESET_COLORS = [
+  '#c8a44a', // gold
+  '#e5c770', // light gold
+  '#dc2626', // red
+  '#ea580c', // orange
+  '#f59e0b', // amber
+  '#16a34a', // green
+  '#0891b2', // teal
+  '#2563eb', // blue
+  '#7c3aed', // purple
+  '#db2777', // pink
+  '#475569', // slate
+  '#0f172a', // near-black
+];
 
 function ColorPicker({
   value, onChange, fallback,
 }: { value: string; onChange: (v: string) => void; fallback: string }) {
   const hex = normalizeHex(value, fallback);
   return (
-    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-      <input
-        type="color"
-        value={hex}
-        onChange={(e) => onChange(e.target.value)}
-        style={{
-          width: 44, height: 44, padding: 0, border: '1px solid var(--border)',
-          borderRadius: 8, cursor: 'pointer', background: 'transparent',
-        }}
-        aria-label="Pick color"
-      />
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={fallback}
-        style={{ flex: 1, fontFamily: 'monospace' }}
-      />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(6, 1fr)',
+        gap: 6,
+      }}>
+        {PRESET_COLORS.map((preset) => {
+          const selected = hex.toLowerCase() === preset.toLowerCase();
+          return (
+            <button
+              key={preset}
+              type="button"
+              onClick={() => onChange(preset)}
+              aria-label={`Choose ${preset}`}
+              style={{
+                width: '100%',
+                aspectRatio: '1 / 1',
+                background: preset,
+                border: selected
+                  ? '3px solid var(--t1)'
+                  : '1px solid var(--border)',
+                borderRadius: 8,
+                cursor: 'pointer',
+                padding: 0,
+                boxShadow: selected ? '0 0 0 2px var(--s2)' : 'none',
+              }}
+            />
+          );
+        })}
+      </div>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <input
+          type="color"
+          value={hex}
+          onChange={(e) => onChange(e.target.value)}
+          style={{
+            width: 44, height: 44, padding: 0, border: '1px solid var(--border)',
+            borderRadius: 8, cursor: 'pointer', background: 'transparent',
+          }}
+          aria-label="Custom color"
+        />
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={fallback}
+          style={{ flex: 1, fontFamily: 'monospace' }}
+        />
+      </div>
     </div>
   );
 }
