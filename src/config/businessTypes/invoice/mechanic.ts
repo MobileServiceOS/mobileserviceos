@@ -93,15 +93,13 @@ export const MECHANIC_INVOICE_TEMPLATE: InvoiceTemplate = {
   buildLineItems: (job, breakdown, serviceName) => {
     const items: InvoiceLineItem[] = [];
 
-    // Service header line: customer-friendly mechanic service name +
-    // qty (defaults to 1). This anchors the table so even a job with
-    // zero labor/parts (e.g. waived diagnostic) still has a top row.
+    // Service header line: customer-friendly mechanic service name.
+    // No qty and no amount — this acts as a section heading; the
+    // rows below itemize labor/parts/markup/diagnostic/travel. The
+    // PDF renderer treats a row with no qty + amount===0 as
+    // description-only (no QTY/AMOUNT column text).
     items.push({
       description: serviceName,
-      qty: Math.max(1, Math.floor(Number(job.qty) || 1)),
-      // The header row carries no separate amount — the rows below
-      // itemize where the revenue went. Print as 0 here; renderer
-      // can choose to suppress the column on header-only rows.
       amount: 0,
     });
 

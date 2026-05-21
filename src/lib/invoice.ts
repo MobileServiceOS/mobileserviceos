@@ -3,48 +3,18 @@ import type { Job, Settings, Brand } from '@/types';
 import { TODAY } from '@/lib/defaults';
 import { money, r2, resolvePaymentStatus } from '@/lib/utils';
 import { hasProAccess } from '@/lib/planAccess';
+import { resolveVerticalKey } from '@/lib/verticalContext';
+import { getInvoiceTemplate, type InvoiceTemplate, type InvoiceLineItem } from '@/config/businessTypes/invoice';
+import { computeBreakdownTagged } from '@/lib/pricing';
 
 // ─────────────────────────────────────────────────────────────────────
 //  Helpers
 // ─────────────────────────────────────────────────────────────────────
 
-/**
- * Map an internal service name to a customer-friendly one. Keeps the
- * invoice from saying "Tire" or "Service" — which look unprofessional —
- * and instead uses descriptive language a real customer would expect on
- * a paid invoice. Falls through to the original name when no mapping.
- */
-function customerFriendlyServiceName(raw: string | undefined | null): string {
-  if (!raw) return 'Mobile Tire Service';
-  const k = raw.trim().toLowerCase();
-
-  // Order matters — more specific keys first.
-  const map: Array<[string, string]> = [
-    ['tire repair',           'Flat Tire Repair Service'],
-    ['flat tire',             'Flat Tire Repair Service'],
-    ['tire replacement',      'Mobile Tire Replacement Service'],
-    ['tire installation',     'Tire Installation Service'],
-    ['tire change',           'Mobile Tire Replacement Service'],
-    ['spare',                 'Spare Tire Installation'],
-    ['mount',                 'Tire Mount & Balance'],
-    ['balance',               'Tire Mount & Balance'],
-    ['roadside',              'Emergency Roadside Tire Service'],
-    ['emergency',             'Emergency Roadside Tire Service'],
-    ['rotation',              'Tire Rotation Service'],
-    ['tractor-trailer',       'Commercial Tire Service'],
-    ['semi',                  'Commercial Tire Service'],
-    ['plug',                  'Flat Tire Repair Service'],
-    ['patch',                 'Flat Tire Repair Service'],
-    ['tire',                  'Mobile Tire Service'],
-    ['service',               'Mobile Tire Service'],
-    ['dispatch',              'Mobile Tire Service'],
-  ];
-
-  for (const [needle, friendly] of map) {
-    if (k.includes(needle)) return friendly;
-  }
-  return raw;
-}
+// customerFriendlyServiceName moved to
+// src/config/businessTypes/invoice/tire.ts (and a parallel implementation
+// lives in invoice/mechanic.ts). The template registry resolves the
+// appropriate function at render time via getInvoiceTemplate(key).
 
 /**
  * Format an ISO timestamp like "May 11, 2026 at 8:42 PM".
@@ -300,7 +270,15 @@ export async function generateInvoicePDF(
   const paymentStatus = resolvePaymentStatus(job);
   const isPaid = paymentStatus === 'Paid';
   const invNum = job.invoiceNumber || generateInvoiceNumber(brand, job);
-  const friendlyService = customerFriendlyServiceName(job.service);
+
+  // ── Vertical-aware invoice template + pricing breakdown ───────────
+  // Resolved once per invoice. Tire renders identically to the
+  // pre-Phase-2.1 implementation because TIRE_INVOICE_TEMPLATE is a
+  // verbatim port of today's data (single line item, "NOTES" label,
+  // tire-style servicePerformedFields).
+  const template: InvoiceTemplate = getInvoiceTemplate(resolveVerticalKey(settings));
+  const breakdown = computeBreakdownTagged(job, settings);
+  const friendlyService = template.resolveServiceName(job.service);
 
   // ═════════════════════════════════════════════════════════════════
   //  HEADER (#2): larger logo, stronger hierarchy, PAID badge
@@ -439,15 +417,25 @@ export async function generateInvoicePDF(
   doc.setFontSize(9.5);
   doc.setTextColor(...NEAR_BLK);
 
-  // Build the service details rows — only emit each one when known.
+  // Build the service details rows. Vertical-specific rows come from
+  // template.servicePerformedFields (tire: tireSize + vehicleType +
+  // optional used-tire indicator; mechanic: vehicle make/model +
+  // mileage + diagnostic code; detailing: vehicle size). Each row
+  // is emitted only when its formatted value is non-empty, so a
+  // tire job missing tireSize still produces today's exact output
+  // (no blank row).
   const serviceRows: Array<[string, string]> = [];
-  if (job.tireSize) serviceRows.push(['Tire Size', job.tireSize]);
-  if (job.vehicleType) serviceRows.push(['Vehicle', job.vehicleType]);
-  // Location: prefer fullLocationLabel ("Hollywood, FL") over bare area.
+  const jobBag = job as unknown as Record<string, unknown>;
+  for (const field of template.servicePerformedFields) {
+    const raw = jobBag[field.jobKey];
+    const value = field.format ? field.format(raw) : raw == null ? '' : String(raw);
+    if (value && value.trim()) serviceRows.push([field.label, value]);
+  }
+  // Location + Technician are shared across all verticals, so they
+  // remain hardcoded here (rather than living in every template's
+  // servicePerformedFields). Both still respect "skip when unknown".
   const locLabel = job.fullLocationLabel || job.area;
   if (locLabel) serviceRows.push(['Service Location', `Completed on-site in ${locLabel}`]);
-  // Technician — pulled from the optional opts arg so caller owns
-  // member-name resolution. Skip silently when unknown.
   if (opts.technicianName) serviceRows.push(['Technician', opts.technicianName]);
 
   for (const [label, value] of serviceRows) {
@@ -481,12 +469,42 @@ export async function generateInvoicePDF(
   doc.setFontSize(10);
   doc.setTextColor(...NEAR_BLK);
 
-  // One line item per job (#9 customer-friendly name).
-  doc.text(friendlyService, M + 3, y + 3);
-  doc.setFont('helvetica', 'bold');
-  doc.text(String(job.qty || 1), W - M - 30, y + 3);
-  doc.text(money(job.revenue || 0), W - M - 3, y + 3, { align: 'right' });
-  y += 9;
+  // Line items come from the vertical-aware template. Tire returns
+  // exactly one line (description + qty + revenue) — same render as
+  // pre-Phase-2.1. Mechanic returns one header row + per-component
+  // rows (Labor, Parts, Markup, Diagnostic, Travel). Each line is
+  // rendered with the same layout, so the table grows downward
+  // automatically.
+  //
+  // Column rendering rules:
+  //   - QTY:    rendered when `item.qty` is defined.
+  //   - AMOUNT: rendered when (a) the row has a qty (it's an item
+  //             line, always paired with an amount) OR (b) the
+  //             amount is > 0 (a cost component). Mechanic's header
+  //             row (qty undefined, amount 0) intentionally renders
+  //             description-only, like a section heading.
+  const lineItems: ReadonlyArray<InvoiceLineItem> = template.buildLineItems(job, breakdown, friendlyService);
+  for (let i = 0; i < lineItems.length; i += 1) {
+    const item = lineItems[i];
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.setTextColor(...NEAR_BLK);
+    doc.text(item.description, M + 3, y + 3);
+    if (item.qty !== undefined) {
+      doc.setFont('helvetica', 'bold');
+      doc.text(String(item.qty), W - M - 30, y + 3);
+    }
+    if (item.qty !== undefined || item.amount > 0) {
+      doc.setFont('helvetica', 'bold');
+      doc.text(money(item.amount), W - M - 3, y + 3, { align: 'right' });
+    }
+    y += 7;
+  }
+  // Trailing spacer to preserve the pre-2.1 9mm gap after the table
+  // when there is exactly one line item (the tire case: y += 9 was
+  // the original; loop already added 7, so 2 more here = 9).
+  if (lineItems.length === 1) y += 2;
+  else y += 1;
 
   // Light separator
   doc.setDrawColor(...LIGHT_GRAY);
@@ -561,14 +579,17 @@ export async function generateInvoicePDF(
   }
 
   // ═════════════════════════════════════════════════════════════════
-  //  NOTES (#10) — only when present
+  //  NOTES (#10) — only when present. Label is vertical-aware:
+  //  tire/detailing show "NOTES"; mechanic shows "RECOMMENDATIONS"
+  //  so the same job.note field reads as actionable customer advice
+  //  ("Belt showing wear, recommend replacement at next service").
   // ═════════════════════════════════════════════════════════════════
   if (job.note && job.note.trim()) {
     y += 3;
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7.5);
     doc.setTextColor(...GRAY);
-    doc.text('NOTES', M, y);
+    doc.text(template.notesLabel, M, y);
     y += 4.5;
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
