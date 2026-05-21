@@ -1,5 +1,12 @@
 import type { Job, Settings, InventoryDeduction } from '@/types';
 import { fmtDate, jobGrossProfit, money, paymentPillClass, resolvePaymentStatus, serviceIcon } from '@/lib/utils';
+import { useActiveLifecycle } from '@/lib/useActiveLifecycle';
+import { useMembership } from '@/context/MembershipContext';
+import { useBrand } from '@/context/BrandContext';
+import { useMembersDirectory } from '@/lib/useMembersDirectory';
+import { StagePicker } from '@/components/JobDetailModal/StagePicker';
+import { StageHistory } from '@/components/JobDetailModal/StageHistory';
+import type { JobLifecycleStage } from '@/config/jobs/lifecycle';
 
 interface Props {
   job: Job;
@@ -12,14 +19,20 @@ interface Props {
   onSendInvoice: () => void;
   onSendReview: () => void;
   onMarkPaid: () => void;
+  onStageTransition?: (toStage: JobLifecycleStage, toSubstage?: string) => void;
 }
 
 export function JobDetailModal({
   job, settings, onClose, onEdit, onDuplicate, onDelete,
   onGenerateInvoice, onSendInvoice, onSendReview, onMarkPaid,
+  onStageTransition,
 }: Props) {
   const profit = jobGrossProfit(job, settings);
   const ps = resolvePaymentStatus(job);
+  const resolved = useActiveLifecycle();
+  const { role } = useMembership();
+  const { businessId } = useBrand();
+  const { resolveName } = useMembersDirectory(businessId);
   const invDeds: InventoryDeduction[] | null = Array.isArray(job.inventoryDeductions)
     ? job.inventoryDeductions
     : null;
@@ -123,6 +136,24 @@ export function JobDetailModal({
               </div>
             )}
           </div>
+
+          {/* Sub-Project C: stage picker + history. Both render only
+              when the App passes an onStageTransition callback. */}
+          {onStageTransition && (
+            <>
+              <StagePicker
+                job={job}
+                resolved={resolved}
+                role={role}
+                onTransition={onStageTransition}
+              />
+              <StageHistory
+                job={job}
+                resolved={resolved}
+                resolveName={resolveName}
+              />
+            </>
+          )}
 
           {/* Mark Paid CTA — primary action when payment is outstanding.
               One tap = paid. No method picker, no edit mode. Roadside

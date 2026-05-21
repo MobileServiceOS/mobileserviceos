@@ -39,6 +39,9 @@ import {
   derivePartsMarginSnapshot,
   shouldWarnOnDeduction,
 } from '@/lib/mechanicJob';
+import { transitionJobStage } from '@/lib/jobLifecycle';
+import { resolveLifecycle } from '@/config/jobs';
+import type { JobLifecycleStage } from '@/config/jobs/lifecycle';
 import { generateInvoicePDF } from '@/lib/invoice';
 import { openReviewSMSFromJob } from '@/lib/review';
 import { APP_LOGO, DEFAULT_SETTINGS, EMPTY_JOB } from '@/lib/defaults';
@@ -801,6 +804,38 @@ function AuthenticatedApp({ user }: { user: User }) {
     }
   }, [businessId, jobs]);
 
+  // Sub-Project C: stage transition writer. Called from
+  // JobDetailModal's StagePicker. Atomically stamps lifecycleStage,
+  // appends to transitions[], and dual-writes legacy status fields
+  // via transitionJobStage(). Single Firestore write.
+  const handleStageTransition = useCallback(
+    async (job: Job, toStage: JobLifecycleStage, toSubstage?: string) => {
+      if (!businessId) return;
+      const jobsCol = scopedCol(businessId, 'jobs');
+      const verticalConfig = getBusinessTypeConfig(settings.businessType);
+      const resolvedLifecycle = resolveLifecycle(verticalConfig);
+      const next = transitionJobStage({
+        job,
+        toStage,
+        toSubstage,
+        byUid: _auth?.currentUser?.uid || '',
+        resolved: resolvedLifecycle,
+        settings,
+      });
+      try {
+        await fbSetFast(jobsCol, next.id, next);
+        // Refresh modal state immediately; snapshot listener will
+        // also fire shortly and reconcile.
+        setDetailJob(next);
+        addToast(`Stage → ${resolvedLifecycle.stageById.get(toStage)?.label ?? toStage}`, 'success');
+      } catch (e) {
+        console.error('[handleStageTransition] failed:', e);
+        addToast(`Stage update failed: ${humanizeFirestoreError(e)}`, 'error');
+      }
+    },
+    [businessId, settings],
+  );
+
   const handleGenerateInvoice = useCallback(async (j: Job) => {
     // generateInvoicePDF is async — it pre-loads the brand logo via fetch
     // before rendering. The previous code missed the await, so `result`
@@ -1065,6 +1100,9 @@ function AuthenticatedApp({ user }: { user: User }) {
           onSendInvoice={() => handleSendInvoice(detailJob)}
           onSendReview={() => handleSendReview(detailJob)}
           onMarkPaid={() => handleMarkPaid(detailJob)}
+          onStageTransition={(toStage, toSubstage) =>
+            handleStageTransition(detailJob, toStage, toSubstage)
+          }
         />
       )}
       <InstallBanner />
