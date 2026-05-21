@@ -4,6 +4,10 @@ dist-ssr
 *.local
 .DS_Store
 
+# Cloud Functions compiled output (tsc → functions/lib per
+# functions/tsconfig.json). Source of truth is functions/src.
+functions/lib
+
 # Env files: ignore secrets/local dev files, but DO commit .env.production
 # (Firebase web API keys are public-by-design — security comes from Auth domain
 # allowlist + Firestore rules, not from hiding the key.)
