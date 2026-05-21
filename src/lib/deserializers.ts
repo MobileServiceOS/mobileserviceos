@@ -1,4 +1,5 @@
-import type { Job, InventoryItem, Expense, InventoryDeduction, Settings, ServicePricing, JobStatus, PaymentStatus, TireSource } from '@/types';
+import type { Job, InventoryItem, Expense, InventoryDeduction, Settings, ServicePricing, JobStatus, PaymentStatus, TireSource, JobPartLine, PartsMarginSnapshot } from '@/types';
+import type { LifecycleTransition } from '@/config/jobs/lifecycle';
 import { EMPTY_JOB, DEFAULT_SERVICE_PRICING } from '@/lib/defaults';
 
 type RawDoc = Record<string, unknown> & { id: string };
@@ -103,6 +104,42 @@ export function deserializeJob(raw: RawDoc): Job {
     city: asString(raw.city, ''),
     state: asString(raw.state, ''),
     fullLocationLabel: asString(raw.fullLocationLabel, ''),
+
+    // ─── Multi-user (Phase 2.2 Sub-Project B) + Phase 2.1 attribution ─
+    createdByUid: raw.createdByUid == null ? undefined : asString(raw.createdByUid),
+    createdAt: raw.createdAt == null ? undefined : asString(raw.createdAt),
+    assignedToUid: raw.assignedToUid == null ? undefined : asString(raw.assignedToUid),
+
+    // ─── Mechanic job fields (Phase 2.1 + 2.2) ─────────────────────
+    laborHours: raw.laborHours == null ? undefined : asNumberOrString(raw.laborHours),
+    partsCost: raw.partsCost == null ? undefined : asNumberOrString(raw.partsCost),
+    diagnosticCode: raw.diagnosticCode == null ? undefined : asString(raw.diagnosticCode),
+    vehicleMakeModel: raw.vehicleMakeModel == null ? undefined : asString(raw.vehicleMakeModel),
+    mileage: raw.mileage == null ? undefined : asNumberOrString(raw.mileage),
+    diagnosticFee: raw.diagnosticFee == null ? undefined : asNumberOrString(raw.diagnosticFee),
+
+    // ─── Detailing job field ───────────────────────────────────────
+    vehicleSize: raw.vehicleSize == null ? undefined : asString(raw.vehicleSize),
+
+    // ─── Mechanic parts (Phase 2.2 Sub-Project A) ──────────────────
+    // parts is structured; let it pass through as the array. Same
+    // pattern as inventoryDeductions which already does this.
+    parts: Array.isArray(raw.parts)
+      ? (raw.parts as unknown as JobPartLine[])
+      : undefined,
+    partsInventoryDeductions: Array.isArray(raw.partsInventoryDeductions)
+      ? (raw.partsInventoryDeductions as unknown as InventoryDeduction[])
+      : null,
+    partsMarginSnapshot: raw.partsMarginSnapshot && typeof raw.partsMarginSnapshot === 'object'
+      ? (raw.partsMarginSnapshot as PartsMarginSnapshot)
+      : undefined,
+
+    // ─── Job lifecycle foundation (Phase 2.1 epilogue) ─────────────
+    lifecycleStage: raw.lifecycleStage == null ? undefined : (raw.lifecycleStage as Job['lifecycleStage']),
+    lifecycleSubstage: raw.lifecycleSubstage == null ? undefined : asString(raw.lifecycleSubstage),
+    transitions: Array.isArray(raw.transitions)
+      ? (raw.transitions as unknown as ReadonlyArray<LifecycleTransition>)
+      : undefined,
   };
 }
 

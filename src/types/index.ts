@@ -552,6 +552,13 @@ export interface Job {
   /** Per-job margin snapshot. Populated only when every part line
    *  has unitCost > 0 (a single zero invalidates the whole snapshot). */
   partsMarginSnapshot?: PartsMarginSnapshot;
+
+  // ─── Multi-user (Phase 2.2 Sub-Project B) ────────────────────────
+  /** The technician this job is assigned to. Set by owner/admin via
+   *  the AddJob assignment picker. Undefined = unassigned (legacy
+   *  jobs or owner/admin jobs that bypassed the picker). Technician
+   *  saves auto-stamp this to the creator's uid. */
+  assignedToUid?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────
