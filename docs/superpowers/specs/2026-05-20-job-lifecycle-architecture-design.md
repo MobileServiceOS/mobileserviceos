@@ -54,11 +54,31 @@ Rationale: the 13 universal stages are stable across mobile-service verticals; v
 
 Rationale: hard requirement from the user — "do NOT rewrite current job storage." The dual-write pattern means new writers and old readers coexist indefinitely; eventual single-write cleanup is a separate phase.
 
-### 3.4 Inline `transitions[]` storage, cap 50
+### 3.4 Inline `transitions[]` storage with configurable retention policy
 
-Append-only array on the Job doc. Most jobs see <10 stage transitions over their lifetime; cap at 50 is generous. When the cap is hit (rare; mostly long-running disputes), the oldest entries roll off into a future `jobs/{id}/transitions` subcollection if Phase 2.x audit-history work decides to keep them. Foundation only declares the inline shape.
+Append-only array on the Job doc. Most jobs see <10 stage transitions over their lifetime. The retention cap is **NOT hardcoded** — it lives behind a per-business-tier policy lookup so Phase 2.x can differentiate free / pro / enterprise without re-architecting:
 
-Rationale: simplest storage decision that supports timeline rendering today with a clear escape valve. Subcollections require extra reads on every job-detail render; the inline cap is one-read.
+```ts
+// src/lib/jobLifecycle.ts (foundation)
+export interface TransitionRetentionPolicy {
+  /** Maximum entries kept inline on the Job doc. Older entries are
+   *  dropped from inline storage; future Phase 2.x audit-history
+   *  feature may roll them into a jobs/{id}/transitions subcollection. */
+  inlineCap: number;
+}
+
+export function getTransitionRetentionPolicy(
+  settings: Settings,
+): TransitionRetentionPolicy {
+  // Phase 2.x: read settings.plan / billingTier / etc. to differentiate.
+  // For now every account gets the same conservative cap.
+  return { inlineCap: 50 };
+}
+```
+
+When Phase 2.x adds tier differentiation (e.g. enterprise gets `inlineCap: 500` plus subcollection mirroring; free gets `inlineCap: 20`), only `getTransitionRetentionPolicy` body changes — no caller sites edit.
+
+Rationale: the 50-entry inline cap is a sensible Phase 2.1 default, but the user noted that retention is a real revenue-tier differentiator. Pulling it behind a resolver function now means the system never grows hardcoded `50` references. Subcollections (`jobs/{id}/transitions`) require extra reads on every job-detail render; the inline cap is one-read.
 
 ### 3.5 No state-machine code in foundation
 
@@ -158,6 +178,25 @@ export interface StageSpec {
 
 ```ts
 export interface SubStageSpec {
+  /** Vertical-prefixed stable id to prevent collisions across
+   *  business types. Convention: `<verticalKey>.<snake_case_name>`.
+   *
+   *  Examples (the resolver does NOT enforce the prefix at runtime;
+   *  it's a convention so future readers can grep by namespace and
+   *  two verticals never accidentally share an id when the substage
+   *  picker is unioned across tenants):
+   *    'tire.awaiting_tire'
+   *    'mechanic.awaiting_parts'
+   *    'mechanic.parts_on_order'
+   *    'mechanic.parts_back_order'
+   *    'mechanic.diagnosis_pending'
+   *    'detailing.waiting_cure'
+   *    'locksmith.awaiting_keycode'   (future vertical)
+   *
+   *  Substages defined on universal stages would be a contradiction
+   *  (universals are vertical-agnostic). Substages always belong to
+   *  a vertical via the prefix; the parentStage points at the
+   *  universal stage they refine. */
   id: string;
   parentStage: JobLifecycleStage;
   label: string;
@@ -270,9 +309,9 @@ Undefined / omitted. Universal-only is the right default — every universal sta
 ```ts
 {
   substages: [
-    { id: 'parts_on_order',  parentStage: 'waiting_parts', label: 'Parts on order',  technicianVisible: true, customerVisible: true },
-    { id: 'parts_back_order', parentStage: 'waiting_parts', label: 'Parts back-order', technicianVisible: true, customerVisible: true },
-    { id: 'diagnosis_pending', parentStage: 'in_progress', label: 'Diagnosing',       technicianVisible: true, customerVisible: false },
+    { id: 'mechanic.parts_on_order',    parentStage: 'waiting_parts', label: 'Parts on order',    technicianVisible: true, customerVisible: true },
+    { id: 'mechanic.parts_back_order',  parentStage: 'waiting_parts', label: 'Parts back-order',  technicianVisible: true, customerVisible: true },
+    { id: 'mechanic.diagnosis_pending', parentStage: 'in_progress',   label: 'Diagnosing',        technicianVisible: true, customerVisible: false },
   ],
 }
 ```
@@ -313,7 +352,31 @@ Every existing job — Wheel Rush's entire history, every other tire account, me
 ### 8.2 Inverse function (write-side dual-stamp)
 
 ```ts
-export function legacyStatusFromStage(stage: JobLifecycleStage): {
+/** Context the inverse function reads to decide whether to set
+ *  paymentStatus / invoiceGenerated. Keeps accounting assumptions
+ *  out of the lifecycle layer — the lifecycle layer never invents
+ *  a paymentStatus on the operator's behalf. */
+export interface LegacyMirrorContext {
+  /** Does the business have an invoice generation flow enabled?
+   *  Today this is universally true (every business can generate
+   *  invoices), but the type leaves a hook for future tiers that
+   *  disable invoicing entirely. */
+  invoicingEnabled?: boolean;
+  /** Does the business have payment tracking enabled? Today this
+   *  is universally true (Wheel Rush + tire users rely on it).
+   *  Detailing businesses that don't track payments would set this
+   *  to false; the dual-write then never invents 'Pending Payment'. */
+  paymentTrackingEnabled?: boolean;
+  /** The current Job, so the inverse can preserve existing flags it
+   *  shouldn't clear. e.g. a 'completed'-stage write should keep a
+   *  pre-existing invoiceGenerated: true rather than clobbering. */
+  job?: Pick<Job, 'invoiceGenerated' | 'paymentStatus'>;
+}
+
+export function legacyStatusFromStage(
+  stage: JobLifecycleStage,
+  ctx: LegacyMirrorContext = {},
+): {
   status: JobStatus;
   paymentStatus?: PaymentStatus;
   invoiceGenerated?: boolean;
@@ -321,12 +384,40 @@ export function legacyStatusFromStage(stage: JobLifecycleStage): {
   switch (stage) {
     case 'canceled':
       return { status: 'Cancelled' };
-    case 'paid':
-      return { status: 'Completed', paymentStatus: 'Paid', invoiceGenerated: true };
-    case 'invoiced':
-      return { status: 'Completed', paymentStatus: 'Pending Payment', invoiceGenerated: true };
-    case 'completed':
-      return { status: 'Completed' };
+
+    case 'paid': {
+      // Only set paymentStatus + invoiceGenerated when the business
+      // tracks them. Otherwise just mark the legacy status.
+      const next: ReturnType<typeof legacyStatusFromStage> = { status: 'Completed' };
+      if (ctx.paymentTrackingEnabled !== false) next.paymentStatus = 'Paid';
+      if (ctx.invoicingEnabled !== false) next.invoiceGenerated = true;
+      return next;
+    }
+
+    case 'invoiced': {
+      // The lifecycle layer does NOT auto-assert 'Pending Payment'.
+      // Reason: 'invoiced' means a customer-facing invoice has been
+      // generated, not that the payment-tracking flow has been
+      // started. A detailing business that bills cash-on-delivery
+      // might generate an invoice and immediately collect cash —
+      // forcing 'Pending Payment' here would briefly misrepresent
+      // the state.
+      const next: ReturnType<typeof legacyStatusFromStage> = { status: 'Completed' };
+      if (ctx.invoicingEnabled !== false) next.invoiceGenerated = true;
+      // Preserve any prior paymentStatus the writer hasn't touched.
+      if (ctx.job?.paymentStatus) next.paymentStatus = ctx.job.paymentStatus;
+      return next;
+    }
+
+    case 'completed': {
+      // Preserve any prior flags. Don't overwrite invoiceGenerated
+      // or paymentStatus when collapsing to legacy 'Completed'.
+      const next: ReturnType<typeof legacyStatusFromStage> = { status: 'Completed' };
+      if (ctx.job?.invoiceGenerated) next.invoiceGenerated = true;
+      if (ctx.job?.paymentStatus) next.paymentStatus = ctx.job.paymentStatus;
+      return next;
+    }
+
     case 'lead':
     case 'quoted':
     case 'scheduled':
@@ -341,7 +432,7 @@ export function legacyStatusFromStage(stage: JobLifecycleStage): {
 }
 ```
 
-Phase 2.x writers stamp **both** `lifecycleStage` and the legacy fields. Old readers (Dashboard `j.status === 'Completed'` checks, JobDetailModal pill, JobSuccessPanel branches, `resolvePaymentStatus()`) keep working unchanged.
+Phase 2.x writers call `legacyStatusFromStage(newStage, { invoicingEnabled, paymentTrackingEnabled, job })` and stamp the returned fields alongside `lifecycleStage`. Old readers (Dashboard `j.status === 'Completed'` checks, JobDetailModal pill, JobSuccessPanel branches, `resolvePaymentStatus()`) keep working unchanged AND the lifecycle layer never invents accounting flags the business hasn't opted into.
 
 ### 8.3 Phased reader migration
 
@@ -386,7 +477,36 @@ stageOverrides: { dispatched: { technicianVisible: false } }
 
 ## 10. Notification hooks (declared now, dispatched later)
 
-Foundation declares `StageNotificationSpec[]` per stage. Phase 2.x notification dispatcher reads these declaratively. The dispatcher itself is out of scope for this spec.
+Foundation declares `StageNotificationSpec[]` per stage. **Universal baseline + vertical override + vertical extension are all supported.** Phase 2.x notification dispatcher reads these declaratively. The dispatcher itself is out of scope for this spec.
+
+Resolution order (in `resolveLifecycle`):
+
+1. **Universal baseline** — each universal stage declares a `notifications?` array of "sane defaults" the platform considers expected behavior. Examples baked in:
+   - `dispatched` → owner in-app, `tech_assigned`, first_entry per job per technician.
+   - `enroute` → customer SMS, `tech_on_the_way`, every_entry.
+   - `onsite` → customer SMS, `tech_arrived`, every_entry.
+   - `completed` → owner in-app, `job_done`, first_entry.
+   - `invoiced` → customer email, `invoice_sent`, every_entry.
+   - `paid` → customer SMS, `thank_you_review_request`, first_entry; owner in-app, `payment_received`, every_entry.
+
+2. **Vertical extension** — if `stageOverrides[stageId].notifications` is an array, it REPLACES the universal baseline for that stage. The vertical owns the full set. (Replace, not merge — because allowing the vertical to "extend without suppressing" can cause duplicate sends when the vertical author thinks they're adding one notification but the universal baseline still fires too. Explicit replace makes the contract honest.)
+
+3. **Empty array** — `stageOverrides[stageId].notifications = []` is the explicit "this vertical suppresses all notifications on this stage" signal. Different from `undefined` (which means "no override; keep baseline").
+
+```ts
+// Mechanic example: suppress the universal customer SMS on `enroute`
+// (mechanics often quote arrival windows by phone already), keep the
+// owner notification (replicated explicitly), add a mechanic-specific
+// in-app for the dispatcher.
+stageOverrides: {
+  enroute: {
+    notifications: [
+      { audience: 'owner',  channel: 'in_app', templateId: 'mechanic_tech_dispatched', fireMode: 'every_entry' },
+      // No customer SMS — universal baseline replaced wholesale.
+    ],
+  },
+}
+```
 
 Concrete contract for Phase 2.x dispatcher:
 1. Receive a "job transition committed" event (some pub/sub or just a function call from the writer).
@@ -458,12 +578,25 @@ Existing tire job docs omit all three. Reads use `deriveLifecycleStage()` to com
 
 For the foundation commit (when implementation lands):
 1. `npm run build` clean.
-2. Add a small smoke test or runtime self-check: `resolveLifecycle(TIRE_CONFIG).stages.length === 13` and the same for MECHANIC / DETAILING (mechanic 13, detailing 12 — `waiting_parts` omitted).
+2. Add a small runtime smoke check: `resolveLifecycle(TIRE_CONFIG).stages.length === 13` and the same for MECHANIC / DETAILING (mechanic 13, detailing 12 — `waiting_parts` omitted).
 3. `deriveLifecycleStage()` round-trips: for every existing legacy `(status, paymentStatus, invoiceGenerated)` triple, the derived stage maps back via `legacyStatusFromStage()` to a compatible legacy triple. Inline assertion block in the helper file.
 4. Tire smoke test on a real Wheel Rush job: existing `j.status === 'Completed'` still fires; `deriveLifecycleStage(j)` returns one of `completed | invoiced | paid`.
 
 For Phase 2.x writers when they land:
 5. First writer's commit demonstrates: explicit stage write + transition append + legacy dual-write + tire reader (Dashboard) still shows the correct legacy pill.
+
+### 14.1 Test-readiness of lifecycle utilities
+
+Every lifecycle utility is designed to be a **pure function with no hidden dependencies**, so future formal tests (vitest / jest / whatever is wired up later) can exercise them in isolation without mocking BrandContext, Firestore, or any other side-effectful boundary:
+
+- `resolveLifecycle(vertical: BusinessTypeConfig) -> ResolvedLifecycle` — pure; reads only its argument.
+- `deriveLifecycleStage(job: Job) -> JobLifecycleStage` — pure; reads only the job.
+- `legacyStatusFromStage(stage, ctx?) -> { status, paymentStatus?, invoiceGenerated? }` — pure; reads only its arguments. The `ctx` parameter is the entire side-channel — no global lookup.
+- `isRecommendedNext(from, to, resolvedLifecycle) -> boolean` — pure.
+- `appendTransition(job, entry, retentionPolicy) -> Job` — pure; returns a new Job object; retention cap is passed in (no global lookup).
+- `getTransitionRetentionPolicy(settings) -> TransitionRetentionPolicy` — pure; reads only settings.
+
+Mixed I/O (Firestore writes, notification dispatch) lives in the eventual writer / dispatcher Phase 2.x components, not in the foundation utilities. When a test runner is wired up, every foundation utility tests directly without setup boilerplate.
 
 ## 15. Out-of-scope follow-ups
 
@@ -476,15 +609,16 @@ These are the natural sub-projects that USE this foundation. Each gets its own s
 - **Phase 2.x — Customer status page.** Reads stages with `customerVisible: true` to render a job-progress page.
 - **Phase 2.x — Audit reports.** Reads `transitions[]` to surface "average time in each stage", "out-of-flow transition frequency", etc.
 
-## 16. Open questions for review
+## 16. Resolved decisions (post-review)
 
-None blocking — every architectural call has been made and noted above. Flag any of these you want to revisit before implementation:
+All architectural calls in this spec have been confirmed by the user. Locked decisions:
 
-1. **Should `transitions[]` cap default to 50 or higher?** Spec proposes 50.
-2. **Should `substages` be required to be vertical-namespaced** (e.g. `mechanic_parts_on_order`) or allowed to be flat (`parts_on_order`)? Spec proposes flat strings; namespace collisions are a non-issue today.
-3. **Should `legacyStatusFromStage('invoiced')` write `paymentStatus: 'Pending Payment'`** unconditionally, or leave `paymentStatus` undefined and let the writer set it? Spec proposes 'Pending Payment' as a sensible default; writers can override.
-4. **Should `notifications` declarations on UNIVERSAL stages (vs `stageOverrides`) be allowed at all?** Spec proposes yes — there's a "tier-1 baseline" of customer notifications (tech-on-the-way, payment-received) that every vertical wants. Vertical overrides can add more or suppress universal ones.
+1. **Transition retention is a tier-aware policy, not a hardcoded constant.** `getTransitionRetentionPolicy(settings)` returns `{ inlineCap: 50 }` for every account in this foundation phase. Phase 2.x can read `settings.plan` / billing tier and differentiate (free / pro / enterprise) without touching call sites. See §3.4.
+2. **Substage ids use the `<verticalKey>.<snake_case>` convention** from the start (`tire.awaiting_tire`, `mechanic.parts_on_order`, `detailing.waiting_cure`, etc.). Universal parent stages stay generic and vertical-agnostic. The resolver does not enforce the prefix at runtime — convention only, plus a console warning if two substages share an id. See §5.3.
+3. **`legacyStatusFromStage` takes a `LegacyMirrorContext` argument** so it never invents accounting flags. `'invoiced'` only sets `invoiceGenerated: true` when `invoicingEnabled !== false`; it never auto-sets `paymentStatus: 'Pending Payment'`. `'paid'` only sets `paymentStatus: 'Paid'` when `paymentTrackingEnabled !== false`. See §8.2.
+4. **Both universal-baseline AND vertical-override notifications are supported.** Universal stages declare sensible platform defaults (tech-on-the-way SMS, invoice-sent email, payment-received, etc.). Vertical `stageOverrides[stage].notifications` REPLACES the baseline wholesale (explicit replace prevents accidental duplicate sends); `notifications: []` is the explicit "suppress all on this stage" signal. See §10.
+5. **Lifecycle utilities are pure functions designed for future test injection.** Every helper takes its dependencies as arguments — no global lookups, no implicit BrandContext or Firestore reads. Mixed-I/O code (the eventual writer + notification dispatcher) lives in Phase 2.x consumers, not in the foundation. See §14.1.
 
 ---
 
-**Reviewer:** please respond with approval or change requests. Once approved, the next step is `superpowers:writing-plans` to produce the implementation plan from this spec.
+**Reviewer:** Spec approved with the above adjustments. Proceeding to `superpowers:writing-plans` for the implementation plan.
