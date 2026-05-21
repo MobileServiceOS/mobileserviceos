@@ -273,3 +273,41 @@ export function transitionJobStage(ctx: TransitionContext): Job {
     lastEditedAt: at,
   };
 }
+
+// ─────────────────────────────────────────────────────────────────
+//  Timeline rendering helper (Sub-Project C)
+// ─────────────────────────────────────────────────────────────────
+
+export interface HistoryRow {
+  at: string;
+  stageLabel: string;
+  fromStageLabel?: string;
+  actorLabel: string;
+  outOfFlow: boolean;
+  note?: string;
+}
+
+/**
+ * Build timeline rows for a job, newest-first. Resolves stage labels
+ * via the supplied ResolvedLifecycle (so vertical overrides apply)
+ * and actor labels via the supplied resolveName function (which
+ * mirrors the useMembersDirectory signature). Pure — fully testable
+ * without React.
+ */
+export function historyEntries(
+  job: Pick<Job, 'transitions'>,
+  resolved: ResolvedLifecycle,
+  resolveName: (uid: string | undefined | null) => string | null,
+): HistoryRow[] {
+  const entries = job.transitions ?? [];
+  return entries.slice().reverse().map((e) => ({
+    at: e.at,
+    stageLabel: resolved.stageById.get(e.toStage)?.label ?? e.toStage,
+    fromStageLabel: e.fromStage
+      ? (resolved.stageById.get(e.fromStage)?.label ?? e.fromStage)
+      : undefined,
+    actorLabel: resolveName(e.byUid) ?? 'Unknown',
+    outOfFlow: e.outOfFlow === true,
+    note: e.note,
+  }));
+}
