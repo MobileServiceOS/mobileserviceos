@@ -51,6 +51,12 @@ export function JobDetailModal({
   const [payMethod, setPayMethod] = useState<PaymentMethod>(
     (job.paymentMethod as PaymentMethod | undefined) || 'cash',
   );
+  // Edit affordance for a paid job's method. Closed by default —
+  // expands to a chip row when the operator taps "Change" next to
+  // the timestamp. Fires onMarkPaid(method) which re-runs the same
+  // write path (paymentStatus stays 'Paid', paidAt preserved,
+  // paymentMethod updated).
+  const [editingMethod, setEditingMethod] = useState(false);
   const resolved = useActiveLifecycle();
   const { role, member } = useMembership();
   const myUid = member?.uid || null;
@@ -169,27 +175,86 @@ export function JobDetailModal({
               <span className="label">Payment</span>
               <span className={'pill ' + paymentPillClass(ps)}>{ps}</span>
             </div>
-            {/* Paid metadata: show when payment is in. Helpful for the
-                operator to confirm the job was correctly marked. */}
+            {/* Paid metadata: shows after Mark Paid. The method label
+                uses PAYMENT_METHOD_LABELS so we render "Cash App" not
+                "cashapp" (the canonical lowercase store value). The
+                "Change" affordance reopens the chip picker so an
+                operator who marked paid with the wrong method (e.g.
+                hit Mark Paid on auto-cash before realizing it was
+                Zelle) can correct it without leaving the modal. */}
             {ps === 'Paid' && job.paidAt && (
-              <div style={{
-                marginTop: 4,
-                padding: '8px 12px',
-                background: 'rgba(34,197,94,.06)',
-                border: '1px solid rgba(34,197,94,.2)',
-                borderRadius: 8,
-                fontSize: 11,
-                color: 'var(--t2)',
-                display: 'flex',
-                justifyContent: 'space-between',
-              }}>
-                <span>Paid{job.paymentMethod ? ` via ${job.paymentMethod}` : ''}</span>
-                <span style={{ color: 'var(--t3)' }}>
-                  {new Date(job.paidAt).toLocaleString(undefined, {
-                    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
-                  })}
-                </span>
-              </div>
+              <>
+                <div style={{
+                  marginTop: 4,
+                  padding: '8px 12px',
+                  background: 'rgba(34,197,94,.06)',
+                  border: '1px solid rgba(34,197,94,.2)',
+                  borderRadius: 8,
+                  fontSize: 11,
+                  color: 'var(--t2)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: 8,
+                }}>
+                  <span>
+                    Paid{job.paymentMethod
+                      ? ` via ${PAYMENT_METHOD_LABELS[job.paymentMethod as PaymentMethod] ?? job.paymentMethod}`
+                      : ''}
+                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ color: 'var(--t3)' }}>
+                      {new Date(job.paidAt).toLocaleString(undefined, {
+                        month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+                      })}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setEditingMethod((v) => !v)}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: 'var(--brand-primary)',
+                        fontSize: 11,
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        padding: '2px 4px',
+                      }}
+                    >
+                      {editingMethod ? 'Done' : 'Change'}
+                    </button>
+                  </div>
+                </div>
+                {editingMethod && (
+                  <div style={{
+                    display: 'flex', flexWrap: 'wrap', gap: 6,
+                    marginTop: 6, padding: '8px 0',
+                  }}>
+                    {(['cash', 'card', 'zelle', 'venmo', 'cashapp', 'check', 'apple_pay', 'google_pay', 'other'] as PaymentMethod[]).map((m) => {
+                      const selected = (job.paymentMethod as PaymentMethod | undefined) === m;
+                      return (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => onMarkPaid(m)}
+                          aria-pressed={selected}
+                          style={{
+                            padding: '6px 10px',
+                            borderRadius: 8,
+                            background: selected ? 'rgba(34,197,94,.10)' : 'var(--s3)',
+                            border: selected ? '1px solid var(--green)' : '1px solid var(--border)',
+                            color: selected ? 'var(--green)' : 'var(--t2)',
+                            fontSize: 11, fontWeight: selected ? 700 : 600,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {PAYMENT_METHOD_LABELS[m]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
             )}
           </div>
 

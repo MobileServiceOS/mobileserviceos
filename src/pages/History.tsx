@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { Job, Settings } from '@/types';
+import { PAYMENT_METHOD_LABELS } from '@/types';
 import { fmtDate, jobGrossProfit, money, paymentPillClass, resolvePaymentStatus, serviceIcon } from '@/lib/utils';
 import { useBrand } from '@/context/BrandContext';
 import { useMembersDirectory } from '@/lib/useMembersDirectory';
@@ -199,6 +200,18 @@ function HistoryJobCard({
           <div className="value green">{money(job.revenue)}</div>
           <div style={{ fontSize: 11, color: pr >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>{money(pr)}</div>
           <span className={'pill ' + paymentPillClass(ps)} style={{ marginTop: 4 }}>{ps}</span>
+          {/* Method badge under the Paid pill. Helps operators scan
+              history for "did this job actually clear via Zelle vs.
+              cash?" without opening the detail modal. Hidden when
+              unpaid or no method recorded (legacy jobs). */}
+          {ps === 'Paid' && job.paymentMethod ? (
+            <span style={{
+              fontSize: 10, fontWeight: 600, color: 'var(--t3)',
+              marginTop: 2, letterSpacing: 0.2,
+            }}>
+              {PAYMENT_METHOD_LABELS[job.paymentMethod as keyof typeof PAYMENT_METHOD_LABELS] ?? job.paymentMethod}
+            </span>
+          ) : null}
         </div>
       </div>
       {ps !== 'Paid' && ps !== 'Cancelled' && (

@@ -928,14 +928,16 @@ function AuthenticatedApp({ user }: { user: User }) {
     const jobsCol = scopedCol(businessId, 'jobs');
     // Stamp paidAt + paymentMethod so JobDetailModal's
     // "Paid via X · {timestamp}" block and invoice.ts's
-    // payment-timestamp line both render correctly. Preserve any
-    // pre-existing paidAt / paymentMethod (e.g. set by backup-
-    // import) so re-marking doesn't overwrite the original record.
+    // payment-timestamp line both render correctly. paidAt always
+    // sticks (preserves backup-import original date). paymentMethod
+    // prefers explicit `method` arg — lets the "Change" affordance
+    // on an already-paid job overwrite a wrong method. Falls back
+    // to whatever's stored, then cash.
     const updated: Job = {
       ...j,
       paymentStatus: 'Paid',
       paidAt: j.paidAt || new Date().toISOString(),
-      paymentMethod: j.paymentMethod || method || 'cash',
+      paymentMethod: method || j.paymentMethod || 'cash',
     };
     try {
       await fbSetFast(jobsCol, j.id, updated);
