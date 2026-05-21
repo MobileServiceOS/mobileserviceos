@@ -41,6 +41,10 @@ export interface LaborPartsPricingModel {
 export interface PackageMultiplierPricingModel {
   kind: 'package_multiplier';
   vehicleSizeMultipliers: Record<string, number>;
+  /** Service-floor minimum; the engine raises the suggested price to
+   *  this when the computed value would be lower. Mirrors the
+   *  labor_parts engine's defaultMinServiceCharge. Added Phase 2.3. */
+  defaultMinServiceCharge?: number;
 }
 
 export type PricingModel =
@@ -58,6 +62,11 @@ export interface BusinessTypeService {
   defaultBasePrice: number;
   defaultMinProfit: number;
   enabledByDefault: boolean;
+  /** Detailing-only (Phase 2.3): when true, this service renders in
+   *  the AddJob add-ons multi-select rather than the primary Service
+   *  chip-grid. Other verticals leave undefined; the AddJob renderer
+   *  treats undefined as `false`. */
+  isAddOn?: boolean;
 }
 
 export interface BusinessTypeJobField {
@@ -80,6 +89,10 @@ export interface BusinessTypeCopy {
   jobNounPlural: string;
   emptyJobsHint: string;
   inventoryLabel: string;
+  /** Optional override for the AddJob "Service" section title. When
+   *  defined, replaces "Service" — used by detailing to render
+   *  "Package". Undefined verticals keep the default. */
+  packageLabel?: string;
 }
 
 // ─── Feature flags (new in 2.1) ────────────────────────────────────

@@ -563,6 +563,12 @@ export interface Job {
    *  jobs or owner/admin jobs that bypassed the picker). Technician
    *  saves auto-stamp this to the creator's uid. */
   assignedToUid?: string;
+
+  // ─── Detailing (Phase 2.3) ───────────────────────────────────────
+  /** Optional add-on service ids selected on AddJob. Each id resolves
+   *  to a service in the active vertical's catalog at invoice render
+   *  time. Tire / mechanic jobs leave this undefined. */
+  detailingAddons?: ReadonlyArray<string>;
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -893,8 +899,11 @@ export interface QuoteForm {
   partsCost?: number | string;
   diagnosticFee?: number | string;
 
-  // ─── Detailing-quote input (optional; Phase 2.3 populates) ──────
+  // ─── Detailing-quote input (Phase 2.3) ──────────────────────────
   vehicleSize?: string;
+  /** Detailing add-on service ids selected on the quote form. Each
+   *  resolves to a service in settings.servicePricing at calc time. */
+  detailingAddons?: ReadonlyArray<string>;
 }
 
 export interface QuoteResult {

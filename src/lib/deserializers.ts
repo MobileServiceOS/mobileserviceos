@@ -119,8 +119,11 @@ export function deserializeJob(raw: RawDoc): Job {
     mileage: raw.mileage == null ? undefined : asNumberOrString(raw.mileage),
     diagnosticFee: raw.diagnosticFee == null ? undefined : asNumberOrString(raw.diagnosticFee),
 
-    // ─── Detailing job field ───────────────────────────────────────
+    // ─── Detailing job fields (Phase 2.1 + 2.3) ────────────────────
     vehicleSize: raw.vehicleSize == null ? undefined : asString(raw.vehicleSize),
+    detailingAddons: Array.isArray(raw.detailingAddons)
+      ? (raw.detailingAddons as unknown[]).map((v) => asString(v))
+      : undefined,
 
     // ─── Mechanic parts (Phase 2.2 Sub-Project A) ──────────────────
     // parts is structured; let it pass through as the array. Same
