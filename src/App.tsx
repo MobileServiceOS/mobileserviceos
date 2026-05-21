@@ -811,13 +811,10 @@ function AuthenticatedApp({ user }: { user: User }) {
     }
   }, [businessId, jobs]);
 
-  // Sub-Project C + D: stage transition writer. Atomically:
+  // Stage transition writer. Atomically:
   //   - Stamps lifecycleStage + lifecycleSubstage
   //   - Appends to transitions[]
   //   - Dual-writes legacy status fields via transitionJobStage()
-  // Notification dispatch (Sub-Project D / CRM hooks) was removed
-  // by user request — the dispatcher / NotificationsBell / Panel
-  // are unmounted. Lifecycle transitions still record cleanly.
   const handleStageTransition = useCallback(
     async (job: Job, toStage: JobLifecycleStage, toSubstage?: string) => {
       if (!businessId) return;
