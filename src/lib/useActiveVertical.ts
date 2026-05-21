@@ -28,44 +28,17 @@
 
 import { useMemo } from 'react';
 import { useBrand } from '@/context/BrandContext';
-import {
-  type VerticalKey,
-  type VerticalConfig,
-  getVerticalConfig,
-} from '@/lib/verticals';
-import { resolveVerticalKey } from '@/lib/verticalContext';
-import type { Settings } from '@/types';
-
-/**
- * Resolve the active VerticalConfig from a raw businessType value.
- *
- * Pure and side-effect free — safe to call anywhere (not only in
- * React components). An absent/unknown businessType resolves to the
- * tire vertical. Always returns a valid config.
- */
-export function verticalFromBusinessType(
-  businessType: string | null | undefined,
-): VerticalConfig {
-  // resolveVerticalKey expects a Settings-shaped object; wrap the
-  // bare businessType so the one validation path is reused rather
-  // than duplicating the known-key check here.
-  const key: VerticalKey = resolveVerticalKey(
-    { businessType } as unknown as Settings,
-  );
-  return getVerticalConfig(key);
-}
-
-/**
- * Resolve the active VerticalConfig from a Settings object.
- *
- * For call sites that already hold `settings` (e.g. components below
- * MembershipProvider). Pure — does not use React context.
- */
-export function verticalFromSettings(
-  settings: Settings | null | undefined,
-): VerticalConfig {
-  return verticalFromBusinessType(settings?.businessType);
-}
+import { type VerticalKey, type VerticalConfig } from '@/lib/verticals';
+// Pure resolvers live in verticalContext.ts so non-React code (tests,
+// off-context helpers) can import them without dragging the React /
+// Firebase tree. We re-export here for back-compat with prior import
+// sites that read `verticalFromBusinessType` and `verticalFromSettings`
+// from this module.
+export {
+  verticalFromBusinessType,
+  verticalFromSettings,
+} from '@/lib/verticalContext';
+import { verticalFromBusinessType } from '@/lib/verticalContext';
 
 /**
  * React hook: the VerticalConfig for the business currently active

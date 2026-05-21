@@ -108,3 +108,36 @@ export function isVertical(
 ): boolean {
   return resolveVerticalKey(settings) === key;
 }
+
+/**
+ * Resolve the active VerticalConfig from a raw businessType value.
+ *
+ * Pure and side-effect free — safe to import from non-React code
+ * (tests, server-side, lib helpers). Lives here rather than in
+ * useActiveVertical.ts so test harnesses don't pull in the React
+ * context chain (which transitively imports Firebase).
+ *
+ * Accepts: vertical keys ('tire' | 'mechanic' | 'detailing'), legacy
+ * display strings ('Mobile Tire & Roadside'), null, undefined, or
+ * anything else — always returns a valid config, defaulting to tire.
+ */
+export function verticalFromBusinessType(
+  businessType: string | null | undefined,
+): VerticalConfig {
+  const key: VerticalKey = resolveVerticalKey(
+    { businessType } as unknown as Settings,
+  );
+  return getVerticalConfig(key);
+}
+
+/**
+ * Resolve the active VerticalConfig from a Settings object.
+ *
+ * For call sites that already hold `settings` (e.g. components below
+ * MembershipProvider). Pure — does not use React context.
+ */
+export function verticalFromSettings(
+  settings: Settings | null | undefined,
+): VerticalConfig {
+  return verticalFromBusinessType(settings?.businessType);
+}
