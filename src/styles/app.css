@@ -200,7 +200,9 @@ a { color: var(--brand-primary); text-decoration: none; }
   max-width: 100%;
 }
 .card-pad { padding: 14px; }
-.section-label { font-size: 11px; font-weight: 800; color: var(--t2); text-transform: uppercase; letter-spacing: 1.5px; margin: 26px 0 10px 0; }
+/* Major section header — Title Case (was ALL CAPS micro-label
+   styling). Larger + brighter so it reads as a header, not a tag. */
+.section-label { font-size: 14px; font-weight: 700; color: var(--t1); letter-spacing: -.1px; margin: 26px 0 10px 0; }
 .section-label.with-action { display: flex; justify-content: space-between; align-items: baseline; }
 .section-label-hint { font-size: 10px; color: var(--t3); text-transform: none; letter-spacing: 0; font-weight: 500; }
 
@@ -330,7 +332,10 @@ a { color: var(--brand-primary); text-decoration: none; }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
 
 .form-group { background: var(--s1); border: 1px solid var(--border); border-radius: 14px; padding: 16px; margin-bottom: 20px; max-width: 100%; }
-.form-group-title { font-size: 11px; font-weight: 800; color: var(--t2); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
+/* Card section header — Title Case. Brighter + larger than the
+   old ALL-CAPS label treatment so each form card has a clear
+   header → content hierarchy. */
+.form-group-title { font-size: 14px; font-weight: 700; color: var(--t1); letter-spacing: -.1px; margin-bottom: 12px; }
 
 /* ── Chips ──────────────────────────────────────────────── */
 .chip-grid { display: flex; flex-wrap: wrap; gap: 6px; }
