@@ -1,7 +1,6 @@
 import { useBrand } from '@/context/BrandContext';
 import { APP_LOGO } from '@/lib/defaults';
 import { BusinessSwitcher } from '@/components/BusinessSwitcher';
-import { NotificationsBell } from '@/components/NotificationsBell';
 import type { SyncStatus } from '@/types';
 
 interface Props {
@@ -55,7 +54,6 @@ export function Header({ syncStatus, onSignOut }: Props) {
         {/* BusinessSwitcher renders only when the user owns more than
             one business. For a single-business operator it returns
             null and the Header is visually unchanged. */}
-        <NotificationsBell />
         <BusinessSwitcher activeLabel={brand.businessName || 'Mobile Service OS'} />
         <span className={pill.className} title={pill.title}>{pill.label}</span>
         <button

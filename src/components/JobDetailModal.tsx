@@ -4,11 +4,9 @@ import { useActiveLifecycle } from '@/lib/useActiveLifecycle';
 import { useMembership } from '@/context/MembershipContext';
 import { useBrand } from '@/context/BrandContext';
 import { useMembersDirectory } from '@/lib/useMembersDirectory';
-import { useNotifications } from '@/lib/useNotifications';
 import { StagePicker } from '@/components/JobDetailModal/StagePicker';
 import { StageHistory } from '@/components/JobDetailModal/StageHistory';
 import { JobTimer } from '@/components/JobDetailModal/JobTimer';
-import { buildSmsUri, buildMailtoUri, openMessagingUri } from '@/lib/openMessagingUri';
 import type { JobLifecycleStage } from '@/config/jobs/lifecycle';
 
 interface Props {
@@ -37,12 +35,6 @@ export function JobDetailModal({
   const myUid = member?.uid || null;
   const { businessId } = useBrand();
   const { resolveName } = useMembersDirectory(businessId);
-  const { notifications, markSent } = useNotifications();
-  const pendingForThisJob = notifications.filter(
-    (n) => n.jobId === job.id &&
-           (n.channel === 'sms' || n.channel === 'email') &&
-           !n.sentAt,
-  );
   const invDeds: InventoryDeduction[] | null = Array.isArray(job.inventoryDeductions)
     ? job.inventoryDeductions
     : null;
@@ -175,43 +167,6 @@ export function JobDetailModal({
             resolveName={resolveName}
           />
 
-          {/* Sub-Project D: pending customer messages for this job.
-              Tap-to-send via the OS messaging app. */}
-          {pendingForThisJob.length > 0 && (
-            <div className="form-group" style={{ marginBottom: 12 }}>
-              <div className="form-group-title">Pending customer messages</div>
-              {pendingForThisJob.map((n) => {
-                const missingTarget = n.channel === 'email' ? !n.toEmail : !n.toPhone;
-                return (
-                  <button
-                    key={n.id}
-                    type="button"
-                    onClick={async () => {
-                      const uri = n.channel === 'sms'
-                        ? buildSmsUri(n.toPhone || '', n.body)
-                        : buildMailtoUri(n.toEmail || '', n.subject || '', n.body);
-                      openMessagingUri(uri);
-                      await markSent(n.id);
-                    }}
-                    disabled={missingTarget}
-                    className="btn sm secondary"
-                    style={{
-                      width: '100%', textAlign: 'left', marginBottom: 6,
-                      opacity: missingTarget ? 0.5 : 1,
-                    }}
-                  >
-                    {n.channel === 'sms' ? '📱' : '✉️'}{' '}
-                    Send {n.subject || n.body.split('\n')[0]}
-                    {missingTarget && (
-                      <span style={{ color: 'var(--t3)', fontSize: 11, marginLeft: 6 }}>
-                        (no {n.channel === 'email' ? 'email' : 'phone'} on file)
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          )}
 
           {/* Mark Paid CTA — primary action when payment is outstanding.
               One tap = paid. No method picker, no edit mode. Roadside
