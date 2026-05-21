@@ -255,8 +255,12 @@ a { color: var(--brand-primary); text-decoration: none; }
 
 /* ── Quote box ──────────────────────────────────────────── */
 .quote-box {
-  background: var(--s1); border: 1px solid var(--border); border-radius: 14px;
-  padding: 14px;
+  /* Subtle top-lit gradient so Quick Quote reads as a primary
+     dashboard tool, not a plain card. Very low-intensity — the
+     amber wash is barely-there, just enough to lift it. */
+  background: linear-gradient(165deg, rgba(244,180,0,.05) 0%, var(--s1) 60%);
+  border: 1px solid var(--border); border-radius: 14px;
+  padding: 16px;
   max-width: 100%;
 }
 /* Three-column tile row at the default breakpoint: Suggested / Premium /

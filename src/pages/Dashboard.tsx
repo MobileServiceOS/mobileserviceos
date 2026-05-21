@@ -619,7 +619,15 @@ export function Dashboard({
 
       {/* ─── 5. Low Stock — owner/admin only ─────────────────────── */}
       {showCompanyData && lowStock.length > 0 && (
-        <div className="card card-anim" style={{ borderColor: 'rgba(245,158,11,.2)' }}>
+        <div
+          className="card card-anim"
+          style={{
+            borderColor: 'rgba(245,158,11,.25)',
+            // Subtle amber wash — flags this as an attention card
+            // without the loudness of a solid fill.
+            background: 'linear-gradient(165deg, rgba(245,158,11,.07) 0%, var(--s1) 60%)',
+          }}
+        >
           <div className="card-pad">
             <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 8 }}>
               ⚠ Low Stock Alert
