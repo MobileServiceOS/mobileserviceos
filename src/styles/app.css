@@ -8,13 +8,21 @@
   --brand-accent: #e5c770;
   --gold: var(--brand-primary);
 
-  --bg: #06070a;
-  --s1: #0b0d12;
-  --s2: #11141b;
-  --s3: #181c25;
-  --s4: #1f2430;
-  --border: #1f2430;
-  --border2: #262b38;
+  /* Surface scale — neutral charcoal (was a blue-black cast).
+     bg < s1 (card surface) < s2 (nested inputs) < s3 (chips /
+     elevated) < s4 (highest). Tuned for OLED: bg stays near-black
+     so large dark areas draw minimal power. */
+  --bg: #0b0f14;
+  --s1: #111315;
+  --s2: #15181d;
+  --s3: #171a1f;
+  --s4: #1e2229;
+  /* Borders — soft white hairlines instead of solid dark fills.
+     rgba on any surface reads as a faint premium edge; the prior
+     solid #1f2430 was visually heavy. --border2 is the brighter
+     hover/active edge. */
+  --border: rgba(255,255,255,.06);
+  --border2: rgba(255,255,255,.11);
 
   --t1: #f4f4f5;
   --t2: #a1a1aa;
