@@ -361,6 +361,9 @@ export interface Expense {
 
 export interface InventoryItem {
   id: string;
+  /** Tire-vertical primary key (tire size, e.g. "225/65R17"). Always
+   *  present on tire items. Empty string on mechanic / detailing items
+   *  (those use their own primary descriptor fields below). */
   size: string;
   qty: number;
   cost: number;
@@ -369,6 +372,22 @@ export interface InventoryItem {
   brand?: string;
   model?: string;
   _isNew?: boolean;
+
+  // ─── Mechanic-specific optional fields (Phase 2.1 widening) ──────
+  // Declared on the shared InventoryItem type so the same Firestore
+  // collection holds both tire and mechanic stock without a schema
+  // migration. Mechanic UI writes partNumber/partName/supplier/
+  // unitCost; tire UI ignores them. `unitCost` is the mechanic-side
+  // analogue of `cost`; the deduction engine still reads `cost`.
+  partNumber?: string;
+  partName?: string;
+  supplier?: string;
+  unitCost?: number;
+
+  // ─── Detailing-specific optional fields ──────────────────────────
+  chemicalName?: string;
+  category?: string;
+  dilutionRatio?: string;
 }
 
 export interface InventoryDeduction {

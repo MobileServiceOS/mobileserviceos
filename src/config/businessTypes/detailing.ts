@@ -35,7 +35,25 @@ export const DETAILING_CONFIG: BusinessTypeConfig = {
 
   services: [],
   jobFields: [],
-  inventoryFields: [],
+
+  // Detailing inventory schema — covers the chemical / supply
+  // categories operators actually stock (chemicals, towels, pads,
+  // sprayers, brushes, bottles). Phase 2.3 will add per-category
+  // helpers (dilution-ratio validator, pad-rotation reminders, etc.);
+  // the schema landing now lets a detailing business start tracking
+  // supplies the moment the vertical UI is wired.
+  inventoryFields: [
+    { key: 'chemicalName',  label: 'Item Name',       type: 'text' },
+    {
+      key: 'category',
+      label: 'Category',
+      type: 'select',
+      options: ['Chemicals', 'Towels', 'Pads', 'Sprayers', 'Brushes', 'Bottles', 'Other'],
+    },
+    { key: 'dilutionRatio', label: 'Dilution Ratio',  type: 'text' },
+    { key: 'supplier',      label: 'Supplier',        type: 'text' },
+    { key: 'unitCost',      label: 'Unit Cost',       type: 'number' },
+  ],
 
   copy: {
     jobNounSingular: 'detail',

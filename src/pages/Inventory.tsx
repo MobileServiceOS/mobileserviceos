@@ -3,6 +3,8 @@ import type { InventoryItem } from '@/types';
 import { money, sanitizeInvItem, uid } from '@/lib/utils';
 import { addToast } from '@/lib/toast';
 import { NumberField } from '@/components/NumberField';
+import { useActiveVertical } from '@/lib/useActiveVertical';
+import type { BusinessTypeInventoryField, BusinessTypeConfig } from '@/config/businessTypes/registry';
 
 interface Props {
   inventory: InventoryItem[];
@@ -80,7 +82,29 @@ function parseCsv(text: string): ParsedRow[] {
   return rows;
 }
 
+// Dispatcher: picks which inventory view renders based on the active
+// business type. This is the only thing exported as `Inventory`.
+//
+// Tire (vertical.features.inventoryDeduction === true) renders the
+// bespoke compact-card UI with hot sizes, CSV upload, condition
+// chips, and the inventory-deduction interlock — byte-identical to
+// pre-Phase-2.1.
+//
+// Mechanic + detailing render GenericInventoryView, which reads
+// vertical.inventoryFields and produces a generic dynamic-field
+// editor over the same InventoryItem shape (now widened with
+// optional partNumber/partName/supplier/unitCost/chemicalName/
+// category/dilutionRatio fields).
 export function Inventory({ inventory, onSave }: Props) {
+  const vertical = useActiveVertical();
+  if (!vertical.features.inventoryDeduction) {
+    return <GenericInventoryView inventory={inventory} onSave={onSave} vertical={vertical} />;
+  }
+  return <TireInventoryView inventory={inventory} onSave={onSave} />;
+}
+
+// ─── Tire-bespoke view (pre-Phase-2.1 component, renamed) ──────────
+function TireInventoryView({ inventory, onSave }: Props) {
   const safe: InventoryItem[] = Array.isArray(inventory) ? inventory : [];
   const [list, setList] = useState<InventoryItem[]>(safe);
   const [search, setSearch] = useState('');
@@ -582,6 +606,295 @@ export function Inventory({ inventory, onSave }: Props) {
           </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  GenericInventoryView — config-driven editor for non-tire verticals
+//  ────────────────────────────────────────────────────────────────────
+//  Reads vertical.inventoryFields to render dynamic columns + form
+//  inputs. Same InventoryItem data shape; widened type from
+//  src/types/index.ts holds the vertical-specific fields.
+//
+//  What it shares with the tire view:
+//    - id-based list, add/remove/edit, dirty-state Save button
+//    - SKUs / Total Qty / Low Stock KPI grid (universal counts)
+//    - search box (matches any string field)
+//    - expandable card UI for editing
+//
+//  What's different vs tire:
+//    - No "Hot Sizes" strip (tire-only quick-add concept)
+//    - No CSV bulk upload (tire-specific template; mechanic /
+//      detailing CSV format is Phase 2.2 / 2.3 polish)
+//    - No condition filter chips (tire-only categorical)
+//    - Fields come from vertical.inventoryFields rather than the
+//      hardcoded Size/Brand/Condition/Notes block
+//    - Empty-state copy + "Add" button label use vertical.copy.
+// ═══════════════════════════════════════════════════════════════════
+function GenericInventoryView({
+  inventory, onSave, vertical,
+}: {
+  inventory: InventoryItem[];
+  onSave: (next: InventoryItem[]) => void;
+  vertical: BusinessTypeConfig;
+}) {
+  const safe: InventoryItem[] = Array.isArray(inventory) ? inventory : [];
+  const [list, setList] = useState<InventoryItem[]>(safe);
+  const [search, setSearch] = useState('');
+  const [dirty, setDirty] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  const fields: ReadonlyArray<BusinessTypeInventoryField> = vertical.inventoryFields;
+  // The first field in vertical.inventoryFields acts as the primary
+  // descriptor for empty/list rendering (e.g. "Part Number" for
+  // mechanic, "Item Name" for detailing). The "qty" field is the
+  // universal stock counter (every vertical has one — tire has it
+  // via the bespoke view, here we surface it explicitly).
+  const primaryField = fields[0];
+
+  const update = (next: InventoryItem[]) => { setList(next); setDirty(true); };
+  const addItem = () => {
+    const newId = uid();
+    update([
+      { id: newId, size: '', qty: 0, cost: 0, _isNew: true },
+      ...list,
+    ]);
+    setExpanded((prev) => new Set(prev).add(newId));
+  };
+  const removeItem = (id: string) => update(list.filter((i) => i.id !== id));
+  const change = <K extends keyof InventoryItem>(
+    id: string, key: K, value: InventoryItem[K],
+  ) => update(list.map((i) => (i.id === id ? { ...i, [key]: value } : i)));
+  const save = () => {
+    // Generic items still pass through sanitizeInvItem — it trims
+    // size/qty/cost defensively, which is harmless for items whose
+    // primary field is partName/chemicalName/etc.
+    const cleaned = list.map(sanitizeInvItem);
+    onSave(cleaned);
+    setList(cleaned);
+    setDirty(false);
+  };
+  const toggleExpanded = (id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  // Search matches any string field on the item (case-insensitive).
+  // Generic fallback — tire's tiered ranking is tire-specific and not
+  // re-implemented for the generic view.
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter((i) => {
+      const bag = i as unknown as Record<string, unknown>;
+      for (const f of fields) {
+        const v = bag[f.key];
+        if (typeof v === 'string' && v.toLowerCase().includes(q)) return true;
+      }
+      if (typeof i.notes === 'string' && i.notes.toLowerCase().includes(q)) return true;
+      return false;
+    });
+  }, [list, search, fields]);
+
+  const totalQty = list.reduce((t, i) => t + Number(i.qty || 0), 0);
+  const lowStock = list.filter((i) => Number(i.qty || 0) <= 1).length;
+
+  // Read the primary descriptor for a row (e.g. "Battery 12V Group 24"
+  // for a mechanic part, "Wheel Cleaner" for a detailing chemical).
+  const primaryDescriptor = (i: InventoryItem): string => {
+    if (!primaryField) return '';
+    const v = (i as unknown as Record<string, unknown>)[primaryField.key];
+    return typeof v === 'string' ? v : '';
+  };
+
+  return (
+    <div className="page page-enter">
+      <div style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        marginBottom: 14, gap: 8, flexWrap: 'wrap',
+      }}>
+        <div style={{ fontSize: 18, fontWeight: 700 }}>{vertical.copy.inventoryLabel}</div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <button className="btn xs primary" onClick={addItem}>＋ Add Item</button>
+        </div>
+      </div>
+
+      <div className="kpi-grid three">
+        <div className="kpi"><div className="kpi-label">SKUs</div><div className="kpi-value">{list.length}</div></div>
+        <div className="kpi"><div className="kpi-label">Total Qty</div><div className="kpi-value">{totalQty}</div></div>
+        <div className="kpi">
+          <div className="kpi-label">Low Stock</div>
+          <div className="kpi-value" style={{ color: lowStock > 0 ? 'var(--amber)' : undefined }}>{lowStock}</div>
+        </div>
+      </div>
+
+      <div className="field" style={{ marginBottom: 10 }}>
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder={`Search ${vertical.copy.inventoryLabel.toLowerCase()}…`}
+          autoComplete="off"
+          inputMode="search"
+        />
+      </div>
+
+      <div className="stack">
+        {filtered.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-state-icon">📦</div>
+            <div className="empty-state-title">No items yet</div>
+            <div className="empty-state-sub">
+              {search.trim()
+                ? 'No matches. Try a different search.'
+                : `Tap "Add Item" to start tracking ${vertical.copy.inventoryLabel.toLowerCase()}.`}
+            </div>
+          </div>
+        ) : filtered.map((i) => {
+          const open = i._isNew || expanded.has(i.id);
+          const qty = Number(i.qty || 0);
+          const cost = Number((i.unitCost ?? i.cost) || 0);
+          const value = qty * cost;
+          const low = qty > 0 && qty <= 1;
+          const outOfStock = qty === 0;
+          const desc = primaryDescriptor(i);
+
+          return (
+            <div key={i.id} className="card card-anim" style={{ overflow: 'hidden' }}>
+              <button
+                type="button"
+                onClick={() => toggleExpanded(i.id)}
+                aria-expanded={open}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 12,
+                  padding: '12px 14px', width: '100%',
+                  background: 'transparent', border: 'none',
+                  color: 'var(--t1)', textAlign: 'left', cursor: 'pointer',
+                  minHeight: 64,
+                }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--t1)' }}>
+                      {desc || <span style={{ color: 'var(--t3)', fontStyle: 'italic' }}>(new item)</span>}
+                    </div>
+                    {outOfStock && (
+                      <span className="pill red" style={{ fontSize: 9, padding: '2px 6px' }}>Out</span>
+                    )}
+                    {low && (
+                      <span className="pill amber" style={{ fontSize: 9, padding: '2px 6px' }}>Low</span>
+                    )}
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right', minWidth: 56 }}>
+                  <div style={{
+                    fontSize: 22, fontWeight: 800,
+                    color: outOfStock ? 'var(--red)' : low ? 'var(--amber)' : 'var(--t1)',
+                    lineHeight: 1,
+                  }}>{qty}</div>
+                  <div style={{
+                    fontSize: 9, color: 'var(--t3)', marginTop: 2,
+                    textTransform: 'uppercase', letterSpacing: '0.5px',
+                  }}>in stock</div>
+                </div>
+                <div aria-hidden style={{
+                  fontSize: 12, color: 'var(--t3)',
+                  transition: 'transform .2s ease',
+                  transform: open ? 'rotate(90deg)' : 'rotate(0deg)',
+                  marginLeft: 4,
+                }}>▸</div>
+              </button>
+
+              {open && (
+                <div className="card-pad" style={{ paddingTop: 4, borderTop: '1px solid var(--border2)' }}>
+                  {/* Universal Qty (the stock counter every vertical
+                      needs; the deduction engine reads `qty` directly). */}
+                  <div className="field-row" style={{ marginTop: 10 }}>
+                    <div className="field" style={{ marginBottom: 0 }}>
+                      <label>Quantity</label>
+                      <NumberField value={i.qty} onChange={(n) => change(i.id, 'qty', n)} decimals={false} placeholder="0" />
+                    </div>
+                  </div>
+
+                  {/* Dynamic vertical-specific fields. */}
+                  {fields.map((f) => {
+                    const v = (i as unknown as Record<string, unknown>)[f.key];
+                    if (f.type === 'number') {
+                      return (
+                        <div key={f.key} className="field" style={{ marginTop: 10 }}>
+                          <label>{f.label}</label>
+                          <NumberField
+                            value={(v as number | string | undefined) ?? 0}
+                            onChange={(n) => change(i.id, f.key as keyof InventoryItem, n as InventoryItem[keyof InventoryItem])}
+                            placeholder="0"
+                          />
+                        </div>
+                      );
+                    }
+                    if (f.type === 'select') {
+                      return (
+                        <div key={f.key} className="field" style={{ marginTop: 10 }}>
+                          <label>{f.label}</label>
+                          <select
+                            value={typeof v === 'string' ? v : ''}
+                            onChange={(e) => change(i.id, f.key as keyof InventoryItem, e.target.value as InventoryItem[keyof InventoryItem])}
+                          >
+                            <option value="">—</option>
+                            {(f.options || []).map((opt) => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                          </select>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div key={f.key} className="field" style={{ marginTop: 10 }}>
+                        <label>{f.label}</label>
+                        <input
+                          value={typeof v === 'string' ? v : ''}
+                          onChange={(e) => change(i.id, f.key as keyof InventoryItem, e.target.value as InventoryItem[keyof InventoryItem])}
+                          placeholder={f.label}
+                        />
+                      </div>
+                    );
+                  })}
+
+                  <div className="field" style={{ marginTop: 10 }}>
+                    <label>Notes</label>
+                    <input
+                      value={i.notes || ''}
+                      onChange={(e) => change(i.id, 'notes', e.target.value)}
+                      placeholder="Optional notes"
+                    />
+                  </div>
+
+                  <div style={{
+                    display: 'flex', justifyContent: 'space-between',
+                    alignItems: 'center', marginTop: 10,
+                  }}>
+                    <div style={{ fontSize: 11, color: 'var(--t3)' }}>Value: {money(value)}</div>
+                    <button className="btn xs danger" onClick={() => removeItem(i.id)}>Remove</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {dirty && (
+        <div style={{
+          position: 'sticky', bottom: 0, paddingTop: 12,
+          background: 'linear-gradient(to top, var(--bg) 60%, transparent)',
+        }}>
+          <button className="btn primary" style={{ width: '100%' }} onClick={save}>
+            Save Inventory
+          </button>
+        </div>
+      )}
     </div>
   );
 }
