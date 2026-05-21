@@ -6,6 +6,7 @@ import { NumberField } from '@/components/NumberField';
 import { addToast } from '@/lib/toast';
 import { uploadLogo } from '@/lib/firebase';
 import { APP_LOGO } from '@/lib/defaults';
+import { normalizeHex } from '@/lib/utils';
 import { AccordionShell } from '@/components/settings/AccordionShell';
 
 /**
@@ -282,14 +283,3 @@ function ColorPicker({
   );
 }
 
-/** Coerce any string to a 7-char `#rrggbb` form, falling back when
- *  the input isn't a valid hex color. Accepts 3- or 6-char hex with
- *  or without leading `#`. */
-function normalizeHex(raw: string, fallback: string): string {
-  const v = (raw || '').trim().replace(/^#/, '');
-  if (/^[0-9a-fA-F]{6}$/.test(v)) return `#${v.toLowerCase()}`;
-  if (/^[0-9a-fA-F]{3}$/.test(v)) {
-    return `#${v.split('').map((c) => c + c).join('').toLowerCase()}`;
-  }
-  return fallback;
-}

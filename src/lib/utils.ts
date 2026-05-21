@@ -278,17 +278,44 @@ export function isValidHex(v: string): boolean {
   return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(v || '');
 }
 
+/**
+ * Coerce any string to canonical `#rrggbb` (lowercase, leading `#`,
+ * expanded from 3-char shorthand if needed). Falls back when the
+ * input isn't a recognizable hex color.
+ *
+ * This is the single source of truth for hex normalization. Every
+ * boundary that accepts user-supplied color values — Settings save,
+ * BrandContext read, invoice PDF render — routes through this. Why:
+ * historically two divergent validators (`isValidHex` requiring `#`
+ * vs. a local `normalizeHex` accepting bare hex) let invalid values
+ * like `'c8a44a'` get persisted and silently dropped by
+ * `applyBrandColors`. The Wheel Rush "can't change color" report.
+ */
+export function normalizeHex(raw: string | null | undefined, fallback: string): string {
+  const v = (raw || '').trim().replace(/^#/, '');
+  if (/^[0-9a-fA-F]{6}$/.test(v)) return `#${v.toLowerCase()}`;
+  if (/^[0-9a-fA-F]{3}$/.test(v)) {
+    return `#${v.split('').map((c) => c + c).join('').toLowerCase()}`;
+  }
+  return fallback;
+}
+
+const DEFAULT_PRIMARY = '#c8a44a';
+const DEFAULT_ACCENT = '#e5c770';
+
 export function applyBrandColors(primary: string, accent: string): void {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
-  if (isValidHex(primary)) {
-    root.style.setProperty('--brand-primary', primary);
-    root.style.setProperty('--brand-primary-dim', primary + '22');
-    root.style.setProperty('--brand-primary-glow', primary + '66');
-  }
-  if (isValidHex(accent)) {
-    root.style.setProperty('--brand-accent', accent);
-  }
+  // Normalize internally so a corrupted stored value still produces
+  // valid CSS variables — the prior implementation silently skipped
+  // the setProperty calls when isValidHex rejected the input, which
+  // looked to the user like "Save did nothing."
+  const p = normalizeHex(primary, DEFAULT_PRIMARY);
+  const a = normalizeHex(accent, DEFAULT_ACCENT);
+  root.style.setProperty('--brand-primary', p);
+  root.style.setProperty('--brand-primary-dim', p + '22');
+  root.style.setProperty('--brand-primary-glow', p + '66');
+  root.style.setProperty('--brand-accent', a);
 }
 
 export function sanitizeInvItem(i: InventoryItem): InventoryItem {
