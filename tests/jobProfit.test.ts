@@ -10,7 +10,7 @@
 // profit instead of $300. Bug propagated to weekly + monthly
 // rollups too.
 
-import { jobDirectCost, jobGrossProfit, weekSummary } from '@/lib/utils';
+import { jobDirectCost, jobGrossProfit, weekSummary, jobCOGS } from '@/lib/utils';
 import type { Job, Settings } from '@/types';
 
 const baseSettings: Settings = {
@@ -105,6 +105,30 @@ console.log('\n┌─ weekSummary aggregates correctly ────────�
   check('weekSummary travelCosts = 5 (only job a had miles)', w.travelCosts === 5);
   // dc = 150 + 20 + 5 = 175; rev = 750; gp = 575
   check('weekSummary grossProfit math holds', w.grossProfit === 575);
+}
+
+console.log('\n┌─ jobCOGS — shared cost-of-goods helper ───────────');
+// jobCOGS is the single source of truth used by BOTH jobDirectCost
+// (profit path) and Expenses.jobOperatingCost (burn-rate path).
+// It EXCLUDES travel — that's jobDirectCost's job to add.
+{
+  check('tire COGS = tireCost',
+    jobCOGS(mkJob({ tireCost: 80, miles: 99 })) === 80);
+  check('mechanic COGS = partsCost',
+    jobCOGS(mkJob({ partsCost: 120, miles: 99 })) === 120);
+  check('COGS excludes travel entirely',
+    jobCOGS(mkJob({ tireCost: 10, miles: 1000 })) === 10);
+  check('COGS sums tire + parts + material',
+    jobCOGS(mkJob({ tireCost: 10, partsCost: 20, materialCost: 5 })) === 35);
+  check('miscCost is a fallback for materialCost, not additive',
+    jobCOGS(mkJob({ materialCost: 40, miscCost: 99 })) === 40);
+  check('miscCost used when materialCost absent',
+    jobCOGS(mkJob({ miscCost: 15 })) === 15);
+  // jobDirectCost === jobCOGS + travel — the contract that keeps
+  // the profit path and burn-rate path consistent.
+  const j = mkJob({ tireCost: 50, partsCost: 30, miles: 12 });
+  check('jobDirectCost = jobCOGS + travelCost',
+    jobDirectCost(j, baseSettings) === jobCOGS(j) + 12);
 }
 
 console.log('');

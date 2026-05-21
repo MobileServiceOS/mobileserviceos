@@ -129,24 +129,32 @@ export function travelCost(j: Pick<Job, 'miles'>, s: Settings): number {
   return r2(chargeable * Number(s.costPerMile || 0.65));
 }
 
-export function jobDirectCost(j: Job, s: Settings): number {
-  // Direct cost across all verticals:
-  //   tire     → tireCost (inventory FIFO cost or purchase price)
-  //   mechanic → partsCost (mirror of sum(parts[].unitCost * qty)
-  //              maintained by saveJob's mechanic branch)
-  //   shared   → materialCost / miscCost (legacy + detailing supplies)
-  //   universal→ travel
-  // Pre-fix this function ignored partsCost entirely, so every
-  // mechanic job's reported profit overstated by the parts amount
-  // (a $400 brake job using $100 of parts reported $400-$0=$400 in
-  // profit instead of $300). Bug propagated to History, Payouts,
-  // Dashboard, JobDetailModal — anywhere profit renders.
+/**
+ * Cost of goods sold for a single job, across all verticals —
+ * EXCLUDING travel. The single source of truth for per-job COGS so
+ * the profit path (jobDirectCost) and the burn-rate path
+ * (Expenses jobOperatingCost) can't drift apart:
+ *   tire     → tireCost  (inventory FIFO cost or purchase price)
+ *   mechanic → partsCost (mirror of sum(parts[].unitCost*qty),
+ *              maintained by saveJob's mechanic branch)
+ *   shared   → materialCost / miscCost (legacy + detailing supplies)
+ *
+ * `materialCost || miscCost` is a deliberate fallback, not a sum —
+ * miscCost is the legacy field name, materialCost the current one;
+ * a job carries one or the other, never both meaningfully.
+ */
+export function jobCOGS(j: Job): number {
   return r2(
-    travelCost(j, s) +
-      Number(j.tireCost || 0) +
+    Number(j.tireCost || 0) +
       Number(j.partsCost || 0) +
       Number(j.materialCost || j.miscCost || 0)
   );
+}
+
+export function jobDirectCost(j: Job, s: Settings): number {
+  // Direct cost = COGS + travel. Travel is the only universal
+  // cost component; COGS is vertical-specific (see jobCOGS).
+  return r2(travelCost(j, s) + jobCOGS(j));
 }
 
 export function jobGrossProfit(j: Job, s: Settings): number {

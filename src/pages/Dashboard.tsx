@@ -294,6 +294,11 @@ export function Dashboard({
   );
 
   const lowStock = useMemo(() => {
+    // Tire-size low-stock alert is a tire-vertical concept (FIFO tire
+    // inventory keyed by size). Mechanic parts + detailing chemicals
+    // have their own inventory shape with no size key, so this would
+    // always compute an empty result there — skip the work entirely.
+    if (!vertical.features.inventoryDeduction) return [];
     const inv = Array.isArray(inventory) ? inventory : [];
     const top5Tires = (() => {
       const c: Record<string, number> = {};
@@ -310,7 +315,7 @@ export function Dashboard({
       if ((byN[n] || 0) <= 1) alerts.push({ size: t.size, onHand: byN[n] || 0, soldCount: t.sold });
     });
     return alerts.slice(0, 3);
-  }, [visibleJobs, inventory]);
+  }, [visibleJobs, inventory, vertical.features.inventoryDeduction]);
 
   const quote = useMemo(() => calcQuote(qqForm, settings), [qqForm, settings]);
 

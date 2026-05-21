@@ -8,6 +8,7 @@ import {
   formatWeekRange,
   formatMonth,
   monthlyFixed,
+  jobCOGS,
 } from '@/lib/utils';
 import { TODAY } from '@/lib/defaults';
 
@@ -67,15 +68,12 @@ export function Expenses({ expenses, jobs, settings, onSave }: Props) {
   const fixedMonthly = monthlyFixed(settings);
   const fixedWeekly = fixedMonthly / 4.33;
 
-  /** Sum of all one-time costs incurred on a single completed job:
-   *  tire cost + material cost + misc cost. These are the canonical
-   *  per-job cost fields on the Job type. */
-  const jobOperatingCost = (j: Job): number => {
-    const tire = Number(j.tireCost || 0);
-    const material = Number(j.materialCost || 0);
-    const misc = Number(j.miscCost || 0);
-    return tire + material + misc;
-  };
+  /** Per-job operating cost = COGS (excludes travel — the burn-rate
+   *  view tracks goods cost, not mileage). Delegates to the shared
+   *  jobCOGS helper so this can't silently drift from the profit
+   *  path again — partsCost omission previously made mechanic shops
+   *  look more profitable than reality. */
+  const jobOperatingCost = (j: Job): number => jobCOGS(j);
 
   const completedJobs = useMemo(
     () => (jobs || []).filter((j) => j.status === 'Completed'),
