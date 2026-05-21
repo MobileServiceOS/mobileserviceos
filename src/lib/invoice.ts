@@ -1,7 +1,7 @@
 import { jsPDF } from 'jspdf';
 import type { Job, Settings, Brand } from '@/types';
 import { TODAY } from '@/lib/defaults';
-import { money, r2, resolvePaymentStatus } from '@/lib/utils';
+import { money, r2, resolvePaymentStatus, normalizeHex } from '@/lib/utils';
 import { hasProAccess } from '@/lib/planAccess';
 import { resolveVerticalKey } from '@/lib/verticalContext';
 import { getInvoiceTemplate, type InvoiceTemplate, type InvoiceLineItem } from '@/config/businessTypes/invoice';
@@ -260,8 +260,16 @@ export async function generateInvoicePDF(
 
   // Pro: use brand.primaryColor. Core: use the universal default so
   // the invoice still looks polished, just not white-labeled.
+  // Defensive normalization: even though BrandContext normalizes on
+  // read, the invoice can be generated from a Brand snapshot that
+  // bypassed that path (e.g. server-side, off-context callers).
+  // Without this, a stored value like `'c8a44a'` (no `#`) would
+  // produce NaN RGB and a black PDF header.
   const DEFAULT_ACCENT = '#c8a44a';
-  const pc = isPro ? (brand.primaryColor || DEFAULT_ACCENT) : DEFAULT_ACCENT;
+  const pc = normalizeHex(
+    isPro ? (brand.primaryColor || DEFAULT_ACCENT) : DEFAULT_ACCENT,
+    DEFAULT_ACCENT,
+  );
   const hR = parseInt(pc.slice(1, 3), 16);
   const hG = parseInt(pc.slice(3, 5), 16);
   const hB = parseInt(pc.slice(5, 7), 16);
