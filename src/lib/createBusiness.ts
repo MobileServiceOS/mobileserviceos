@@ -321,6 +321,29 @@ export async function createBusiness(
     }, { merge: true }),
   );
 
+  // ── STEP 5: operational_settings/main — vertical service catalog.
+  //
+  //    Without this, AddJob's service dropdown is empty for any
+  //    business created via this flow. The app reads servicePricing
+  //    from operational_settings/main (not settings/main), and the
+  //    on-snapshot backfill at App.tsx only fires when the doc
+  //    already exists. A founder account works because Onboarding's
+  //    persistSettings writes here; second+ businesses via the
+  //    AddBusinessModal landed in a "no services available" dead
+  //    end. Same servicePricing seed as step 2 — duplicated until
+  //    the data model is consolidated so the legacy step 2 entry
+  //    (which the app never reads anyway) can be removed.
+  //
+  //    Rule: `operational_settings` allow write if isOwnerOrAdmin OR
+  //    uid==businessId. We're owner after step 3, so this passes.
+  await runStep('step 5: operational_settings/main', `businesses/${newId}/operational_settings/main`, () =>
+    setDoc(doc(db, `businesses/${newId}/operational_settings/main`), {
+      servicePricing: sanitizeMapKeys(seededServicePricing),
+      vehiclePricing: sanitizeMapKeys(DEFAULT_VEHICLE_PRICING),
+      createdAt: now,
+    }, { merge: true }),
+  );
+
   console.info('[createBusiness] COMPLETE', { newId });
   return { businessId: newId };
 }
