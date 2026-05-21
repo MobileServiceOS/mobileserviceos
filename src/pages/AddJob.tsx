@@ -5,7 +5,7 @@ import {
   LEAD_SOURCES, PAYMENT_METHODS, PAYMENT_STATUSES, JOB_STATUSES, TIRE_MATERIAL_SERVICES, TIRE_SOURCES,
 } from '@/lib/defaults';
 import { computeBreakdownTagged } from '@/lib/pricing';
-import { calcQuote, money, normalizeTireSize, planInventoryDeduction, serviceIcon } from '@/lib/utils';
+import { calcQuote, money, normalizeTireSize, planInventoryDeduction } from '@/lib/utils';
 import { addToast } from '@/lib/toast';
 import { uploadReceipt } from '@/lib/firebase';
 import { useBrand } from '@/context/BrandContext';
@@ -16,6 +16,7 @@ import { useActiveVertical } from '@/lib/useActiveVertical';
 import type { BusinessTypeJobField } from '@/config/businessTypes/registry';
 import { PartsSection } from '@/components/addJob/PartsSection';
 import { AssignmentPicker } from '@/components/addJob/AssignmentPicker';
+import { ServicePicker } from '@/components/addJob/ServicePicker';
 import { useMembership } from '@/context/MembershipContext';
 import { useBusinessMembers } from '@/lib/useBusinessMembers';
 
@@ -576,17 +577,12 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
 
       <div className="form-group card-anim">
         <div className="form-group-title">{vertical.copy.packageLabel || 'Service'}</div>
-        <div className="chip-grid">
-          {enabledPackages.map((s) => (
-            <button
-              key={s} className={'chip' + (job.service === s ? ' active' : '')}
-              onClick={() => set('service', s)}
-              type="button"
-            >
-              <span style={{ marginRight: 6 }}>{serviceIcon(s)}</span>{s}
-            </button>
-          ))}
-        </div>
+        <ServicePicker
+          services={vertical.services}
+          enabledIds={enabledPackages}
+          selected={job.service}
+          onSelect={(id) => set('service', id)}
+        />
       </div>
 
       {/* Phase 2.3: detailing add-ons multi-select. Renders only when

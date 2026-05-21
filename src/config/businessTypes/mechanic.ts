@@ -52,29 +52,34 @@ export const MECHANIC_CONFIG: BusinessTypeConfig = {
   // Operators with existing mechanic jobs whose `service` field was
   // one of the removed values still render correctly (job.service is
   // a free string; only the chip-grid highlight is config-driven).
+  // `category` + `popular` drive the AddJob grouped service picker
+  // (Popular row + search + collapsible category sections). They are
+  // pure UI-grouping metadata — pricing, save, invoice logic never
+  // read them. Tire's short service list leaves both undefined and
+  // keeps the flat chip-grid.
   services: [
-    { id: 'Diagnostics',                  label: 'Diagnostics',                  defaultBasePrice: 90,  defaultMinProfit: 70,  enabledByDefault: true },
-    { id: 'Check Engine Light Diagnosis', label: 'Check Engine Light Diagnosis', defaultBasePrice: 100, defaultMinProfit: 80,  enabledByDefault: true },
-    { id: 'Oil Change',                   label: 'Oil Change',                   defaultBasePrice: 90,  defaultMinProfit: 45,  enabledByDefault: true },
-    { id: 'Battery Replacement',          label: 'Battery Replacement',          defaultBasePrice: 120, defaultMinProfit: 60,  enabledByDefault: true },
-    { id: 'Brake Pads & Rotors',          label: 'Brake Pads & Rotors',          defaultBasePrice: 280, defaultMinProfit: 130, enabledByDefault: true },
-    { id: 'Alternator Replacement',       label: 'Alternator Replacement',       defaultBasePrice: 320, defaultMinProfit: 140, enabledByDefault: true },
-    { id: 'Starter Replacement',          label: 'Starter Replacement',          defaultBasePrice: 300, defaultMinProfit: 135, enabledByDefault: true },
-    { id: 'Spark Plug Replacement',       label: 'Spark Plug Replacement',       defaultBasePrice: 160, defaultMinProfit: 85,  enabledByDefault: true },
-    { id: 'Belt Replacement',             label: 'Belt Replacement',             defaultBasePrice: 150, defaultMinProfit: 80,  enabledByDefault: true },
-    { id: 'Serpentine Belt',              label: 'Serpentine Belt',              defaultBasePrice: 150, defaultMinProfit: 80,  enabledByDefault: true },
-    { id: 'Hose Replacement',             label: 'Hose Replacement',             defaultBasePrice: 130, defaultMinProfit: 70,  enabledByDefault: true },
-    { id: 'Radiator Replacement',         label: 'Radiator Replacement',         defaultBasePrice: 360, defaultMinProfit: 150, enabledByDefault: true },
-    { id: 'Thermostat Replacement',       label: 'Thermostat Replacement',       defaultBasePrice: 180, defaultMinProfit: 90,  enabledByDefault: true },
-    { id: 'Suspension Work',              label: 'Suspension Work',              defaultBasePrice: 350, defaultMinProfit: 150, enabledByDefault: true },
-    { id: 'Pre-Purchase Inspection',      label: 'Pre-Purchase Inspection',      defaultBasePrice: 130, defaultMinProfit: 100, enabledByDefault: true },
-    { id: 'Mobile Tune-Up',               label: 'Mobile Tune-Up',               defaultBasePrice: 200, defaultMinProfit: 110, enabledByDefault: true },
-    { id: 'Fluid Services',               label: 'Fluid Services',               defaultBasePrice: 110, defaultMinProfit: 55,  enabledByDefault: true },
-    { id: 'Fuel Pump Replacement',        label: 'Fuel Pump Replacement',        defaultBasePrice: 400, defaultMinProfit: 170, enabledByDefault: true },
-    { id: 'Ignition Coil Replacement',    label: 'Ignition Coil Replacement',    defaultBasePrice: 190, defaultMinProfit: 95,  enabledByDefault: true },
-    { id: 'General Repair',               label: 'General Repair',               defaultBasePrice: 120, defaultMinProfit: 60,  enabledByDefault: true },
-    { id: 'Parts Pickup',                 label: 'Parts Pickup',                 defaultBasePrice: 45,  defaultMinProfit: 40,  enabledByDefault: true },
-    { id: 'Fleet Service',                label: 'Fleet Service',                defaultBasePrice: 250, defaultMinProfit: 180, enabledByDefault: false },
+    { id: 'Diagnostics',                  label: 'Diagnostics',                  defaultBasePrice: 90,  defaultMinProfit: 70,  enabledByDefault: true,  category: 'Diagnostics',           popular: true },
+    { id: 'Check Engine Light Diagnosis', label: 'Check Engine Light Diagnosis', defaultBasePrice: 100, defaultMinProfit: 80,  enabledByDefault: true,  category: 'Diagnostics',           popular: true },
+    { id: 'Pre-Purchase Inspection',      label: 'Pre-Purchase Inspection',      defaultBasePrice: 130, defaultMinProfit: 100, enabledByDefault: true,  category: 'Diagnostics' },
+    { id: 'Battery Replacement',          label: 'Battery Replacement',          defaultBasePrice: 120, defaultMinProfit: 60,  enabledByDefault: true,  category: 'Battery & Electrical',  popular: true },
+    { id: 'Alternator Replacement',       label: 'Alternator Replacement',       defaultBasePrice: 320, defaultMinProfit: 140, enabledByDefault: true,  category: 'Battery & Electrical' },
+    { id: 'Starter Replacement',          label: 'Starter Replacement',          defaultBasePrice: 300, defaultMinProfit: 135, enabledByDefault: true,  category: 'Battery & Electrical' },
+    { id: 'Ignition Coil Replacement',    label: 'Ignition Coil Replacement',    defaultBasePrice: 190, defaultMinProfit: 95,  enabledByDefault: true,  category: 'Battery & Electrical' },
+    { id: 'Brake Pads & Rotors',          label: 'Brake Pads & Rotors',          defaultBasePrice: 280, defaultMinProfit: 130, enabledByDefault: true,  category: 'Brakes',                popular: true },
+    { id: 'Spark Plug Replacement',       label: 'Spark Plug Replacement',       defaultBasePrice: 160, defaultMinProfit: 85,  enabledByDefault: true,  category: 'Engine & Tune-Up' },
+    { id: 'Mobile Tune-Up',               label: 'Mobile Tune-Up',               defaultBasePrice: 200, defaultMinProfit: 110, enabledByDefault: true,  category: 'Engine & Tune-Up' },
+    { id: 'Fuel Pump Replacement',        label: 'Fuel Pump Replacement',        defaultBasePrice: 400, defaultMinProfit: 170, enabledByDefault: true,  category: 'Engine & Tune-Up' },
+    { id: 'Radiator Replacement',         label: 'Radiator Replacement',         defaultBasePrice: 360, defaultMinProfit: 150, enabledByDefault: true,  category: 'Cooling System' },
+    { id: 'Thermostat Replacement',       label: 'Thermostat Replacement',       defaultBasePrice: 180, defaultMinProfit: 90,  enabledByDefault: true,  category: 'Cooling System' },
+    { id: 'Belt Replacement',             label: 'Belt Replacement',             defaultBasePrice: 150, defaultMinProfit: 80,  enabledByDefault: true,  category: 'Belts & Hoses' },
+    { id: 'Serpentine Belt',              label: 'Serpentine Belt',              defaultBasePrice: 150, defaultMinProfit: 80,  enabledByDefault: true,  category: 'Belts & Hoses' },
+    { id: 'Hose Replacement',             label: 'Hose Replacement',             defaultBasePrice: 130, defaultMinProfit: 70,  enabledByDefault: true,  category: 'Belts & Hoses' },
+    { id: 'Suspension Work',              label: 'Suspension Work',              defaultBasePrice: 350, defaultMinProfit: 150, enabledByDefault: true,  category: 'Suspension' },
+    { id: 'Oil Change',                   label: 'Oil Change',                   defaultBasePrice: 90,  defaultMinProfit: 45,  enabledByDefault: true,  category: 'Fluids & Maintenance',  popular: true },
+    { id: 'Fluid Services',               label: 'Fluid Services',               defaultBasePrice: 110, defaultMinProfit: 55,  enabledByDefault: true,  category: 'Fluids & Maintenance' },
+    { id: 'General Repair',               label: 'General Repair',               defaultBasePrice: 120, defaultMinProfit: 60,  enabledByDefault: true,  category: 'General / Other',       popular: true },
+    { id: 'Parts Pickup',                 label: 'Parts Pickup',                 defaultBasePrice: 45,  defaultMinProfit: 40,  enabledByDefault: true,  category: 'General / Other' },
+    { id: 'Fleet Service',                label: 'Fleet Service',                defaultBasePrice: 250, defaultMinProfit: 180, enabledByDefault: false, category: 'General / Other' },
   ],
 
   jobFields: [

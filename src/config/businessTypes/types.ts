@@ -67,6 +67,16 @@ export interface BusinessTypeService {
    *  chip-grid. Other verticals leave undefined; the AddJob renderer
    *  treats undefined as `false`. */
   isAddOn?: boolean;
+  /** Optional grouping label for the AddJob service picker. When ANY
+   *  service in a vertical declares a category, the picker switches
+   *  from a flat chip-grid to a grouped view (Popular row + search +
+   *  collapsible category sections). Verticals with a short service
+   *  list (tire) leave this undefined and keep the flat chip-grid. */
+  category?: string;
+  /** When true, the service appears in the picker's compact
+   *  "Popular" row above the collapsed category sections. Only
+   *  meaningful in the grouped view. */
+  popular?: boolean;
 }
 
 export interface BusinessTypeJobField {

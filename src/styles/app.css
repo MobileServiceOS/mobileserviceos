@@ -333,6 +333,144 @@ a { color: var(--brand-primary); text-decoration: none; }
 .chip:hover { border-color: var(--border2); color: var(--t1); }
 .chip.active { background: rgba(200,164,74,.14); border-color: var(--brand-primary); color: var(--brand-primary); }
 
+/* ── Service picker (AddJob grouped mode) ──────────────────
+   Mechanic accounts have 20+ services. A flat chip wall is a
+   crowded scan. The grouped picker: search + a compact Popular
+   row + collapsible category sections. Tire keeps the flat
+   chip-grid above (short list, no win from grouping). */
+.svc-picker { display: flex; flex-direction: column; gap: 10px; }
+
+.svc-search {
+  width: 100%;
+  background: var(--s2);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: var(--r-sm);
+  padding: 9px 12px;
+  font-size: var(--fs-md);
+  color: var(--t1);
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.svc-search::placeholder { color: var(--t3); }
+.svc-search:focus {
+  outline: none;
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 3px var(--brand-primary-dim);
+}
+
+.svc-section { display: flex; flex-direction: column; gap: 7px; }
+.svc-section-label {
+  font-size: var(--fs-xs);
+  font-weight: 800;
+  color: var(--t3);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.svc-chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* Category section — collapsible. Header is a 44px touch target. */
+.svc-cat { display: flex; flex-direction: column; }
+.svc-cat-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  background: var(--s2);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: var(--r-sm);
+  color: var(--t1);
+  font-size: var(--fs-md);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease;
+}
+.svc-cat-head:hover { border-color: var(--border2); }
+.svc-cat-head.open {
+  background: var(--s3);
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.svc-cat-head:active { transform: scale(.99); }
+
+.svc-cat-name { display: flex; align-items: center; gap: 7px; }
+/* amber dot — signals "your current selection lives in here" while
+   the category is collapsed. */
+.svc-cat-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--brand-primary);
+  box-shadow: 0 0 6px var(--brand-primary-glow);
+}
+.svc-cat-meta { display: flex; align-items: center; gap: 8px; }
+.svc-cat-count {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: var(--t3);
+  background: var(--s4);
+  border-radius: var(--r-pill);
+  padding: 2px 7px;
+  min-width: 20px;
+  text-align: center;
+}
+.svc-cat-caret {
+  font-size: 16px;
+  color: var(--t3);
+  transition: transform .18s ease;
+  display: inline-block;
+}
+.svc-cat-caret.open { transform: rotate(90deg); }
+
+.svc-cat-body {
+  padding: 9px 10px;
+  background: var(--s1);
+  border: 1px solid rgba(255,255,255,.06);
+  border-top: none;
+  border-bottom-left-radius: var(--r-sm);
+  border-bottom-right-radius: var(--r-sm);
+  animation: svcExpand .16s ease;
+}
+@keyframes svcExpand {
+  from { opacity: 0; transform: translateY(-3px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.svc-results {
+  background: var(--s1);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: var(--r-sm);
+  padding: 10px;
+}
+.svc-empty { font-size: var(--fs-md); color: var(--t3); padding: 4px 2px; }
+
+/* Service chip — lighter than the generic .chip: soft hairline
+   border, no glow, no per-chip icon. The selected state carries the
+   amber weight + a checkmark. */
+.svc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--s3);
+  border: 1px solid rgba(255,255,255,.06);
+  color: var(--t2);
+  border-radius: var(--r-pill);
+  padding: 7px 12px;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .13s ease, border-color .13s ease,
+              color .13s ease, transform .08s ease;
+}
+.svc-chip:hover { color: var(--t1); border-color: var(--border2); }
+.svc-chip:active { transform: scale(.96); }
+.svc-chip.selected {
+  background: rgba(200,164,74,.14);
+  border-color: var(--brand-primary);
+  color: var(--brand-primary);
+  font-weight: 700;
+}
+.svc-chip-check { font-size: 11px; font-weight: 800; }
+
 /* ── Pills ──────────────────────────────────────────────── */
 .pill {
   display: inline-block;
