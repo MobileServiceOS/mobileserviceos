@@ -626,7 +626,15 @@ export async function generateInvoicePDF(
   //  Service OS" — this doubles as conversion marketing.
   // ═════════════════════════════════════════════════════════════════
   const reviewUrl = isPro ? (brand.reviewUrl || '').trim() : '';
-  const footerText = isPro ? (brand.invoiceFooter || '').trim() : '';
+  // Phase 2.2: settings.warrantyPolicy is appended to the brand
+  // footer when present, on top of any operator-set invoiceFooter.
+  // This is vertical-agnostic — any vertical can set a warranty
+  // policy in Settings and have it print on the invoice — but is
+  // primarily aimed at mechanic accounts where parts warranties
+  // matter.
+  const warrantyPolicy = (settings.warrantyPolicy || '').trim();
+  const brandFooter = isPro ? (brand.invoiceFooter || '').trim() : '';
+  const footerText = [brandFooter, warrantyPolicy].filter(Boolean).join('\n\n');
 
   if (reviewUrl || footerText) {
     // Position the footer block at most ~30mm from the bottom of A4

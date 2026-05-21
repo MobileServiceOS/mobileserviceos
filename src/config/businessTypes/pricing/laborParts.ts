@@ -155,9 +155,16 @@ export function computeLaborPartsPrice(
   const laborRate = Number(model.defaultLaborRate);
   const laborCost = r2(laborHours * laborRate);
 
+  // Phase 2.2: when `job.parts[]` is populated, the mirrored
+  // `partsCost` is the customer-charged retail total (Σ qty ×
+  // unitPrice). Markup is already baked into the retail prices, so
+  // we suppress the engine's additional markup step. Legacy jobs
+  // (Phase 2.1 mechanic accounts without parts[]) continue to
+  // treat `partsCost` as cost basis and apply markup as before.
+  const hasStructuredParts = Array.isArray(j.parts) && j.parts.length > 0;
   const partsCost = Number(j.partsCost || 0);
-  const partsMarkupPct = Number(model.defaultPartsMarkupPct);
-  const partsMarkupAmount = r2(partsCost * (partsMarkupPct / 100));
+  const partsMarkupPct = hasStructuredParts ? 0 : Number(model.defaultPartsMarkupPct);
+  const partsMarkupAmount = hasStructuredParts ? 0 : r2(partsCost * (partsMarkupPct / 100));
 
   const diagnosticFee = Number(j.diagnosticFee || 0);
 

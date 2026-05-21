@@ -124,18 +124,35 @@ export const MECHANIC_INVOICE_TEMPLATE: InvoiceTemplate = {
       });
     }
 
-    if (breakdown.partsCost > 0) {
+    // Phase 2.2: itemize when job.parts[] is populated; one invoice
+    // row per part. Customer sees what they're paying for. When parts
+    // are absent (legacy mechanic job) fall back to the aggregate
+    // "Parts" + "Parts handling" rows from the engine.
+    if (Array.isArray(job.parts) && job.parts.length > 0) {
+      for (const p of job.parts) {
+        const qty = Number(p.qty || 0);
+        const unitPrice = Number(p.unitPrice || 0);
+        if (qty <= 0 || unitPrice <= 0) continue;
+        const detail = p.warrantyDays
+          ? `${p.name} (${qty} × $${unitPrice.toFixed(2)}, ${p.warrantyDays}d warranty)`
+          : `${p.name} (${qty} × $${unitPrice.toFixed(2)})`;
+        items.push({
+          description: detail,
+          qty,
+          amount: qty * unitPrice,
+        });
+      }
+    } else if (breakdown.partsCost > 0) {
       items.push({
         description: 'Parts',
         amount: breakdown.partsCost,
       });
-    }
-
-    if (breakdown.partsMarkupAmount > 0) {
-      items.push({
-        description: `Parts handling (${breakdown.partsMarkupPct}%)`,
-        amount: breakdown.partsMarkupAmount,
-      });
+      if (breakdown.partsMarkupAmount > 0) {
+        items.push({
+          description: `Parts handling (${breakdown.partsMarkupPct}%)`,
+          amount: breakdown.partsMarkupAmount,
+        });
+      }
     }
 
     if (breakdown.diagnosticFee > 0) {
