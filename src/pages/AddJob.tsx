@@ -14,6 +14,7 @@ import { formatPhone, formatPhonePartial } from '@/lib/formatPhone';
 import { searchCities } from '@/lib/locations';
 import { useActiveVertical } from '@/lib/useActiveVertical';
 import type { BusinessTypeJobField } from '@/config/businessTypes/registry';
+import { PartsSection } from '@/components/addJob/PartsSection';
 
 // ─── DynamicJobField: shared renderer for vertical.jobFields ──────────
 // Renders a single Job field declared by a vertical config. Mechanic
@@ -657,6 +658,20 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
               />
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Mechanic-specific structured parts entry. Lives here because
+          it's interaction-rich (autocomplete, source picker, soft-
+          warn at save) and would be awkward inside a DynamicJobField
+          loop. Tire / detailing skip this block. */}
+      {vertical.key === 'mechanic' && (
+        <div className="card-anim" style={{ marginBottom: 12 }}>
+          <PartsSection
+            parts={job.parts ?? []}
+            inventory={inventory}
+            onChange={(parts) => setJob({ ...job, parts } as Job)}
+          />
         </div>
       )}
 
