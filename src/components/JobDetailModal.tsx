@@ -1,4 +1,6 @@
-import type { Job, Settings, InventoryDeduction } from '@/types';
+import { useState } from 'react';
+import type { Job, Settings, InventoryDeduction, PaymentMethod } from '@/types';
+import { PAYMENT_METHOD_LABELS } from '@/types';
 import { fmtDate, jobGrossProfit, money, paymentPillClass, resolvePaymentStatus, serviceIcon } from '@/lib/utils';
 import { useActiveLifecycle } from '@/lib/useActiveLifecycle';
 import { useMembership } from '@/context/MembershipContext';
@@ -19,7 +21,7 @@ interface Props {
   onGenerateInvoice: () => void;
   onSendInvoice: () => void;
   onSendReview: () => void;
-  onMarkPaid: () => void;
+  onMarkPaid: (method?: PaymentMethod) => void;
   onStageTransition?: (toStage: JobLifecycleStage, toSubstage?: string) => void;
 }
 
@@ -30,6 +32,14 @@ export function JobDetailModal({
 }: Props) {
   const profit = jobGrossProfit(job, settings);
   const ps = resolvePaymentStatus(job);
+  // Method selection for the Mark Paid action. Defaults to cash (the
+  // common case for roadside operators); operator can tap a different
+  // chip before hitting Mark Paid. Pre-paid jobs (already 'Paid')
+  // initialize from the stored method so re-opening the modal shows
+  // the recorded value rather than flipping back to cash.
+  const [payMethod, setPayMethod] = useState<PaymentMethod>(
+    (job.paymentMethod as PaymentMethod | undefined) || 'cash',
+  );
   const resolved = useActiveLifecycle();
   const { role, member } = useMembership();
   const myUid = member?.uid || null;
@@ -169,32 +179,70 @@ export function JobDetailModal({
 
 
           {/* Mark Paid CTA — primary action when payment is outstanding.
-              One tap = paid. No method picker, no edit mode. Roadside
-              workflow: see button → tap → done. */}
+              Chip row selects the payment method (defaults to cash —
+              the most common roadside case). One tap on the green
+              button records both the timestamp and the method so the
+              "Paid via X · {date}" audit line + invoice PDF can
+              actually render. */}
           {ps !== 'Paid' && ps !== 'Cancelled' && (
-            <button
-              onClick={onMarkPaid}
-              style={{
-                width: '100%',
-                marginTop: 16,
-                padding: '14px 18px',
-                background: 'linear-gradient(135deg, var(--green) 0%, #16a34a 100%)',
-                color: '#fff',
-                border: 'none',
-                borderRadius: 12,
-                fontSize: 15,
-                fontWeight: 800,
-                cursor: 'pointer',
-                boxShadow: '0 6px 20px rgba(34,197,94,.25)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 8,
-                minHeight: 52,
-              }}
-            >
-              💰 Mark Paid · {money(job.revenue)}
-            </button>
+            <div style={{ marginTop: 16 }}>
+              <div style={{
+                fontSize: 10, fontWeight: 700, color: 'var(--t3)',
+                textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6,
+              }}>
+                Payment method
+              </div>
+              <div style={{
+                display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10,
+              }}>
+                {(['cash', 'card', 'zelle', 'venmo', 'cashapp', 'check', 'apple_pay', 'google_pay', 'other'] as PaymentMethod[]).map((m) => {
+                  const selected = payMethod === m;
+                  return (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setPayMethod(m)}
+                      aria-pressed={selected}
+                      style={{
+                        padding: '7px 11px',
+                        borderRadius: 8,
+                        background: selected ? 'rgba(34,197,94,.10)' : 'var(--s3)',
+                        border: selected
+                          ? '1px solid var(--green)'
+                          : '1px solid var(--border)',
+                        color: selected ? 'var(--green)' : 'var(--t2)',
+                        fontSize: 12, fontWeight: selected ? 700 : 600,
+                        cursor: 'pointer', lineHeight: 1.2,
+                      }}
+                    >
+                      {PAYMENT_METHOD_LABELS[m]}
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                onClick={() => onMarkPaid(payMethod)}
+                style={{
+                  width: '100%',
+                  padding: '14px 18px',
+                  background: 'linear-gradient(135deg, var(--green) 0%, #16a34a 100%)',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 12,
+                  fontSize: 15,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  boxShadow: '0 6px 20px rgba(34,197,94,.25)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                  minHeight: 52,
+                }}
+              >
+                💰 Mark Paid · {money(job.revenue)}
+              </button>
+            </div>
           )}
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 16 }}>

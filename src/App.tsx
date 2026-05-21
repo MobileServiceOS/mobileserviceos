@@ -56,7 +56,7 @@ import {
   stripRetiredServices,
 } from '@/lib/deserializers';
 import type {
-  Brand, Expense, InventoryItem, Job, QuoteForm, Settings as SettingsT, SyncStatus, TabId,
+  Brand, Expense, InventoryItem, Job, PaymentMethod, QuoteForm, Settings as SettingsT, SyncStatus, TabId,
 } from '@/types';
 
 declare global {
@@ -917,21 +917,19 @@ function AuthenticatedApp({ user }: { user: User }) {
     }
   }, [businessId, brand]);
 
-  const handleMarkPaid = useCallback(async (j: Job) => {
+  const handleMarkPaid = useCallback(async (j: Job, method?: PaymentMethod) => {
     if (!businessId) return;
     const jobsCol = scopedCol(businessId, 'jobs');
-    // Stamp paidAt so JobDetailModal's "Paid via X · {timestamp}"
-    // block and invoice.ts's payment-timestamp line can actually
-    // render. Without this, the UI promised the operator a paid-at
-    // confirmation that never appeared, and invoice PDFs never
-    // showed a payment date — both shipped silently broken because
-    // handleMarkPaid only flipped paymentStatus. Preserve any
-    // existing paidAt (e.g. set by backup-import) instead of
-    // overwriting an earlier truthy value.
+    // Stamp paidAt + paymentMethod so JobDetailModal's
+    // "Paid via X · {timestamp}" block and invoice.ts's
+    // payment-timestamp line both render correctly. Preserve any
+    // pre-existing paidAt / paymentMethod (e.g. set by backup-
+    // import) so re-marking doesn't overwrite the original record.
     const updated: Job = {
       ...j,
       paymentStatus: 'Paid',
       paidAt: j.paidAt || new Date().toISOString(),
+      paymentMethod: j.paymentMethod || method || 'cash',
     };
     try {
       await fbSetFast(jobsCol, j.id, updated);
@@ -1123,7 +1121,7 @@ function AuthenticatedApp({ user }: { user: User }) {
           onGenerateInvoice={() => handleGenerateInvoice(detailJob)}
           onSendInvoice={() => handleSendInvoice(detailJob)}
           onSendReview={() => handleSendReview(detailJob)}
-          onMarkPaid={() => handleMarkPaid(detailJob)}
+          onMarkPaid={(method) => handleMarkPaid(detailJob, method)}
           onStageTransition={(toStage, toSubstage) =>
             handleStageTransition(detailJob, toStage, toSubstage)
           }
