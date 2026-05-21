@@ -435,18 +435,6 @@ service cloud.firestore {
         allow write: if isOwnerOrAdmin(businessId) ||
                         request.auth.uid == businessId;
       }
-      // Notifications collection (Phase 2.2 Sub-Project D): any
-      // member can write (stage transitions trigger writes from any
-      // role); reads scoped to business members; client-side
-      // visibleNotifications() filters by role + uid for display.
-      // Catalog delete restricted to owner/admin / convention-owner.
-      match /notifications/{notifId} {
-        allow read: if isMemberOfBusiness(businessId);
-        allow create: if isMemberOfBusiness(businessId);
-        allow update: if isMemberOfBusiness(businessId);
-        allow delete: if isOwnerOrAdmin(businessId) ||
-                         request.auth.uid == businessId;
-      }
     }
 
     // ─────────────────────────────────────────────────────────────────
