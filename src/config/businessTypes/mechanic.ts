@@ -70,18 +70,31 @@ export const MECHANIC_CONFIG: BusinessTypeConfig = {
 
   jobFields: [
     { key: 'laborHours',       label: 'Labor Hours',          type: 'number', required: false },
-    { key: 'partsCost',        label: 'Parts Cost',           type: 'number', required: false },
     { key: 'diagnosticCode',   label: 'Diagnostic Code',      type: 'text',   required: false },
+    { key: 'diagnosticFee',    label: 'Diagnostic Fee ($)',   type: 'number', required: false },
     { key: 'vehicleMakeModel', label: 'Vehicle Make / Model', type: 'text',   required: false },
     { key: 'mileage',          label: 'Vehicle Mileage',      type: 'number', required: false },
   ],
 
   inventoryFields: [
-    { key: 'partNumber', label: 'Part Number', type: 'text' },
-    { key: 'partName',   label: 'Part Name',   type: 'text' },
-    { key: 'supplier',   label: 'Supplier',    type: 'text' },
-    { key: 'unitCost',   label: 'Unit Cost',   type: 'number' },
-    { key: 'quantity',   label: 'Quantity',    type: 'number' },
+    { key: 'partName',          label: 'Part Name',           type: 'text' },
+    { key: 'partNumber',        label: 'Part Number',         type: 'text' },
+    { key: 'brand',             label: 'Brand',               type: 'text' },
+    { key: 'supplier',          label: 'Supplier',            type: 'text' },
+    { key: 'category',          label: 'Category',            type: 'select', options: [
+      'Engine', 'Brakes', 'Suspension', 'Electrical', 'Cooling System',
+      'Tires/Wheels', 'Fluids', 'Filters', 'Diagnostics', 'HVAC',
+    ] },
+    { key: 'subcategory',       label: 'Subcategory',         type: 'text' },
+    { key: 'qty',               label: 'Quantity',            type: 'number' },
+    { key: 'unitCost',          label: 'Unit Cost ($)',       type: 'number' },
+    { key: 'retailPrice',       label: 'Retail Price ($)',    type: 'number' },
+    { key: 'condition',         label: 'Condition',           type: 'select', options: ['New', 'Used', 'Refurbished', 'Remanufactured'] },
+    { key: 'laborHoursDefault', label: 'Default Labor Hours', type: 'number' },
+    { key: 'warrantyDays',      label: 'Warranty Days',       type: 'number' },
+    { key: 'locationBin',       label: 'Location / Bin',      type: 'text' },
+    { key: 'compatibleVehicles',label: 'Compatible Vehicles', type: 'text' },
+    { key: 'notes',             label: 'Notes',               type: 'text' },
   ],
 
   copy: {
@@ -116,10 +129,10 @@ export const MECHANIC_CONFIG: BusinessTypeConfig = {
       id: 'labor_revenue_week',
       label: 'Labor revenue (week)',
       format: 'currency',
-      compute: (jobs, _s) => {
-        const LABOR_RATE = 110;
+      compute: (jobs, s) => {
+        const rate = Number(s.laborRate || 95);
         return r2(jobs.filter(isThisWeek).reduce(
-          (sum, j) => sum + Number((j as Job & { laborHours?: number }).laborHours || 0) * LABOR_RATE,
+          (sum, j) => sum + Number((j as Job & { laborHours?: number }).laborHours || 0) * rate,
           0,
         ));
       },
@@ -129,9 +142,12 @@ export const MECHANIC_CONFIG: BusinessTypeConfig = {
       label: 'Parts revenue (week)',
       format: 'currency',
       compute: (jobs, _s) => {
-        const MARKUP_PCT = 25;
+        // Phase 2.2: `partsCost` is the customer-charged total (derived
+        // from parts[] on new writes; legacy flat number on old jobs).
+        // No additional markup applied here — invoice already reflects
+        // retail prices.
         return r2(jobs.filter(isThisWeek).reduce(
-          (sum, j) => sum + Number((j as Job & { partsCost?: number }).partsCost || 0) * (1 + MARKUP_PCT / 100),
+          (sum, j) => sum + Number((j as Job & { partsCost?: number }).partsCost || 0),
           0,
         ));
       },
@@ -168,16 +184,21 @@ export const MECHANIC_CONFIG: BusinessTypeConfig = {
       label: 'Parts margin',
       format: 'percent',
       compute: (jobs, _s) => {
-        const MARKUP_PCT = 25;
-        const partsTotal = jobs.filter(isThisWeek).reduce(
-          (sum, j) => sum + Number((j as Job & { partsCost?: number }).partsCost || 0),
-          0,
-        );
-        if (partsTotal <= 0) return 0;
-        // Margin = markup / (cost * (1 + markup)) — what % of the
-        // customer-billed parts amount is profit. For a 25% markup:
-        // 25 / 125 = 0.20 → 20%.
-        return MARKUP_PCT / (100 + MARKUP_PCT);
+        // Phase 2.2: read per-job partsMarginSnapshot (populated when
+        // every part line has unitCost > 0). Jobs without a snapshot
+        // are excluded — legacy or partially-cost-stamped jobs would
+        // skew the number. Returns 0 when no eligible jobs in window.
+        let totalMargin = 0;
+        let totalRevenue = 0;
+        for (const j of jobs.filter(isThisWeek)) {
+          const snap = (j as Job).partsMarginSnapshot;
+          if (snap && snap.revenue > 0) {
+            totalMargin  += snap.margin;
+            totalRevenue += snap.revenue;
+          }
+        }
+        if (totalRevenue <= 0) return 0;
+        return totalMargin / totalRevenue;
       },
     },
   ],
