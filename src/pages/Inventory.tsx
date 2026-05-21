@@ -1,14 +1,16 @@
 import { useMemo, useRef, useState } from 'react';
-import type { InventoryItem } from '@/types';
+import type { InventoryItem, Settings } from '@/types';
 import { money, sanitizeInvItem, uid } from '@/lib/utils';
 import { addToast } from '@/lib/toast';
 import { NumberField } from '@/components/NumberField';
 import { useActiveVertical } from '@/lib/useActiveVertical';
 import type { BusinessTypeInventoryField, BusinessTypeConfig } from '@/config/businessTypes/registry';
+import { MechanicInventoryView } from '@/components/inventory/MechanicInventoryView';
 
 interface Props {
   inventory: InventoryItem[];
   onSave: (next: InventoryItem[]) => void;
+  settings: Settings;
 }
 
 type CondFilter = 'all' | 'New' | 'Used';
@@ -95,8 +97,18 @@ function parseCsv(text: string): ParsedRow[] {
 // editor over the same InventoryItem shape (now widened with
 // optional partNumber/partName/supplier/unitCost/chemicalName/
 // category/dilutionRatio fields).
-export function Inventory({ inventory, onSave }: Props) {
+export function Inventory({ inventory, onSave, settings }: Props) {
   const vertical = useActiveVertical();
+  if (vertical.key === 'mechanic') {
+    return (
+      <MechanicInventoryView
+        inventory={inventory}
+        onSave={onSave}
+        vertical={vertical}
+        settings={settings}
+      />
+    );
+  }
   if (!vertical.features.inventoryDeduction) {
     return <GenericInventoryView inventory={inventory} onSave={onSave} vertical={vertical} />;
   }
@@ -104,7 +116,12 @@ export function Inventory({ inventory, onSave }: Props) {
 }
 
 // ─── Tire-bespoke view (pre-Phase-2.1 component, renamed) ──────────
-function TireInventoryView({ inventory, onSave }: Props) {
+interface InternalViewProps {
+  inventory: InventoryItem[];
+  onSave: (next: InventoryItem[]) => void;
+}
+
+function TireInventoryView({ inventory, onSave }: InternalViewProps) {
   const safe: InventoryItem[] = Array.isArray(inventory) ? inventory : [];
   const [list, setList] = useState<InventoryItem[]>(safe);
   const [search, setSearch] = useState('');

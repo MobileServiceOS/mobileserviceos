@@ -887,7 +887,7 @@ function AuthenticatedApp({ user }: { user: User }) {
     if (tab === 'customers') return <Customers jobs={jobs} settings={settings} />;
     if (tab === 'payouts') return <Payouts jobs={jobs} settings={settings} />;
     if (tab === 'expenses') return <Expenses expenses={settings.expenses || []} jobs={jobs} settings={settings} onSave={persistExpenses} />;
-    if (tab === 'inventory') return <Inventory inventory={inventory} onSave={persistInventory} />;
+    if (tab === 'inventory') return <Inventory inventory={inventory} onSave={persistInventory} settings={settings} />;
     if (tab === 'settings') return <Settings settings={settings} onSave={persistSettings} />;
     if (tab === 'help') return <Help onBack={() => setTab('dashboard')} />;
     if (tab === 'success' && savedJob) {
