@@ -3,6 +3,7 @@ import type { Settings as SettingsT } from '@/types';
 import { NumberField } from '@/components/NumberField';
 import { money } from '@/lib/utils';
 import { AccordionShell } from '@/components/settings/AccordionShell';
+import { useActiveVertical } from '@/lib/useActiveVertical';
 
 interface Props {
   settings: SettingsT;
@@ -28,6 +29,7 @@ export function BusinessAccordion({
 function BusinessForm({ settings, onSave, showOwners }: Props & { showOwners: boolean }) {
   const [draft, setDraft] = useState<SettingsT>(settings);
   const [dirty, setDirty] = useState(false);
+  const vertical = useActiveVertical();
   useEffect(() => { setDraft(settings); setDirty(false); }, [settings]);
 
   const set = <K extends keyof SettingsT>(k: K, v: SettingsT[K]) => {
@@ -114,6 +116,51 @@ function BusinessForm({ settings, onSave, showOwners }: Props & { showOwners: bo
           />
         </div>
       </div>
+
+      {vertical.key === 'mechanic' && (
+        <>
+          <div className="form-group-title" style={{ marginTop: 16, fontSize: 12 }}>Mechanic settings</div>
+          <div className="field-row">
+            <div className="field">
+              <label>Labor rate ($/hr)</label>
+              <NumberField
+                value={draft.laborRate ?? 95}
+                onChange={(n) => set('laborRate', n)}
+                placeholder="95"
+              />
+            </div>
+            <div className="field">
+              <label>Parts markup default (×)</label>
+              <NumberField
+                value={draft.partsMarkupDefault ?? 1.5}
+                onChange={(n) => set('partsMarkupDefault', n)}
+                placeholder="1.5"
+              />
+            </div>
+          </div>
+          <div className="field-row">
+            <div className="field">
+              <label>Low-stock threshold</label>
+              <NumberField
+                value={draft.lowStockThreshold ?? 2}
+                onChange={(n) => set('lowStockThreshold', n)}
+                decimals={false}
+                placeholder="2"
+              />
+            </div>
+          </div>
+          <div className="field" style={{ marginBottom: 12 }}>
+            <label>Warranty policy (printed on invoices)</label>
+            <textarea
+              value={draft.warrantyPolicy ?? ''}
+              onChange={(e) => set('warrantyPolicy', e.target.value)}
+              rows={2}
+              placeholder="e.g. All parts carry manufacturer warranty. Labor warranty: 30 days."
+              style={{ width: '100%', padding: 8, fontSize: 14, borderRadius: 8 }}
+            />
+          </div>
+        </>
+      )}
 
       {showOwners && (
         <>
