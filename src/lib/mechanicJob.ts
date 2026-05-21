@@ -11,6 +11,7 @@ import type {
   InventoryItem,
   InventoryDeduction,
   PartsMarginSnapshot,
+  Settings,
 } from '@/types';
 import { r2 } from '@/lib/round';
 
@@ -164,4 +165,89 @@ export function shouldWarnOnDeduction(
   const onHand = Number(item.qty || 0);
   const incrementalQty = Number(line.qty || 0) - oldLineQty;
   return incrementalQty > onHand;
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  Invoice line items
+// ─────────────────────────────────────────────────────────────────
+
+export interface MechanicLineItem {
+  label: string;
+  detail?: string;
+  amount: number;
+  group: 'labor' | 'parts' | 'fees' | 'travel';
+}
+
+/**
+ * Build the line-item array for a mechanic invoice. Itemized parts
+ * when `parts[]` populated; legacy aggregate parts line as fallback
+ * for old jobs from Phase 2.1 that have only the flat `partsCost`
+ * field. Labor / diagnostic / travel lines suppress when their
+ * driving value is ≤ 0.
+ */
+export function buildMechanicLineItems(
+  job: Pick<Job, 'laborHours' | 'parts' | 'partsCost' | 'diagnosticFee' | 'miles'>,
+  settings: Pick<Settings, 'laborRate' | 'freeMilesIncluded' | 'costPerMile'>,
+): MechanicLineItem[] {
+  const out: MechanicLineItem[] = [];
+
+  // Labor
+  const hrs = Number(job.laborHours || 0);
+  if (hrs > 0) {
+    const rate = Number(settings.laborRate || 95);
+    out.push({
+      label: 'Labor',
+      detail: `${hrs} hrs × $${rate}/hr`,
+      amount: r2(hrs * rate),
+      group: 'labor',
+    });
+  }
+
+  // Parts — itemized when parts[] populated, legacy aggregate fallback
+  if (job.parts && job.parts.length > 0) {
+    for (const p of job.parts) {
+      const detailBase = `${p.qty} × $${Number(p.unitPrice).toFixed(2)}`;
+      const detail = p.warrantyDays
+        ? `${detailBase} (${p.warrantyDays}d warranty)`
+        : detailBase;
+      out.push({
+        label: p.name,
+        detail,
+        amount: r2(Number(p.qty) * Number(p.unitPrice)),
+        group: 'parts',
+      });
+    }
+  } else if (Number(job.partsCost || 0) > 0) {
+    out.push({
+      label: 'Parts',
+      amount: r2(Number(job.partsCost)),
+      group: 'parts',
+    });
+  }
+
+  // Diagnostic fee
+  const diag = Number(job.diagnosticFee || 0);
+  if (diag > 0) {
+    out.push({
+      label: 'Diagnostic fee',
+      amount: r2(diag),
+      group: 'fees',
+    });
+  }
+
+  // Travel
+  const miles = Number(job.miles || 0);
+  const freeMi = Number(settings.freeMilesIncluded || 0);
+  const chargeable = Math.max(0, miles - freeMi);
+  if (chargeable > 0) {
+    const cpm = Number(settings.costPerMile || 0.65);
+    out.push({
+      label: 'Travel',
+      detail: `${chargeable} mi @ $${cpm}/mi`,
+      amount: r2(chargeable * cpm),
+      group: 'travel',
+    });
+  }
+
+  return out;
 }
