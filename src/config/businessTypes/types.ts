@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════
 
 import type { Job, Settings } from '@/types';
+import type { LifecycleExtensions } from '@/config/jobs/lifecycle';
 
 export type BusinessTypeKey = 'tire' | 'mechanic' | 'detailing';
 
@@ -131,4 +132,10 @@ export interface BusinessTypeConfig {
   features: BusinessTypeFeatures;
   invoiceTemplateKey: BusinessTypeKey;
   dashboardMetrics: DashboardMetricSpec[];
+
+  /** Optional per-vertical contributions to the universal job
+   *  lifecycle (substages, applicable-stages filter, stage overrides).
+   *  When undefined, the vertical inherits the universal defaults
+   *  declared in src/config/jobs/universal-stages.ts. */
+  lifecycle?: LifecycleExtensions;
 }
