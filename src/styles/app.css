@@ -732,13 +732,28 @@ a { color: var(--brand-primary); text-decoration: none; }
   padding-left: var(--safe-l);
   padding-right: var(--safe-r);
   display: grid; grid-template-columns: repeat(5, 1fr);
-  background: var(--s1); border-top: 1px solid var(--border);
+  /* Translucent + blurred backdrop — content scrolls softly behind
+     the nav instead of hitting a hard opaque bar. */
+  background: rgba(17,19,21,.86);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-top: 1px solid var(--border);
   z-index: 30;
 }
-.nav-btn { background: transparent; border: none; color: var(--t3); display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 4px; font-size: 10px; font-weight: 600; cursor: pointer; min-width: 0; }
-.nav-btn.active { color: var(--brand-primary); }
+.nav-btn {
+  background: transparent; border: none; color: var(--t3);
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 9px 4px 8px; font-size: 10px; font-weight: 600;
+  cursor: pointer; min-width: 0;
+  transition: color .15s ease, transform .07s ease;
+}
+.nav-btn:active { transform: scale(.94); }
+/* Active tab: amber + heavier label + a slightly larger icon so the
+   current location is unmistakable at a glance. */
+.nav-btn.active { color: var(--brand-primary); font-weight: 800; }
+.nav-btn.active .nav-ico { transform: scale(1.12); }
 .nav-btn.primary { color: var(--brand-primary); }
-.nav-ico { font-size: 18px; }
+.nav-ico { font-size: 18px; transition: transform .16s ease; }
 
 /* ── Install banner ─────────────────────────────────────── */
 .install-banner {
