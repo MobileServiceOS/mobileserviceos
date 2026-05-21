@@ -43,7 +43,9 @@ import {
 import { transitionJobStage } from '@/lib/jobLifecycle';
 import { resolveLifecycle } from '@/config/jobs';
 import type { JobLifecycleStage } from '@/config/jobs/lifecycle';
-import { generateInvoicePDF } from '@/lib/invoice';
+// invoice.ts is lazy-imported in handleGenerateInvoice — see comment
+// there. Keeps jspdf (358 KB) + html2canvas (201 KB) out of the main
+// bundle until the operator actually generates an invoice.
 import { openReviewSMSFromJob } from '@/lib/review';
 import { APP_LOGO, DEFAULT_SETTINGS, EMPTY_JOB } from '@/lib/defaults';
 import { attachStripeSync } from '@/lib/stripeSync';
@@ -848,11 +850,15 @@ function AuthenticatedApp({ user }: { user: User }) {
   );
 
   const handleGenerateInvoice = useCallback(async (j: Job) => {
-    // generateInvoicePDF is async — it pre-loads the brand logo via fetch
-    // before rendering. The previous code missed the await, so `result`
-    // was a Promise and `.invoiceNumber` came back undefined (and TS
-    // flagged the property access). The await fixes both runtime and
-    // type errors.
+    // Lazy-load the PDF generator. invoice.ts statically imports
+    // jspdf (358 KB) + html2canvas (201 KB) — together ~75% of the
+    // app's JS payload. Loading them on demand means the
+    // initial bundle is ~25 KB smaller per route that doesn't open
+    // an invoice. Vite splits this into its own chunk automatically.
+    // generateInvoicePDF is async — it pre-loads the brand logo via
+    // fetch before rendering; the await covers both that and the
+    // dynamic import.
+    const { generateInvoicePDF } = await import('@/lib/invoice');
     const result = await generateInvoicePDF(j, settings, brand);
     if (!result || !businessId) return;
     const jobsCol = scopedCol(businessId, 'jobs');
