@@ -76,14 +76,16 @@ export function assignableMembers(
   currentUid: string,
 ): AssigneeOption[] {
   const techs = members
-    .filter((m) =>
+    .filter((m): m is MemberDoc & { uid: string } =>
       m.status === 'active' &&
       m.role === 'technician' &&
+      typeof m.uid === 'string' &&
+      m.uid !== '' &&
       m.uid !== currentUid,
     )
     .sort((a, b) =>
-      String(a.displayName || a.email || a.uid)
-        .localeCompare(String(b.displayName || b.email || b.uid)),
+      (a.displayName || a.email || a.uid)
+        .localeCompare(b.displayName || b.email || b.uid),
     )
     .map<AssigneeOption>((m) => ({
       uid: m.uid,
