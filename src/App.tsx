@@ -923,7 +923,19 @@ function AuthenticatedApp({ user }: { user: User }) {
   const handleMarkPaid = useCallback(async (j: Job) => {
     if (!businessId) return;
     const jobsCol = scopedCol(businessId, 'jobs');
-    const updated: Job = { ...j, paymentStatus: 'Paid' };
+    // Stamp paidAt so JobDetailModal's "Paid via X · {timestamp}"
+    // block and invoice.ts's payment-timestamp line can actually
+    // render. Without this, the UI promised the operator a paid-at
+    // confirmation that never appeared, and invoice PDFs never
+    // showed a payment date — both shipped silently broken because
+    // handleMarkPaid only flipped paymentStatus. Preserve any
+    // existing paidAt (e.g. set by backup-import) instead of
+    // overwriting an earlier truthy value.
+    const updated: Job = {
+      ...j,
+      paymentStatus: 'Paid',
+      paidAt: j.paidAt || new Date().toISOString(),
+    };
     try {
       await fbSetFast(jobsCol, j.id, updated);
       addToast('Marked as paid', 'success');

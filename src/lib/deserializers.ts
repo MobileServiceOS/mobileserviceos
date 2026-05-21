@@ -1,4 +1,4 @@
-import type { Job, InventoryItem, Expense, InventoryDeduction, Settings, ServicePricing, JobStatus, PaymentStatus, TireSource, JobPartLine, PartsMarginSnapshot } from '@/types';
+import type { Job, InventoryItem, Expense, InventoryDeduction, Settings, ServicePricing, JobStatus, PaymentStatus, PaymentMethod, TireSource, JobPartLine, PartsMarginSnapshot } from '@/types';
 import type { LifecycleTransition } from '@/config/jobs/lifecycle';
 import { EMPTY_JOB, DEFAULT_SERVICE_PRICING } from '@/lib/defaults';
 
@@ -48,6 +48,7 @@ function deserializeInventoryDeductions(v: unknown): InventoryDeduction[] | null
 
 const VALID_STATUSES: JobStatus[] = ['Completed', 'Pending', 'Cancelled'];
 const VALID_PAYMENT_STATUSES: PaymentStatus[] = ['Paid', 'Pending Payment', 'Partial Payment', 'Cancelled'];
+const VALID_PAYMENT_METHODS: PaymentMethod[] = ['cash', 'card', 'zelle', 'venmo', 'cashapp', 'check', 'apple_pay', 'google_pay', 'other'];
 const VALID_TIRE_SOURCES: TireSource[] = ['Inventory', 'Bought for this job', 'Customer supplied'];
 
 function asEnum<T extends string>(v: unknown, valid: readonly T[], fallback: T): T {
@@ -94,6 +95,15 @@ export function deserializeJob(raw: RawDoc): Job {
     inventoryDeductions: deserializeInventoryDeductions(raw.inventoryDeductions),
     inventoryUsed: raw.inventoryUsed,
     paymentStatus: asEnum(raw.paymentStatus, VALID_PAYMENT_STATUSES, 'Paid'),
+    // Payment timestamp + typed method. Both are read by
+    // JobDetailModal (the "Paid via X · {timestamp}" block) and
+    // invoice.ts (the PDF payment line). The deserializer was
+    // stripping these silently before, so even when handleMarkPaid
+    // (or backup-import) wrote them, the UI never saw them.
+    paidAt: raw.paidAt == null ? undefined : asString(raw.paidAt),
+    paymentMethod: raw.paymentMethod == null
+      ? undefined
+      : asEnum(raw.paymentMethod, VALID_PAYMENT_METHODS, 'other'),
     invoiceGenerated: asBool(raw.invoiceGenerated),
     invoiceGeneratedAt: raw.invoiceGeneratedAt == null ? null : asString(raw.invoiceGeneratedAt),
     invoiceNumber: raw.invoiceNumber == null ? null : asString(raw.invoiceNumber),
