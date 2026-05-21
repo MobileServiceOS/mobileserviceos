@@ -19,7 +19,15 @@ export const DEFAULT_BRAND: Brand = {
   reviewUrl: '',
   invoiceFooter: '',
   serviceArea: '',
-  businessType: 'Mobile Tire & Roadside',
+  // Vertical KEY, not display string. Previously the legacy display
+  // label was here; that pre-dated the multi-vertical key/displayName
+  // separation and silently leaked the wrong shape into the bootstrap
+  // path (BrandContext writes DEFAULT_BRAND for a brand-new signup,
+  // then Onboarding.finish() overwrites with the picker's chosen
+  // key). resolveVerticalKey already maps the legacy string back to
+  // 'tire', so this rename has no behavioral impact on existing docs
+  // — but new bootstraps now write the canonical key from second one.
+  businessType: 'tire',
   tagline: '',
   state: '',
   mainCity: '',
