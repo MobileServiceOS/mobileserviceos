@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { _auth, _db, scopedCol, fbSetFast } from '@/lib/firebase';
 import { useMembership } from '@/context/MembershipContext';
+import { useActiveVertical } from '@/lib/useActiveVertical';
 import { addToast, addActionToast } from '@/lib/toast';
 import { humanizeFirestoreError } from '@/lib/firebaseErrors';
 import {
@@ -44,6 +45,11 @@ export function useActiveTimer(jobs: ReadonlyArray<Job>): UseActiveTimerResult {
   const { member } = useMembership();
   const uid = member?.uid;
   const businessId = member?.businessId;
+  // laborHours feeds the mechanic labor_parts pricing model only.
+  // Tire (flat) and detailing (package_multiplier) ignore it — so
+  // the "Fill labor hours" action on the stop-timer toast is a
+  // no-op for those verticals and shouldn't be offered.
+  const isMechanic = useActiveVertical().key === 'mechanic';
 
   const active = useMemo(
     () => findActiveSessionAcrossJobs(jobs, uid),
@@ -89,7 +95,9 @@ export function useActiveTimer(jobs: ReadonlyArray<Job>): UseActiveTimerResult {
       const totalMs = totalElapsedMs(stopped);
       const suggested = suggestedLaborHours(totalMs);
       const existing = Number(job.laborHours || 0);
-      if (suggested > existing) {
+      // Offer the labor-hours autofill ONLY for mechanic jobs —
+      // it's a no-op for tire / detailing pricing models.
+      if (isMechanic && suggested > existing) {
         addActionToast(
           `Stopped at ${formatDuration(totalMs)}.`,
           {
@@ -110,7 +118,7 @@ export function useActiveTimer(jobs: ReadonlyArray<Job>): UseActiveTimerResult {
     } finally {
       writingRef.current = false;
     }
-  }, [uid, writeJob]);
+  }, [uid, writeJob, isMechanic]);
 
   const startTimer = useCallback(async (job: Job): Promise<void> => {
     if (!uid || writingRef.current) return;

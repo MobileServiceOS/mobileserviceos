@@ -649,27 +649,39 @@ export function Dashboard({
             </select>
           </div>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 12 }}>
+        {/* "Tire $" only renders for tire — mechanic/detailing pricing
+            engines never read qqForm.tireCost. Grid column count
+            adapts so the row doesn't leave a gap. */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: vertical.features.inventoryDeduction ? '1fr 1fr 1fr' : '1fr 1fr',
+          gap: 10, marginBottom: 12,
+        }}>
           <div className="field" style={{ marginBottom: 0 }}>
             <label>Miles</label>
             <input type="number" inputMode="decimal" value={qqForm.miles} onChange={(e) => qqChange('miles', e.target.value)} placeholder="0" />
           </div>
-          <div className="field" style={{ marginBottom: 0 }}>
-            <label>Tire $</label>
-            <input type="number" inputMode="decimal" value={qqForm.tireCost} onChange={(e) => qqChange('tireCost', e.target.value)} placeholder="0" />
-          </div>
+          {vertical.features.inventoryDeduction && (
+            <div className="field" style={{ marginBottom: 0 }}>
+              <label>Tire $</label>
+              <input type="number" inputMode="decimal" value={qqForm.tireCost} onChange={(e) => qqChange('tireCost', e.target.value)} placeholder="0" />
+            </div>
+          )}
           <div className="field" style={{ marginBottom: 0 }}>
             <label>Qty</label>
             <input type="number" inputMode="numeric" value={qqForm.qty} onChange={(e) => qqChange('qty', e.target.value)} placeholder="1" />
           </div>
         </div>
+        {/* Conditions chips are vertical-aware — detailing omits
+            Highway (matches AddJob, commit cd87447). Fallback to all
+            4 if a config doesn't declare conditions. */}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-          {([
-            ['emergency', '🚨 Emergency'],
-            ['lateNight', '🌙 Late'],
-            ['highway', '🛣 Hwy'],
-            ['weekend', '📅 Wknd'],
-          ] as const).map(([k, l]) => (
+          {(vertical.conditions ?? [
+            { key: 'emergency' as const, label: '🚨 Emergency' },
+            { key: 'lateNight' as const, label: '🌙 Late' },
+            { key: 'highway' as const,   label: '🛣 Hwy' },
+            { key: 'weekend' as const,   label: '📅 Wknd' },
+          ]).map(({ key: k, label: l }) => (
             <button key={k} className={'chip sm' + (qqForm[k] ? ' active' : '')} onClick={() => qqChange(k, !qqForm[k])}>{l}</button>
           ))}
         </div>
