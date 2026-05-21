@@ -468,6 +468,10 @@ export interface Job {
   source: string;
   customerName: string;
   customerPhone: string;
+  /** Customer email — optional; populated by operator when needed
+   *  for invoice-send email path. Empty / undefined → mailto: pending
+   *  actions render disabled. */
+  customerEmail?: string;
   tireSize: string;
   qty: number | string;
   revenue: number | string;
@@ -911,6 +915,36 @@ export interface ToastItem {
   msg: string;
   type: ToastType;
   ts: number;
+  /** Optional inline action button. When set, ToastHost renders a
+   *  button labeled `action.label` next to the message; tapping
+   *  calls `action.onTap()` and dismisses the toast. */
+  action?: {
+    label: string;
+    onTap: () => void;
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────
+//  Notifications (Phase 2.2 Sub-Project D)
+// ─────────────────────────────────────────────────────────────────────
+
+export interface NotificationDoc {
+  id: string;
+  createdAt: string;
+  jobId: string;
+  audience: 'customer' | 'technician' | 'owner';
+  channel: 'sms' | 'email' | 'in_app' | 'push';
+  templateId: string;
+  toUid?: string;
+  toPhone?: string;
+  toEmail?: string;
+  subject?: string;
+  body: string;
+  readAt?: string;
+  dismissedAt?: string;
+  sentAt?: string;
+  byUid: string;
+  toStage: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────

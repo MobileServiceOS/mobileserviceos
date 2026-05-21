@@ -1,4 +1,4 @@
-import type { Job, InventoryItem, Expense, InventoryDeduction, Settings, ServicePricing, JobStatus, PaymentStatus, TireSource, JobPartLine, PartsMarginSnapshot } from '@/types';
+import type { Job, InventoryItem, Expense, InventoryDeduction, Settings, ServicePricing, JobStatus, PaymentStatus, TireSource, JobPartLine, PartsMarginSnapshot, NotificationDoc } from '@/types';
 import type { LifecycleTransition } from '@/config/jobs/lifecycle';
 import { EMPTY_JOB, DEFAULT_SERVICE_PRICING } from '@/lib/defaults';
 
@@ -67,6 +67,7 @@ export function deserializeJob(raw: RawDoc): Job {
     source: asString(raw.source, empty.source),
     customerName: asString(raw.customerName, empty.customerName),
     customerPhone: asString(raw.customerPhone, empty.customerPhone),
+    customerEmail: raw.customerEmail == null ? undefined : asString(raw.customerEmail),
     tireSize: asString(raw.tireSize, empty.tireSize),
     qty: asNumberOrString(raw.qty ?? empty.qty),
     revenue: asNumberOrString(raw.revenue ?? empty.revenue),
@@ -291,4 +292,32 @@ export function stripRetiredServices(
 
   if (!stripped) return { map: userMap as Record<string, ServicePricing>, removed: [] };
   return { map: stripped, removed };
+}
+
+// ─────────────────────────────────────────────────────────────────────
+//  Notifications (Phase 2.2 Sub-Project D)
+// ─────────────────────────────────────────────────────────────────────
+
+const NOTIF_AUDIENCES = ['customer', 'technician', 'owner'] as const;
+const NOTIF_CHANNELS = ['sms', 'email', 'in_app', 'push'] as const;
+
+export function deserializeNotification(raw: RawDoc): NotificationDoc {
+  return {
+    id: asString(raw.id),
+    createdAt: asString(raw.createdAt, new Date().toISOString()),
+    jobId: asString(raw.jobId),
+    audience: asEnum(raw.audience, NOTIF_AUDIENCES, 'owner'),
+    channel: asEnum(raw.channel, NOTIF_CHANNELS, 'in_app'),
+    templateId: asString(raw.templateId),
+    toUid: raw.toUid == null ? undefined : asString(raw.toUid),
+    toPhone: raw.toPhone == null ? undefined : asString(raw.toPhone),
+    toEmail: raw.toEmail == null ? undefined : asString(raw.toEmail),
+    subject: raw.subject == null ? undefined : asString(raw.subject),
+    body: asString(raw.body),
+    readAt: raw.readAt == null ? undefined : asString(raw.readAt),
+    dismissedAt: raw.dismissedAt == null ? undefined : asString(raw.dismissedAt),
+    sentAt: raw.sentAt == null ? undefined : asString(raw.sentAt),
+    byUid: asString(raw.byUid),
+    toStage: asString(raw.toStage),
+  };
 }
