@@ -368,6 +368,27 @@ function AuthenticatedApp({ user }: { user: User }) {
 
     unsubs.push(fbListen(scopedCol(businessId, 'operational_settings'), (docs) => {
       const main = docs.find((d) => d.id === 'main');
+      if (!main) {
+        // Auto-heal: businesses created via the buggy
+        // pre-d4724d6 AddBusinessModal flow never got their
+        // operational_settings/main seeded. Without this branch
+        // they're stuck with DEFAULT_SETTINGS (tire catalog) on a
+        // mechanic / detailing vertical, so AddJob's service
+        // dropdown is empty. Seed the canonical vertical catalog
+        // on first read where the doc is missing — fire-and-forget;
+        // failure re-runs next load (idempotent).
+        // eslint-disable-next-line no-console
+        console.info('[settings] operational_settings/main missing — seeding vertical defaults');
+        fbSet(scopedCol(businessId, 'operational_settings'), 'main', {
+          servicePricing: verticalCatalog,
+          createdAt: new Date().toISOString(),
+        }).catch((e: unknown) => {
+          // eslint-disable-next-line no-console
+          console.warn('[settings] auto-seed failed (non-fatal):', e);
+        });
+        markReady('ops');
+        return;
+      }
       if (main) {
         const parsed = deserializeOperationalSettings(main);
 
