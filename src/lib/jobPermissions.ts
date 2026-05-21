@@ -6,6 +6,7 @@
 // ═══════════════════════════════════════════════════════════════════
 
 import type { Job, Role, MemberDoc } from '@/types';
+import type { JobLifecycleStage } from '@/config/jobs/lifecycle';
 
 /**
  * Scope the job list to what the given role + uid is allowed to see.
@@ -97,4 +98,31 @@ export function assignableMembers(
     { uid: UNASSIGNED, label: 'Unassigned' },
     ...techs,
   ];
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  Stage transition gating (Sub-Project C)
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * Can the given role transition a job to the target stage?
+ *
+ * - Owner / admin: any stage
+ * - Technician: in-field stages + completed + paid (techs collect
+ *   payment on-site in mobile-service workflows); cannot transition
+ *   to pre-service stages, invoiced, or canceled
+ * - Null / undefined role: never
+ */
+export function canTransitionToStage(
+  role: Role | null | undefined,
+  stage: JobLifecycleStage,
+): boolean {
+  if (role === 'owner' || role === 'admin') return true;
+  if (role !== 'technician') return false;
+  const TECH_STAGES: JobLifecycleStage[] = [
+    'dispatched', 'enroute', 'onsite',
+    'in_progress', 'waiting_parts', 'awaiting_approval',
+    'completed', 'paid',
+  ];
+  return TECH_STAGES.includes(stage);
 }
