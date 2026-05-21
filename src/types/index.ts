@@ -412,6 +412,37 @@ export interface InventoryDeduction {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+//  Mechanic parts (Phase 2.2 Sub-Project A)
+// ─────────────────────────────────────────────────────────────────────
+
+export interface JobPartLine {
+  /** Display name. For inventory-bound lines this mirrors
+   *  InventoryItem.partName at save time; for unbound lines it's
+   *  free-text. */
+  name: string;
+  qty: number;
+  /** Per-unit price charged to the customer. */
+  unitPrice: number;
+  /** Per-unit cost basis. Auto-filled from InventoryItem.unitCost when
+   *  bound; entered by the tech (or left 0) for bought_for_job /
+   *  special_order. */
+  unitCost: number;
+  source: 'inventory' | 'bought_for_job' | 'special_order';
+  /** When source === 'inventory', the InventoryItem.id to deduct. */
+  inventoryItemId?: string;
+  /** Free-text supplier when source is bought_for_job / special_order. */
+  supplier?: string;
+  /** Carry-through for warranty annotation on the invoice. */
+  warrantyDays?: number;
+}
+
+export interface PartsMarginSnapshot {
+  revenue: number;
+  costBasis: number;
+  margin: number;
+}
+
+// ─────────────────────────────────────────────────────────────────────
 //  Job
 // ─────────────────────────────────────────────────────────────────────
 
@@ -509,6 +540,18 @@ export interface Job {
   /** Append-only stage transition history. Capped per business
    *  tier via getTransitionRetentionPolicy() at write time. */
   transitions?: ReadonlyArray<LifecycleTransition>;
+
+  // ─── Mechanic parts (Phase 2.2 Sub-Project A) ────────────────────
+  /** Structured parts on this job. Sum of (qty × unitPrice) mirrors
+   *  to `partsCost` on save for legacy reader compat. */
+  parts?: ReadonlyArray<JobPartLine>;
+  /** Inventory deductions made by this mechanic-job save. Same shape
+   *  as the existing tire `inventoryDeductions`; populated only by
+   *  the mechanic save branch. */
+  partsInventoryDeductions?: InventoryDeduction[] | null;
+  /** Per-job margin snapshot. Populated only when every part line
+   *  has unitCost > 0 (a single zero invalidates the whole snapshot). */
+  partsMarginSnapshot?: PartsMarginSnapshot;
 }
 
 // ─────────────────────────────────────────────────────────────────────
