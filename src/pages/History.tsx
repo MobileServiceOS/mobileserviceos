@@ -5,6 +5,7 @@ import { useBrand } from '@/context/BrandContext';
 import { useMembersDirectory } from '@/lib/useMembersDirectory';
 import { useLongPress } from '@/lib/useLongPress';
 import { QuickActionSheet } from '@/components/QuickActionSheet';
+import { useScopedJobs } from '@/lib/useScopedJobs';
 
 interface Props {
   jobs: Job[];
@@ -20,9 +21,11 @@ interface Props {
 type Filter = 'all' | 'completed' | 'pending' | 'cancelled' | 'unpaid';
 
 export function History({
-  jobs, settings, onViewJob, onMarkPaid, onEditJob,
+  jobs: rawJobs, settings, onViewJob, onMarkPaid, onEditJob,
   onGenerateInvoice, onSendInvoice, onSendReview,
 }: Props) {
+  // Phase 2.2 Sub-Project B: scope to what the current member sees.
+  const jobs = useScopedJobs(rawJobs);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
 

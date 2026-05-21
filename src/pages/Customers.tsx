@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { Job, Settings } from '@/types';
 import { fmtDate, jobGrossProfit, money } from '@/lib/utils';
+import { useScopedJobs } from '@/lib/useScopedJobs';
 
 interface Props {
   jobs: Job[];
@@ -17,7 +18,10 @@ interface CustomerSummary {
   lastDate: string;
 }
 
-export function Customers({ jobs, settings }: Props) {
+export function Customers({ jobs: rawJobs, settings }: Props) {
+  // Phase 2.2 Sub-Project B: derive customers from the scoped job
+  // set so technicians only see customers from their own jobs.
+  const jobs = useScopedJobs(rawJobs);
   const [query, setQuery] = useState('');
 
   const customers = useMemo(() => {

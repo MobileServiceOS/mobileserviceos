@@ -10,6 +10,7 @@ import { useCountUp } from '@/lib/useCountUp';
 import { useMembership } from '@/context/MembershipContext';
 import { _auth } from '@/lib/firebase';
 import { useActiveVertical } from '@/lib/useActiveVertical';
+import { useScopedJobs } from '@/lib/useScopedJobs';
 
 // ─────────────────────────────────────────────────────────────────────
 //  Dashboard — hybrid premium + operational
@@ -130,10 +131,17 @@ function SubKpi({ label, value, tone }: { label: string; value: string; tone: 'n
 }
 
 export function Dashboard({
-  jobs, settings, inventory, setTab,
+  jobs: rawJobs, settings, inventory, setTab,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   onStartJob, onViewJob, onGenerateInvoice, onSendInvoice, onSendReview, onMarkPaid, onEditJob,
 }: Props) {
+  // Phase 2.2 Sub-Project B: scope jobs to what the current member is
+  // allowed to see. Owner / admin: pass-through. Technician: union of
+  // assigned + created. Every downstream computation reads `jobs`
+  // which now points at the scoped result; no other code in this
+  // function needs to change.
+  const jobs = useScopedJobs(rawJobs);
+
   // Active vertical config — drives the per-vertical Stats section
   // (rendered between Quick Actions and Pending Payments). Tire's
   // dashboardMetrics is empty by design (the hero already covers
