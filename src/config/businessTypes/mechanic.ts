@@ -219,4 +219,13 @@ export const MECHANIC_CONFIG: BusinessTypeConfig = {
       { id: 'mechanic.diagnosis_pending', parentStage: 'in_progress',   label: 'Diagnosing',        technicianVisible: true, customerVisible: false },
     ],
   },
+
+  // Mobile mechanic: all 4 conditions apply. Highway is a real case
+  // (highway battery replacement, roadside diagnostic, etc.).
+  conditions: [
+    { key: 'emergency', label: '🚨 Emergency' },
+    { key: 'lateNight', label: '🌙 Late Night' },
+    { key: 'highway',   label: '🛣 Highway' },
+    { key: 'weekend',   label: '📅 Weekend' },
+  ],
 };

@@ -125,6 +125,15 @@ export const TIRE_CONFIG: BusinessTypeConfig = {
   // Phase 2.1's mandate is "tire visually identical" — additive UX
   // changes go through a separate iteration.
   dashboardMetrics: [],
+
+  // Tire roadside: all 4 conditions apply. Highway is genuinely
+  // relevant (stranded drivers, shoulder calls).
+  conditions: [
+    { key: 'emergency', label: '🚨 Emergency' },
+    { key: 'lateNight', label: '🌙 Late Night' },
+    { key: 'highway',   label: '🛣 Highway' },
+    { key: 'weekend',   label: '📅 Weekend' },
+  ],
 };
 
 // Internal helpers (isThisWeek / revenueOf / profitOf) are retained

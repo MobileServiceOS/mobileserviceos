@@ -184,4 +184,14 @@ export const DETAILING_CONFIG: BusinessTypeConfig = {
       awaiting_approval: { label: 'Awaiting customer walk-around', shortLabel: 'Walk-around' },
     },
   },
+
+  // Mobile car wash / detailing: highway intentionally omitted —
+  // no one washes a car on the highway. Emergency/late-night/weekend
+  // are all plausible (rush detail before resale, evening fleet job,
+  // Saturday morning premium rate).
+  conditions: [
+    { key: 'emergency', label: '🚨 Emergency' },
+    { key: 'lateNight', label: '🌙 Late Night' },
+    { key: 'weekend',   label: '📅 Weekend' },
+  ],
 };

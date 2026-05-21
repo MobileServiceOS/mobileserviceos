@@ -130,6 +130,14 @@ export interface DashboardMetricSpec {
 
 // ─── The config ────────────────────────────────────────────────────
 
+/** A job-level surcharge condition (chip in AddJob → boolean on Job).
+ *  Vertical-aware: tire shows emergency/lateNight/highway/weekend;
+ *  detailing omits highway (no one washes cars on the highway). */
+export interface JobConditionSpec {
+  key: 'emergency' | 'lateNight' | 'highway' | 'weekend';
+  label: string;
+}
+
 export interface BusinessTypeConfig {
   key: BusinessTypeKey;
   displayName: string;
@@ -145,6 +153,11 @@ export interface BusinessTypeConfig {
   features: BusinessTypeFeatures;
   invoiceTemplateKey: BusinessTypeKey;
   dashboardMetrics: DashboardMetricSpec[];
+
+  /** Applicable job-level conditions for this vertical. Surfaces in
+   *  AddJob's "Conditions" chip row. Defaults to all 4 if omitted
+   *  (back-compat for any config not yet migrated). */
+  conditions?: ReadonlyArray<JobConditionSpec>;
 
   /** Optional per-vertical contributions to the universal job
    *  lifecycle (substages, applicable-stages filter, stage overrides).

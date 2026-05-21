@@ -897,12 +897,16 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
         <div className="field" style={{ marginTop: 6 }}>
           <label>Conditions <span style={{ fontWeight: 400, color: 'var(--t3)', fontSize: 11 }}>(tap any that apply)</span></label>
           <div className="chip-grid">
-            {([
-              ['emergency', '🚨 Emergency'],
-              ['lateNight', '🌙 Late Night'],
-              ['highway', '🛣 Highway'],
-              ['weekend', '📅 Weekend'],
-            ] as const).map(([k, l]) => (
+            {/* Conditions are vertical-aware. Detailing omits 'highway'
+                — no one washes cars on the highway. Configs that
+                don't declare `conditions` fall back to all 4 for
+                back-compat with anything not yet migrated. */}
+            {(vertical.conditions ?? [
+              { key: 'emergency' as const, label: '🚨 Emergency' },
+              { key: 'lateNight' as const, label: '🌙 Late Night' },
+              { key: 'highway' as const,   label: '🛣 Highway' },
+              { key: 'weekend' as const,   label: '📅 Weekend' },
+            ]).map(({ key: k, label: l }) => (
               <button key={k} type="button" className={'chip' + (job[k] ? ' active' : '')} onClick={() => set(k, !job[k])}>{l}</button>
             ))}
           </div>
