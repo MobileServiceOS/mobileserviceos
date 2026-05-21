@@ -443,6 +443,23 @@ export interface PartsMarginSnapshot {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+//  Time tracking (Phase 2.4)
+// ─────────────────────────────────────────────────────────────────────
+
+export interface TimeSession {
+  /** ISO timestamp when work began. */
+  startAt: string;
+  /** ISO timestamp when work ended. Open (currently-active) session
+   *  has endAt undefined. */
+  endAt?: string;
+  /** Auth uid of whoever clocked. Owner/admin clocking on behalf of
+   *  a tech stamps their own uid, not the tech's. */
+  byUid: string;
+  /** Optional free-text note ("paused for parts pickup", etc.). */
+  note?: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────
 //  Job
 // ─────────────────────────────────────────────────────────────────────
 
@@ -569,6 +586,13 @@ export interface Job {
    *  to a service in the active vertical's catalog at invoice render
    *  time. Tire / mechanic jobs leave this undefined. */
   detailingAddons?: ReadonlyArray<string>;
+
+  // ─── Time tracking (Phase 2.4) ───────────────────────────────────
+  /** Clock-in/out sessions for this job. Most-recent session with
+   *  endAt undefined is the active one. Total time = sum of
+   *  (endAt - startAt) for closed sessions + (now - startAt) for the
+   *  open session if any. */
+  timeSessions?: ReadonlyArray<TimeSession>;
 }
 
 // ─────────────────────────────────────────────────────────────────────

@@ -125,6 +125,19 @@ export function deserializeJob(raw: RawDoc): Job {
       ? (raw.detailingAddons as unknown[]).map((v) => asString(v))
       : undefined,
 
+    // ─── Time tracking (Phase 2.4) ──────────────────────────────────
+    timeSessions: Array.isArray(raw.timeSessions)
+      ? (raw.timeSessions as unknown[]).map((rs) => {
+          const sess = rs as Record<string, unknown>;
+          return {
+            startAt: asString(sess.startAt),
+            endAt: sess.endAt == null ? undefined : asString(sess.endAt),
+            byUid: asString(sess.byUid),
+            note: sess.note == null ? undefined : asString(sess.note),
+          };
+        })
+      : undefined,
+
     // ─── Mechanic parts (Phase 2.2 Sub-Project A) ──────────────────
     // parts is structured; let it pass through as the array. Same
     // pattern as inventoryDeductions which already does this.
