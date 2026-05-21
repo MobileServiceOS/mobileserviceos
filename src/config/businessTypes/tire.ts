@@ -110,31 +110,25 @@ export const TIRE_CONFIG: BusinessTypeConfig = {
 
   invoiceTemplateKey: 'tire',
 
-  dashboardMetrics: [
-    {
-      id: 'revenue_week',
-      label: 'Revenue this week',
-      format: 'currency',
-      compute: (jobs, _settings) =>
-        r2(jobs.filter(isThisWeek).reduce((sum, j) => sum + revenueOf(j), 0)),
-    },
-    {
-      id: 'profit_week',
-      label: 'Profit this week',
-      format: 'currency',
-      compute: (jobs, settings) =>
-        r2(jobs.filter(isThisWeek).reduce((sum, j) => sum + profitOf(j, settings), 0)),
-    },
-    {
-      id: 'avg_ticket',
-      label: 'Average ticket',
-      format: 'currency',
-      compute: (jobs, _settings) => {
-        const completed = jobs.filter((j) => j.status === 'Completed');
-        if (completed.length === 0) return 0;
-        const total = completed.reduce((sum, j) => sum + revenueOf(j), 0);
-        return r2(total / completed.length);
-      },
-    },
-  ],
+  // Tire's dashboardMetrics is intentionally EMPTY for Phase 2.1.
+  //
+  // The existing Dashboard hero card already covers Revenue / Costs /
+  // Avg-per-Job for the week and the Today card covers today's
+  // jobs/net/profit. Surfacing the same numbers again in a vertical-
+  // stats section would visually duplicate them. The Dashboard
+  // refactor skips rendering the stats section when this array is
+  // empty, so tire renders byte-identically to today.
+  //
+  // Future tire-specific KPIs (jobs this week, tire cost total,
+  // material cost total, travel cost total, monthly trends) can be
+  // added here once a layout for additive tire stats is designed.
+  // Phase 2.1's mandate is "tire visually identical" — additive UX
+  // changes go through a separate iteration.
+  dashboardMetrics: [],
 };
+
+// Internal helpers (isThisWeek / revenueOf / profitOf) are retained
+// above as defined-but-unused exports. Phase 2.1 cleared
+// dashboardMetrics to preserve byte-identical tire UI; future tire-
+// specific KPIs (jobs this week, tire cost total, etc.) can re-use
+// these helpers when added.

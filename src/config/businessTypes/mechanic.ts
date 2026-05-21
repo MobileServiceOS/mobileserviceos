@@ -103,13 +103,55 @@ export const MECHANIC_CONFIG: BusinessTypeConfig = {
 
   invoiceTemplateKey: 'mechanic',
 
+  // Mechanic-specific dashboard KPIs. Each metric is a pure
+  // (jobs, settings) → number computation; the Dashboard renders one
+  // card per spec via vertical.dashboardMetrics.map(...).
+  //
+  // Engine constants (labor rate, markup pct) are read inline rather
+  // than via the pricingModel block to avoid a self-reference in the
+  // config object literal. They mirror MECHANIC_CONFIG.pricingModel
+  // exactly; the duplication is intentional and small.
   dashboardMetrics: [
     {
-      id: 'revenue_week',
-      label: 'Revenue this week',
+      id: 'labor_revenue_week',
+      label: 'Labor revenue (week)',
       format: 'currency',
+      compute: (jobs, _s) => {
+        const LABOR_RATE = 110;
+        return r2(jobs.filter(isThisWeek).reduce(
+          (sum, j) => sum + Number((j as Job & { laborHours?: number }).laborHours || 0) * LABOR_RATE,
+          0,
+        ));
+      },
+    },
+    {
+      id: 'parts_revenue_week',
+      label: 'Parts revenue (week)',
+      format: 'currency',
+      compute: (jobs, _s) => {
+        const MARKUP_PCT = 25;
+        return r2(jobs.filter(isThisWeek).reduce(
+          (sum, j) => sum + Number((j as Job & { partsCost?: number }).partsCost || 0) * (1 + MARKUP_PCT / 100),
+          0,
+        ));
+      },
+    },
+    {
+      id: 'avg_repair_order',
+      label: 'Avg repair order',
+      format: 'currency',
+      compute: (jobs, _s) => {
+        const completed = jobs.filter((j) => j.status === 'Completed');
+        if (completed.length === 0) return 0;
+        return r2(completed.reduce((sum, j) => sum + revenueOf(j), 0) / completed.length);
+      },
+    },
+    {
+      id: 'diagnostics_count_week',
+      label: 'Diagnostics this week',
+      format: 'number',
       compute: (jobs, _s) =>
-        r2(jobs.filter(isThisWeek).reduce((sum, j) => sum + revenueOf(j), 0)),
+        jobs.filter(isThisWeek).filter((j) => /diagnostic|check engine/i.test(j.service || '')).length,
     },
     {
       id: 'labor_hours_week',
@@ -122,13 +164,20 @@ export const MECHANIC_CONFIG: BusinessTypeConfig = {
         )),
     },
     {
-      id: 'avg_ticket',
-      label: 'Average ticket',
-      format: 'currency',
+      id: 'parts_margin_pct',
+      label: 'Parts margin',
+      format: 'percent',
       compute: (jobs, _s) => {
-        const completed = jobs.filter((j) => j.status === 'Completed');
-        if (completed.length === 0) return 0;
-        return r2(completed.reduce((sum, j) => sum + revenueOf(j), 0) / completed.length);
+        const MARKUP_PCT = 25;
+        const partsTotal = jobs.filter(isThisWeek).reduce(
+          (sum, j) => sum + Number((j as Job & { partsCost?: number }).partsCost || 0),
+          0,
+        );
+        if (partsTotal <= 0) return 0;
+        // Margin = markup / (cost * (1 + markup)) — what % of the
+        // customer-billed parts amount is profit. For a 25% markup:
+        // 25 / 125 = 0.20 → 20%.
+        return MARKUP_PCT / (100 + MARKUP_PCT);
       },
     },
   ],

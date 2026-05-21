@@ -9,6 +9,7 @@ import { DEFAULT_SERVICE_PRICING, DEFAULT_VEHICLE_PRICING, TODAY } from '@/lib/d
 import { useCountUp } from '@/lib/useCountUp';
 import { useMembership } from '@/context/MembershipContext';
 import { _auth } from '@/lib/firebase';
+import { useActiveVertical } from '@/lib/useActiveVertical';
 
 // ─────────────────────────────────────────────────────────────────────
 //  Dashboard — hybrid premium + operational
@@ -133,10 +134,21 @@ export function Dashboard({
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   onStartJob, onViewJob, onGenerateInvoice, onSendInvoice, onSendReview, onMarkPaid, onEditJob,
 }: Props) {
+  // Active vertical config — drives the per-vertical Stats section
+  // (rendered between Quick Actions and Pending Payments). Tire's
+  // dashboardMetrics is empty by design (the hero already covers
+  // those numbers), so for tire the section short-circuits to null
+  // and the page renders byte-identically to today.
+  const vertical = useActiveVertical();
   const enabledServices = useMemo(() => {
     const sp = settings.servicePricing || DEFAULT_SERVICE_PRICING;
-    return Object.keys(sp).filter((k) => sp[k] && sp[k].enabled !== false);
-  }, [settings.servicePricing]);
+    const verticalServiceIds = new Set(vertical.services.map((s) => s.id));
+    return Object.keys(sp).filter((k) => {
+      if (!verticalServiceIds.has(k)) return false;
+      const entry = sp[k];
+      return entry && entry.enabled !== false;
+    });
+  }, [settings.servicePricing, vertical]);
 
   const [qqForm, setQqForm] = useState<QuoteForm>(() => ({
     service: enabledServices[0] || 'Flat Tire Repair',
@@ -519,6 +531,49 @@ export function Dashboard({
           📋 {isTechnician ? 'Assigned' : 'All Jobs'}
         </button>
       </div>
+
+      {/* ─── 3b. Vertical Stats — rendered when the active business
+              type declares dashboardMetrics. Tire's array is empty,
+              so this section short-circuits to null for tire and the
+              page renders byte-identically to today. Mechanic shows
+              Labor revenue / Parts revenue / Avg RO / Diagnostics /
+              Labor hours / Parts margin. Detailing shows nothing
+              until Phase 2.3. ─────────────────────────────────── */}
+      {vertical.dashboardMetrics.length > 0 && (
+        <>
+          <div className="section-label">{vertical.shortName} Stats</div>
+          <div
+            className="card card-anim"
+            style={{
+              display: 'grid',
+              // Two cards per row on phones; auto-fits more on wider
+              // viewports. Matches the existing SubKpi grid density.
+              gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+              gap: 10,
+              padding: '14px 16px',
+              marginBottom: 14,
+            }}
+          >
+            {vertical.dashboardMetrics.map((m) => {
+              const value = m.compute(visibleJobs, settings);
+              const display =
+                m.format === 'currency'
+                  ? money(value)
+                  : m.format === 'percent'
+                    ? `${Math.round(value * 100)}%`
+                    : `${Math.round(value * 100) / 100}`;
+              return (
+                <SubKpi
+                  key={m.id}
+                  label={m.label}
+                  value={display}
+                  tone="neutral"
+                />
+              );
+            })}
+          </div>
+        </>
+      )}
 
       {/* ─── 4. Pending Payments — owner/admin only ──────────────── */}
       {showCompanyData && pendingPaymentJobs.length > 0 && (
