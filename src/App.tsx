@@ -577,7 +577,20 @@ function AuthenticatedApp({ user }: { user: User }) {
       if (!businessId) { addToast('Sign in to save inventory', 'warn'); return; }
       const invCol = scopedCol(businessId, 'inventory');
       const prev = inventoryRef.current || [];
-      const validNext = next.filter((i) => (i.size || '').trim());
+      // Keep items that have a primary descriptor for ANY vertical:
+      //   tire     → size (e.g. '225/65R17')
+      //   mechanic → partName / partNumber (size is intentionally '')
+      //   detailing→ chemicalName (size is intentionally '')
+      // Before this guard, the filter required `size` non-empty,
+      // which silently DELETED every mechanic and detailing item
+      // (they save with size='' by design) on every save. Same
+      // silent-data-loss class as the deserializer field drops.
+      const validNext = next.filter((i) =>
+        (i.size || '').trim() ||
+        (i.partName || '').trim() ||
+        (i.partNumber || '').trim() ||
+        (i.chemicalName || '').trim()
+      );
       const nextIds = new Set(validNext.map((i) => i.id));
       try {
         // Parallelize all delete + set ops — same reasoning as
