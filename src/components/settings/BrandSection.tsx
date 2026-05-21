@@ -165,11 +165,19 @@ function BrandForm() {
       <div className="field-row">
         <div className="field">
           <label>Primary color</label>
-          <input value={draft.primaryColor} onChange={(e) => set('primaryColor', e.target.value)} placeholder="#c8a44a" />
+          <ColorPicker
+            value={draft.primaryColor}
+            onChange={(v) => set('primaryColor', v)}
+            fallback="#c8a44a"
+          />
         </div>
         <div className="field">
           <label>Accent color</label>
-          <input value={draft.accentColor} onChange={(e) => set('accentColor', e.target.value)} placeholder="#e5c770" />
+          <ColorPicker
+            value={draft.accentColor}
+            onChange={(v) => set('accentColor', v)}
+            fallback="#e5c770"
+          />
         </div>
       </div>
       <button className="btn primary" onClick={save} disabled={busy} style={{ width: '100%' }}>
@@ -177,4 +185,57 @@ function BrandForm() {
       </button>
     </>
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+//  ColorPicker
+// ─────────────────────────────────────────────────────────────────────
+//  Native HTML5 color picker paired with a hex text input. Tapping
+//  the swatch on mobile opens the OS color picker (iOS Safari, Chrome,
+//  Firefox Mobile all support type="color"). The hex input stays for
+//  designers who want to paste an exact value.
+//
+//  Normalizes any input to a 7-char `#rrggbb` form before emitting so
+//  Brand consumers (applyBrandColors → CSS vars) get a value they can
+//  pass straight to the renderer. Invalid input falls back to the
+//  fallback prop rather than emitting garbage.
+// ─────────────────────────────────────────────────────────────────────
+
+function ColorPicker({
+  value, onChange, fallback,
+}: { value: string; onChange: (v: string) => void; fallback: string }) {
+  const hex = normalizeHex(value, fallback);
+  return (
+    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+      <input
+        type="color"
+        value={hex}
+        onChange={(e) => onChange(e.target.value)}
+        style={{
+          width: 44, height: 44, padding: 0, border: '1px solid var(--border)',
+          borderRadius: 8, cursor: 'pointer', background: 'transparent',
+        }}
+        aria-label="Pick color"
+      />
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={fallback}
+        style={{ flex: 1, fontFamily: 'monospace' }}
+      />
+    </div>
+  );
+}
+
+/** Coerce any string to a 7-char `#rrggbb` form, falling back when
+ *  the input isn't a valid hex color. Accepts 3- or 6-char hex with
+ *  or without leading `#`. */
+function normalizeHex(raw: string, fallback: string): string {
+  const v = (raw || '').trim().replace(/^#/, '');
+  if (/^[0-9a-fA-F]{6}$/.test(v)) return `#${v.toLowerCase()}`;
+  if (/^[0-9a-fA-F]{3}$/.test(v)) {
+    return `#${v.split('').map((c) => c + c).join('').toLowerCase()}`;
+  }
+  return fallback;
 }

@@ -37,7 +37,21 @@ export const MECHANIC_CONFIG: BusinessTypeConfig = {
     defaultMinServiceCharge: 95,
   },
 
-  // ─── services: VERBATIM from src/lib/verticals.ts:322-354 ────────
+  // ─── services: actual mechanic services only ─────────────────────
+  // The Phase 2.1 seed list mixed services with condition surcharges
+  // (Emergency Service, Same-Day Service, After Hours, Highway Call,
+  // Travel Fee). Those overlap with the AddJob "Conditions" multi-
+  // select chips (job.emergency / lateNight / highway / weekend) and
+  // forced the operator to pick one or the other when both apply
+  // (e.g. "highway battery replacement"). They are kept out of the
+  // service catalog here — the Conditions chips on AddJob cover the
+  // same intent and stack correctly with whatever real service the
+  // tech is doing. Travel Fee is also dropped because the engine
+  // already adds travel cost from miles × costPerMile.
+  //
+  // Operators with existing mechanic jobs whose `service` field was
+  // one of the removed values still render correctly (job.service is
+  // a free string; only the chip-grid highlight is config-driven).
   services: [
     { id: 'Diagnostics',                  label: 'Diagnostics',                  defaultBasePrice: 90,  defaultMinProfit: 70,  enabledByDefault: true },
     { id: 'Check Engine Light Diagnosis', label: 'Check Engine Light Diagnosis', defaultBasePrice: 100, defaultMinProfit: 80,  enabledByDefault: true },
@@ -59,12 +73,7 @@ export const MECHANIC_CONFIG: BusinessTypeConfig = {
     { id: 'Fuel Pump Replacement',        label: 'Fuel Pump Replacement',        defaultBasePrice: 400, defaultMinProfit: 170, enabledByDefault: true },
     { id: 'Ignition Coil Replacement',    label: 'Ignition Coil Replacement',    defaultBasePrice: 190, defaultMinProfit: 95,  enabledByDefault: true },
     { id: 'General Repair',               label: 'General Repair',               defaultBasePrice: 120, defaultMinProfit: 60,  enabledByDefault: true },
-    { id: 'Emergency Service',            label: 'Emergency Service',            defaultBasePrice: 75,  defaultMinProfit: 70,  enabledByDefault: true },
-    { id: 'Same-Day Service',             label: 'Same-Day Service',             defaultBasePrice: 50,  defaultMinProfit: 48,  enabledByDefault: true },
-    { id: 'After Hours',                  label: 'After Hours',                  defaultBasePrice: 65,  defaultMinProfit: 62,  enabledByDefault: true },
-    { id: 'Highway Call',                 label: 'Highway Call',                 defaultBasePrice: 80,  defaultMinProfit: 75,  enabledByDefault: true },
     { id: 'Parts Pickup',                 label: 'Parts Pickup',                 defaultBasePrice: 45,  defaultMinProfit: 40,  enabledByDefault: true },
-    { id: 'Travel Fee',                   label: 'Travel Fee',                   defaultBasePrice: 40,  defaultMinProfit: 38,  enabledByDefault: true },
     { id: 'Fleet Service',                label: 'Fleet Service',                defaultBasePrice: 250, defaultMinProfit: 180, enabledByDefault: false },
   ],
 

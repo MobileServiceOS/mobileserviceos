@@ -803,7 +803,7 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
           </div>
         </div>
         <div className="field" style={{ marginTop: 6 }}>
-          <label>Surcharges</label>
+          <label>Conditions <span style={{ fontWeight: 400, color: 'var(--t3)', fontSize: 11 }}>(tap any that apply)</span></label>
           <div className="chip-grid">
             {([
               ['emergency', '🚨 Emergency'],
