@@ -171,15 +171,26 @@ export function deserializeOperationalSettings(raw: RawDoc): Partial<Settings> {
  */
 export function mergeMissingDefaultServices(
   current: Record<string, ServicePricing> | undefined | null,
+  /**
+   * The catalog whose services should be backfilled. Pass the active
+   * vertical's catalog (e.g. `servicePricingFromVertical(vertical)`)
+   * so mechanic accounts don't get tire services injected.
+   *
+   * Defaults to the tire catalog for back-compat with existing
+   * callers that haven't migrated to the vertical-aware path yet.
+   * The default will be removed in a future phase once every caller
+   * passes its catalog explicitly.
+   */
+  catalog: Record<string, ServicePricing> = DEFAULT_SERVICE_PRICING,
 ): { map: Record<string, ServicePricing>; added: string[] } {
   const userMap = current && typeof current === 'object' ? current : {};
   const added: string[] = [];
   let merged: Record<string, ServicePricing> | null = null;
 
-  for (const key of Object.keys(DEFAULT_SERVICE_PRICING)) {
+  for (const key of Object.keys(catalog)) {
     if (!(key in userMap)) {
       if (!merged) merged = { ...userMap };
-      merged[key] = { ...DEFAULT_SERVICE_PRICING[key] };
+      merged[key] = { ...catalog[key] };
       added.push(key);
     }
   }
@@ -201,13 +212,25 @@ export function mergeMissingDefaultServices(
  */
 export function stripRetiredServices(
   current: Record<string, ServicePricing> | undefined | null,
+  /**
+   * The catalog whose services are considered "active." Anything in
+   * the user's saved map NOT in this catalog is treated as retired
+   * and removed. Pass the active vertical's catalog so a mechanic
+   * account's mechanic services aren't stripped out as "retired
+   * tire services."
+   *
+   * Defaults to the tire catalog for back-compat with existing
+   * callers; the default will be removed once every caller passes
+   * its catalog explicitly.
+   */
+  catalog: Record<string, ServicePricing> = DEFAULT_SERVICE_PRICING,
 ): { map: Record<string, ServicePricing>; removed: string[] } {
   const userMap = current && typeof current === 'object' ? current : {};
   const removed: string[] = [];
   let stripped: Record<string, ServicePricing> | null = null;
 
   for (const key of Object.keys(userMap)) {
-    if (!(key in DEFAULT_SERVICE_PRICING)) {
+    if (!(key in catalog)) {
       if (!stripped) stripped = { ...userMap };
       delete stripped[key];
       removed.push(key);

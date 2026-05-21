@@ -8,8 +8,6 @@ import type {
   PaymentStatus,
 } from '@/types';
 import {
-  DEFAULT_SERVICE_PRICING,
-  DEFAULT_VEHICLE_PRICING,
   SERVICE_ICONS,
 } from '@/lib/defaults';
 import { resolveVertical } from '@/lib/verticalContext';

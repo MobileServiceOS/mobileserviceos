@@ -1,4 +1,6 @@
 import type { Brand, Settings, Job, ServicePricing, VehiclePricing, PaymentStatus, JobStatus } from '@/types';
+import { TIRE_CONFIG } from '@/config/businessTypes/tire';
+import { servicePricingFromVertical } from '@/lib/verticals';
 
 export const APP_LOGO = 'icons/icon-rounded-192.png';
 
@@ -28,25 +30,42 @@ export const DEFAULT_BRAND: Brand = {
   onboardingCompletedAt: null,
 };
 
-// Tire & roadside service catalog only — no unrelated business types.
-export const DEFAULT_SERVICE_PRICING: Record<string, ServicePricing> = {
-  'Flat Tire Repair':         { enabled: true,  basePrice: 90,  minProfit: 90 },
-  'Tire Replacement':         { enabled: true,  basePrice: 120, minProfit: 110 },
-  'Tire Installation':        { enabled: true,  basePrice: 120, minProfit: 110 },
-  'Mounting & Balancing':     { enabled: true,  basePrice: 100, minProfit: 80 },
-  'Spare Tire Installation':  { enabled: true,  basePrice: 95,  minProfit: 70 },
-  'Spare Change':             { enabled: true,  basePrice: 85,  minProfit: 65 },
-  'Tire Rotation':            { enabled: true,  basePrice: 80,  minProfit: 60 },
-  'Wheel Lock Removal':       { enabled: true,  basePrice: 85,  minProfit: 65 },
-  'Roadside Tire Assistance': { enabled: true,  basePrice: 100, minProfit: 70 },
-  'Mobile Tire Service':      { enabled: true,  basePrice: 150, minProfit: 110 },
-  'Jump Start':               { enabled: true,  basePrice: 75,  minProfit: 60 },
-  'Fuel Delivery':            { enabled: true,  basePrice: 85,  minProfit: 65 },
-  'Lockout':                  { enabled: true,  basePrice: 75,  minProfit: 60 },
-  'Fleet Tire Service':       { enabled: false, basePrice: 200, minProfit: 160 },
-  'Heavy-Duty Tire Service':  { enabled: false, basePrice: 350, minProfit: 280 },
-};
+/**
+ * @deprecated Read service pricing from the active business type's
+ *   config via `useActiveVertical().services` (UI) or
+ *   `getBusinessTypeConfig(key).services` (engines). Operator-edited
+ *   prices come from `settings.servicePricing` on the business doc.
+ *
+ *   This constant is retained for back-compat with consumers that
+ *   haven't migrated yet (Dashboard / AddJob fallback maps,
+ *   DEFAULT_SETTINGS below, and deserializers.ts merge/strip
+ *   helpers). It is now DERIVED from TIRE_CONFIG via
+ *   servicePricingFromVertical(), so any future change to tire's
+ *   service catalog automatically propagates here.
+ *
+ *   Phase 2.1 wired the new readers to vertical config directly;
+ *   this constant is on a deprecation timer.
+ */
+export const DEFAULT_SERVICE_PRICING: Record<string, ServicePricing> =
+  servicePricingFromVertical(TIRE_CONFIG);
 
+/**
+ * @deprecated Vehicle add-on pricing is a flat-pricing-model concept
+ *   (tire vertical only). Mechanic and detailing pricing engines
+ *   don't use a per-vehicle add-on field — mechanic flows pricing
+ *   through labor + parts + diagnostic + travel, detailing through
+ *   package + vehicle-size multiplier.
+ *
+ *   Tire businesses' operator-edited values live on
+ *   `settings.vehiclePricing`. This constant is the seed shape used
+ *   when no settings doc exists yet (DEFAULT_SETTINGS) and the
+ *   fallback inside the flat pricing engine. It is retained for
+ *   back-compat with consumers (Dashboard / AddJob Quick Quote
+ *   dropdown, createBusiness initial seed) that haven't migrated to
+ *   reading from `TIRE_CONFIG.pricingModel` directly.
+ *
+ *   Slated for relocation onto FlatPricingModel in a future phase.
+ */
 export const DEFAULT_VEHICLE_PRICING: Record<string, VehiclePricing> = {
   'Car':             { addOnProfit: 0 },
   'SUV / Truck':     { addOnProfit: 20 },

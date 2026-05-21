@@ -5,6 +5,8 @@ import { _auth, _db, scopedCol, fbDelete, fbListen, fbSet, fbSetFast, initError 
 import { BrandProvider, useBrand } from '@/context/BrandContext';
 import { MembershipProvider } from '@/context/MembershipContext';
 import { BusinessSwitcherProvider } from '@/context/BusinessSwitcherContext';
+import { useActiveVertical } from '@/lib/useActiveVertical';
+import { servicePricingFromVertical } from '@/lib/verticals';
 import { AuthScreen } from '@/pages/AuthScreen';
 import { InviteAccept } from '@/pages/InviteAccept';
 import { PrivacyTerms } from '@/pages/PrivacyTerms';
@@ -243,6 +245,16 @@ export function App() {
 
 function AuthenticatedApp({ user }: { user: User }) {
   const { brand, businessId, loading: brandLoading, onboardingComplete, updateBrand } = useBrand();
+  // Active vertical's service catalog drives the operational_settings
+  // backfill + strip pass below. Without this, mechanic / detailing
+  // accounts would have tire services injected and their mechanic /
+  // detailing services stripped on every load. Resolves via
+  // BrandContext.brand.businessType so it tracks business switches.
+  const activeVertical = useActiveVertical();
+  const verticalCatalog = useMemo(
+    () => servicePricingFromVertical(activeVertical),
+    [activeVertical],
+  );
   const [tab, setTab] = useState<TabId>('dashboard');
   // Bottom-sheet visibility for the "More" tab. Replaces the previous
   // behavior of routing the More button straight to Settings, since
@@ -344,7 +356,7 @@ function AuthenticatedApp({ user }: { user: User }) {
         // appear automatically without a one-off migration. The user's
         // price customizations on existing services are NEVER touched
         // — only missing keys are added.
-        const merge = mergeMissingDefaultServices(parsed.servicePricing);
+        const merge = mergeMissingDefaultServices(parsed.servicePricing, verticalCatalog);
         if (merge.added.length > 0) {
           parsed.servicePricing = merge.map;
           // Persist back so this account doesn't re-merge on every
@@ -365,7 +377,7 @@ function AuthenticatedApp({ user }: { user: User }) {
         // previous backfill) that has since been removed from the
         // catalog (e.g. "Spare Change" added then retired in 2026-05).
         // Like the backfill, persists back so the cleanup is sticky.
-        const strip = stripRetiredServices(parsed.servicePricing);
+        const strip = stripRetiredServices(parsed.servicePricing, verticalCatalog);
         if (strip.removed.length > 0) {
           parsed.servicePricing = strip.map;
           // eslint-disable-next-line no-console
@@ -436,7 +448,13 @@ function AuthenticatedApp({ user }: { user: User }) {
     }
 
     return () => unsubs.forEach((u) => u());
-  }, [businessId]);
+    // verticalCatalog is part of the dep array because the operational_
+    // settings backfill/strip pass uses it to decide which services
+    // to add/remove. In normal usage the catalog is stable for a given
+    // business (set when brand.businessType resolves); on a business
+    // switch BrandContext reloads the whole tab via
+    // window.location.reload(), so this listener is torn down anyway.
+  }, [businessId, verticalCatalog]);
 
   // ─── Stripe → Firestore subscription mirror ──────────────────
   // Attach a listener that watches the Stripe Extension's subscription
