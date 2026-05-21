@@ -454,11 +454,14 @@ function TireInventoryView({ inventory, onSave }: InternalViewProps) {
                 }}
               >
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-                    <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--t1)' }}>
-                      {i.size || <span style={{ color: 'var(--t3)', fontStyle: 'italic' }}>(new tire)</span>}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    {/* Tire size — the primary scan key. Larger so the
+                        operator's eye lands on it first. */}
+                    <div style={{ fontSize: 19, fontWeight: 800, color: 'var(--t1)', lineHeight: 1.1, letterSpacing: '-.2px' }}>
+                      {i.size || <span style={{ color: 'var(--t3)', fontStyle: 'italic', fontSize: 15 }}>(new tire)</span>}
                     </div>
-                    {/* Inline badges: condition, low stock, out of stock. */}
+                    {/* Badges: condition shown ONLY when not New (the
+                        common case needs no badge); Low / Out flags. */}
                     {i.condition && i.condition !== 'New' && (
                       <span className="pill" style={{ fontSize: 9, padding: '2px 6px' }}>
                         {i.condition}
@@ -475,21 +478,25 @@ function TireInventoryView({ inventory, onSave }: InternalViewProps) {
                       </span>
                     )}
                   </div>
-                  <div style={{ fontSize: 12, color: 'var(--t3)', marginTop: 2 }}>
-                    {(i.brand || 'No brand').trim() || 'No brand'}
-                    {' · '}
-                    {i.condition || 'New'}
-                  </div>
+                  {/* Sub-line: brand only. Condition was previously
+                      repeated here AND as a badge — dropped the dupe.
+                      Hidden entirely when there's no brand, rather
+                      than printing "No brand" noise. */}
+                  {(i.brand || '').trim() && (
+                    <div style={{ fontSize: 12, color: 'var(--t3)', marginTop: 3 }}>
+                      {i.brand}
+                    </div>
+                  )}
                 </div>
-                <div style={{ textAlign: 'right', minWidth: 56 }}>
+                <div style={{ textAlign: 'right', minWidth: 60 }}>
                   <div style={{
-                    fontSize: 22, fontWeight: 800,
+                    fontSize: 28, fontWeight: 800,
                     color: outOfStock ? 'var(--red)' : low ? 'var(--amber)' : 'var(--t1)',
                     lineHeight: 1,
                   }}>
                     {qty}
                   </div>
-                  <div style={{ fontSize: 9, color: 'var(--t3)', marginTop: 2, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  <div style={{ fontSize: 9, color: 'var(--t3)', marginTop: 3, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                     in stock
                   </div>
                 </div>
