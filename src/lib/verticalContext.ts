@@ -46,7 +46,7 @@ import {
 const KNOWN_VERTICAL_KEYS: ReadonlySet<string> = new Set<VerticalKey>([
   'tire',
   'mechanic',
-  'carwash',
+  'detailing',
 ]);
 
 /**
