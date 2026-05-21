@@ -29,6 +29,10 @@ export interface PackageMultBreakdown {
   packageCost: number;
   addOnsCost: number;
   addOnIds: ReadonlyArray<string>;
+  /** Per-add-on prices, parallel to `addOnIds`. Used by the invoice
+   *  template to emit one line per add-on without re-reading
+   *  settings.servicePricing at render time. */
+  addOnPrices: ReadonlyArray<number>;
   travelCost: number;
   travelMiles: number;
   travelChargeable: number;
@@ -60,9 +64,12 @@ export function computePackageMultiplierPrice(
   const packageCost = r2(packageBase * multiplier);
 
   const addOnIds = j.detailingAddons ?? [];
+  const addOnPrices: number[] = [];
   let addOnsAccumulator = 0;
   for (const id of addOnIds) {
-    addOnsAccumulator += Number(sp[id]?.basePrice ?? 0);
+    const price = Number(sp[id]?.basePrice ?? 0);
+    addOnPrices.push(price);
+    addOnsAccumulator += price;
   }
   const addOnsCost = r2(addOnsAccumulator);
 
@@ -84,6 +91,7 @@ export function computePackageMultiplierPrice(
     packageCost,
     addOnsCost,
     addOnIds,
+    addOnPrices,
     travelCost,
     travelMiles: miles,
     travelChargeable: chargeable,

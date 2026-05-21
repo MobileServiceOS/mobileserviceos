@@ -1,19 +1,18 @@
 // src/config/businessTypes/invoice/detailing.ts
 // ═══════════════════════════════════════════════════════════════════
-//  Detailing invoice template — SKELETON for Phase 2.1.
+//  Detailing invoice template — Phase 2.3 full slice.
 //
-//  Active fields:
-//    - subtitle, resolveServiceName, footerCopy, notesLabel — minimal
-//      detailing nomenclature so a hypothetical detailing invoice
-//      generated today does not say "Mobile Tire" anywhere.
-//    - servicePerformedFields: vehicle size (the only detailing-
-//      specific Job field declared in Phase 2.1; populated in 2.3).
-//    - buildLineItems: single line for the package amount. Real
-//      package + add-ons + photo-placeholder + membership rows
-//      land in Phase 2.3 alongside the package_multiplier engine.
+//  Line composition:
+//   - Package line: "{service} — {vehicleSize} ({mult}×)" + packageCost
+//     (multiplier suffix omitted when mult === 1.0)
+//   - One line per add-on: label = add-on id, amount = addOnPrices[i]
+//   - Travel line when chargeable miles > 0
+//
+//  Legacy fallback (jobs without package_multiplier breakdown):
+//  render a single line at job.revenue.
 // ═══════════════════════════════════════════════════════════════════
 
-import type { InvoiceTemplate } from './types';
+import type { InvoiceTemplate, InvoiceLineItem } from './types';
 
 export const DETAILING_INVOICE_TEMPLATE: InvoiceTemplate = {
   subtitle: 'Mobile Car Wash & Detailing',
@@ -27,13 +26,54 @@ export const DETAILING_INVOICE_TEMPLATE: InvoiceTemplate = {
     { label: 'Vehicle',      jobKey: 'vehicleType' },
   ],
 
-  buildLineItems: (job, _breakdown, serviceName) => [
-    {
-      description: serviceName,
-      qty: Math.max(1, Math.floor(Number(job.qty) || 1)),
-      amount: Number(job.revenue || 0),
-    },
-  ],
+  buildLineItems: (job, breakdown, serviceName) => {
+    const items: InvoiceLineItem[] = [];
+
+    if (breakdown.model !== 'package_multiplier') {
+      // Defensive fallback (vertical / engine misconfiguration or
+      // legacy detailing job with a non-package breakdown).
+      items.push({
+        description: serviceName,
+        qty: Math.max(1, Math.floor(Number(job.qty) || 1)),
+        amount: Number(job.revenue || 0),
+      });
+      return items;
+    }
+
+    // Package line — main service × vehicle-size multiplier.
+    if (breakdown.packageCost > 0) {
+      const mult = breakdown.vehicleSizeMultiplier;
+      const sizeLabel = mult === 1
+        ? breakdown.vehicleSize
+        : `${breakdown.vehicleSize} (${mult}×)`;
+      items.push({
+        description: `${serviceName} — ${sizeLabel}`,
+        amount: breakdown.packageCost,
+      });
+    }
+
+    // Add-on lines — one per declared add-on with its individual
+    // price from the breakdown (no settings lookup needed here).
+    for (let i = 0; i < breakdown.addOnIds.length; i++) {
+      const id = breakdown.addOnIds[i];
+      const price = breakdown.addOnPrices[i] ?? 0;
+      if (price <= 0) continue;
+      items.push({
+        description: id,
+        amount: price,
+      });
+    }
+
+    // Travel line.
+    if (breakdown.travelCost > 0) {
+      items.push({
+        description: `Travel (${breakdown.travelChargeable} mi)`,
+        amount: breakdown.travelCost,
+      });
+    }
+
+    return items;
+  },
 
   notesLabel: 'NOTES',
 };
