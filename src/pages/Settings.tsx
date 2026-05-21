@@ -25,6 +25,8 @@ import { isGrowthMode, FOUNDER_DISCOUNT_PERCENT, FOUNDER_DISCOUNT_TERM_MONTHS } 
 import { PRO_PRICE, CORE_PRICE, PRO_PRICE_LINE_COMPACT, CORE_PRICE_LINE_COMPACT } from '@/lib/pricing-display';
 import { TeamManagement } from '@/components/TeamManagement';
 import { ReferralCard } from '@/components/ReferralCard';
+import { useActiveVertical } from '@/lib/useActiveVertical';
+import type { LaborPartsPricingModel, PackageMultiplierPricingModel } from '@/config/businessTypes/registry';
 
 interface Props {
   settings: SettingsT;
@@ -65,6 +67,15 @@ const LOGO_UPLOAD_TIMEOUT_MS = 30_000;
 export function Settings({ settings, onSave }: Props) {
   const permissions = usePermissions();
   const { businessId } = useBrand();
+  // Active vertical drives which pricing sections render. Tire and
+  // anything with pricingModel.kind === 'flat' shows the Vehicle
+  // Add-ons accordion (flat-model add-on-per-vehicle-type). Mechanic
+  // (labor_parts) shows the Labor & Parts Defaults accordion.
+  // Detailing (package_multiplier) shows the Vehicle-Size Multipliers
+  // accordion. Each section is RENDER-only in Phase 2.1 for non-tire
+  // verticals (editing requires widening Settings with override
+  // fields and threading them into the engines; deferred to 2.2/2.3).
+  const vertical = useActiveVertical();
 
   // Mutex: which section is currently open. null = all collapsed.
   const [openSection, setOpenSection] = useState<string | null>('brand');
@@ -156,12 +167,39 @@ export function Settings({ settings, onSave }: Props) {
         />
       )}
 
-      {canSeePricing && (
+      {/* Vehicle Add-ons editor is a flat-model concept (per-vehicle
+          surcharge added to the service base price). Hidden for
+          verticals whose pricing model doesn't use this notion
+          (mechanic / detailing). */}
+      {canSeePricing && vertical.pricingModel.kind === 'flat' && (
         <VehicleAddonsAccordion
           settings={settings}
           onSave={onSave}
           open={openSection === 'vehicle'}
           onToggle={() => setOpenSection(openSection === 'vehicle' ? null : 'vehicle')}
+        />
+      )}
+
+      {/* Mechanic-specific defaults — read-only in Phase 2.1.
+          Editing these would require widening Settings with override
+          fields (laborRateOverride, partsMarkupPctOverride, etc.)
+          and threading them into the labor_parts pricing engine.
+          Scheduled for Phase 2.2 (mechanic full slice). */}
+      {canSeePricing && vertical.pricingModel.kind === 'labor_parts' && (
+        <LaborPartsDefaultsAccordion
+          model={vertical.pricingModel}
+          open={openSection === 'labor_parts_defaults'}
+          onToggle={() => setOpenSection(openSection === 'labor_parts_defaults' ? null : 'labor_parts_defaults')}
+        />
+      )}
+
+      {/* Detailing-specific defaults — read-only in Phase 2.1.
+          Scheduled for Phase 2.3 (detailing full slice). */}
+      {canSeePricing && vertical.pricingModel.kind === 'package_multiplier' && (
+        <PackageMultiplierDefaultsAccordion
+          model={vertical.pricingModel}
+          open={openSection === 'package_multiplier_defaults'}
+          onToggle={() => setOpenSection(openSection === 'package_multiplier_defaults' ? null : 'package_multiplier_defaults')}
         />
       )}
 
@@ -599,6 +637,13 @@ function PricingAccordion({ settings, onSave, open, onToggle }: Props & { open: 
 }
 
 function PricingForm({ settings, onSave }: Props) {
+  // Active vertical's canonical service catalog. The editor lists
+  // ONLY services declared in the vertical's config — so a mechanic
+  // account never shows leftover tire services and vice versa. User-
+  // edited prices from settings.servicePricing still win on a per-
+  // service basis; absent services fall back to the vertical's
+  // defaults (basePrice / minProfit / enabledByDefault).
+  const vertical = useActiveVertical();
   const [sp, setSp] = useState<Record<string, ServicePricing>>(settings.servicePricing || {});
   const [dirty, setDirty] = useState(false);
 
@@ -606,6 +651,20 @@ function PricingForm({ settings, onSave }: Props) {
     setSp(settings.servicePricing || {});
     setDirty(false);
   }, [settings.servicePricing]);
+
+  // Resolve the canonical list of service IDs to render — vertical
+  // catalog order, ALL services (including ones the operator hasn't
+  // customized yet, which fall back to defaults from the config).
+  const renderableServices = vertical.services.map((svc) => {
+    const stored = sp[svc.id];
+    return {
+      id: svc.id,
+      label: svc.label,
+      basePrice: stored?.basePrice ?? svc.defaultBasePrice,
+      minProfit: stored?.minProfit ?? svc.defaultMinProfit,
+      enabled: stored?.enabled ?? svc.enabledByDefault,
+    };
+  });
 
   const updateService = (k: string, patch: Partial<ServicePricing>) => {
     setSp((p) => ({ ...p, [k]: { ...p[k], ...patch } })); setDirty(true);
@@ -630,52 +689,48 @@ function PricingForm({ settings, onSave }: Props) {
         borderRadius: 10,
         overflow: 'hidden',
       }}>
-        {Object.keys(sp).map((k, idx) => {
-          const row = sp[k];
-          const enabled = row.enabled !== false;
-          return (
-            <div
-              key={k}
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr 70px 70px 50px',
-                gap: 8,
-                alignItems: 'center',
-                padding: '8px 10px',
-                borderTop: idx === 0 ? 'none' : '1px solid var(--border2)',
-                opacity: enabled ? 1 : 0.55,
-                transition: 'opacity .15s ease',
-              }}
-            >
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--t1)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {k}
-              </div>
-              <NumberField
-                value={row.basePrice}
-                onChange={(n) => updateService(k, { basePrice: n })}
-                placeholder="Base"
-                disabled={!enabled}
-              />
-              <NumberField
-                value={row.minProfit}
-                onChange={(n) => updateService(k, { minProfit: n })}
-                placeholder="Profit"
-                disabled={!enabled}
-              />
-              <label style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
-                cursor: 'pointer', minHeight: 32,
-              }}>
-                <input
-                  type="checkbox"
-                  checked={enabled}
-                  onChange={(e) => updateService(k, { enabled: e.target.checked })}
-                  style={{ width: 18, height: 18, cursor: 'pointer' }}
-                />
-              </label>
+        {renderableServices.map((row, idx) => (
+          <div
+            key={row.id}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 70px 70px 50px',
+              gap: 8,
+              alignItems: 'center',
+              padding: '8px 10px',
+              borderTop: idx === 0 ? 'none' : '1px solid var(--border2)',
+              opacity: row.enabled ? 1 : 0.55,
+              transition: 'opacity .15s ease',
+            }}
+          >
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--t1)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {row.label}
             </div>
-          );
-        })}
+            <NumberField
+              value={row.basePrice}
+              onChange={(n) => updateService(row.id, { basePrice: n })}
+              placeholder="Base"
+              disabled={!row.enabled}
+            />
+            <NumberField
+              value={row.minProfit}
+              onChange={(n) => updateService(row.id, { minProfit: n })}
+              placeholder="Profit"
+              disabled={!row.enabled}
+            />
+            <label style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+              cursor: 'pointer', minHeight: 32,
+            }}>
+              <input
+                type="checkbox"
+                checked={row.enabled}
+                onChange={(e) => updateService(row.id, { enabled: e.target.checked })}
+                style={{ width: 18, height: 18, cursor: 'pointer' }}
+              />
+            </label>
+          </div>
+        ))}
       </div>
 
       <div style={{
@@ -2048,3 +2103,83 @@ function AccordionShell({ title, icon, summary, badge, open, onToggle, logoUrl, 
     </div>
   );
 }
+
+// ═══════════════════════════════════════════════════════════════════
+//  Vertical-specific pricing-defaults accordions
+//
+//  These are READ-ONLY in Phase 2.1. They surface the active
+//  vertical's pricingModel defaults (labor rate / parts markup /
+//  diagnostic fee / min service charge for mechanic; vehicle-size
+//  multipliers for detailing) so the operator can see the formulas
+//  the engine is applying.
+//
+//  Editing these defaults — wiring them into Settings + the engines
+//  as per-business overrides — is deferred to Phase 2.2 (mechanic
+//  full slice) and Phase 2.3 (detailing full slice). The
+//  abstraction is correct now; what's missing is a couple of
+//  optional override fields on the Settings type and a small
+//  precedence rule inside each engine. Trivial follow-up work.
+// ═══════════════════════════════════════════════════════════════════
+
+function LaborPartsDefaultsAccordion({
+  model, open, onToggle,
+}: {
+  model: LaborPartsPricingModel;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const summary =
+    `Labor ${money(model.defaultLaborRate)}/hr · Parts +${model.defaultPartsMarkupPct}%`;
+  return (
+    <AccordionShell title="Labor & Parts Defaults" icon="🔧" summary={summary} open={open} onToggle={onToggle}>
+      <div style={{ fontSize: 11, color: 'var(--t3)', marginBottom: 12 }}>
+        These defaults drive the suggested price and breakdown
+        calculations for every mechanic job. Editing the values is
+        coming in Phase 2.2 — for now they reflect the current
+        labor+parts pricing engine.
+      </div>
+      <DefaultsRow label="Labor rate" value={`${money(model.defaultLaborRate)} / hour`} />
+      <DefaultsRow label="Parts markup" value={`${model.defaultPartsMarkupPct}%`} />
+      <DefaultsRow label="Diagnostic fee" value={`${money(model.defaultDiagnosticFee)} (auto on diagnostic-named services)`} />
+      <DefaultsRow label="Min service charge" value={money(model.defaultMinServiceCharge)} />
+    </AccordionShell>
+  );
+}
+
+function PackageMultiplierDefaultsAccordion({
+  model, open, onToggle,
+}: {
+  model: PackageMultiplierPricingModel;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const sizes = Object.keys(model.vehicleSizeMultipliers);
+  const summary = sizes.length === 0
+    ? 'No multipliers configured'
+    : `${sizes.length} vehicle size${sizes.length === 1 ? '' : 's'}`;
+  return (
+    <AccordionShell title="Vehicle Size Multipliers" icon="🚗" summary={summary} open={open} onToggle={onToggle}>
+      <div style={{ fontSize: 11, color: 'var(--t3)', marginBottom: 12 }}>
+        Package prices are multiplied by these factors per vehicle
+        size. Editing is coming in Phase 2.3 alongside the detailing
+        full slice — for now this surfaces the current multipliers.
+      </div>
+      {sizes.map((sz) => (
+        <DefaultsRow key={sz} label={sz} value={`×${model.vehicleSizeMultipliers[sz]}`} />
+      ))}
+    </AccordionShell>
+  );
+}
+
+function DefaultsRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{
+      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+      padding: '8px 4px', borderBottom: '1px solid var(--border2)',
+    }}>
+      <span style={{ fontSize: 12, color: 'var(--t2)' }}>{label}</span>
+      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--t1)' }}>{value}</span>
+    </div>
+  );
+}
+
