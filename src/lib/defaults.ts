@@ -96,6 +96,11 @@ export const DEFAULT_SETTINGS: Settings = {
   freeMilesIncluded: 5,
   tireRepairTargetProfit: 90,
   tireReplacementTargetProfit: 110,
+  // Phase 2.2 mechanic-related defaults
+  laborRate: 95,
+  lowStockThreshold: 2,
+  partsMarkupDefault: 1.5,
+  warrantyPolicy: '',
 };
 
 export const SERVICE_PHRASES: Record<string, string> = {

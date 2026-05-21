@@ -614,6 +614,19 @@ export interface Settings {
   freeMilesIncluded?: number;
   tireRepairTargetProfit?: number;
   tireReplacementTargetProfit?: number;
+
+  // ─── Mechanic-related (Phase 2.2 Sub-Project A) ──────────────────
+  /** Hourly labor rate. Mechanic uses this; falls back to
+   *  mechanic.pricingModel.defaultLaborRate when undefined. */
+  laborRate?: number;
+  /** Threshold below which inventory rows show the ⚠ LOW badge. */
+  lowStockThreshold?: number;
+  /** Multiplier applied to unitCost when auto-suggesting retailPrice
+   *  in the inventory add/edit sheet. Default 1.5. */
+  partsMarkupDefault?: number;
+  /** Free-text warranty policy printed at the bottom of mechanic
+   *  invoices when set. */
+  warrantyPolicy?: string;
   /**
    * Subscription tier for this business. Single value ('pro') with
    * the platform's one-plan model. Drives feature gating in
