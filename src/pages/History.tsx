@@ -6,6 +6,8 @@ import { useMembersDirectory } from '@/lib/useMembersDirectory';
 import { useLongPress } from '@/lib/useLongPress';
 import { QuickActionSheet } from '@/components/QuickActionSheet';
 import { useScopedJobs } from '@/lib/useScopedJobs';
+import { useActiveLifecycle } from '@/lib/useActiveLifecycle';
+import { groupJobsByStage } from '@/lib/jobPermissions';
 
 interface Props {
   jobs: Job[];
@@ -28,6 +30,9 @@ export function History({
   const jobs = useScopedJobs(rawJobs);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
+  // Phase 2.2 Sub-Project C: group by date (default) or by stage.
+  const [groupMode, setGroupMode] = useState<'date' | 'stage'>('date');
+  const resolved = useActiveLifecycle();
 
   // Member directory for "Tech: X" attribution on each row.
   const { businessId } = useBrand();
@@ -64,12 +69,27 @@ export function History({
           placeholder="Search name, service, location…"
         />
       </div>
-      <div className="chip-grid" style={{ marginBottom: 14 }}>
+      <div className="chip-grid" style={{ marginBottom: 8 }}>
         {(['all', 'completed', 'pending', 'cancelled', 'unpaid'] as Filter[]).map((f) => (
           <button key={f} type="button" className={'chip sm' + (filter === f ? ' active' : '')} onClick={() => setFilter(f)}>
             {f[0].toUpperCase() + f.slice(1)}
           </button>
         ))}
+      </div>
+      <div className="chip-grid" style={{ marginBottom: 14 }}>
+        <span style={{ fontSize: 11, color: 'var(--t3)', alignSelf: 'center', marginRight: 4 }}>
+          Group:
+        </span>
+        <button
+          type="button"
+          className={'chip sm' + (groupMode === 'date' ? ' active' : '')}
+          onClick={() => setGroupMode('date')}
+        >Date</button>
+        <button
+          type="button"
+          className={'chip sm' + (groupMode === 'stage' ? ' active' : '')}
+          onClick={() => setGroupMode('stage')}
+        >Stage</button>
       </div>
 
       {filtered.length === 0 ? (
@@ -78,7 +98,7 @@ export function History({
           <div className="empty-state-title">No jobs found</div>
           <div className="empty-state-sub">Try a different search or filter.</div>
         </div>
-      ) : (
+      ) : groupMode === 'date' ? (
         <div className="stack">
           {filtered.map((j) => (
             <HistoryJobCard
@@ -92,6 +112,16 @@ export function History({
             />
           ))}
         </div>
+      ) : (
+        <StageGroupedList
+          jobs={filtered}
+          resolved={resolved}
+          settings={settings}
+          resolveName={resolveName}
+          onViewJob={onViewJob}
+          onLongPress={setSheetJob}
+          onMarkPaid={onMarkPaid}
+        />
       )}
 
       {sheetJob && (
@@ -191,5 +221,75 @@ function HistoryJobCard({
         </div>
       )}
     </div>
+  );
+}
+
+// ─── Sub-Project C: stage-grouped list view ────────────────────────
+//  Reuses HistoryJobCard for row rendering so visual parity with
+//  date mode is automatic. Sections collapsible; empty stages
+//  hidden by groupJobsByStage.
+// ───────────────────────────────────────────────────────────────────
+
+function StageGroupedList({
+  jobs, resolved, settings, resolveName,
+  onViewJob, onLongPress, onMarkPaid,
+}: {
+  jobs: Job[];
+  resolved: ReturnType<typeof useActiveLifecycle>;
+  settings: Settings;
+  resolveName: (uid: string | undefined | null) => string | null;
+  onViewJob: (j: Job) => void;
+  onLongPress: (j: Job) => void;
+  onMarkPaid: (j: Job) => void;
+}) {
+  const groups = useMemo(
+    () => groupJobsByStage(jobs, resolved),
+    [jobs, resolved],
+  );
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
+  if (groups.length === 0) {
+    return (
+      <div className="empty-state">
+        <div className="empty-state-icon">🗂</div>
+        <div className="empty-state-title">No jobs found</div>
+        <div className="empty-state-sub">Try a different search or filter.</div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {groups.map(({ stage, jobs: bucket }) => {
+        const isCollapsed = !!collapsed[stage.id];
+        return (
+          <div key={stage.id} style={{ marginBottom: 10 }}>
+            <button
+              type="button"
+              className="btn sm secondary"
+              onClick={() => setCollapsed((m) => ({ ...m, [stage.id]: !isCollapsed }))}
+              style={{ width: '100%', textAlign: 'left', fontWeight: 700 }}
+            >
+              {isCollapsed ? '▸' : '▾'} {stage.label.toUpperCase()} ({bucket.length})
+            </button>
+            {!isCollapsed && (
+              <div className="stack" style={{ marginTop: 4 }}>
+                {bucket.map((j) => (
+                  <HistoryJobCard
+                    key={j.id}
+                    job={j}
+                    settings={settings}
+                    techName={resolveName(j.createdByUid)}
+                    onView={() => onViewJob(j)}
+                    onLongPress={() => onLongPress(j)}
+                    onMarkPaid={() => onMarkPaid(j)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </>
   );
 }
