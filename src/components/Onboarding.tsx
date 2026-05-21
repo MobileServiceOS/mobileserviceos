@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { Brand, Settings, ServicePricing } from '@/types';
 import { useBrand } from '@/context/BrandContext';
 import { CityStateSelect } from '@/components/CityStateSelect';
@@ -8,7 +8,8 @@ import { APP_LOGO } from '@/lib/defaults';
 import { money } from '@/lib/utils';
 import { sanitizeSubscriptionWrite } from '@/lib/planAccess';
 import { foundingMemberStamp, isGrowthMode, FOUNDER_DISCOUNT_PERCENT, FOUNDER_DISCOUNT_TERM_MONTHS } from '@/lib/growthMode';
-import { useActiveVertical } from '@/lib/useActiveVertical';
+import { verticalFromBusinessType } from '@/lib/useActiveVertical';
+import type { VerticalKey } from '@/lib/verticals';
 import {
   readPendingRefCode,
   resolveRefCode,
@@ -54,15 +55,29 @@ const LOGO_UPLOAD_TIMEOUT_MS = 30_000;
  */
 export function Onboarding({ settings, onComplete }: Props) {
   const { brand, businessId } = useBrand();
-  // Active vertical config drives step 3's content + the service-
-  // seeding behavior in finish(). Tire renders the legacy three-
-  // tire-service profit-targets UI; mechanic / detailing render
-  // a read-only "model defaults" preview because their pricing
-  // models don't have per-service profit anchors the same way.
-  const vertical = useActiveVertical();
   const [step, setStep] = useState<Step>(1);
   const [busy, setBusy] = useState(false);
   const [logoUploading, setLogoUploading] = useState(false);
+
+  // Business type selection drives Step 3's content + the service-
+  // seeding behavior in finish(). Defaults to whatever was already on
+  // settings/main (resolveVerticalKey falls back to 'tire' when blank),
+  // so a re-entering user sees their prior choice instead of being
+  // silently reset.
+  const [businessType, setBusinessType] = useState<VerticalKey>(() => {
+    const raw = brand.businessType;
+    if (raw === 'mechanic' || raw === 'detailing' || raw === 'tire') return raw;
+    return 'tire';
+  });
+  // Reactive vertical config — re-resolves whenever the user changes
+  // the picker. Tire renders the legacy three-tire-service profit-
+  // targets UI; mechanic / detailing render a read-only "model
+  // defaults" preview because their pricing models don't have
+  // per-service profit anchors the same way.
+  const vertical = useMemo(
+    () => verticalFromBusinessType(businessType),
+    [businessType],
+  );
 
   const [businessName, setBusinessName] = useState(brand.businessName || '');
   const [phone, setPhone] = useState(brand.phone || '');
@@ -140,6 +155,7 @@ export function Onboarding({ settings, onComplete }: Props) {
       const serviceCities = serviceCitiesText.split(',').map((s) => s.trim()).filter(Boolean);
       const brandPatch: Partial<Brand> = {
         businessName: businessName.trim(),
+        businessType,
         phone: phone.trim(),
         email: email.trim(),
         logoUrl,
@@ -331,7 +347,40 @@ export function Onboarding({ settings, onComplete }: Props) {
           {step === 1 && (
             <div className="onboarding-step page-enter">
               <div className="onboarding-step-title">Brand</div>
-              <div className="onboarding-step-sub">This appears on invoices and review requests.</div>
+              <div className="onboarding-step-sub">Pick your service type — it shapes services, pricing, and inventory.</div>
+              <div className="field">
+                <label>Business type *</label>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {([
+                    { key: 'tire' as VerticalKey, label: '🛞 Tire & Roadside' },
+                    { key: 'mechanic' as VerticalKey, label: '🔧 Mobile Mechanic' },
+                    { key: 'detailing' as VerticalKey, label: '🚗 Car Wash & Detailing' },
+                  ]).map((opt) => {
+                    const selected = businessType === opt.key;
+                    return (
+                      <button
+                        key={opt.key}
+                        type="button"
+                        onClick={() => setBusinessType(opt.key)}
+                        aria-pressed={selected}
+                        style={{
+                          flex: '1 1 30%', minWidth: 0,
+                          padding: '11px 8px', borderRadius: 9,
+                          background: selected ? 'rgba(200,164,74,0.10)' : 'var(--s3)',
+                          border: selected
+                            ? '1px solid var(--brand-primary)'
+                            : '1px solid var(--border)',
+                          color: selected ? 'var(--brand-primary)' : 'var(--t2)',
+                          fontSize: 12.5, fontWeight: selected ? 700 : 600,
+                          cursor: 'pointer', lineHeight: 1.3,
+                        }}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
               <div className="field">
                 <label>Business name *</label>
                 <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} placeholder="Your business name" />
