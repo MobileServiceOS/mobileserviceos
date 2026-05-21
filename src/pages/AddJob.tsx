@@ -145,6 +145,30 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
     });
   }, [settings.servicePricing, vertical]);
 
+  // Phase 2.3 detailing: split enabledServices into packages (primary
+  // single-select Service chip-grid) vs add-ons (multi-select).
+  // Tire / mechanic services don't set `isAddOn`, so enabledPackages
+  // === enabledServices and enabledAddOns is empty for them.
+  const enabledPackages = useMemo(() => {
+    const addOnSet = new Set(
+      vertical.services.filter((s) => s.isAddOn).map((s) => s.id),
+    );
+    return enabledServices.filter((id) => !addOnSet.has(id));
+  }, [enabledServices, vertical.services]);
+  const enabledAddOns = useMemo(() => {
+    const addOnSet = new Set(
+      vertical.services.filter((s) => s.isAddOn).map((s) => s.id),
+    );
+    return enabledServices.filter((id) => addOnSet.has(id));
+  }, [enabledServices, vertical.services]);
+
+  // Vehicle-size options from the package_multiplier pricing model
+  // (detailing). Empty array for verticals that don't use multipliers.
+  const vehicleSizes = useMemo(() => {
+    if (vertical.pricingModel.kind !== 'package_multiplier') return [];
+    return Object.keys(vertical.pricingModel.vehicleSizeMultipliers);
+  }, [vertical.pricingModel]);
+
   const vehicles = useMemo(() => Object.keys(settings.vehiclePricing || DEFAULT_VEHICLE_PRICING), [settings.vehiclePricing]);
 
   const set = <K extends keyof Job>(k: K, v: Job[K]) => setJob({ ...job, [k]: v });
@@ -530,10 +554,30 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
         )}
       </div>
 
+      {/* Phase 2.3: vehicle-size chip block for verticals using the
+          package_multiplier pricing model (detailing). Tire / mechanic
+          have features.vehicleSizeMultiplier === false; this block
+          short-circuits to null. */}
+      {vertical.features.vehicleSizeMultiplier && vehicleSizes.length > 0 && (
+        <div className="form-group card-anim">
+          <div className="form-group-title">Vehicle size</div>
+          <div className="chip-grid">
+            {vehicleSizes.map((sz) => (
+              <button
+                key={sz}
+                type="button"
+                className={'chip' + (job.vehicleSize === sz ? ' active' : '')}
+                onClick={() => set('vehicleSize', sz)}
+              >{sz}</button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="form-group card-anim">
-        <div className="form-group-title">Service</div>
+        <div className="form-group-title">{vertical.copy.packageLabel || 'Service'}</div>
         <div className="chip-grid">
-          {enabledServices.map((s) => (
+          {enabledPackages.map((s) => (
             <button
               key={s} className={'chip' + (job.service === s ? ' active' : '')}
               onClick={() => set('service', s)}
@@ -544,6 +588,37 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
           ))}
         </div>
       </div>
+
+      {/* Phase 2.3: detailing add-ons multi-select. Renders only when
+          the active vertical declares add-on services. Other verticals
+          have enabledAddOns.length === 0 and this block is null. */}
+      {enabledAddOns.length > 0 && (
+        <div className="form-group card-anim">
+          <div className="form-group-title">
+            Add-ons{' '}
+            <span style={{ fontWeight: 400, color: 'var(--t3)', fontSize: 11 }}>
+              (tap any that apply)
+            </span>
+          </div>
+          <div className="chip-grid">
+            {enabledAddOns.map((id) => {
+              const selected = (job.detailingAddons ?? []).includes(id);
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  className={'chip' + (selected ? ' active' : '')}
+                  onClick={() => {
+                    const cur = job.detailingAddons ?? [];
+                    const next = selected ? cur.filter((x) => x !== id) : [...cur, id];
+                    set('detailingAddons', next as Job['detailingAddons']);
+                  }}
+                >{id}</button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="form-group card-anim">
         <div className="form-group-title">Vehicle</div>
