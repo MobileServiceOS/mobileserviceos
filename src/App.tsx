@@ -42,6 +42,12 @@ import {
 import { transitionJobStage } from '@/lib/jobLifecycle';
 import { resolveLifecycle } from '@/config/jobs';
 import type { JobLifecycleStage } from '@/config/jobs/lifecycle';
+import { writeBatch, updateDoc } from 'firebase/firestore';
+import { dispatchNotifications } from '@/lib/notificationDispatch';
+import { buildTemplateVars } from '@/lib/notificationTemplates';
+import { addActionToast } from '@/lib/toast';
+import { buildSmsUri, buildMailtoUri, openMessagingUri } from '@/lib/openMessagingUri';
+import { useBusinessMembers } from '@/lib/useBusinessMembers';
 import { generateInvoicePDF } from '@/lib/invoice';
 import { openReviewSMSFromJob } from '@/lib/review';
 import { APP_LOGO, DEFAULT_SETTINGS, EMPTY_JOB } from '@/lib/defaults';
@@ -281,6 +287,22 @@ function AuthenticatedApp({ user }: { user: User }) {
   const [savedJob, setSavedJob] = useState<Job | null>(null);
   const [detailJob, setDetailJob] = useState<Job | null>(null);
   const [prefilledFromQuote, setPrefilledFromQuote] = useState(false);
+
+  // Sub-Project D: subscribe to business members for owner/tech
+  // resolution in the notification dispatcher.
+  const businessMembers = useBusinessMembers();
+  const ownerUids = useMemo(
+    () => businessMembers
+      .filter((m) => m.role === 'owner' || m.role === 'admin')
+      .map((m) => m.uid || '')
+      .filter(Boolean),
+    [businessMembers],
+  );
+  const techNameFor = useCallback((uid: string | undefined): string => {
+    if (!uid) return '';
+    const m = businessMembers.find((x) => x.uid === uid);
+    return m?.displayName || m?.email || '';
+  }, [businessMembers]);
 
   // Keep latest inventory ref for the save flow's inventory-deduction logic
   const inventoryRef = useRef<InventoryItem[]>([]);
@@ -804,14 +826,21 @@ function AuthenticatedApp({ user }: { user: User }) {
     }
   }, [businessId, jobs]);
 
-  // Sub-Project C: stage transition writer. Called from
-  // JobDetailModal's StagePicker. Atomically stamps lifecycleStage,
-  // appends to transitions[], and dual-writes legacy status fields
-  // via transitionJobStage(). Single Firestore write.
+  // Sub-Project C + D: stage transition writer. Atomically:
+  //   - Stamps lifecycleStage + lifecycleSubstage
+  //   - Appends to transitions[]
+  //   - Dual-writes legacy status fields via transitionJobStage()
+  //   - Dispatches notifications per the stage's StageNotificationSpec
+  //   - Writes job + all notification docs in one writeBatch
+  // Surfaces first pendingAction (customer SMS/email) as an action
+  // toast so the operator can send with one tap.
   const handleStageTransition = useCallback(
     async (job: Job, toStage: JobLifecycleStage, toSubstage?: string) => {
-      if (!businessId) return;
+      if (!businessId || !_db) return;
       const jobsCol = scopedCol(businessId, 'jobs');
+      const notifCol = scopedCol(businessId, 'notifications');
+      if (!jobsCol || !notifCol) return;
+
       const verticalConfig = getBusinessTypeConfig(settings.businessType);
       const resolvedLifecycle = resolveLifecycle(verticalConfig);
       const next = transitionJobStage({
@@ -822,18 +851,72 @@ function AuthenticatedApp({ user }: { user: User }) {
         resolved: resolvedLifecycle,
         settings,
       });
+
+      // Dispatch notifications based on the just-appended transition.
+      const lastTransition = next.transitions![next.transitions!.length - 1];
+      const vars = buildTemplateVars(
+        next, brand, settings,
+        techNameFor(next.assignedToUid),
+      );
+      const { inAppDocs, pendingActions } = dispatchNotifications({
+        transition: lastTransition,
+        job: next,
+        prior_transitions: job.transitions ?? [],
+        resolved: resolvedLifecycle,
+        vars,
+        businessId,
+        byUid: _auth?.currentUser?.uid || '',
+        ownerUids,
+        assignedToUid: next.assignedToUid,
+      });
+
       try {
-        await fbSetFast(jobsCol, next.id, next);
-        // Refresh modal state immediately; snapshot listener will
-        // also fire shortly and reconcile.
+        // Atomic batch: job + all notification docs.
+        const batch = writeBatch(_db);
+        batch.set(doc(jobsCol, next.id), next);
+        for (const n of [...inAppDocs, ...pendingActions]) {
+          batch.set(doc(notifCol, n.id), n);
+        }
+        await batch.commit();
+
         setDetailJob(next);
-        addToast(`Stage → ${resolvedLifecycle.stageById.get(toStage)?.label ?? toStage}`, 'success');
+        addToast(
+          `Stage → ${resolvedLifecycle.stageById.get(toStage)?.label ?? toStage}`,
+          'success',
+        );
+
+        // Surface first pendingAction as an action toast.
+        if (pendingActions.length > 0) {
+          const first = pendingActions[0];
+          const channelLabel = first.channel === 'sms' ? 'SMS' : 'email';
+          addActionToast(
+            `Send ${channelLabel} to ${vars.customer.name}?`,
+            {
+              label: 'Send',
+              onTap: () => {
+                const uri = first.channel === 'sms'
+                  ? buildSmsUri(first.toPhone || '', first.body)
+                  : buildMailtoUri(first.toEmail || '', first.subject || '', first.body);
+                openMessagingUri(uri);
+                // Mark sent — best-effort.
+                void (async () => {
+                  try {
+                    await updateDoc(doc(notifCol, first.id), { sentAt: new Date().toISOString() });
+                  } catch (e) {
+                    console.warn('[handleStageTransition] markSent failed:', e);
+                  }
+                })();
+              },
+            },
+            'info',
+          );
+        }
       } catch (e) {
         console.error('[handleStageTransition] failed:', e);
         addToast(`Stage update failed: ${humanizeFirestoreError(e)}`, 'error');
       }
     },
-    [businessId, settings],
+    [businessId, settings, brand, ownerUids, techNameFor],
   );
 
   const handleGenerateInvoice = useCallback(async (j: Job) => {
