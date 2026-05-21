@@ -770,6 +770,18 @@ export interface QuoteForm {
   lateNight?: boolean;
   highway?: boolean;
   weekend?: boolean;
+
+  // ─── Mechanic-quote inputs (optional) ───────────────────────────
+  // Used by the labor_parts quote engine. AddJob populates these
+  // from DynamicJobField bindings as the technician fills the form,
+  // so the live suggested price updates as soon as hours / parts /
+  // diagnostic are entered. Absent / undefined for tire quotes.
+  laborHours?: number | string;
+  partsCost?: number | string;
+  diagnosticFee?: number | string;
+
+  // ─── Detailing-quote input (optional; Phase 2.3 populates) ──────
+  vehicleSize?: string;
 }
 
 export interface QuoteResult {

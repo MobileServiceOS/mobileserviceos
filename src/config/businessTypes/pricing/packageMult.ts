@@ -15,7 +15,7 @@
 //    - minimum service floor (mirroring labor_parts shape)
 // ═══════════════════════════════════════════════════════════════════
 
-import type { Job, Settings } from '@/types';
+import type { Job, Settings, QuoteForm, QuoteResult } from '@/types';
 import type { PackageMultiplierPricingModel } from '../types';
 import { r2 } from '@/lib/utils';
 
@@ -30,6 +30,33 @@ export interface PackageMultBreakdown {
 }
 
 type DetailingJobShape = Job & { vehicleSize?: string };
+
+/**
+ * Quote calculator for the package-multiplier pricing model
+ * (detailing). STUB for Phase 2.1. Real package selection + add-on
+ * roll-up + recurring-membership discount logic lands in Phase 2.3.
+ *
+ * For now: suggested = vehicleSize multiplier * service.basePrice,
+ * floored at service.basePrice. No surcharges, no travel
+ * (the detailing engine handles its own travel formulas in 2.3).
+ */
+export function calcPackageMultiplierQuote(
+  form: QuoteForm,
+  settings: Settings,
+  model: PackageMultiplierPricingModel,
+): QuoteResult {
+  const sp = settings.servicePricing || {};
+  const sd = sp[form.service] || { basePrice: 100, minProfit: 50, enabled: true };
+  const vehicleSize = form.vehicleSize || 'Sedan';
+  const multiplier = model.vehicleSizeMultipliers[vehicleSize] ?? 1;
+  const sug = Math.max(Number(sd.basePrice || 0) * multiplier, Number(sd.basePrice || 0));
+  return {
+    suggested: Math.ceil(sug / 5) * 5,
+    premium: Math.ceil((sug * 1.25) / 5) * 5,
+    directCosts: 0,
+    targetProfit: Number(sd.minProfit || 0),
+  };
+}
 
 export function computePackageMultiplierPrice(
   j: DetailingJobShape,

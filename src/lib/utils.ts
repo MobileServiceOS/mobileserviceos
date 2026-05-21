@@ -12,6 +12,8 @@ import {
   DEFAULT_VEHICLE_PRICING,
   SERVICE_ICONS,
 } from '@/lib/defaults';
+import { resolveVertical } from '@/lib/verticalContext';
+import { calcQuoteForModel } from '@/config/businessTypes/pricing';
 
 export const r2 = (n: number): number => Math.round(n * 100) / 100;
 
@@ -188,30 +190,21 @@ export function monthSummary(mj: Job[], s: Settings): MonthSummary {
   return { ...ws, fixed: fix, net: r2(ws.grossProfit - fix) };
 }
 
+/**
+ * Live "Suggested price" calculator — dispatches to the active
+ * business type's quote engine.
+ *
+ *   tire     -> calcFlatQuote          (byte-identical to pre-Phase-2.1)
+ *   mechanic -> calcLaborPartsQuote    (labor + parts + diagnostic +
+ *                                       min-service-charge floor)
+ *   detail   -> calcPackageMultiplierQuote  (stub; 2.3 fills it)
+ *
+ * Public signature preserved so every call site (AddJob + Dashboard
+ * Quick Quote + any future quote-only UI) keeps working unchanged.
+ */
 export function calcQuote(form: QuoteForm, settings: Settings): QuoteResult {
-  const sp = settings.servicePricing || DEFAULT_SERVICE_PRICING;
-  const vp = settings.vehiclePricing || DEFAULT_VEHICLE_PRICING;
-  const sd = sp[form.service] || { basePrice: 100, minProfit: 80, enabled: true };
-  const vd = vp[form.vehicleType] || { addOnProfit: 0 };
-  const tc = Number(form.tireCost || 0) * Number(form.qty || 1);
-  const mc = Number(form.materialCost || form.miscCost || 0);
-  const freeMiles = Number(settings.freeMilesIncluded || 0);
-  const chargeable = Math.max(0, Number(form.miles || 0) - freeMiles);
-  const travel = chargeable * Number(settings.costPerMile || 0.65);
-  const dc = tc + mc + travel;
-  const tp = Number(sd.minProfit || 0) + Number(vd.addOnProfit || 0);
-  let sug = Math.ceil((dc + tp) / 5) * 5;
-  if (form.emergency) sug += 30;
-  if (form.lateNight) sug += 25;
-  if (form.highway) sug += 20;
-  if (form.weekend) sug += 15;
-  sug = Math.max(sug, Number(sd.basePrice || 0));
-  return {
-    suggested: sug,
-    premium: Math.ceil((sug * 1.25) / 5) * 5,
-    directCosts: r2(dc),
-    targetProfit: tp,
-  };
+  const config = resolveVertical(settings);
+  return calcQuoteForModel(form, settings, config.pricingModel);
 }
 
 // ============================================================

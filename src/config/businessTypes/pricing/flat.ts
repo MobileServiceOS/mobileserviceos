@@ -9,8 +9,9 @@
 //  `breakdown.revenue / profit / directCost / …` continues to work.
 // ═══════════════════════════════════════════════════════════════════
 
-import type { Job, Settings } from '@/types';
+import type { Job, Settings, QuoteForm, QuoteResult } from '@/types';
 import { r2 } from '@/lib/utils';
+import { DEFAULT_SERVICE_PRICING, DEFAULT_VEHICLE_PRICING } from '@/lib/defaults';
 
 export interface FlatBreakdown {
   revenue: number;
@@ -24,6 +25,47 @@ export interface FlatBreakdown {
   profit: number;
   profitMargin: number;
   quantity: number;
+}
+
+/**
+ * Quote calculator for the flat pricing model (tire vertical).
+ *
+ * VERBATIM transplant of the pre-Phase-2.1 src/lib/utils.ts::calcQuote
+ * body. Same formula, same rounding, same defaults — so tire's live
+ * "Suggested price" preview in AddJob / Dashboard's Quick Quote
+ * produces byte-identical numbers.
+ *
+ *   directCost = tireCost * qty + materialCost + travel
+ *   targetProfit = service.minProfit + vehicle.addOnProfit
+ *   suggested = ceil((dc + tp) / 5) * 5
+ *              + surcharges (emergency 30 / lateNight 25 / highway 20 / weekend 15)
+ *              floored at service.basePrice
+ *   premium = ceil(suggested * 1.25 / 5) * 5
+ */
+export function calcFlatQuote(form: QuoteForm, settings: Settings): QuoteResult {
+  const sp = settings.servicePricing || DEFAULT_SERVICE_PRICING;
+  const vp = settings.vehiclePricing || DEFAULT_VEHICLE_PRICING;
+  const sd = sp[form.service] || { basePrice: 100, minProfit: 80, enabled: true };
+  const vd = vp[form.vehicleType] || { addOnProfit: 0 };
+  const tc = Number(form.tireCost || 0) * Number(form.qty || 1);
+  const mc = Number(form.materialCost || form.miscCost || 0);
+  const freeMiles = Number(settings.freeMilesIncluded || 0);
+  const chargeable = Math.max(0, Number(form.miles || 0) - freeMiles);
+  const travel = chargeable * Number(settings.costPerMile || 0.65);
+  const dc = tc + mc + travel;
+  const tp = Number(sd.minProfit || 0) + Number(vd.addOnProfit || 0);
+  let sug = Math.ceil((dc + tp) / 5) * 5;
+  if (form.emergency) sug += 30;
+  if (form.lateNight) sug += 25;
+  if (form.highway) sug += 20;
+  if (form.weekend) sug += 15;
+  sug = Math.max(sug, Number(sd.basePrice || 0));
+  return {
+    suggested: sug,
+    premium: Math.ceil((sug * 1.25) / 5) * 5,
+    directCosts: r2(dc),
+    targetProfit: tp,
+  };
 }
 
 export function computeFlatPrice(

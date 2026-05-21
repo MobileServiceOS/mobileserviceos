@@ -28,7 +28,7 @@
 //  All numbers rounded via r2 like the flat engine for determinism.
 // ═══════════════════════════════════════════════════════════════════
 
-import type { Job, Settings } from '@/types';
+import type { Job, Settings, QuoteForm, QuoteResult } from '@/types';
 import type { LaborPartsPricingModel } from '../types';
 import { r2 } from '@/lib/utils';
 
@@ -64,6 +64,86 @@ type MechanicJobShape = Job & {
   partsCost?: number | string;
   diagnosticFee?: number | string;
 };
+
+/**
+ * Quote calculator for the labor+parts pricing model (mechanic).
+ *
+ * Mirrors the structure of calcFlatQuote so the AddJob "Suggested
+ * price" preview behaves consistently across verticals, but uses
+ * mechanic algebra:
+ *
+ *   laborCost      = laborHours * defaultLaborRate
+ *   partsTotal     = partsCost * (1 + markupPct/100)
+ *   diagFee        = explicit diagnosticFee OR (default fee when
+ *                    job.service mentions diagnostic and no explicit
+ *                    override)
+ *   directCost     = laborCost + partsTotal + diagFee + travel
+ *   targetProfit   = service.minProfit  (from settings.servicePricing
+ *                                        if the operator edited it,
+ *                                        else the mechanic config seed)
+ *   suggested      = ceil((directCost + targetProfit) / 5) * 5
+ *                    + surcharges
+ *                    floored at MAX(service.basePrice,
+ *                                   model.defaultMinServiceCharge)
+ *   premium        = ceil(suggested * 1.25 / 5) * 5
+ *
+ * As the technician fills DynamicJobField inputs (Labor Hours, Parts
+ * Cost) the suggested price updates live, so a mechanic sees a real
+ * estimate before the customer asks "how much."
+ */
+export function calcLaborPartsQuote(
+  form: QuoteForm,
+  settings: Settings,
+  model: LaborPartsPricingModel,
+): QuoteResult {
+  // Service-level pricing — read from settings if the operator edited
+  // it, otherwise the mechanic config seed values flow through via
+  // createBusiness so this lookup still resolves.
+  const sp = settings.servicePricing || {};
+  const sd = sp[form.service] || { basePrice: 120, minProfit: 60, enabled: true };
+
+  const laborHours = Number(form.laborHours || 0);
+  const partsCost = Number(form.partsCost || 0);
+  const markupPct = Number(model.defaultPartsMarkupPct);
+  const laborRate = Number(model.defaultLaborRate);
+
+  const laborCost = laborHours * laborRate;
+  const partsTotal = partsCost * (1 + markupPct / 100);
+
+  // Auto-apply the default diagnostic fee when the service name hints
+  // at a diagnostic-only visit and the operator hasn't overridden via
+  // form.diagnosticFee. Keeps the suggested price honest for "Check
+  // Engine Light Diagnosis" calls.
+  const explicitDiag = Number(form.diagnosticFee || 0);
+  const looksLikeDiag = /diagnostic|check engine/i.test(form.service || '');
+  const diagFee = explicitDiag > 0
+    ? explicitDiag
+    : looksLikeDiag ? Number(model.defaultDiagnosticFee) : 0;
+
+  const freeMiles = Number(settings.freeMilesIncluded || 0);
+  const chargeable = Math.max(0, Number(form.miles || 0) - freeMiles);
+  const travel = chargeable * Number(settings.costPerMile || 0.65);
+
+  const dc = laborCost + partsTotal + diagFee + travel;
+  const tp = Number(sd.minProfit || 0);
+
+  let sug = Math.ceil((dc + tp) / 5) * 5;
+  if (form.emergency) sug += 30;
+  if (form.lateNight) sug += 25;
+  if (form.highway) sug += 20;
+  if (form.weekend) sug += 15;
+  // Floor at MAX(service base price, model min service charge) so a
+  // labor-light job (e.g. a quick fluid top-up) still respects the
+  // mechanic's minimum trip charge.
+  sug = Math.max(sug, Number(sd.basePrice || 0), Number(model.defaultMinServiceCharge || 0));
+
+  return {
+    suggested: sug,
+    premium: Math.ceil((sug * 1.25) / 5) * 5,
+    directCosts: r2(dc),
+    targetProfit: tp,
+  };
+}
 
 export function computeLaborPartsPrice(
   j: MechanicJobShape,

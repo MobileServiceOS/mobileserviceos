@@ -152,7 +152,10 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
       const q = calcQuote({
         service: job.service, vehicleType: job.vehicleType,
         miles: job.miles, tireCost: job.tireCost, materialCost: job.materialCost,
-        qty: job.qty, emergency: job.emergency, lateNight: job.lateNight, highway: job.highway, weekend: job.weekend,
+        qty: job.qty, emergency: job.emergency, lateNight: job.lateNight,
+        highway: job.highway, weekend: job.weekend,
+        laborHours: job.laborHours, partsCost: job.partsCost,
+        diagnosticFee: job.diagnosticFee, vehicleSize: job.vehicleSize,
       }, settings);
       setJob({ ...job, revenue: q.suggested });
     }
@@ -245,9 +248,18 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
     lateNight: job.lateNight,
     highway: job.highway,
     weekend: job.weekend,
+    // Mechanic-vertical inputs: harmless when undefined for tire
+    // (the flat quote engine ignores them).
+    laborHours: job.laborHours,
+    partsCost: job.partsCost,
+    diagnosticFee: job.diagnosticFee,
+    // Detailing-vertical input; stub engine reads it in 2.3.
+    vehicleSize: job.vehicleSize,
   }, settings), [
     job.service, job.vehicleType, job.miles, job.tireCost, job.materialCost,
-    job.qty, job.emergency, job.lateNight, job.highway, job.weekend, settings,
+    job.qty, job.emergency, job.lateNight, job.highway, job.weekend,
+    job.laborHours, job.partsCost, job.diagnosticFee, job.vehicleSize,
+    settings,
   ]);
 
   /**
