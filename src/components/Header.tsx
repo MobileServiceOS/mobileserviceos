@@ -1,4 +1,5 @@
 import { useBrand } from '@/context/BrandContext';
+import { useActiveVertical } from '@/lib/useActiveVertical';
 import { APP_LOGO } from '@/lib/defaults';
 import { BusinessSwitcher } from '@/components/BusinessSwitcher';
 import type { SyncStatus } from '@/types';
@@ -27,6 +28,7 @@ function statusPill(s: SyncStatus): PillSpec {
 
 export function Header({ syncStatus, onSignOut }: Props) {
   const { brand } = useBrand();
+  const vertical = useActiveVertical();
   const pill = statusPill(syncStatus);
 
   return (
@@ -46,7 +48,7 @@ export function Header({ syncStatus, onSignOut }: Props) {
             {brand.businessName || 'Mobile Service OS'}
           </h1>
           <p style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {[brand.businessType, brand.serviceArea].filter(Boolean).join(' · ') || 'Mobile Tire & Roadside'}
+            {[vertical.displayName, brand.serviceArea].filter(Boolean).join(' · ') || 'Mobile Tire & Roadside'}
           </p>
         </div>
       </div>
