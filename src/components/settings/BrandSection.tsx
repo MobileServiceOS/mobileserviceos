@@ -94,7 +94,19 @@ function BrandForm() {
   const save = async () => {
     setBusy(true);
     try {
-      await updateBrand(draft);
+      // Normalize colors at the save boundary so Firestore only ever
+      // holds canonical `#rrggbb`. Why: the legacy text input lets
+      // users type bare hex ("c8a44a") or invalid strings, which then
+      // failed `isValidHex` at apply time and silently produced no
+      // visual change after a "Brand saved" toast — the root cause of
+      // the Wheel Rush "can't change color" report.
+      const cleanDraft: Brand = {
+        ...draft,
+        primaryColor: normalizeHex(draft.primaryColor, '#c8a44a'),
+        accentColor: normalizeHex(draft.accentColor, '#e5c770'),
+      };
+      await updateBrand(cleanDraft);
+      setDraft(cleanDraft);
       addToast('Brand saved', 'success');
     } catch (e) {
       addToast((e as Error).message || 'Save failed', 'error');
