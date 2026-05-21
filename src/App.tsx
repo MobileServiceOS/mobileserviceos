@@ -719,6 +719,13 @@ function AuthenticatedApp({ user }: { user: User }) {
         // of their own work going forward.
         createdByUid: j.createdByUid || currentUid,
         createdAt: j.createdAt || new Date().toISOString(),
+        // Phase 2.2 Sub-Project B: technician assignment. Owner /
+        // admin can pick via the AddJob AssignmentPicker; everyone
+        // else (technicians + legacy auto-save paths) defaults to
+        // self so a tech-created job is always visible in their
+        // scoped list. The picker's "Unassigned" choice sets
+        // assignedToUid = undefined which we preserve here.
+        assignedToUid: 'assignedToUid' in j ? j.assignedToUid : currentUid,
         // Phase 2.2 mechanic mirrors (only populated for mechanic
         // vertical with parts[] entries; tire / detailing get
         // undefined here and stay byte-identical to today)

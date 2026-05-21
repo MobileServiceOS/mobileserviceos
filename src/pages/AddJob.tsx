@@ -15,6 +15,9 @@ import { searchCities } from '@/lib/locations';
 import { useActiveVertical } from '@/lib/useActiveVertical';
 import type { BusinessTypeJobField } from '@/config/businessTypes/registry';
 import { PartsSection } from '@/components/addJob/PartsSection';
+import { AssignmentPicker } from '@/components/addJob/AssignmentPicker';
+import { useMembership } from '@/context/MembershipContext';
+import { useBusinessMembers } from '@/lib/useBusinessMembers';
 
 // ─── DynamicJobField: shared renderer for vertical.jobFields ──────────
 // Renders a single Job field declared by a vertical config. Mechanic
@@ -110,6 +113,11 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
   // byte-for-byte identical to pre-Phase-2.1.
   const vertical = useActiveVertical();
   const showTireBlock = vertical.features.inventoryDeduction;
+  // Sub-Project B: assignment picker visible only to owner/admin.
+  const { role, member } = useMembership();
+  const canAssign = role === 'owner' || role === 'admin';
+  const currentUid = member?.uid || '';
+  const businessMembers = useBusinessMembers();
   // Save-in-progress guard. While a save is mid-flight, the buttons
   // are disabled to prevent a double-tap from creating a duplicate
   // job. Cleared in the finally block of the click handler.
@@ -634,6 +642,15 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
           )}
         </div>
       </div>
+
+      {canAssign && (
+        <AssignmentPicker
+          value={job.assignedToUid}
+          onChange={(uid) => setJob({ ...job, assignedToUid: uid } as Job)}
+          members={businessMembers}
+          currentUid={currentUid}
+        />
+      )}
 
       {/* Vertical-specific job fields, rendered for any vertical
           whose UI is NOT the tire bespoke block. Mechanic gets
