@@ -17,7 +17,7 @@
 
 import type { Job, Settings, QuoteForm, QuoteResult } from '@/types';
 import type { PackageMultiplierPricingModel } from '../types';
-import { r2 } from '@/lib/utils';
+import { r2 } from '@/lib/round';
 
 export interface PackageMultBreakdown {
   revenue: number;

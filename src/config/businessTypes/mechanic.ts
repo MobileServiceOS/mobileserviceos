@@ -9,7 +9,7 @@
 
 import type { BusinessTypeConfig } from './types';
 import type { Job, Settings } from '@/types';
-import { r2 } from '@/lib/utils';
+import { r2 } from '@/lib/round';
 
 function isThisWeek(job: Pick<Job, 'date'>): boolean {
   if (!job.date) return false;

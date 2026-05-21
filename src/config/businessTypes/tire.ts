@@ -13,7 +13,7 @@
 
 import type { BusinessTypeConfig } from './types';
 import type { Job, Settings } from '@/types';
-import { r2 } from '@/lib/utils';
+import { r2 } from '@/lib/round';
 
 // ─── Dashboard metric helpers (pure, sync) ─────────────────────────
 // These compute today's Dashboard card values. Moving them onto the

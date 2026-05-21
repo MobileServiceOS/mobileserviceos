@@ -30,7 +30,7 @@
 
 import type { Job, Settings, QuoteForm, QuoteResult } from '@/types';
 import type { LaborPartsPricingModel } from '../types';
-import { r2 } from '@/lib/utils';
+import { r2 } from '@/lib/round';
 
 export interface LaborPartsBreakdown {
   revenue: number;

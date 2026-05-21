@@ -12,8 +12,9 @@ import {
 } from '@/lib/defaults';
 import { resolveVertical } from '@/lib/verticalContext';
 import { calcQuoteForModel } from '@/config/businessTypes/pricing';
+import { r2 } from '@/lib/round';
 
-export const r2 = (n: number): number => Math.round(n * 100) / 100;
+export { r2 };
 
 export const money = (n: number | string | null | undefined): string => {
   const v = Number(n || 0);
