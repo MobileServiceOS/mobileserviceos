@@ -80,7 +80,11 @@ const TECHNICIAN_PERMISSIONS: Permissions = {
   ...ALL_FALSE,
   canUsePricingEngine: true,
   canCreateJobs: true,
-  canEditJobs: true, // own jobs only — enforced in rules + UI
+  canEditJobs: true,         // own jobs only — enforced in rules + UI
+  canViewRevenue: true,      // tech must see customer-charged amount on
+                             // their own jobs to collect payment in the
+                             // field. Business-wide financials still
+                             // hidden via canViewFinancials = false.
   canGenerateInvoices: true,
   canSendReviews: true,
 };
