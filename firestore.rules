@@ -389,18 +389,51 @@ service cloud.firestore {
         allow read: if isMemberOfBusiness(businessId);
       }
       // Per-collection write rules for non-sensitive paths.
-      // Jobs + inventory + customers + technicians = all members write.
+      // Jobs: role-based. Owner/admin full write; technician can
+      // create jobs they own (createdByUid == self AND assignedToUid
+      // == self), update jobs they're the assignee or creator of,
+      // never delete. Legacy convention-owner (uid == businessId)
+      // retains full write.
       match /jobs/{docId} {
-        allow write: if isMemberOfBusiness(businessId);
+        allow create: if isMemberOfBusiness(businessId) && (
+          isOwnerOrAdmin(businessId) ||
+          request.auth.uid == businessId ||
+          (request.resource.data.createdByUid == request.auth.uid &&
+           request.resource.data.assignedToUid == request.auth.uid)
+        );
+        allow update: if isMemberOfBusiness(businessId) && (
+          isOwnerOrAdmin(businessId) ||
+          request.auth.uid == businessId ||
+          resource.data.assignedToUid == request.auth.uid ||
+          resource.data.createdByUid == request.auth.uid
+        );
+        allow delete: if isOwnerOrAdmin(businessId) ||
+                         request.auth.uid == businessId;
       }
+      // Inventory: any member can update qty (the tire + mechanic
+      // deduction paths issue inventory.update() at job-save time
+      // and the batch must stay atomic). Catalog management
+      // (create/delete) is restricted to owner/admin via the UI
+      // permission flag canManageInventory; rules trust that gate.
       match /inventory/{docId} {
-        allow write: if isMemberOfBusiness(businessId);
+        allow create: if isOwnerOrAdmin(businessId) ||
+                         request.auth.uid == businessId;
+        allow update: if isMemberOfBusiness(businessId);
+        allow delete: if isOwnerOrAdmin(businessId) ||
+                         request.auth.uid == businessId;
       }
+      // Customers: restricted to owner/admin (tech sees customer
+      // info on visible jobs via job docs; doesn't browse the
+      // customer collection).
       match /customers/{docId} {
-        allow write: if isMemberOfBusiness(businessId);
+        allow write: if isOwnerOrAdmin(businessId) ||
+                        request.auth.uid == businessId;
       }
+      // Technicians collection: legacy collection (Phase 1 stub);
+      // restrict writes to owner/admin.
       match /technicians/{docId} {
-        allow write: if isMemberOfBusiness(businessId);
+        allow write: if isOwnerOrAdmin(businessId) ||
+                        request.auth.uid == businessId;
       }
     }
 
