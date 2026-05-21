@@ -195,6 +195,15 @@ export function deserializeInventoryItem(raw: RawDoc): InventoryItem {
       : undefined,
     warrantyDays: raw.warrantyDays == null ? undefined : asNumber(raw.warrantyDays),
     locationBin: raw.locationBin == null ? undefined : asString(raw.locationBin),
+
+    // Detailing-specific (Phase 2.3). The dynamic field system in
+    // Inventory.tsx writes these via fbSet, but the deserializer
+    // was stripping them on every read — detailing accounts saw
+    // their chemical names and dilution ratios silently disappear
+    // after a refresh. Same field-drop class as paidAt/paymentMethod
+    // on Job (4ce4360).
+    chemicalName: raw.chemicalName == null ? undefined : asString(raw.chemicalName),
+    dilutionRatio: raw.dilutionRatio == null ? undefined : asString(raw.dilutionRatio),
   };
 }
 
