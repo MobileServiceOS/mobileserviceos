@@ -31,6 +31,14 @@ import { Onboarding } from '@/components/Onboarding';
 import { addToast } from '@/lib/toast';
 import { humanizeFirestoreError, logFirestoreError, isPermissionDenied } from '@/lib/firebaseErrors';
 import { applyBrandColors, planInventoryDeduction, r2, uid } from '@/lib/utils';
+import { getBusinessTypeConfig } from '@/config/businessTypes/registry';
+import {
+  diffPartsForDeduction,
+  buildPartsInventoryDeductions,
+  deriveLegacyPartsCost,
+  derivePartsMarginSnapshot,
+  shouldWarnOnDeduction,
+} from '@/lib/mechanicJob';
 import { generateInvoicePDF } from '@/lib/invoice';
 import { openReviewSMSFromJob } from '@/lib/review';
 import { APP_LOGO, DEFAULT_SETTINGS, EMPTY_JOB } from '@/lib/defaults';
@@ -645,6 +653,56 @@ function AuthenticatedApp({ user }: { user: User }) {
         computedTireCost = 0;
       }
 
+      // ─── Mechanic parts deduction branch (Phase 2.2) ────────────────
+      // Atomic with the job write below: every inventory update is
+      // issued via fbSetFast prior to the job-write so a stalled save
+      // never leaves inventory ahead of the job doc. The deduction
+      // diff handles edit semantics (refund + rededuct) and source
+      // changes uniformly.
+      let mechanicDeductions: { id: string; size: string; qty: number; cost: number }[] | null = null;
+      let mechanicPartsCost = 0;
+      let mechanicMarginSnapshot: ReturnType<typeof derivePartsMarginSnapshot> = undefined;
+
+      const verticalConfig = getBusinessTypeConfig(settings.businessType);
+      if (verticalConfig.key === 'mechanic' && Array.isArray(j.parts) && j.parts.length > 0) {
+        // Soft-warn at save-time for any line that would push qty
+        // negative. Single confirm() per offending line; tech can
+        // override or cancel the save outright.
+        const oldJob = isEditing ? jobs.find((x) => x.id === editingJobId) : undefined;
+        const oldParts = oldJob?.parts ?? [];
+        for (const line of j.parts) {
+          if (line.source !== 'inventory' || !line.inventoryItemId) continue;
+          const oldLine = oldParts.find((p) => p.inventoryItemId === line.inventoryItemId);
+          const oldQty = oldLine ? Number(oldLine.qty || 0) : 0;
+          if (shouldWarnOnDeduction(line, workingInv, oldQty)) {
+            const item = workingInv.find((i) => i.id === line.inventoryItemId);
+            const onHand = Number(item?.qty || 0);
+            // eslint-disable-next-line no-alert
+            const confirmed = window.confirm(`Only ${onHand} in stock for "${line.name}" — deduct anyway?`);
+            if (!confirmed) return null;
+          }
+        }
+
+        // Compute signed deltas (negative = deduct, positive = refund)
+        const delta = diffPartsForDeduction(oldParts, j.parts);
+        const invWrites: Promise<void>[] = [];
+        for (const [itemId, change] of Object.entries(delta)) {
+          const idx = workingInv.findIndex((i) => i.id === itemId);
+          if (idx < 0) continue;
+          const cur = Number(workingInv[idx].qty || 0);
+          workingInv[idx] = { ...workingInv[idx], qty: cur + change };
+          invWrites.push(fbSetFast(invCol, itemId, workingInv[idx]));
+        }
+        setInventoryRaw(workingInv);
+        log('mechanic-inv-writes-issued');
+        await Promise.all(invWrites);
+        log('mechanic-inv-writes-acked');
+
+        mechanicDeductions = buildPartsInventoryDeductions(j.parts);
+        mechanicPartsCost = deriveLegacyPartsCost(j.parts);
+        mechanicMarginSnapshot = derivePartsMarginSnapshot(j.parts);
+      }
+
       const currentUid = _auth?.currentUser?.uid || '';
       const finalJob: Job = {
         ...j,
@@ -661,6 +719,14 @@ function AuthenticatedApp({ user }: { user: User }) {
         // of their own work going forward.
         createdByUid: j.createdByUid || currentUid,
         createdAt: j.createdAt || new Date().toISOString(),
+        // Phase 2.2 mechanic mirrors (only populated for mechanic
+        // vertical with parts[] entries; tire / detailing get
+        // undefined here and stay byte-identical to today)
+        partsInventoryDeductions: mechanicDeductions,
+        partsCost: verticalConfig.key === 'mechanic' && Array.isArray(j.parts) && j.parts.length > 0
+          ? mechanicPartsCost
+          : j.partsCost,
+        partsMarginSnapshot: mechanicMarginSnapshot,
       };
       log('job-write-issued');
       await fbSetFast(jobsCol, finalJob.id, finalJob);
@@ -700,12 +766,17 @@ function AuthenticatedApp({ user }: { user: User }) {
     try {
       const j = jobs.find((x) => x.id === id);
       const deds = j && Array.isArray(j.inventoryDeductions) ? j.inventoryDeductions : null;
-      if (deds) {
+      // Phase 2.2: mechanic deduction array lives on a separate field
+      // so tire's edit/delete code stays byte-identical. Refund the
+      // union of both arrays.
+      const mechDeds = j && Array.isArray(j.partsInventoryDeductions) ? j.partsInventoryDeductions : null;
+      if (deds || mechDeds) {
         const inv = [...(inventoryRef.current || [])];
         // Parallelize inventory restore writes — same reasoning as
         // saveJob's deduction loop.
         const restoreWrites: Promise<void>[] = [];
-        for (const d of deds) {
+        const refundAll = [...(deds ?? []), ...(mechDeds ?? [])];
+        for (const d of refundAll) {
           const idx = inv.findIndex((i) => i.id === d.id);
           if (idx >= 0) {
             inv[idx] = { ...inv[idx], qty: Number(inv[idx].qty || 0) + Number(d.qty || 0) };
