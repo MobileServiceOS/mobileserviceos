@@ -35,17 +35,26 @@ export function JobTimer({ job, role, uid, resolveName }: Props) {
   const canEdit = canEditJob(job, role, uid);
 
   // Tick once per second when this job has an open session so the
-  // "currently working" line refreshes.
-  const [, setTick] = useState(0);
+  // "currently working" line refreshes. The actual tick STATE value
+  // (not the setter) must be threaded into the totalMs computation
+  // below so the memo recomputes each tick. Previously the deps
+  // included `setTick` (the stable setter), so the memo returned
+  // its cached value forever and the duration display was frozen
+  // at modal-open time.
+  const [tick, setTick] = useState(0);
   useEffect(() => {
     if (!open) return;
     const interval = setInterval(() => setTick((n) => n + 1), 1000);
     return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const totalMs = useMemo(() => totalElapsedMs(job), [job, open, setTick]);
+  // Cheap O(n) sum over timeSessions; no memoization needed and
+  // dropping useMemo also removes the dep-array trap that caused
+  // the freeze bug. `tick` is read here purely to force a recompute
+  // on each tick — totalElapsedMs uses Date.now() internally for
+  // the open session.
+  void tick;
+  const totalMs = totalElapsedMs(job);
 
   const closedSessions = useMemo(
     () => (job.timeSessions ?? []).filter(
