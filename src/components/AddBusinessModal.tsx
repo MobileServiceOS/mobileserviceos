@@ -185,6 +185,7 @@ export function AddBusinessModal({ uid, email, onClose }: Props) {
           {([
             { key: 'tire' as VerticalKey, label: 'Mobile Tire & Roadside' },
             { key: 'mechanic' as VerticalKey, label: 'Mobile Mechanic' },
+            { key: 'detailing' as VerticalKey, label: 'Mobile Car Wash & Detailing' },
           ]).map((opt) => {
             const selected = businessType === opt.key;
             return (
