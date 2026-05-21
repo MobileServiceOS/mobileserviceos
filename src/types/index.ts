@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════
 
 import type { Timestamp } from 'firebase/firestore';
+import type { JobLifecycleStage, LifecycleTransition } from '@/config/jobs/lifecycle';
 
 // ─────────────────────────────────────────────────────────────────────
 //  Status / enum types
@@ -482,6 +483,19 @@ export interface Job {
 
   // ─── Detailing-specific job field (Phase 2.1; populated in 2.3) ──
   vehicleSize?: string;
+
+  // ─── Job-lifecycle fields (Phase 2.x foundation) ─────────────────
+  // All optional. Existing job docs omit them entirely; the read
+  // path uses deriveLifecycleStage() to compute a stage from legacy
+  // status/paymentStatus/invoiceGenerated. Phase 2.x writers stamp
+  // these directly AND dual-write the legacy fields via
+  // legacyStatusFromStage(). No Firestore migration.
+  lifecycleStage?: JobLifecycleStage;
+  /** Substage id (vertical-prefixed convention, e.g. mechanic.parts_on_order). */
+  lifecycleSubstage?: string;
+  /** Append-only stage transition history. Capped per business
+   *  tier via getTransitionRetentionPolicy() at write time. */
+  transitions?: ReadonlyArray<LifecycleTransition>;
 }
 
 // ─────────────────────────────────────────────────────────────────────
