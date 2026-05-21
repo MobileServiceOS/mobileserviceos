@@ -130,9 +130,21 @@ export function travelCost(j: Pick<Job, 'miles'>, s: Settings): number {
 }
 
 export function jobDirectCost(j: Job, s: Settings): number {
+  // Direct cost across all verticals:
+  //   tire     → tireCost (inventory FIFO cost or purchase price)
+  //   mechanic → partsCost (mirror of sum(parts[].unitCost * qty)
+  //              maintained by saveJob's mechanic branch)
+  //   shared   → materialCost / miscCost (legacy + detailing supplies)
+  //   universal→ travel
+  // Pre-fix this function ignored partsCost entirely, so every
+  // mechanic job's reported profit overstated by the parts amount
+  // (a $400 brake job using $100 of parts reported $400-$0=$400 in
+  // profit instead of $300). Bug propagated to History, Payouts,
+  // Dashboard, JobDetailModal — anywhere profit renders.
   return r2(
     travelCost(j, s) +
       Number(j.tireCost || 0) +
+      Number(j.partsCost || 0) +
       Number(j.materialCost || j.miscCost || 0)
   );
 }
@@ -161,7 +173,13 @@ export function weekSummary(wj: Job[], s: Settings): WeekSummary {
   const freeMiles = Number(s.freeMilesIncluded || 0);
   const perMile = Number(s.costPerMile || 0.65);
   const rev = r2(jobs.reduce((t, j) => t + Number(j.revenue || 0), 0));
-  const tc = r2(jobs.reduce((t, j) => t + Number(j.tireCost || 0), 0));
+  // tireCosts holds the SUM of all per-job COGS regardless of vertical
+  // (tire size cost + mechanic parts cost). The field name is legacy —
+  // renaming would touch every consumer of WeekSummary. Mechanic and
+  // detailing accounts now contribute their partsCost into this same
+  // bucket so weekly + monthly profit rollups are accurate.
+  const tc = r2(jobs.reduce((t, j) =>
+    t + Number(j.tireCost || 0) + Number(j.partsCost || 0), 0));
   const mc = r2(jobs.reduce((t, j) => t + Number(j.materialCost || j.miscCost || 0), 0));
   const trav = r2(
     jobs.reduce((t, j) => t + Math.max(0, Number(j.miles || 0) - freeMiles) * perMile, 0)
