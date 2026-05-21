@@ -205,3 +205,71 @@ export function appendTransition(
     : next;
   return { ...job, transitions: trimmed };
 }
+
+// ─────────────────────────────────────────────────────────────────
+//  Stage transition writer (Sub-Project C)
+// ─────────────────────────────────────────────────────────────────
+
+export interface TransitionContext {
+  job: Job;
+  toStage: JobLifecycleStage;
+  toSubstage?: string;
+  byUid: string;
+  note?: string;
+  resolved: ResolvedLifecycle;
+  settings: Settings;
+  invoicingEnabled?: boolean;
+  paymentTrackingEnabled?: boolean;
+}
+
+/**
+ * Construct the next Job state after a stage transition. Pure — the
+ * caller is responsible for writing the returned Job to Firestore.
+ *
+ * Atomically:
+ *   - Stamps lifecycleStage + lifecycleSubstage
+ *   - Appends a LifecycleTransition entry to transitions[] (trimmed
+ *     via getTransitionRetentionPolicy)
+ *   - Dual-writes legacy status / paymentStatus / invoiceGenerated
+ *     via legacyStatusFromStage() so old readers stay consistent
+ *   - Sets outOfFlow on the transition entry when the move isn't in
+ *     the prior stage's recommendedNext set
+ *   - Bumps lastEditedAt to the same ISO timestamp
+ */
+export function transitionJobStage(ctx: TransitionContext): Job {
+  const fromStage = ctx.job.lifecycleStage ?? deriveLifecycleStage(ctx.job);
+  const outOfFlow = !isRecommendedNext(fromStage, ctx.toStage, ctx.resolved);
+  const at = new Date().toISOString();
+
+  const entry: LifecycleTransition = {
+    toStage: ctx.toStage,
+    toSubstage: ctx.toSubstage,
+    fromStage,
+    at,
+    byUid: ctx.byUid,
+    note: ctx.note,
+    outOfFlow: outOfFlow || undefined,
+  };
+
+  const retention = getTransitionRetentionPolicy(ctx.settings);
+  const withTransition = appendTransition(ctx.job, entry, retention);
+
+  const legacy = legacyStatusFromStage(ctx.toStage, {
+    invoicingEnabled: ctx.invoicingEnabled,
+    paymentTrackingEnabled: ctx.paymentTrackingEnabled,
+    job: {
+      invoiceGenerated: ctx.job.invoiceGenerated,
+      paymentStatus: ctx.job.paymentStatus,
+    },
+  });
+
+  return {
+    ...withTransition,
+    lifecycleStage: ctx.toStage,
+    lifecycleSubstage: ctx.toSubstage,
+    status: legacy.status,
+    ...(legacy.paymentStatus !== undefined ? { paymentStatus: legacy.paymentStatus } : {}),
+    ...(legacy.invoiceGenerated !== undefined ? { invoiceGenerated: legacy.invoiceGenerated } : {}),
+    lastEditedAt: at,
+  };
+}
