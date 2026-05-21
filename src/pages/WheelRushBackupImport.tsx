@@ -185,7 +185,12 @@ function mapJob(src: BackupJob, batchId: string, now: string): Record<string, un
     inventoryUsed: invUsed ? JSON.stringify(invUsed) : null,
     // Historical jobs DO NOT re-deduct live inventory.
     historicalInventoryDeducted: Boolean(src.inventoryDeducted),
-    paymentStatus: 'paid',
+    // Canonical capital-P matches PaymentStatus enum + Firestore
+    // query convention. Previously wrote lowercase 'paid', which the
+    // deserializer transparently normalized to 'Paid' on read — but
+    // any raw Firestore query like `where('paymentStatus','==','Paid')`
+    // would silently miss every backup-imported job.
+    paymentStatus: 'Paid',
     paidAt: src.date ? `${src.date}T12:00:00Z` : now,
     invoiceGenerated: false,
     invoiceSent: false,

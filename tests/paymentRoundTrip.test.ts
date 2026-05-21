@@ -119,6 +119,23 @@ console.log('\n┌─ paymentMethod round-trip ───────────
     job.paymentMethod === undefined);
 }
 
+console.log('\n┌─ Legacy backup-import format ─────────────────────');
+// WheelRushBackupImport historically wrote paymentStatus: 'paid'
+// (lowercase) for the entire imported history. The deserializer
+// uses asEnum with the canonical 'Paid' as fallback, so reads work
+// even for the corrupted on-disk data. This test pins that
+// recovery contract — without it, a regression in asEnum's
+// fallback behavior would silently mark all historical Wheel Rush
+// jobs as Pending Payment.
+{
+  const raw = { ...baseRaw, paymentStatus: 'paid', paidAt: '2025-08-15T12:00:00Z' };
+  const job = deserializeJob(raw);
+  check("lowercase 'paid' → 'Paid' via enum fallback",
+    job.paymentStatus === 'Paid');
+  check('paidAt still preserved even with case-mismatched status',
+    job.paidAt === '2025-08-15T12:00:00Z');
+}
+
 console.log('\n┌─ JobDetailModal render-guard invariant ───────────');
 // JobDetailModal.tsx:120 — `ps === 'Paid' && job.paidAt && (...)`.
 // The guard only triggers when paidAt is a truthy string. Test
