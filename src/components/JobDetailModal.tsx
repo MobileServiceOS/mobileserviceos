@@ -7,6 +7,7 @@ import { useMembersDirectory } from '@/lib/useMembersDirectory';
 import { useNotifications } from '@/lib/useNotifications';
 import { StagePicker } from '@/components/JobDetailModal/StagePicker';
 import { StageHistory } from '@/components/JobDetailModal/StageHistory';
+import { JobTimer } from '@/components/JobDetailModal/JobTimer';
 import { buildSmsUri, buildMailtoUri, openMessagingUri } from '@/lib/openMessagingUri';
 import type { JobLifecycleStage } from '@/config/jobs/lifecycle';
 
@@ -32,7 +33,8 @@ export function JobDetailModal({
   const profit = jobGrossProfit(job, settings);
   const ps = resolvePaymentStatus(job);
   const resolved = useActiveLifecycle();
-  const { role } = useMembership();
+  const { role, member } = useMembership();
+  const myUid = member?.uid || null;
   const { businessId } = useBrand();
   const { resolveName } = useMembersDirectory(businessId);
   const { notifications, markSent } = useNotifications();
@@ -162,6 +164,16 @@ export function JobDetailModal({
               />
             </>
           )}
+
+          {/* Sub-Project 2.4: time-tracking block. Renders for every
+              job; START/STOP gated by canEditJob inside the
+              component. */}
+          <JobTimer
+            job={job}
+            role={role}
+            uid={myUid}
+            resolveName={resolveName}
+          />
 
           {/* Sub-Project D: pending customer messages for this job.
               Tap-to-send via the OS messaging app. */}
