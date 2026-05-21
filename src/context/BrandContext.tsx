@@ -11,7 +11,7 @@ import type { User } from 'firebase/auth';
 import { _db } from '@/lib/firebase';
 import { DEFAULT_BRAND } from '@/lib/defaults';
 import { resolveActiveBusinessId } from '@/lib/ownedBusinesses';
-import { applyBrandColors } from '@/lib/utils';
+import { applyBrandColors, normalizeHex } from '@/lib/utils';
 import { acceptInviteIfPresent } from '@/lib/invites';
 import type { Brand } from '@/types';
 
@@ -230,7 +230,19 @@ export function BrandProvider({ children, user }: { children: ReactNode; user: U
           (bSnap: { exists(): boolean; data(): unknown } | null) => {
             if (bSnap && bSnap.exists()) {
               const data = bSnap.data() as Partial<Brand>;
-              const merged: Brand = { ...DEFAULT_BRAND, ...data };
+              const raw: Brand = { ...DEFAULT_BRAND, ...data };
+              // Auto-recover stuck accounts whose stored hex is
+              // corrupted (e.g. bare "c8a44a" without leading `#`).
+              // Normalizing at the read boundary means every consumer
+              // — Header, invoice PDF, settings form, applyBrandColors
+              // — sees canonical `#rrggbb` regardless of what's on
+              // disk. Existing corruption gets healed on next save
+              // via BrandSection's save-boundary normalization.
+              const merged: Brand = {
+                ...raw,
+                primaryColor: normalizeHex(raw.primaryColor, '#c8a44a'),
+                accentColor: normalizeHex(raw.accentColor, '#e5c770'),
+              };
               setBrand(merged);
               applyBrandColors(merged.primaryColor, merged.accentColor);
               document.title = (merged.businessName || 'Mobile Service OS') + ' — Mobile Tire & Roadside';
@@ -337,7 +349,15 @@ export function BrandProvider({ children, user }: { children: ReactNode; user: U
         throw e;
       }
       setBrand((prev) => {
-        const next = { ...prev, ...updates };
+        const merged = { ...prev, ...updates };
+        // Same normalization as the snapshot path — callers that
+        // bypass BrandSection.save() (or pre-normalization changes)
+        // still produce canonical colors here.
+        const next: Brand = {
+          ...merged,
+          primaryColor: normalizeHex(merged.primaryColor, '#c8a44a'),
+          accentColor: normalizeHex(merged.accentColor, '#e5c770'),
+        };
         applyBrandColors(next.primaryColor, next.accentColor);
         document.title = (next.businessName || 'Mobile Service OS') + ' — Mobile Tire & Roadside';
         return next;
