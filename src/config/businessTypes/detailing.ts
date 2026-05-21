@@ -75,4 +75,15 @@ export const DETAILING_CONFIG: BusinessTypeConfig = {
   invoiceTemplateKey: 'detailing',
 
   dashboardMetrics: [],
+
+  lifecycle: {
+    applicableStages: [
+      'lead', 'quoted', 'scheduled', 'dispatched', 'enroute', 'onsite',
+      'in_progress', 'awaiting_approval', 'completed', 'invoiced', 'paid', 'canceled',
+      // 'waiting_parts' intentionally omitted — detailing has no parts.
+    ],
+    stageOverrides: {
+      awaiting_approval: { label: 'Awaiting customer walk-around', shortLabel: 'Walk-around' },
+    },
+  },
 };
