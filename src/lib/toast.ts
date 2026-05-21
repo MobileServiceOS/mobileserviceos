@@ -19,6 +19,35 @@ export function addToast(msg: string, type: ToastType = 'info'): void {
   }, type === 'error' ? 5000 : 3000);
 }
 
+/**
+ * Toast with an inline action button. Stays visible longer (8 s) so
+ * the operator has time to tap. Tapping the action dismisses the
+ * toast immediately.
+ */
+export function addActionToast(
+  msg: string,
+  action: { label: string; onTap: () => void },
+  type: ToastType = 'info',
+): void {
+  const id = uid();
+  const wrappedTap = (): void => {
+    try { action.onTap(); } finally {
+      toasts = toasts.filter((t) => t.id !== id);
+      emit();
+    }
+  };
+  const item: ToastItem = {
+    id, msg, type, ts: Date.now(),
+    action: { label: action.label, onTap: wrappedTap },
+  };
+  toasts = [...toasts, item];
+  emit();
+  setTimeout(() => {
+    toasts = toasts.filter((t) => t.id !== id);
+    emit();
+  }, 8000);
+}
+
 export function subscribeToasts(l: Listener): () => void {
   listeners.push(l);
   l(toasts);
