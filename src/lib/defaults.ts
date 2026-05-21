@@ -5,14 +5,14 @@ import { servicePricingFromVertical } from '@/lib/verticals';
 export const APP_LOGO = 'icons/icon-rounded-192.png';
 
 export const FALLBACK_LOGO_SVG = `data:image/svg+xml,${encodeURIComponent(
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80"><rect width="80" height="80" rx="18" fill="#0a0a0f"/><circle cx="40" cy="40" r="22" fill="none" stroke="#c8a44a" stroke-width="3"/><circle cx="40" cy="40" r="8" fill="#c8a44a"/></svg>'
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80"><rect width="80" height="80" rx="18" fill="#0a0a0f"/><circle cx="40" cy="40" r="22" fill="none" stroke="#f4b400" stroke-width="3"/><circle cx="40" cy="40" r="8" fill="#f4b400"/></svg>'
 )}`;
 
 export const DEFAULT_BRAND: Brand = {
   businessName: 'Mobile Service OS',
   logoUrl: '',
-  primaryColor: '#c8a44a',
-  accentColor: '#e5c770',
+  primaryColor: '#f4b400',
+  accentColor: '#f7ca4d',
   phone: '',
   email: '',
   website: '',

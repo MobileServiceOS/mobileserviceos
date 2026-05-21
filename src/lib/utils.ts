@@ -326,8 +326,8 @@ export function normalizeHex(raw: string | null | undefined, fallback: string): 
   return fallback;
 }
 
-const DEFAULT_PRIMARY = '#c8a44a';
-const DEFAULT_ACCENT = '#e5c770';
+const DEFAULT_PRIMARY = '#f4b400';
+const DEFAULT_ACCENT = '#f7ca4d';
 
 export function applyBrandColors(primary: string, accent: string): void {
   if (typeof document === 'undefined') return;

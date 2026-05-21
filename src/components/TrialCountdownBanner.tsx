@@ -86,7 +86,7 @@ export function TrialCountdownBanner({ settings, onSubscribe }: Props) {
       ? { bg: 'rgba(249,115,22,.12)', border: 'rgba(249,115,22,.35)', accent: '#f97316' }
       : warning
         ? { bg: 'rgba(245,158,11,.12)', border: 'rgba(245,158,11,.30)', accent: '#f59e0b' }
-        : { bg: 'rgba(200,164,74,.10)', border: 'rgba(200,164,74,.25)', accent: 'var(--brand-primary, #c8a44a)' };
+        : { bg: 'rgba(200,164,74,.10)', border: 'rgba(200,164,74,.25)', accent: 'var(--brand-primary, #f4b400)' };
 
   // Copy by tier.
   const title = expired

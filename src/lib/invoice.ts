@@ -265,7 +265,7 @@ export async function generateInvoicePDF(
   // bypassed that path (e.g. server-side, off-context callers).
   // Without this, a stored value like `'c8a44a'` (no `#`) would
   // produce NaN RGB and a black PDF header.
-  const DEFAULT_ACCENT = '#c8a44a';
+  const DEFAULT_ACCENT = '#f4b400';
   const pc = normalizeHex(
     isPro ? (brand.primaryColor || DEFAULT_ACCENT) : DEFAULT_ACCENT,
     DEFAULT_ACCENT,

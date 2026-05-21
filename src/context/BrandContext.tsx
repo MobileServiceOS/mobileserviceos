@@ -240,8 +240,8 @@ export function BrandProvider({ children, user }: { children: ReactNode; user: U
               // via BrandSection's save-boundary normalization.
               const merged: Brand = {
                 ...raw,
-                primaryColor: normalizeHex(raw.primaryColor, '#c8a44a'),
-                accentColor: normalizeHex(raw.accentColor, '#e5c770'),
+                primaryColor: normalizeHex(raw.primaryColor, '#f4b400'),
+                accentColor: normalizeHex(raw.accentColor, '#f7ca4d'),
               };
               setBrand(merged);
               applyBrandColors(merged.primaryColor, merged.accentColor);
@@ -355,8 +355,8 @@ export function BrandProvider({ children, user }: { children: ReactNode; user: U
         // still produce canonical colors here.
         const next: Brand = {
           ...merged,
-          primaryColor: normalizeHex(merged.primaryColor, '#c8a44a'),
-          accentColor: normalizeHex(merged.accentColor, '#e5c770'),
+          primaryColor: normalizeHex(merged.primaryColor, '#f4b400'),
+          accentColor: normalizeHex(merged.accentColor, '#f7ca4d'),
         };
         applyBrandColors(next.primaryColor, next.accentColor);
         document.title = (next.businessName || 'Mobile Service OS') + ' — Mobile Tire & Roadside';

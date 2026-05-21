@@ -199,7 +199,7 @@ const styles: Record<string, CSSProperties> = {
     fontFamily: 'inherit',
   },
   btnPrimary: {
-    background: '#c8a44a',
+    background: '#f4b400',
     color: '#06070a',
   },
   btnSecondary: {

@@ -183,7 +183,7 @@ export function App() {
     return () => { clearTimeout(t); unsub(); };
   }, []);
 
-  useEffect(() => { applyBrandColors('#c8a44a', '#e5c770'); }, []);
+  useEffect(() => { applyBrandColors('#f4b400', '#f7ca4d'); }, []);
 
   if (initError) {
     return (

@@ -70,13 +70,14 @@ console.log('\n┌─ applyBrandColors — bare hex (the prod bug) ────�
 console.log('\n┌─ applyBrandColors — corrupted input falls back ──');
 {
   const v = runWithStub('burgundy', '');
-  // Falls back to library defaults (#c8a44a / #e5c770) — and crucially
-  // STILL sets the variables, so the UI doesn't render CSS-default
-  // colors when the user-set value is unrecognizable.
+  // Falls back to library defaults (#f4b400 brand amber / #f7ca4d
+  // light amber) — and crucially STILL sets the variables, so the
+  // UI doesn't render CSS-default colors when the user-set value
+  // is unrecognizable.
   check('garbage primary → default applied',
-    v['--brand-primary'] === '#c8a44a');
+    v['--brand-primary'] === '#f4b400');
   check('empty accent → default applied',
-    v['--brand-accent'] === '#e5c770');
+    v['--brand-accent'] === '#f7ca4d');
   check('every var is set even with garbage input',
     Object.keys(v).length === 4);
 }

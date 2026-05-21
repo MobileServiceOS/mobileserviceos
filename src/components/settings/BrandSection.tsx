@@ -107,8 +107,8 @@ function BrandForm() {
       // the Wheel Rush "can't change color" report.
       const cleanDraft: Brand = {
         ...draft,
-        primaryColor: normalizeHex(draft.primaryColor, '#c8a44a'),
-        accentColor: normalizeHex(draft.accentColor, '#e5c770'),
+        primaryColor: normalizeHex(draft.primaryColor, '#f4b400'),
+        accentColor: normalizeHex(draft.accentColor, '#f7ca4d'),
       };
       await updateBrand(cleanDraft);
       // replace(_, false) — both updates the local draft to the
@@ -191,7 +191,7 @@ function BrandForm() {
           <ColorPicker
             value={draft.primaryColor}
             onChange={(v) => set('primaryColor', v)}
-            fallback="#c8a44a"
+            fallback="#f4b400"
           />
         </div>
         <div className="field">
@@ -199,7 +199,7 @@ function BrandForm() {
           <ColorPicker
             value={draft.accentColor}
             onChange={(v) => set('accentColor', v)}
-            fallback="#e5c770"
+            fallback="#f7ca4d"
           />
         </div>
       </div>
@@ -221,8 +221,8 @@ function BrandForm() {
 // ─────────────────────────────────────────────────────────────────────
 
 const PRESET_COLORS = [
-  '#c8a44a', // gold
-  '#e5c770', // light gold
+  '#f4b400', // brand amber
+  '#f7ca4d', // light amber
   '#dc2626', // red
   '#ea580c', // orange
   '#f59e0b', // amber
