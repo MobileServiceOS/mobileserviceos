@@ -4,7 +4,7 @@ import {
   DEFAULT_SERVICE_PRICING, DEFAULT_VEHICLE_PRICING,
   LEAD_SOURCES, PAYMENT_METHODS, PAYMENT_STATUSES, JOB_STATUSES, TIRE_MATERIAL_SERVICES, TIRE_SOURCES,
 } from '@/lib/defaults';
-import { computeBreakdown } from '@/lib/pricing';
+import { computeBreakdownTagged } from '@/lib/pricing';
 import { calcQuote, money, normalizeTireSize, planInventoryDeduction, serviceIcon } from '@/lib/utils';
 import { addToast } from '@/lib/toast';
 import { uploadReceipt } from '@/lib/firebase';
@@ -12,6 +12,82 @@ import { useBrand } from '@/context/BrandContext';
 import { usePermissions } from '@/context/MembershipContext';
 import { formatPhone, formatPhonePartial } from '@/lib/formatPhone';
 import { searchCities } from '@/lib/locations';
+import { useActiveVertical } from '@/lib/useActiveVertical';
+import type { BusinessTypeJobField } from '@/config/businessTypes/registry';
+
+// ─── DynamicJobField: shared renderer for vertical.jobFields ──────────
+// Renders a single Job field declared by a vertical config. Mechanic
+// uses this for labor hours / parts cost / diagnostic code / vehicle
+// make / mileage. Tire's jobFields are handled by the bespoke "Tire
+// Details" block below (which is feature-flag-gated), so the loop
+// that calls DynamicJobField intentionally does not fire for tire.
+function DynamicJobField({
+  field, value, onChange, disabled,
+}: {
+  field: BusinessTypeJobField;
+  value: unknown;
+  onChange: (v: unknown) => void;
+  disabled?: boolean;
+}) {
+  switch (field.type) {
+    case 'text':
+      return (
+        <div className="field">
+          <label>{field.label}</label>
+          <input
+            type="text"
+            value={String(value ?? '')}
+            onChange={(e) => onChange(e.target.value)}
+            disabled={disabled}
+            placeholder={field.label}
+          />
+        </div>
+      );
+    case 'number':
+      return (
+        <div className="field">
+          <label>{field.label}</label>
+          <input
+            type="number"
+            inputMode="decimal"
+            value={value === undefined || value === null ? '' : String(value)}
+            onChange={(e) => onChange(e.target.value === '' ? undefined : e.target.value)}
+            disabled={disabled}
+            placeholder="0"
+          />
+        </div>
+      );
+    case 'select':
+      return (
+        <div className="field">
+          <label>{field.label}</label>
+          <select
+            value={String(value ?? '')}
+            onChange={(e) => onChange(e.target.value)}
+            disabled={disabled}
+          >
+            <option value="">—</option>
+            {(field.options || []).map((opt) => (
+              <option key={opt} value={opt}>{opt}</option>
+            ))}
+          </select>
+        </div>
+      );
+    case 'boolean':
+      return (
+        <div className="field" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <input
+            id={`dyn-${field.key}`}
+            type="checkbox"
+            checked={Boolean(value)}
+            onChange={(e) => onChange(e.target.checked)}
+            disabled={disabled}
+          />
+          <label htmlFor={`dyn-${field.key}`} style={{ margin: 0 }}>{field.label}</label>
+        </div>
+      );
+  }
+}
 
 interface Props {
   job: Job;
@@ -27,6 +103,12 @@ interface Props {
 export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledFromQuote, onSave, onSaveAndNew }: Props) {
   const { businessId } = useBrand();
   const permissions = usePermissions();
+  // Active vertical drives which fields, services, breakdown panel,
+  // and inventory hooks render. For tire (the legacy case) every
+  // feature flag the bespoke UI relies on is `true`, so behavior is
+  // byte-for-byte identical to pre-Phase-2.1.
+  const vertical = useActiveVertical();
+  const showTireBlock = vertical.features.inventoryDeduction;
   // Save-in-progress guard. While a save is mid-flight, the buttons
   // are disabled to prevent a double-tap from creating a duplicate
   // job. Cleared in the finally block of the click handler.
@@ -38,16 +120,30 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
   // Owners + admins always have canOverrideJobPrice via getPermissions.
   // The technician path is conditional on the business-setting flag.
   const revenueLocked = !permissions.canOverrideJobPrice;
+  // Service catalog: prefer settings.servicePricing (user-edited
+  // prices and enable flags), restricted to services the active
+  // vertical defines. Existing tire users have tire services in
+  // settings.servicePricing — the intersection equals their current
+  // list. Mechanic accounts created via Phase 1 createBusiness have
+  // the mechanic catalog seeded into settings.servicePricing.
   const enabledServices = useMemo(() => {
     const sp = settings.servicePricing || DEFAULT_SERVICE_PRICING;
-    return Object.keys(sp).filter((k) => sp[k] && sp[k].enabled !== false);
-  }, [settings.servicePricing]);
+    const verticalServiceIds = new Set(vertical.services.map((s) => s.id));
+    return Object.keys(sp).filter((k) => {
+      if (!verticalServiceIds.has(k)) return false;
+      const entry = sp[k];
+      return entry && entry.enabled !== false;
+    });
+  }, [settings.servicePricing, vertical]);
 
   const vehicles = useMemo(() => Object.keys(settings.vehiclePricing || DEFAULT_VEHICLE_PRICING), [settings.vehiclePricing]);
 
   const set = <K extends keyof Job>(k: K, v: Job[K]) => setJob({ ...job, [k]: v });
 
-  const needsTireDetails = TIRE_MATERIAL_SERVICES.includes(job.service);
+  // needsTireDetails: only relevant for verticals with
+  // inventoryDeduction. Mechanic / detailing always evaluate to
+  // false here, so the tire-details block stays hidden.
+  const needsTireDetails = showTireBlock && TIRE_MATERIAL_SERVICES.includes(job.service);
   const tireSource = (job.tireSource || 'Inventory') as TireSource;
 
   // Pre-populate revenue with suggested when blank and service/vehicle present
@@ -95,7 +191,7 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [brand.state]);
 
-  const breakdown = useMemo(() => computeBreakdown(job, settings), [job, settings]);
+  const breakdown = useMemo(() => computeBreakdownTagged(job, settings), [job, settings]);
 
   // Inventory plan preview (so user sees deductions before save)
   const inventoryPlan = useMemo(() => {
@@ -262,22 +358,29 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
               placeholder="0"
             />
           </div>
-          <div className="field">
-            <label>Tire cost ($)</label>
-            <input
-              type="number"
-              inputMode="decimal"
-              value={job.tireCost}
-              onChange={(e) => set('tireCost', e.target.value)}
-              placeholder="0"
-              disabled={tireSource === 'Customer supplied'}
-            />
-            {tireSource === 'Customer supplied' && (
-              <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 4 }}>
-                Customer-supplied · $0
-              </div>
-            )}
-          </div>
+          {/* Tire cost is a tire-vertical concept (cost basis of the
+              tire stock used). Mechanic uses parts cost; detailing
+              uses chemicals + supplies which are tracked separately.
+              Gated on inventoryDeduction so the field only appears
+              for tire. */}
+          {showTireBlock && (
+            <div className="field">
+              <label>Tire cost ($)</label>
+              <input
+                type="number"
+                inputMode="decimal"
+                value={job.tireCost}
+                onChange={(e) => set('tireCost', e.target.value)}
+                placeholder="0"
+                disabled={tireSource === 'Customer supplied'}
+              />
+              {tireSource === 'Customer supplied' && (
+                <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 4 }}>
+                  Customer-supplied · $0
+                </div>
+              )}
+            </div>
+          )}
         </div>
         <div className="field">
           <label>
@@ -326,19 +429,84 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
           )}
         </div>
 
-        <div className="pricing-breakdown">
-          <div className="pricing-breakdown-row"><span>Revenue</span><span className="num green">{money(breakdown.revenue)}</span></div>
-          <div className="pricing-breakdown-row"><span>Tire cost</span><span className="num red">-{money(breakdown.tireCost)}</span></div>
-          <div className="pricing-breakdown-row"><span>Material cost</span><span className="num red">-{money(breakdown.materialCost)}</span></div>
-          <div className="pricing-breakdown-row">
-            <span>Travel ({breakdown.travelMiles} mi{breakdown.freeMilesIncluded ? `, ${breakdown.freeMilesIncluded} free` : ''})</span>
-            <span className="num red">-{money(breakdown.travelCost)}</span>
+        {/* Pricing breakdown panel — vertical-aware. Tire renders
+            the exact same Revenue / Tire cost / Material cost /
+            Travel / Profit layout as pre-Phase-2.1. Mechanic renders
+            a labor+parts breakdown. Detailing renders a size/package
+            preview (filled in 2.3). */}
+        {breakdown.model === 'flat' && (
+          <div className="pricing-breakdown">
+            <div className="pricing-breakdown-row"><span>Revenue</span><span className="num green">{money(breakdown.revenue)}</span></div>
+            <div className="pricing-breakdown-row"><span>Tire cost</span><span className="num red">-{money(breakdown.tireCost)}</span></div>
+            <div className="pricing-breakdown-row"><span>Material cost</span><span className="num red">-{money(breakdown.materialCost)}</span></div>
+            <div className="pricing-breakdown-row">
+              <span>Travel ({breakdown.travelMiles} mi{breakdown.freeMilesIncluded ? `, ${breakdown.freeMilesIncluded} free` : ''})</span>
+              <span className="num red">-{money(breakdown.travelCost)}</span>
+            </div>
+            <div className="pricing-breakdown-row total">
+              <span>Profit</span>
+              <span className={'num ' + (breakdown.profit >= 0 ? 'green' : 'red')}>{money(breakdown.profit)}</span>
+            </div>
           </div>
-          <div className="pricing-breakdown-row total">
-            <span>Profit</span>
-            <span className={'num ' + (breakdown.profit >= 0 ? 'green' : 'red')}>{money(breakdown.profit)}</span>
+        )}
+        {breakdown.model === 'labor_parts' && (
+          <div className="pricing-breakdown">
+            <div className="pricing-breakdown-row"><span>Revenue</span><span className="num green">{money(breakdown.revenue)}</span></div>
+            {breakdown.laborCost > 0 && (
+              <div className="pricing-breakdown-row">
+                <span>Labor ({breakdown.laborHours} hrs × ${breakdown.laborRate}/hr)</span>
+                <span className="num red">-{money(breakdown.laborCost)}</span>
+              </div>
+            )}
+            {breakdown.partsCost > 0 && (
+              <div className="pricing-breakdown-row">
+                <span>Parts</span>
+                <span className="num red">-{money(breakdown.partsCost)}</span>
+              </div>
+            )}
+            {breakdown.partsMarkupAmount > 0 && (
+              <div className="pricing-breakdown-row">
+                <span>Parts handling ({breakdown.partsMarkupPct}%)</span>
+                <span className="num red">-{money(breakdown.partsMarkupAmount)}</span>
+              </div>
+            )}
+            {breakdown.diagnosticFee > 0 && (
+              <div className="pricing-breakdown-row">
+                <span>Diagnostic fee</span>
+                <span className="num red">-{money(breakdown.diagnosticFee)}</span>
+              </div>
+            )}
+            {breakdown.travelCost > 0 && (
+              <div className="pricing-breakdown-row">
+                <span>Travel ({breakdown.travelMiles} mi{breakdown.freeMilesIncluded ? `, ${breakdown.freeMilesIncluded} free` : ''})</span>
+                <span className="num red">-{money(breakdown.travelCost)}</span>
+              </div>
+            )}
+            {breakdown.belowMinServiceCharge && (
+              <div className="pricing-breakdown-row" style={{ fontSize: 10, color: 'var(--t3)' }}>
+                <span>Min service charge</span>
+                <span>{money(breakdown.minServiceCharge)}</span>
+              </div>
+            )}
+            <div className="pricing-breakdown-row total">
+              <span>Profit</span>
+              <span className={'num ' + (breakdown.profit >= 0 ? 'green' : 'red')}>{money(breakdown.profit)}</span>
+            </div>
           </div>
-        </div>
+        )}
+        {breakdown.model === 'package_multiplier' && (
+          <div className="pricing-breakdown">
+            <div className="pricing-breakdown-row"><span>Revenue</span><span className="num green">{money(breakdown.revenue)}</span></div>
+            <div className="pricing-breakdown-row">
+              <span>Vehicle size</span>
+              <span>{breakdown.vehicleSize} (×{breakdown.vehicleSizeMultiplier})</span>
+            </div>
+            <div className="pricing-breakdown-row total">
+              <span>Profit</span>
+              <span className={'num ' + (breakdown.profit >= 0 ? 'green' : 'red')}>{money(breakdown.profit)}</span>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="form-group card-anim">
@@ -454,6 +622,37 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
         </div>
       </div>
 
+      {/* Vertical-specific job fields, rendered for any vertical
+          whose UI is NOT the tire bespoke block. Mechanic gets
+          Vehicle Make/Model, Mileage, Diagnostic Code, Labor Hours,
+          Parts Cost. Detailing gets Vehicle Size (when populated in
+          2.3). Tire's jobFields (tireSize/tireCondition/wheelLock-
+          Removed) are already covered by the bespoke block below,
+          so we suppress the loop here for tire. */}
+      {!showTireBlock && vertical.jobFields.length > 0 && (
+        <div className="form-group card-anim">
+          <div className="form-group-title">
+            {vertical.shortName} Details
+          </div>
+          <div className="field-row">
+            {vertical.jobFields.map((field) => (
+              <DynamicJobField
+                key={field.key}
+                field={field}
+                value={(job as unknown as Record<string, unknown>)[field.key]}
+                onChange={(v) => setJob({ ...job, [field.key]: v } as Job)}
+                disabled={isSaving}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Tire-specific bespoke block (size + qty + source picker +
+          purchase panel + inventory preview). Already feature-gated
+          via needsTireDetails which now also checks
+          vertical.features.inventoryDeduction, so this entire block
+          stays hidden for mechanic and detailing accounts. */}
       {needsTireDetails && (
         <div className="form-group card-anim">
           <div className="form-group-title">Tire Details</div>
