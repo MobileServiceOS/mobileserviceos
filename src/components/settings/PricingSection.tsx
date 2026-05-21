@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
 import type { Settings as SettingsT, ServicePricing } from '@/types';
 import { NumberField } from '@/components/NumberField';
 import { money } from '@/lib/utils';
 import { useActiveVertical } from '@/lib/useActiveVertical';
+import { useDirtyDraft } from '@/lib/useDirtyDraft';
 import { AccordionShell } from '@/components/settings/AccordionShell';
 
 interface Props {
@@ -38,16 +38,13 @@ function PricingForm({ settings, onSave }: Props) {
   // service basis; absent services fall back to the vertical's
   // defaults (basePrice / minProfit / enabledByDefault).
   const vertical = useActiveVertical();
-  const [sp, setSp] = useState<Record<string, ServicePricing>>(settings.servicePricing || {});
-  const [dirty, setDirty] = useState(false);
-
-  // Dirty-aware re-sync. settings re-emits on every Firestore
-  // snapshot (Stripe mirror, services-backfill, etc.). Resetting
-  // unconditionally wiped in-progress edits — the production
-  // "settings revert" bug on Wheel Rush. Only re-sync when clean.
-  useEffect(() => {
-    if (!dirty) setSp(settings.servicePricing || {});
-  }, [settings.servicePricing, dirty]);
+  // Dirty-aware draft of the servicePricing map. See useDirtyDraft.
+  const {
+    draft: sp,
+    dirty,
+    replace: setSp,
+    markClean,
+  } = useDirtyDraft<Record<string, ServicePricing>>(settings.servicePricing || {});
 
   // Resolve the canonical list of service IDs to render — vertical
   // catalog order, ALL services (including ones the operator hasn't
@@ -64,11 +61,11 @@ function PricingForm({ settings, onSave }: Props) {
   });
 
   const updateService = (k: string, patch: Partial<ServicePricing>) => {
-    setSp((p) => ({ ...p, [k]: { ...p[k], ...patch } })); setDirty(true);
+    setSp({ ...sp, [k]: { ...sp[k], ...patch } });
   };
 
   const save = async () => {
-    try { await onSave({ servicePricing: sp }); setDirty(false); } catch { /* */ }
+    try { await onSave({ servicePricing: sp }); markClean(); } catch { /* */ }
   };
 
   return (

@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
 import type { Settings as SettingsT, VehiclePricing } from '@/types';
 import { NumberField } from '@/components/NumberField';
 import { money } from '@/lib/utils';
+import { useDirtyDraft } from '@/lib/useDirtyDraft';
 import { AccordionShell } from '@/components/settings/AccordionShell';
 
 interface Props {
@@ -28,23 +28,20 @@ export function VehicleAddonsAccordion({ settings, onSave, open, onToggle }: Pro
 }
 
 function VehicleAddonsForm({ settings, onSave }: Props) {
-  const [vp, setVp] = useState<Record<string, VehiclePricing>>(settings.vehiclePricing || {});
-  const [dirty, setDirty] = useState(false);
-
-  // Dirty-aware re-sync. settings re-emits on every Firestore
-  // snapshot (Stripe mirror, services-backfill, etc.). Resetting
-  // unconditionally wiped in-progress edits — the production
-  // "settings revert" bug on Wheel Rush. Only re-sync when clean.
-  useEffect(() => {
-    if (!dirty) setVp(settings.vehiclePricing || {});
-  }, [settings.vehiclePricing, dirty]);
+  // Dirty-aware draft of vehiclePricing. See useDirtyDraft.
+  const {
+    draft: vp,
+    dirty,
+    replace: setVp,
+    markClean,
+  } = useDirtyDraft<Record<string, VehiclePricing>>(settings.vehiclePricing || {});
 
   const updateVehicle = (k: string, patch: Partial<VehiclePricing>) => {
-    setVp((p) => ({ ...p, [k]: { ...p[k], ...patch } })); setDirty(true);
+    setVp({ ...vp, [k]: { ...vp[k], ...patch } });
   };
 
   const save = async () => {
-    try { await onSave({ vehiclePricing: vp }); setDirty(false); } catch { /* */ }
+    try { await onSave({ vehiclePricing: vp }); markClean(); } catch { /* */ }
   };
 
   return (

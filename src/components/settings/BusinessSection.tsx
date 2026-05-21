@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
 import type { Settings as SettingsT } from '@/types';
 import { NumberField } from '@/components/NumberField';
 import { money } from '@/lib/utils';
 import { AccordionShell } from '@/components/settings/AccordionShell';
 import { useActiveVertical } from '@/lib/useActiveVertical';
+import { useDirtyDraft } from '@/lib/useDirtyDraft';
 
 interface Props {
   settings: SettingsT;
@@ -27,26 +27,14 @@ export function BusinessAccordion({
 }
 
 function BusinessForm({ settings, onSave, showOwners }: Props & { showOwners: boolean }) {
-  const [draft, setDraft] = useState<SettingsT>(settings);
-  const [dirty, setDirty] = useState(false);
   const vertical = useActiveVertical();
-  // Dirty-aware re-sync. The parent `settings` reference changes on
-  // every Firestore snapshot — including background writes (Stripe
-  // mirror, services-backfill loop, other tabs). The previous
-  // implementation reset draft + cleared dirty unconditionally, so
-  // a snapshot mid-edit wiped the user's in-progress changes.
-  // Symptom: "I edit and it goes right back" reported on Wheel Rush.
-  // Only re-sync when the user has no unsaved edits.
-  useEffect(() => {
-    if (!dirty) setDraft(settings);
-  }, [settings, dirty]);
-
-  const set = <K extends keyof SettingsT>(k: K, v: SettingsT[K]) => {
-    setDraft((d) => ({ ...d, [k]: v })); setDirty(true);
-  };
+  // Dirty-aware draft sync — preserves in-flight edits across parent
+  // re-emits. See useDirtyDraft for the full story; the production
+  // bug this prevents is the Wheel Rush "settings revert" report.
+  const { draft, dirty, set, markClean } = useDirtyDraft<SettingsT>(settings);
 
   const save = async () => {
-    try { await onSave(draft); setDirty(false); } catch { /* toast in caller */ }
+    try { await onSave(draft); markClean(); } catch { /* toast in caller */ }
   };
 
   return (
