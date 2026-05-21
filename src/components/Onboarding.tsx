@@ -5,8 +5,10 @@ import { CityStateSelect } from '@/components/CityStateSelect';
 import { uploadLogo } from '@/lib/firebase';
 import { addToast } from '@/lib/toast';
 import { APP_LOGO } from '@/lib/defaults';
+import { money } from '@/lib/utils';
 import { sanitizeSubscriptionWrite } from '@/lib/planAccess';
 import { foundingMemberStamp, isGrowthMode, FOUNDER_DISCOUNT_PERCENT, FOUNDER_DISCOUNT_TERM_MONTHS } from '@/lib/growthMode';
+import { useActiveVertical } from '@/lib/useActiveVertical';
 import {
   readPendingRefCode,
   resolveRefCode,
@@ -52,6 +54,12 @@ const LOGO_UPLOAD_TIMEOUT_MS = 30_000;
  */
 export function Onboarding({ settings, onComplete }: Props) {
   const { brand, businessId } = useBrand();
+  // Active vertical config drives step 3's content + the service-
+  // seeding behavior in finish(). Tire renders the legacy three-
+  // tire-service profit-targets UI; mechanic / detailing render
+  // a read-only "model defaults" preview because their pricing
+  // models don't have per-service profit anchors the same way.
+  const vertical = useActiveVertical();
   const [step, setStep] = useState<Step>(1);
   const [busy, setBusy] = useState(false);
   const [logoUploading, setLogoUploading] = useState(false);
@@ -146,14 +154,47 @@ export function Onboarding({ settings, onComplete }: Props) {
         onboardingCompletedAt: new Date().toISOString(),
       };
 
-      const sp: Record<string, ServicePricing> = { ...(settings.servicePricing || {}) };
-      const update = (key: string, profit: number) => {
-        const prev = sp[key] || { enabled: true, basePrice: profit, minProfit: profit };
-        sp[key] = { ...prev, enabled: true, minProfit: profit };
-      };
-      update('Flat Tire Repair', tireRepairProfit);
-      update('Tire Replacement', tireReplaceProfit);
-      update('Tire Installation', installationProfit);
+      // Service pricing seeding. Strategy:
+      //   1. Start with the active vertical's catalog filtered to
+      //      services flagged `enabledByDefault: true` — per the
+      //      Phase 2.1 spec §11 decision. This ensures a fresh
+      //      mechanic / detailing account ends onboarding with
+      //      every default-on service already present in settings.
+      //   2. Layer the existing settings.servicePricing on top so
+      //      any operator customizations (e.g. someone who edited
+      //      a service price before completing onboarding) win.
+      //   3. For tire, apply the three profit-target overrides the
+      //      operator entered on step 3. Mechanic + detailing
+      //      don't have per-service profit anchors in the
+      //      onboarding UI, so step 3's mechanic/detailing
+      //      placeholders don't write any per-service overrides.
+      const sp: Record<string, ServicePricing> = {};
+      for (const svc of vertical.services) {
+        if (!svc.enabledByDefault) continue;
+        sp[svc.id] = {
+          enabled: true,
+          basePrice: svc.defaultBasePrice,
+          minProfit: svc.defaultMinProfit,
+        };
+      }
+      // Operator's existing customizations override the vertical defaults.
+      for (const [key, value] of Object.entries(settings.servicePricing || {})) {
+        if (value) sp[key] = { ...sp[key], ...value };
+      }
+
+      // Tire-only: apply the three profit-target overrides from step 3.
+      // pricingModel.kind === 'flat' is the tire signal; detailing also
+      // has services but no per-service profit-anchor onboarding step,
+      // so this guard keeps tire-specific writes scoped to tire.
+      if (vertical.pricingModel.kind === 'flat') {
+        const updateProfit = (key: string, profit: number) => {
+          const prev = sp[key] || { enabled: true, basePrice: profit, minProfit: profit };
+          sp[key] = { ...prev, enabled: true, minProfit: profit };
+        };
+        updateProfit('Flat Tire Repair', tireRepairProfit);
+        updateProfit('Tire Replacement', tireReplaceProfit);
+        updateProfit('Tire Installation', installationProfit);
+      }
 
       // New accounts complete onboarding with NO subscription state.
       // The user lands in the app and must click Subscribe on Core or
@@ -172,13 +213,19 @@ export function Onboarding({ settings, onComplete }: Props) {
       // billing enforcement is bypassed via isBillingExempt(). When
       // growthMode is later turned off, foundingMemberStamp() returns
       // {} and new signups go through normal Stripe checkout instead.
+      const isFlatModel = vertical.pricingModel.kind === 'flat';
       const settingsPatch: Partial<Settings> = {
         weeklyGoal,
         costPerMile,
         freeMilesIncluded: freeMiles,
-        tireRepairTargetProfit: tireRepairProfit,
-        tireReplacementTargetProfit: tireReplaceProfit,
-        defaultTargetProfit: Math.round((tireRepairProfit + tireReplaceProfit + installationProfit) / 3),
+        // Tire-specific target-profit fields are written only for tire.
+        // Mechanic / detailing leave them undefined; their pricing
+        // engines don't read these fields anyway.
+        ...(isFlatModel ? {
+          tireRepairTargetProfit: tireRepairProfit,
+          tireReplacementTargetProfit: tireReplaceProfit,
+          defaultTargetProfit: Math.round((tireRepairProfit + tireReplaceProfit + installationProfit) / 3),
+        } : {}),
         servicePricing: sp,
         maxUsers: 5,
         featureFlags: {
@@ -347,7 +394,7 @@ export function Onboarding({ settings, onComplete }: Props) {
             </div>
           )}
 
-          {step === 3 && (
+          {step === 3 && vertical.pricingModel.kind === 'flat' && (
             <div className="onboarding-step page-enter">
               <div className="onboarding-step-title">Profit targets</div>
               <div className="onboarding-step-sub">Used to suggest pricing on every quote.</div>
@@ -372,6 +419,57 @@ export function Onboarding({ settings, onComplete }: Props) {
             </div>
           )}
 
+          {step === 3 && vertical.pricingModel.kind === 'labor_parts' && (
+            <div className="onboarding-step page-enter">
+              <div className="onboarding-step-title">Labor & Parts defaults</div>
+              <div className="onboarding-step-sub">
+                These power the suggested price on every job. You can fine-tune each value in Settings later.
+              </div>
+              <div className="field">
+                <label>Weekly revenue goal ($)</label>
+                <input type="number" inputMode="decimal" value={weeklyGoal} onChange={(e) => setWeeklyGoal(Number(e.target.value))} />
+              </div>
+              <div className="onboarding-summary" style={{ marginTop: 14 }}>
+                <div className="onboarding-summary-row"><span>Labor rate</span><strong>{money(vertical.pricingModel.defaultLaborRate)} / hour</strong></div>
+                <div className="onboarding-summary-row"><span>Parts markup</span><strong>{vertical.pricingModel.defaultPartsMarkupPct}%</strong></div>
+                <div className="onboarding-summary-row"><span>Diagnostic fee</span><strong>{money(vertical.pricingModel.defaultDiagnosticFee)}</strong></div>
+                <div className="onboarding-summary-row"><span>Min service charge</span><strong>{money(vertical.pricingModel.defaultMinServiceCharge)}</strong></div>
+              </div>
+              <div style={{
+                marginTop: 12, fontSize: 11, color: 'var(--t3)', lineHeight: 1.4,
+              }}>
+                Mechanic-specific defaults. Read-only here; editing
+                arrives in Settings during Phase 2.2.
+              </div>
+            </div>
+          )}
+
+          {step === 3 && vertical.pricingModel.kind === 'package_multiplier' && (
+            <div className="onboarding-step page-enter">
+              <div className="onboarding-step-title">Vehicle Size Multipliers</div>
+              <div className="onboarding-step-sub">
+                Package prices scale by vehicle size. You can edit these in Settings after onboarding.
+              </div>
+              <div className="field">
+                <label>Weekly revenue goal ($)</label>
+                <input type="number" inputMode="decimal" value={weeklyGoal} onChange={(e) => setWeeklyGoal(Number(e.target.value))} />
+              </div>
+              <div className="onboarding-summary" style={{ marginTop: 14 }}>
+                {Object.entries(vertical.pricingModel.vehicleSizeMultipliers).map(([size, mult]) => (
+                  <div key={size} className="onboarding-summary-row">
+                    <span>{size}</span><strong>×{mult}</strong>
+                  </div>
+                ))}
+              </div>
+              <div style={{
+                marginTop: 12, fontSize: 11, color: 'var(--t3)', lineHeight: 1.4,
+              }}>
+                Detailing-specific defaults. Add-ons + maintenance plans
+                land in Phase 2.3.
+              </div>
+            </div>
+          )}
+
           {step === 4 && (
             <div className="onboarding-step page-enter">
               <div className="onboarding-step-title">Travel & mileage</div>
@@ -390,7 +488,24 @@ export function Onboarding({ settings, onComplete }: Props) {
                 <div className="onboarding-summary-row"><span>Business</span><strong>{businessName || '—'}</strong></div>
                 <div className="onboarding-summary-row"><span>Service area</span><strong>{mainCity}{stateCode ? `, ${stateCode}` : ''}</strong></div>
                 <div className="onboarding-summary-row"><span>Weekly goal</span><strong>${weeklyGoal.toLocaleString()}</strong></div>
-                <div className="onboarding-summary-row"><span>Profit targets</span><strong>${tireRepairProfit} / ${tireReplaceProfit} / ${installationProfit}</strong></div>
+                {/* Tire shows the three profit-target inputs from step 3;
+                    mechanic / detailing show their pricing model defaults
+                    from MECHANIC_CONFIG / DETAILING_CONFIG.pricingModel so
+                    the summary always reflects what step 3 confirmed. */}
+                {vertical.pricingModel.kind === 'flat' && (
+                  <div className="onboarding-summary-row"><span>Profit targets</span><strong>${tireRepairProfit} / ${tireReplaceProfit} / ${installationProfit}</strong></div>
+                )}
+                {vertical.pricingModel.kind === 'labor_parts' && (
+                  <div className="onboarding-summary-row">
+                    <span>Labor / Parts</span>
+                    <strong>{money(vertical.pricingModel.defaultLaborRate)}/hr · +{vertical.pricingModel.defaultPartsMarkupPct}%</strong>
+                  </div>
+                )}
+                {vertical.pricingModel.kind === 'package_multiplier' && (
+                  <div className="onboarding-summary-row">
+                    <span>Vertical</span><strong>{vertical.displayName}</strong>
+                  </div>
+                )}
                 <div className="onboarding-summary-row"><span>Travel</span><strong>${costPerMile.toFixed(2)}/mi · {freeMiles} free</strong></div>
               </div>
               <div style={{
