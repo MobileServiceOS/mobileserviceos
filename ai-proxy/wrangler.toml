@@ -1,0 +1,26 @@
+# ai-proxy/wrangler.toml
+# ───────────────────────────────────────────────────────────────────
+#  Cloudflare Worker config for the Mobile Service OS AI proxy.
+#  Fill the [vars] placeholders before `wrangler deploy`.
+#  See ai-proxy/README.md for the full deploy walkthrough.
+# ───────────────────────────────────────────────────────────────────
+
+name = "mobileserviceos-ai-proxy"
+main = "worker.js"
+compatibility_date = "2024-09-23"
+
+[vars]
+# Firebase project id — ID tokens are verified against this `aud`.
+# Found in Firebase Console → Project Settings → General.
+FIREBASE_PROJECT_ID = "mobile-service-os"
+
+# Comma-separated origin allowlist (no trailing slash). Only these
+# origins may call the proxy. Add localhost for local dev.
+ALLOWED_ORIGINS = "https://nashyberry.github.io,http://localhost:5173"
+
+# Anthropic model id used for every task.
+AI_MODEL = "claude-haiku-4-5"
+
+# ANTHROPIC_API_KEY is NOT set here — it is a secret. Provision it with:
+#   wrangler secret put ANTHROPIC_API_KEY
+# Never commit the key to this file or to git.
