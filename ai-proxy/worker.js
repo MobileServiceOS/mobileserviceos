@@ -31,6 +31,33 @@ const TASKS = {
     user: 'ping',
     maxTokens: 8,
   }),
+
+  // AI Price Check (roadmap #3). Recommends one price from the
+  // deterministic quote plus a digest of the business's own history.
+  // The client (src/lib/aiPricing.ts) builds `input`; this handler
+  // owns the prompt. Response is parsed client-side.
+  pricing: (input) => {
+    if (!input || typeof input !== 'object') {
+      throw new Error('pricing: input must be an object');
+    }
+    return {
+      system:
+        'You are a pricing assistant for a mobile service business ' +
+        '(tire / mechanic / detailing). You are given a deterministic ' +
+        "cost-plus quote and a statistical digest of the business's " +
+        'own recent jobs for this service (job count, average / median ' +
+        '/ min / max price, and per-condition averages). Recommend ONE ' +
+        'price and a one-sentence rationale. Anchor to the deterministic ' +
+        'quote and the digest — do NOT invent market rates or use ' +
+        'outside pricing knowledge. Treat a null field as "no data", ' +
+        'never as zero. If recentJobCount is 0 or low, lean on the ' +
+        'deterministic quote and say so in the rationale. Respond with ' +
+        'ONLY raw JSON, no markdown, as: ' +
+        '{"price": <number>, "rationale": "<one sentence>"}.',
+      user: JSON.stringify(input),
+      maxTokens: 200,
+    };
+  },
 };
 
 export default {
