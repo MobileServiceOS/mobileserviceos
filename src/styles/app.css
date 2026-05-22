@@ -498,6 +498,22 @@ a { color: var(--brand-primary); text-decoration: none; }
   color: var(--amber);
 }
 
+/* ── Inventory AI insight — Phase 4 ──────────────────────────── */
+.inv-ai-insight { margin-bottom: 12px; }
+.inv-ai-insight-btn {
+  width: 100%;
+  background: var(--s2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: var(--t1);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  min-height: 44px;
+}
+.inv-ai-insight-btn:disabled { opacity: .5; cursor: default; }
+
 /* ── Forms ──────────────────────────────────────────────── */
 .field { margin-bottom: 12px; }
 .field label { font-size: 11px; color: var(--t3); font-weight: 700; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 4px; }
