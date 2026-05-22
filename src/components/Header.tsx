@@ -48,7 +48,11 @@ export function Header({ syncStatus, onSignOut }: Props) {
             {brand.businessName || 'Mobile Service OS'}
           </h1>
           <p style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {[vertical.displayName, brand.serviceArea].filter(Boolean).join(' · ') || 'Mobile Tire & Roadside'}
+            {/* The operator's chosen tagline wins when set; otherwise
+                fall back to the vertical + service-area descriptor. */}
+            {(brand.tagline || '').trim()
+              || [vertical.displayName, brand.serviceArea].filter(Boolean).join(' · ')
+              || 'Mobile Tire & Roadside'}
           </p>
         </div>
       </div>

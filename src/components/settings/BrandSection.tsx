@@ -9,6 +9,7 @@ import { APP_LOGO } from '@/lib/defaults';
 import { normalizeHex } from '@/lib/utils';
 import { useDirtyDraft } from '@/lib/useDirtyDraft';
 import { AccordionShell } from '@/components/settings/AccordionShell';
+import { BrandPreview } from '@/components/settings/BrandPreview';
 
 /**
  * Hard cap on logo upload time. Firebase Storage retries internally,
@@ -145,6 +146,25 @@ function BrandForm() {
         <label>Business name</label>
         <input value={draft.businessName} onChange={(e) => set('businessName', e.target.value)} />
       </div>
+      <div className="field">
+        <label>Tagline</label>
+        <input
+          value={draft.tagline}
+          onChange={(e) => set('tagline', e.target.value)}
+          placeholder="e.g. Roadside tire help, fast"
+        />
+        <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 6 }}>
+          Shows under your business name in the app header and on invoices.
+        </div>
+      </div>
+
+      <BrandPreview
+        businessName={draft.businessName}
+        tagline={draft.tagline}
+        logoUrl={draft.logoUrl}
+        primaryColor={draft.primaryColor}
+      />
+
       <div className="field-row">
         <div className="field">
           <label>Phone</label>

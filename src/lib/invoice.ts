@@ -345,6 +345,16 @@ export async function generateInvoicePDF(
   doc.setFontSize(nameSize);
   doc.text(drawName, textX, 20);
 
+  // Tagline — a Pro white-label touch, between the name and the
+  // contact line. Skipped on Core and when no tagline is set.
+  const invoiceTagline = isPro ? (brand.tagline || '').trim() : '';
+  if (invoiceTagline) {
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(8);
+    doc.setTextColor(212, 212, 222);
+    doc.text(invoiceTagline, textX, 24.5);
+  }
+
   // Business contact line — smaller, dimmer, just one line of context
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);
