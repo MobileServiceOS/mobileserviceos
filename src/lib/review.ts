@@ -120,3 +120,27 @@ export {
   type ReviewMessageOptions,
   type ServiceKey,
 } from '@/lib/reviewTemplates';
+
+// ─────────────────────────────────────────────────────────────────────
+//  Review automation — post-payment prompt gate
+// ─────────────────────────────────────────────────────────────────────
+
+import type { Job, Brand } from '@/types';
+
+/**
+ * Decide whether marking a job paid should surface the one-tap
+ * "Send review" action-toast. Pure — all inputs in, boolean out.
+ *
+ * All three conditions must hold:
+ *   1. autoReviewPrompt is not explicitly off (undefined → on).
+ *   2. brand.reviewUrl is set — otherwise the send path dead-ends
+ *      ("Set review URL in Settings") and prompting is pointless.
+ *   3. the job hasn't already had a review requested — no
+ *      double-prompting the same job.
+ */
+export function shouldPromptReview(job: Job, brand: Brand): boolean {
+  if (brand.autoReviewPrompt === false) return false;
+  if (!(brand.reviewUrl || '').trim()) return false;
+  if (job.reviewRequested) return false;
+  return true;
+}

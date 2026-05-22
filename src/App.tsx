@@ -29,7 +29,7 @@ import { JobSuccessPanel } from '@/components/JobSuccessPanel';
 import { JobDetailModal } from '@/components/JobDetailModal';
 import { ActiveTimerBar } from '@/components/ActiveTimerBar';
 import { Onboarding } from '@/components/Onboarding';
-import { addToast } from '@/lib/toast';
+import { addToast, addActionToast } from '@/lib/toast';
 import { humanizeFirestoreError, logFirestoreError, isPermissionDenied } from '@/lib/firebaseErrors';
 import { applyBrandColors, planInventoryDeduction, r2, uid } from '@/lib/utils';
 import { getBusinessTypeConfig } from '@/config/businessTypes/registry';
@@ -46,7 +46,7 @@ import type { JobLifecycleStage } from '@/config/jobs/lifecycle';
 // invoice.ts is lazy-imported in handleGenerateInvoice — see comment
 // there. Keeps jspdf (358 KB) + html2canvas (201 KB) out of the main
 // bundle until the operator actually generates an invoice.
-import { openReviewSMSFromJob } from '@/lib/review';
+import { openReviewSMSFromJob, shouldPromptReview } from '@/lib/review';
 import { APP_LOGO, DEFAULT_SETTINGS, EMPTY_JOB } from '@/lib/defaults';
 import { attachStripeSync } from '@/lib/stripeSync';
 import {
@@ -997,12 +997,25 @@ function AuthenticatedApp({ user }: { user: User }) {
     };
     try {
       await fbSetFast(jobsCol, j.id, updated);
-      addToast('Marked as paid', 'success');
+      // Review automation: surface a one-tap "Send review" action
+      // toast at the moment payment lands — gated by shouldPromptReview
+      // (per-business setting + a configured review URL + not already
+      // requested). onTap reuses handleSendReview, which builds the
+      // templated SMS and stamps reviewRequested.
+      if (shouldPromptReview(j, brand)) {
+        addActionToast(
+          'Marked as paid.',
+          { label: 'Send review', onTap: () => { void handleSendReview(j); } },
+          'success',
+        );
+      } else {
+        addToast('Marked as paid', 'success');
+      }
     } catch (e) {
       setSyncStatus('sync_failed');
       addToast(`Mark-paid failed: ${humanizeFirestoreError(e)}`, 'error');
     }
-  }, [businessId]);
+  }, [businessId, brand, handleSendReview]);
 
   const handleEditJob = useCallback((j: Job) => {
     setJobDraft({ ...j });

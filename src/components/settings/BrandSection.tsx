@@ -185,6 +185,25 @@ function BrandForm() {
           <input value={draft.reviewUrl} onChange={(e) => set('reviewUrl', e.target.value)} placeholder="https://g.page/r/…" />
         </div>
       </div>
+      {/* Review automation toggle. undefined is treated as ON, so an
+          existing brand with no value still gets the prompt. */}
+      <div className="field">
+        <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={draft.autoReviewPrompt !== false}
+            onChange={(e) => set('autoReviewPrompt', e.target.checked)}
+            style={{ marginTop: 2 }}
+          />
+          <span>
+            <span style={{ fontWeight: 700, color: 'var(--t1)' }}>Auto-prompt for a review after payment</span>
+            <span style={{ display: 'block', fontSize: 11, color: 'var(--t3)', marginTop: 3, lineHeight: 1.5 }}>
+              When a job is marked paid, a one-tap “Send review” button
+              appears in the confirmation. Needs a Review URL set above.
+            </span>
+          </span>
+        </label>
+      </div>
       <div className="field-row">
         <div className="field">
           <label>Primary color</label>

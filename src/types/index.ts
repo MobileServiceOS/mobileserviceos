@@ -311,6 +311,10 @@ export interface Brand {
   email: string;
   website: string;
   reviewUrl: string;
+  /** When false, suppress the post-payment review-request prompt.
+   *  undefined / true → prompt on (default). Lives next to
+   *  reviewUrl — both are review configuration. */
+  autoReviewPrompt?: boolean;
   invoiceFooter: string;
   serviceArea: string;
   businessType: string;
