@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import type { InventoryItem, Settings } from '@/types';
+import type { InventoryItem, Job, Settings } from '@/types';
 import { money, sanitizeInvItem, uid } from '@/lib/utils';
 import { addToast } from '@/lib/toast';
 import { NumberField } from '@/components/NumberField';
@@ -7,11 +7,17 @@ import { useActiveVertical } from '@/lib/useActiveVertical';
 import type { BusinessTypeInventoryField, BusinessTypeConfig } from '@/config/businessTypes/registry';
 import { MechanicInventoryView } from '@/components/inventory/MechanicInventoryView';
 import { SMART_CHIPS, matchesSmartChip, type SmartChip } from '@/lib/inventoryFilters';
+import { TODAY } from '@/lib/defaults';
+import {
+  HEALTH_BUCKETS, categorizeInventoryHealth, inventoryHealthCounts,
+  type InventoryHealthBucket,
+} from '@/lib/inventoryHealth';
 
 interface Props {
   inventory: InventoryItem[];
   onSave: (next: InventoryItem[]) => void;
   settings: Settings;
+  jobs: Job[];
 }
 
 type CondFilter = 'all' | 'New' | 'Used';
@@ -98,7 +104,7 @@ function parseCsv(text: string): ParsedRow[] {
 // editor over the same InventoryItem shape (now widened with
 // optional partNumber/partName/supplier/unitCost/chemicalName/
 // category/dilutionRatio fields).
-export function Inventory({ inventory, onSave, settings }: Props) {
+export function Inventory({ inventory, onSave, settings, jobs }: Props) {
   const vertical = useActiveVertical();
   if (vertical.key === 'mechanic') {
     return (
@@ -113,16 +119,17 @@ export function Inventory({ inventory, onSave, settings }: Props) {
   if (!vertical.features.inventoryDeduction) {
     return <GenericInventoryView inventory={inventory} onSave={onSave} vertical={vertical} />;
   }
-  return <TireInventoryView inventory={inventory} onSave={onSave} />;
+  return <TireInventoryView inventory={inventory} onSave={onSave} jobs={jobs} />;
 }
 
 // ─── Tire-bespoke view (pre-Phase-2.1 component, renamed) ──────────
 interface InternalViewProps {
   inventory: InventoryItem[];
   onSave: (next: InventoryItem[]) => void;
+  jobs: Job[];
 }
 
-function TireInventoryView({ inventory, onSave }: InternalViewProps) {
+function TireInventoryView({ inventory, onSave, jobs }: InternalViewProps) {
   const safe: InventoryItem[] = Array.isArray(inventory) ? inventory : [];
   const [list, setList] = useState<InventoryItem[]>(safe);
   const [search, setSearch] = useState('');
@@ -141,6 +148,21 @@ function TireInventoryView({ inventory, onSave }: InternalViewProps) {
   // shop carries mixed stock and the operator is hunting for a specific
   // condition (insurance jobs are often "new only", e.g.).
   const [condFilter, setCondFilter] = useState<CondFilter>('all');
+
+  // Phase 2 — health bucket filter. Single-select: either 'all' or
+  // one of the four health buckets. Counts are computed once per
+  // render via the memo below.
+  const [healthFilter, setHealthFilter] = useState<'all' | InventoryHealthBucket>('all');
+  const today = TODAY();
+  const healthCounts = useMemo(
+    () => inventoryHealthCounts(list, jobs, today),
+    [list, jobs, today],
+  );
+  const healthByItem = useMemo(() => {
+    const m = new Map<string, InventoryHealthBucket>();
+    for (const i of list) m.set(i.id, categorizeInventoryHealth(i, jobs, today));
+    return m;
+  }, [list, jobs, today]);
 
   // Phase 1 smart filters — multi-select chip set. Each active chip
   // intersects with the others (item must match every active chip).
@@ -279,6 +301,9 @@ function TireInventoryView({ inventory, onSave }: InternalViewProps) {
    */
   const filtered = useMemo(() => {
     let base = list;
+    if (healthFilter !== 'all') {
+      base = base.filter((i) => healthByItem.get(i.id) === healthFilter);
+    }
     if (condFilter !== 'all') {
       base = base.filter((i) => (i.condition || 'New') === condFilter);
     }
@@ -314,7 +339,7 @@ function TireInventoryView({ inventory, onSave }: InternalViewProps) {
     });
     ranked.sort((a, b) => a.tier - b.tier || a.idx - b.idx);
     return ranked.map((r) => r.item);
-  }, [list, search, condFilter, activeChips]);
+  }, [list, search, condFilter, activeChips, healthFilter, healthByItem]);
 
   /**
    * Hot Sizes — most-stocked sizes, ranked by total qty. Renders as chip
@@ -376,6 +401,33 @@ function TireInventoryView({ inventory, onSave }: InternalViewProps) {
           autoComplete="off"
           inputMode="search"
         />
+      </div>
+
+      {/* Phase 2 — inventory health buckets. Single-select; counts
+          render in parens and dim when 0. */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          className={'chip sm' + (healthFilter === 'all' ? ' active' : '')}
+          onClick={() => setHealthFilter('all')}
+        >
+          All
+        </button>
+        {HEALTH_BUCKETS.map((b) => {
+          const n = healthCounts[b];
+          const label = b.charAt(0).toUpperCase() + b.slice(1);
+          return (
+            <button
+              key={b}
+              type="button"
+              className={'chip sm' + (healthFilter === b ? ' active' : '')}
+              onClick={() => setHealthFilter(b)}
+              style={n === 0 ? { opacity: .55 } : undefined}
+            >
+              {label} ({n})
+            </button>
+          );
+        })}
       </div>
 
       {/* Condition filter chips. Sticky-feel: applied before search so
