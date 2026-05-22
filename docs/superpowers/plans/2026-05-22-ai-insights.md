@@ -25,7 +25,7 @@ Notes for the engineer:
 - `computeInsights()` returns the `Insights` interface exported by `src/lib/insights.ts`: `revenueTrend: WeekPoint[]` (`{weekStart, revenue, profit}`, 8 entries), `topServices: ServiceStat[]` (`{service, revenue, profit, count}`), `topSources: SourceStat[]` (`{source, revenue, count}`), `topCities: CityStat[]` (`{city, profit, count}`), `repeat: {total, repeat, pct}`, `unpaidAging: AgingRow[]` (`{bucket, count, total}`, 4 entries).
 - The Insights page already computes `const ins = useMemo(() => computeInsights(jobs, settings, TODAY()), [jobs, settings])`.
 - Logic tests run via `npx tsx tests/<name>.test.ts`; `@/` resolves to `src/`. `npm test` runs all logic suites.
-- This mirrors the shipped AI Price Check feature (`docs/superpowers/plans/2026-05-22-ai-pricing.md`) — same shape, same patterns.
+- This follows the same shape as the app's other AI features — a pure helper module, a proxy task, and an on-demand UI affordance.
 
 ---
 

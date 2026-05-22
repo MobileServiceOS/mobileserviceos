@@ -11,8 +11,6 @@ import { useMembership } from '@/context/MembershipContext';
 import { _auth } from '@/lib/firebase';
 import { useActiveVertical } from '@/lib/useActiveVertical';
 import { useScopedJobs } from '@/lib/useScopedJobs';
-import { callAI, isAIConfigured } from '@/lib/aiClient';
-import { buildPricingInput, parsePricingResponse } from '@/lib/aiPricing';
 
 // ─────────────────────────────────────────────────────────────────────
 //  Dashboard — hybrid premium + operational
@@ -183,9 +181,6 @@ export function Dashboard({
   // 'custom' (e.g. a price negotiated with the customer that the
   // pricing engine's Suggested / Premium don't capture).
   const [qqCustom, setQqCustom] = useState('');
-  // AI Price Check — on-demand; never blocks the deterministic tiles.
-  const [aiState, setAiState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
-  const [aiResult, setAiResult] = useState<{ price: number; rationale: string } | null>(null);
   const qqChange = <K extends keyof QuoteForm>(k: K, v: QuoteForm[K]) => setQqForm((p) => ({ ...p, [k]: v }));
 
   // ─── Role resolution ─────────────────────────────────────────────
@@ -348,18 +343,6 @@ export function Dashboard({
       : qqMode === 'premium'
         ? quote.premium
         : quote.suggested;
-
-  const handleAiPriceCheck = async () => {
-    setAiState('loading');
-    setAiResult(null);
-    const input = buildPricingInput(qqForm, quote, completedJobs, vertical.key);
-    const res = await callAI('pricing', input);
-    if (!res.ok || !res.text) { setAiState('error'); return; }
-    const parsed = parsePricingResponse(res.text, quote);
-    if (!parsed.ok) { setAiState('error'); return; }
-    setAiResult({ price: parsed.price, rationale: parsed.rationale });
-    setAiState('done');
-  };
 
   const handleStartJob = () => {
     onStartJob({ ...qqForm, revenue: qqRevenue });
@@ -771,35 +754,6 @@ export function Dashboard({
           </div>
         </div>
         <div className="qq-meta">Direct cost {money(quote.directCosts)} · target profit {money(quote.targetProfit)}</div>
-        {isAIConfigured() && (
-          <div className="qq-ai">
-            <button
-              className="qq-ai-btn press-scale"
-              onClick={handleAiPriceCheck}
-              disabled={aiState === 'loading'}
-            >
-              {aiState === 'loading' ? 'Checking…' : '✨ AI price check'}
-            </button>
-            {aiState === 'done' && aiResult && (
-              <div className="qq-ai-card card-anim">
-                <div className="qq-ai-price">{money(aiResult.price)}</div>
-                <div className="qq-ai-rationale">{aiResult.rationale}</div>
-                <button
-                  className="qq-ai-use"
-                  onClick={() => {
-                    setQqCustom(String(aiResult.price));
-                    setQqMode('custom');
-                  }}
-                >
-                  Use this price
-                </button>
-              </div>
-            )}
-            {aiState === 'error' && (
-              <div className="qq-ai-error">Couldn't get an AI price — try again.</div>
-            )}
-          </div>
-        )}
         <button className="cta-btn press-scale qq-cta" onClick={handleStartJob}>
           Start Job at {money(qqRevenue)} →
         </button>

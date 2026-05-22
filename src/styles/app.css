@@ -342,47 +342,6 @@ a { color: var(--brand-primary); text-decoration: none; }
 .qq-meta { font-size: 11px; color: var(--t3); margin: 10px 0 4px 0; text-align: center; }
 .qq-cta { margin-top: 12px; }
 
-/* ── Quick Quote — AI price check ── */
-.qq-ai { margin-top: 10px; }
-.qq-ai-btn {
-  width: 100%;
-  background: var(--s2);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 9px 12px;
-  color: var(--t1);
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
-}
-.qq-ai-btn:disabled { opacity: .6; cursor: default; }
-.qq-ai-card {
-  margin-top: 8px;
-  background: var(--brand-primary-dim);
-  border: 1px solid var(--brand-primary);
-  border-radius: 12px;
-  padding: 12px;
-}
-.qq-ai-price { font-size: 20px; font-weight: 800; color: var(--brand-primary); }
-.qq-ai-rationale {
-  font-size: 12px; color: var(--t2); margin-top: 4px; line-height: 1.4;
-}
-.qq-ai-use {
-  margin-top: 10px;
-  width: 100%;
-  background: var(--brand-primary);
-  border: none;
-  border-radius: 8px;
-  padding: 8px;
-  color: #1a1a1a;
-  font-weight: 700;
-  font-size: 13px;
-  cursor: pointer;
-}
-.qq-ai-error {
-  margin-top: 8px; font-size: 12px; color: var(--red); text-align: center;
-}
-
 /* ── Insights — AI summary ── */
 .ai-summary { margin-bottom: 14px; }
 .ai-summary-btn {

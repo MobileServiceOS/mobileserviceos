@@ -2,8 +2,7 @@
 
 > Roadmap feature #14 (AI Insights). Depends on the AI proxy
 > (`docs/superpowers/specs/2026-05-22-ai-proxy-design.md`), deployed
-> and verified. Follows the pattern established by AI Price Check
-> (`docs/superpowers/specs/2026-05-22-ai-pricing-design.md`).
+> and verified.
 
 ## Goal
 
