@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import type { Job, Settings, InventoryItem, TireSource } from '@/types';
 import {
   DEFAULT_SERVICE_PRICING, DEFAULT_VEHICLE_PRICING,
@@ -19,6 +19,14 @@ import { AssignmentPicker } from '@/components/addJob/AssignmentPicker';
 import { ServicePicker } from '@/components/addJob/ServicePicker';
 import { useMembership } from '@/context/MembershipContext';
 import { useBusinessMembers } from '@/lib/useBusinessMembers';
+import { callAI, isAIConfigured } from '@/lib/aiClient';
+import { useVoiceRecorder } from '@/lib/useVoiceRecorder';
+import {
+  buildVoiceParseInput, parseVoiceParseResponse,
+} from '@/lib/voiceParser';
+import type { VoiceParseFields } from '@/lib/voiceParser';
+import type { PaymentMethod } from '@/types';
+const VoicePreviewSheet = lazy(() => import('@/components/VoicePreviewSheet'));
 
 // ─── DynamicJobField: shared renderer for vertical.jobFields ──────────
 // Renders a single Job field declared by a vertical config. Mechanic
@@ -323,6 +331,121 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
     && job.revenue !== '' && job.revenue != null
     && Math.abs(Number(job.revenue) - Number(liveQuote.suggested)) > 0.5;
 
+  // ── Voice Logging (feature #7) ─────────────────────────────────
+  // `role` and `vertical` are already declared above; reuse them.
+  const allowedServices = useMemo(() => {
+    return vertical.services.map((s: { id: string }) => s.id);
+  }, [vertical]);
+  const allowedVehicleTypes = useMemo(() => {
+    return Object.keys(settings.vehiclePricing || {});
+  }, [settings.vehiclePricing]);
+
+  const [voiceState, setVoiceState] = useState<
+    'idle' | 'listening' | 'parsing' | 'done' | 'error'>('idle');
+  const [voiceFields, setVoiceFields] = useState<VoiceParseFields | null>(null);
+  const [justFilled, setJustFilled] = useState<ReadonlySet<string>>(new Set());
+
+  // Press-vs-tap disambiguation.
+  const pressStartRef = useRef<number>(0);
+  const TAP_MAX_MS = 300;
+
+  useEffect(() => {
+    if (justFilled.size === 0) return;
+    const t = setTimeout(() => setJustFilled(new Set()), 1500);
+    return () => clearTimeout(t);
+  }, [justFilled]);
+
+  const handleVoiceResult = async (transcript: string): Promise<void> => {
+    setVoiceState('parsing');
+    const input = buildVoiceParseInput(transcript, {
+      vertical: vertical.key,
+      services: allowedServices,
+      vehicleTypes: allowedVehicleTypes,
+    });
+    const res = await callAI('voice_parse', input);
+    if (!res.ok || !res.text) { setVoiceState('error'); return; }
+    const parsed = parseVoiceParseResponse(res.text, {
+      services: allowedServices,
+      vehicleTypes: allowedVehicleTypes,
+    });
+    if (!parsed.ok) { setVoiceState('error'); return; }
+    setVoiceFields(parsed.fields);
+    setVoiceState('done');
+  };
+
+  const recorder = useVoiceRecorder({
+    onResult: (t) => { void handleVoiceResult(t); },
+    onError: () => { setVoiceState('error'); },
+  });
+
+  const startVoice = (): void => {
+    if (voiceState === 'parsing' || voiceState === 'listening') return;
+    setVoiceState('listening');
+    recorder.start();
+  };
+  const stopVoice = (): void => {
+    recorder.stop();
+    // The hook's onend handler clears `listening` and the result
+    // flow takes over; nothing else needed here.
+  };
+
+  const onMicPointerDown = (e: React.PointerEvent): void => {
+    pressStartRef.current = Date.now();
+    e.preventDefault();
+    startVoice();
+  };
+  const onMicPointerUp = (e: React.PointerEvent): void => {
+    const dt = Date.now() - pressStartRef.current;
+    e.preventDefault();
+    if (dt < TAP_MAX_MS) {
+      // Quick tap: toggle behaviour. If we're listening, stop on the
+      // NEXT tap, not this one — so do nothing on the tap that just
+      // started us, and stop on the tap that finds us listening.
+      if (!recorder.listening) return;       // first tap, keep listening
+      stopVoice();                           // second tap, stop
+      return;
+    }
+    // Press-and-hold release: stop now.
+    stopVoice();
+  };
+  const onMicPointerLeave = (): void => {
+    // Finger slid off the button mid-press — treat like a release.
+    if (recorder.listening) stopVoice();
+  };
+
+  const applyVoiceFields = (
+    chosen: VoiceParseFields,
+    appliedOpts: { notesAppend: boolean },
+  ): void => {
+    const filled = new Set<string>();
+    const next = { ...job };
+    if (chosen.service !== undefined) { next.service = chosen.service; filled.add('service'); }
+    if (chosen.quantity !== undefined) { next.qty = String(chosen.quantity); filled.add('qty'); }
+    if (chosen.vehicleType !== undefined) { next.vehicleType = chosen.vehicleType; filled.add('vehicleType'); }
+    if (chosen.vehicleMakeModel !== undefined) { next.vehicleMakeModel = chosen.vehicleMakeModel; filled.add('vehicleMakeModel'); }
+    if (chosen.tireSize !== undefined) { next.tireSize = chosen.tireSize; filled.add('tireSize'); }
+    if (chosen.location !== undefined) { next.city = chosen.location; filled.add('city'); }
+    if (chosen.paymentMethod !== undefined) { next.paymentMethod = chosen.paymentMethod as PaymentMethod; filled.add('paymentMethod'); }
+    if (chosen.revenue !== undefined) { next.revenue = String(chosen.revenue); filled.add('revenue'); }
+    if (chosen.notes !== undefined) {
+      const existingNote = (job.note || '').trim();
+      next.note = existingNote && appliedOpts.notesAppend
+        ? `${existingNote} • ${chosen.notes}`
+        : chosen.notes;
+      filled.add('note');
+    }
+    if (chosen.conditions) {
+      for (const c of chosen.conditions) {
+        (next as Record<string, unknown>)[c] = true;
+        filled.add(c);
+      }
+    }
+    setJob(next as Job);
+    setJustFilled(filled);
+    setVoiceFields(null);
+    setVoiceState('idle');
+  };
+
   const handleReceipt = async (file: File) => {
     if (!businessId) { addToast('Sign in required', 'warn'); return; }
     setReceiptUploading(true);
@@ -342,6 +465,44 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
         <div className="info-banner card-anim">
           Pre-filled from Quick Quote · Adjust details below
         </div>
+      )}
+
+      {/* ── Voice fill (feature #7) ─────────────────────────────── */}
+      {isAIConfigured() && recorder.supported && (
+        <div className="voice-fill">
+          <button
+            type="button"
+            className="voice-mic-btn press-scale"
+            onPointerDown={onMicPointerDown}
+            onPointerUp={onMicPointerUp}
+            onPointerLeave={onMicPointerLeave}
+            disabled={voiceState === 'parsing'}
+          >
+            {voiceState === 'listening' && '🎤 Listening — release / tap to stop'}
+            {voiceState === 'parsing' && 'Parsing…'}
+            {(voiceState === 'idle' || voiceState === 'error' || voiceState === 'done') && '🎤 Voice fill'}
+          </button>
+          {voiceState === 'idle' && (
+            <div className="voice-helper">
+              Say service, vehicle, location, payment. e.g.&nbsp;
+              <em>"Two tire replacement on a BMW X5 in Aventura, cash."</em>
+            </div>
+          )}
+          {voiceState === 'error' && (
+            <div className="voice-error">Couldn't read the voice fill — try again.</div>
+          )}
+        </div>
+      )}
+      {voiceState === 'done' && voiceFields && (
+        <Suspense fallback={null}>
+          <VoicePreviewSheet
+            fields={voiceFields}
+            existing={job}
+            role={role ?? ''}
+            onApply={applyVoiceFields}
+            onCancel={() => { setVoiceFields(null); setVoiceState('idle'); }}
+          />
+        </Suspense>
       )}
 
       {/* Live suggested-price preview — same engine as Dashboard's
@@ -428,7 +589,7 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
             </div>
           )}
         </div>
-        <div className="field">
+        <div className={'field' + (justFilled.has('revenue') ? ' field-just-filled' : '')}>
           <label>
             Revenue charged ($)
             {revenueLocked && (
@@ -574,7 +735,7 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
         </div>
       )}
 
-      <div className="form-group card-anim">
+      <div className={'form-group card-anim' + (justFilled.has('service') ? ' field-just-filled' : '')}>
         <div className="form-group-title">{vertical.copy.packageLabel || 'Service'}</div>
         <ServicePicker
           services={vertical.services}
@@ -615,7 +776,7 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
         </div>
       )}
 
-      <div className="form-group card-anim">
+      <div className={'form-group card-anim' + (justFilled.has('vehicleType') ? ' field-just-filled' : '')}>
         <div className="form-group-title">Vehicle</div>
         <div className="chip-grid">
           {vehicles.map((v) => (
@@ -650,7 +811,7 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
             customers in the business's home state. Suggestions come from
             searchCities() so common cities can be tapped instead of
             typed every single job. */}
-        <div className="field" ref={cityWrapRef} style={{ position: 'relative' }}>
+        <div className={'field' + (justFilled.has('city') ? ' field-just-filled' : '')} ref={cityWrapRef} style={{ position: 'relative' }}>
           <label>City</label>
           <input
             value={job.city || ''}
@@ -730,7 +891,7 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
           Removed) are already covered by the bespoke block below,
           so we suppress the loop here for tire. */}
       {!showTireBlock && vertical.jobFields.length > 0 && (
-        <div className="form-group card-anim">
+        <div className={'form-group card-anim' + (justFilled.has('vehicleMakeModel') ? ' field-just-filled' : '')}>
           <div className="form-group-title">
             {vertical.shortName} Details
           </div>
@@ -771,11 +932,11 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
         <div className="form-group card-anim">
           <div className="form-group-title">Tire Details</div>
           <div className="field-row">
-            <div className="field">
+            <div className={'field' + (justFilled.has('tireSize') ? ' field-just-filled' : '')}>
               <label>Size</label>
               <input value={job.tireSize} onChange={(e) => set('tireSize', e.target.value)} placeholder="225/65R17" />
             </div>
-            <div className="field">
+            <div className={'field' + (justFilled.has('qty') ? ' field-just-filled' : '')}>
               <label>Qty</label>
               <input type="number" inputMode="numeric" value={job.qty} onChange={(e) => set('qty', e.target.value)} />
             </div>
@@ -879,7 +1040,7 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
               showing it here too would duplicate the field and let
               the two inputs drift out of sync. */}
           {!needsTireDetails && (
-            <div className="field">
+            <div className={'field' + (justFilled.has('qty') ? ' field-just-filled' : '')}>
               <label>Quantity</label>
               <input type="number" inputMode="numeric" value={job.qty} onChange={(e) => set('qty', e.target.value)} placeholder="1" />
             </div>
@@ -902,7 +1063,7 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
               { key: 'highway' as const,   label: '🛣 Highway' },
               { key: 'weekend' as const,   label: '📅 Weekend' },
             ]).map(({ key: k, label: l }) => (
-              <button key={k} type="button" className={'chip' + (job[k] ? ' active' : '')} onClick={() => set(k, !job[k])}>{l}</button>
+              <button key={k} type="button" className={'chip' + (job[k] ? ' active' : '') + (justFilled.has(k) ? ' field-just-filled' : '')} onClick={() => set(k, !job[k])}>{l}</button>
             ))}
           </div>
         </div>
@@ -918,7 +1079,7 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
             ))}
           </div>
         </div>
-        <div className="field">
+        <div className={'field' + (justFilled.has('paymentMethod') ? ' field-just-filled' : '')}>
           <label>Payment method</label>
           <div className="chip-grid">
             {PAYMENT_METHODS.map((p) => (
@@ -960,7 +1121,7 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
 
       <div className="form-group card-anim">
         <div className="form-group-title">Note</div>
-        <div className="field">
+        <div className={'field' + (justFilled.has('note') ? ' field-just-filled' : '')}>
           <textarea
             value={job.note}
             onChange={(e) => set('note', e.target.value)}
