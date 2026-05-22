@@ -1105,18 +1105,23 @@ function AuthenticatedApp({ user }: { user: User }) {
     if (tab === 'settings') return <Settings settings={settings} onSave={persistSettings} />;
     if (tab === 'help') return <Help onBack={() => setTab('dashboard')} />;
     if (tab === 'success' && savedJob) {
+      // Use the LIVE job from the jobs array, not the frozen
+      // post-save snapshot — so an action taken on the success
+      // panel (Mark Paid, Generate Invoice) reflects immediately.
+      const liveSavedJob = jobs.find((j) => j.id === savedJob.id) ?? savedJob;
       return (
         <JobSuccessPanel
-          job={savedJob}
+          job={liveSavedJob}
           settings={settings}
           brand={brand}
-          onGenerateInvoice={() => handleGenerateInvoice(savedJob)}
-          onSendReview={() => handleSendReview(savedJob)}
-          onEditJob={() => handleEditJob(savedJob)}
-          onViewJob={() => handleViewJob(savedJob)}
-          onDuplicate={() => handleDuplicate(savedJob)}
-          onMarkPaid={() => handleMarkPaid(savedJob)}
+          onGenerateInvoice={() => handleGenerateInvoice(liveSavedJob)}
+          onSendReview={() => handleSendReview(liveSavedJob)}
+          onEditJob={() => handleEditJob(liveSavedJob)}
+          onViewJob={() => handleViewJob(liveSavedJob)}
+          onDuplicate={() => handleDuplicate(liveSavedJob)}
+          onMarkPaid={() => handleMarkPaid(liveSavedJob)}
           onClose={() => { setSavedJob(null); setTab('dashboard'); }}
+          onNewJob={startNewJob}
         />
       );
     }

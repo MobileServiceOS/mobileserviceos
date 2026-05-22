@@ -14,6 +14,9 @@ interface Props {
   onDuplicate: () => void;
   onClose: () => void;
   onMarkPaid: () => void;
+  /** Start a fresh blank job — the continuous-flow path: log a
+   *  job, see the success panel, one tap straight into the next. */
+  onNewJob: () => void;
 }
 
 function buildHeader(job: Job, ps: ReturnType<typeof resolvePaymentStatus>) {
@@ -30,7 +33,7 @@ function buildHeader(job: Job, ps: ReturnType<typeof resolvePaymentStatus>) {
 
 export function JobSuccessPanel({
   job, settings, brand,
-  onGenerateInvoice, onSendReview, onEditJob, onViewJob, onDuplicate, onClose, onMarkPaid,
+  onGenerateInvoice, onSendReview, onEditJob, onViewJob, onDuplicate, onClose, onMarkPaid, onNewJob,
 }: Props) {
   const profit = jobGrossProfit(job, settings);
   const ps = resolvePaymentStatus(job);
@@ -123,6 +126,18 @@ export function JobSuccessPanel({
             <span className="action-ico">📋</span><span>Duplicate Job</span>
           </button>
         ) : null}
+        {/* Continuous flow — straight into the next job, no
+            Dashboard detour. */}
+        <button
+          className="action-btn wide"
+          onClick={onNewJob}
+          style={{
+            background: 'var(--brand-primary)', color: '#0a0a0a',
+            border: 'none', fontWeight: 800,
+          }}
+        >
+          <span className="action-ico">➕</span><span>Log Another Job</span>
+        </button>
         <button className="action-btn wide" onClick={onClose}>
           <span className="action-ico">🏠</span><span>Back to Dashboard</span>
         </button>
