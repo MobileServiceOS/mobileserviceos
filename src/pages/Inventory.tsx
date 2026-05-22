@@ -1,6 +1,9 @@
 import { useMemo, useRef, useState } from 'react';
 import type { InventoryItem, Job, Settings } from '@/types';
 import { money, sanitizeInvItem, uid } from '@/lib/utils';
+import {
+  availableQty, reservedQty, addReservation, removeReservation,
+} from '@/lib/inventoryReservations';
 import { addToast } from '@/lib/toast';
 import { NumberField } from '@/components/NumberField';
 import { useActiveVertical } from '@/lib/useActiveVertical';
@@ -120,6 +123,56 @@ export function Inventory({ inventory, onSave, settings, jobs }: Props) {
     return <GenericInventoryView inventory={inventory} onSave={onSave} vertical={vertical} />;
   }
   return <TireInventoryView inventory={inventory} onSave={onSave} jobs={jobs} />;
+}
+
+// Inline form to add a new reservation against an InventoryItem.
+// Disabled when qty input is invalid or exceeds availableQty(item).
+function ReservationAdder({
+  item,
+  onAdd,
+}: {
+  item: InventoryItem;
+  onAdd: (qty: number, label: string) => void;
+}) {
+  const [qty, setQty] = useState<number | ''>(1);
+  const [label, setLabel] = useState('');
+  const avail = availableQty(item);
+  const n = typeof qty === 'number' ? qty : 0;
+  const disabled = n <= 0 || n > avail;
+  return (
+    <div className="inv-reservation-add">
+      <input
+        className="qty-input"
+        type="number"
+        inputMode="numeric"
+        min={1}
+        max={avail}
+        value={qty}
+        onChange={(e) => {
+          const v = e.target.value;
+          setQty(v === '' ? '' : Math.max(0, parseInt(v, 10) || 0));
+        }}
+      />
+      <input
+        type="text"
+        value={label}
+        onChange={(e) => setLabel(e.target.value)}
+        placeholder="Label (e.g. 5 PM Smith job)"
+      />
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => {
+          if (disabled) return;
+          onAdd(n, label);
+          setQty(1);
+          setLabel('');
+        }}
+      >
+        Reserve
+      </button>
+    </div>
+  );
 }
 
 // ─── Tire-bespoke view (pre-Phase-2.1 component, renamed) ──────────
@@ -568,6 +621,11 @@ function TireInventoryView({ inventory, onSave, jobs }: InternalViewProps) {
                       return cond ? `${brand} · ${cond}` : brand;
                     })()}
                   </div>
+                  {reservedQty(i) > 0 && (
+                    <div className="inv-reserve-line">
+                      🔒 {reservedQty(i)} reserved · {availableQty(i)} available
+                    </div>
+                  )}
                 </div>
                 {/* Inline qty ± cluster — adjusts qty without expanding
                     the card. stopPropagation prevents the surrounding
@@ -665,6 +723,40 @@ function TireInventoryView({ inventory, onSave, jobs }: InternalViewProps) {
                   <div className="field" style={{ marginTop: 10 }}>
                     <label>Notes</label>
                     <input value={i.notes || ''} onChange={(e) => change(i.id, 'notes', e.target.value)} placeholder="Optional notes" />
+                  </div>
+                  <div className="inv-reservations">
+                    <div className="inv-reservations-title">Reservations</div>
+                    {(i.reservations || []).map((r) => (
+                      <div key={r.id} className="inv-reservation-row">
+                        <span className="label">{r.label || '—'}</span>
+                        <span className="qty">×{r.qty}</span>
+                        <button
+                          type="button"
+                          className="release"
+                          onClick={() => {
+                            const nextItem = removeReservation(i, r.id);
+                            update(list.map((x) => (x.id === i.id ? nextItem : x)));
+                          }}
+                        >
+                          Release
+                        </button>
+                      </div>
+                    ))}
+                    <ReservationAdder
+                      item={i}
+                      onAdd={(qty, label) => {
+                        const nextItem = addReservation(i, qty, label);
+                        update(list.map((x) => (x.id === i.id ? nextItem : x)));
+                      }}
+                    />
+                  </div>
+                  <div className="field" style={{ marginTop: 10 }}>
+                    <label>Source <span style={{ color: 'var(--t3)', fontWeight: 400, fontSize: 11 }}>(optional)</span></label>
+                    <input
+                      value={i.purchaseSource || ''}
+                      onChange={(e) => change(i.id, 'purchaseSource', e.target.value)}
+                      placeholder="Tire Hut · Marketplace · Wholesale…"
+                    />
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
                     <div style={{ fontSize: 11, color: 'var(--t3)' }}>Value: {money(value)}</div>

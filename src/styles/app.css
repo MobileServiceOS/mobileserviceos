@@ -409,6 +409,75 @@ a { color: var(--brand-primary); text-decoration: none; }
 .inv-qty-btn:active { background: var(--s3); }
 .inv-qty-btn:disabled { opacity: .4; cursor: default; }
 
+/* ── Inventory — reservations (Phase 3) ─────────────────────── */
+.inv-reserve-line {
+  font-size: 11px;
+  color: var(--amber);
+  margin-top: 4px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.inv-reservations {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+.inv-reservations-title {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--t3);
+  margin-bottom: 8px;
+}
+.inv-reservation-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 13px;
+  color: var(--t1);
+}
+.inv-reservation-row .label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.inv-reservation-row .qty {
+  font-weight: 700;
+  color: var(--brand-primary);
+  min-width: 32px;
+  text-align: right;
+}
+.inv-reservation-row .release {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--t2);
+  font-size: 11px;
+  padding: 4px 10px;
+  min-height: 32px;
+  cursor: pointer;
+}
+.inv-reservation-row .release:hover { color: var(--red); border-color: var(--red); }
+.inv-reservation-add {
+  display: flex; gap: 6px; align-items: center;
+  margin-top: 8px;
+}
+.inv-reservation-add input { flex: 1; min-width: 0; }
+.inv-reservation-add .qty-input { flex: 0 0 64px; }
+.inv-reservation-add button {
+  background: var(--brand-primary);
+  border: none; border-radius: 8px;
+  color: #1a1a1a; font-weight: 700; font-size: 13px;
+  padding: 6px 12px; min-height: 32px; cursor: pointer;
+}
+.inv-reservation-add button:disabled { opacity: .4; cursor: default; }
+
 /* ── Forms ──────────────────────────────────────────────── */
 .field { margin-bottom: 12px; }
 .field label { font-size: 11px; color: var(--t3); font-weight: 700; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 4px; }
