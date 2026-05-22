@@ -1,4 +1,4 @@
-import type { Job, InventoryItem, Expense, InventoryDeduction, Settings, ServicePricing, JobStatus, PaymentStatus, PaymentMethod, TireSource, JobPartLine, PartsMarginSnapshot } from '@/types';
+import type { Job, InventoryItem, Expense, InventoryDeduction, Settings, ServicePricing, JobStatus, PaymentStatus, PaymentMethod, TireSource, JobPartLine, PartsMarginSnapshot, ReservedSlot } from '@/types';
 import type { LifecycleTransition } from '@/config/jobs/lifecycle';
 import { EMPTY_JOB, DEFAULT_SERVICE_PRICING } from '@/lib/defaults';
 
@@ -44,6 +44,27 @@ function deserializeInventoryDeductions(v: unknown): InventoryDeduction[] | null
     if (Array.isArray(parsed)) return parsed;
   }
   return null;
+}
+
+function deserializeReservations(v: unknown): ReservedSlot[] | undefined {
+  let arr: unknown;
+  if (Array.isArray(v)) arr = v;
+  else if (typeof v === 'string') arr = tryParseJSON<unknown>(v);
+  else return undefined;
+  if (!Array.isArray(arr)) return undefined;
+  const out: ReservedSlot[] = [];
+  for (const raw of arr) {
+    if (!raw || typeof raw !== 'object') continue;
+    const r = raw as Partial<ReservedSlot>;
+    const id = typeof r.id === 'string' ? r.id : null;
+    const qty = typeof r.qty === 'number' && Number.isFinite(r.qty) ? r.qty : NaN;
+    const createdAt = typeof r.createdAt === 'string' ? r.createdAt : null;
+    if (!id || !Number.isFinite(qty) || qty <= 0 || !createdAt) continue;
+    const slot: ReservedSlot = { id, qty, createdAt };
+    if (typeof r.label === 'string' && r.label) slot.label = r.label;
+    out.push(slot);
+  }
+  return out.length ? out : undefined;
 }
 
 const VALID_STATUSES: JobStatus[] = ['Completed', 'Pending', 'Cancelled'];
@@ -204,6 +225,11 @@ export function deserializeInventoryItem(raw: RawDoc): InventoryItem {
     // on Job (4ce4360).
     chemicalName: raw.chemicalName == null ? undefined : asString(raw.chemicalName),
     dilutionRatio: raw.dilutionRatio == null ? undefined : asString(raw.dilutionRatio),
+
+    // Phase 3 — reservations (JSON-stringified by fbSet on write) and
+    // free-text purchase source.
+    reservations: deserializeReservations(raw.reservations),
+    purchaseSource: raw.purchaseSource == null ? undefined : asString(raw.purchaseSource),
   };
 }
 

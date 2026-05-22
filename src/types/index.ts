@@ -365,6 +365,17 @@ export interface Expense {
 //  Inventory
 // ─────────────────────────────────────────────────────────────────────
 
+export interface ReservedSlot {
+  /** Stable id for this reservation row (uid() at creation). */
+  id: string;
+  /** Quantity reserved against this slot (≥ 1). */
+  qty: number;
+  /** Optional free-text label ("5 PM Smith job", "Insurance hold"). */
+  label?: string;
+  /** ISO timestamp when the reservation was created. */
+  createdAt: string;
+}
+
 export interface InventoryItem {
   id: string;
   /** Tire-vertical primary key (tire size, e.g. "225/65R17"). Always
@@ -377,6 +388,13 @@ export interface InventoryItem {
   condition?: string;
   brand?: string;
   model?: string;
+  /** Phase 3 — operator-marked reservations against this item's
+   *  qty. availableQty = max(0, qty − sum(reservations[].qty)).
+   *  v1: no jobId link, no auto-release, free-text label only. */
+  reservations?: ReservedSlot[];
+  /** Phase 3 — supplier / purchase source as free text. Future
+   *  iterations may add per-source analytics. */
+  purchaseSource?: string;
   _isNew?: boolean;
 
   // ─── Mechanic-specific optional fields (Phase 2.1 + 2.2) ──────────
