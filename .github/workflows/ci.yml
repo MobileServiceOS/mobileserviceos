@@ -42,8 +42,11 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Test suite
+      - name: Logic test suite
         run: npm test
+
+      - name: Component / hook test suite
+        run: npm run test:ui
 
       - name: Production build
         run: npm run build

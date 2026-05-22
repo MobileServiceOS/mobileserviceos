@@ -56,6 +56,22 @@ export interface DirtyDraftAPI<T> {
   markClean: () => void;
 }
 
+/**
+ * Content equality for the re-sync bailout. The draft shapes this
+ * hook holds (Brand, Settings, pricing maps) are plain JSON-safe
+ * data, so a stringify compare is correct and cheap. A key-order
+ * difference at worst causes one extra (harmless) re-sync, never a
+ * loop — after that sync `cur` and `upstream` are the same ref.
+ */
+function sameContent<T>(a: T, b: T): boolean {
+  if (a === b) return true;
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
+}
+
 export function useDirtyDraft<T>(upstream: T): DirtyDraftAPI<T> {
   const [draft, setDraft] = useState<T>(upstream);
   const [dirty, setDirty] = useState(false);
@@ -63,8 +79,18 @@ export function useDirtyDraft<T>(upstream: T): DirtyDraftAPI<T> {
   // Re-sync from upstream ONLY when there are no unsaved edits.
   // dirty=true preserves the user's in-progress changes across
   // parent re-emits.
+  //
+  // The functional setDraft + content check is what makes this
+  // loop-proof: if a caller passes a fresh upstream object on every
+  // render (a common React mistake — an inline object literal) but
+  // the CONTENT is unchanged, returning `cur` lets React bail the
+  // re-render. Without it, new-ref-every-render + a clean form
+  // would re-sync → re-render → re-sync forever. The app's real
+  // callers pass stable references, but the hook shouldn't depend
+  // on every future caller getting that right.
   useEffect(() => {
-    if (!dirty) setDraft(upstream);
+    if (dirty) return;
+    setDraft((cur) => (sameContent(cur, upstream) ? cur : upstream));
   }, [upstream, dirty]);
 
   const set = useCallback(<K extends keyof T>(k: K, v: T[K]) => {
