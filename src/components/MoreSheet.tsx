@@ -66,6 +66,13 @@ export function MoreSheet({ onClose, onPick }: Props) {
       visible: permissions.canViewFinancials,
     },
     {
+      id: 'insights',
+      label: 'Insights',
+      icon: '📈',
+      hint: 'Revenue trend · top services · profit by city · unpaid aging',
+      visible: permissions.canViewFinancials,
+    },
+    {
       id: 'customers',
       label: 'Customers',
       icon: '👥',

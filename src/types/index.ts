@@ -61,6 +61,7 @@ export type TabId =
   | 'add'
   | 'history'
   | 'customers'
+  | 'insights'
   | 'payouts'
   | 'expenses'
   | 'inventory'

@@ -15,6 +15,7 @@ import { Dashboard } from '@/pages/Dashboard';
 import { AddJob } from '@/pages/AddJob';
 import { History } from '@/pages/History';
 import { Customers } from '@/pages/Customers';
+import { Insights } from '@/pages/Insights';
 import { Payouts } from '@/pages/Payouts';
 import { Expenses } from '@/pages/Expenses';
 import { Inventory } from '@/pages/Inventory';
@@ -1097,6 +1098,7 @@ function AuthenticatedApp({ user }: { user: User }) {
       />
     );
     if (tab === 'customers') return <Customers jobs={jobs} settings={settings} />;
+    if (tab === 'insights') return <Insights jobs={jobs} settings={settings} />;
     if (tab === 'payouts') return <Payouts jobs={jobs} settings={settings} />;
     if (tab === 'expenses') return <Expenses expenses={settings.expenses || []} jobs={jobs} settings={settings} onSave={persistExpenses} />;
     if (tab === 'inventory') return <Inventory inventory={inventory} onSave={persistInventory} settings={settings} />;
@@ -1171,7 +1173,7 @@ function AuthenticatedApp({ user }: { user: User }) {
           <span className="nav-ico">🛞</span><span>Inv</span>
         </button>
         <button
-          className={'nav-btn' + ((tab === 'settings' || tab === 'payouts' || tab === 'expenses' || tab === 'customers' || tab === 'help') ? ' active' : '')}
+          className={'nav-btn' + ((tab === 'settings' || tab === 'payouts' || tab === 'expenses' || tab === 'customers' || tab === 'insights' || tab === 'help') ? ' active' : '')}
           onClick={() => setMoreOpen(true)}
         >
           <span className="nav-ico">⚙</span><span>More</span>
