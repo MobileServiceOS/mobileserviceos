@@ -148,6 +148,34 @@ a { color: var(--brand-primary); text-decoration: none; }
 @keyframes pulseSync { 0%, 100% { opacity: .65; } 50% { opacity: 1; } }
 @keyframes pulseFail { 0%, 100% { opacity: .85; } 50% { opacity: 1; box-shadow: 0 0 0 3px rgba(239,68,68,.18); } }
 
+/* ── Offline banner ─────────────────────────────────────────
+   A calm full-width strip below the header. Reassures a tech in
+   a dead zone that work is saved locally and will sync. */
+.offline-banner {
+  width: 100%;
+  padding: 8px calc(14px + var(--safe-r)) 8px calc(14px + var(--safe-l));
+  font-size: 11.5px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 1.4;
+  background: rgba(245,158,11,.14);
+  color: var(--amber);
+  border-bottom: 1px solid rgba(245,158,11,.3);
+  animation: offlineSlideIn .2s ease;
+}
+.offline-banner.reconnected {
+  background: rgba(34,197,94,.14);
+  color: var(--green);
+  border-bottom-color: rgba(34,197,94,.3);
+}
+@keyframes offlineSlideIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .offline-banner { animation: none; }
+}
+
 /* ── Layout ─────────────────────────────────────────────── */
 /* main-content reserves space at the bottom equal to bottom-nav height
    plus the safe-area inset so scrollable content never hides under the

@@ -29,6 +29,7 @@ import { TrialCountdownBanner } from '@/components/TrialCountdownBanner';
 import { JobSuccessPanel } from '@/components/JobSuccessPanel';
 import { JobDetailModal } from '@/components/JobDetailModal';
 import { ActiveTimerBar } from '@/components/ActiveTimerBar';
+import { OfflineBanner } from '@/components/OfflineBanner';
 import { Onboarding } from '@/components/Onboarding';
 import { addToast, addActionToast } from '@/lib/toast';
 import { humanizeFirestoreError, logFirestoreError, isPermissionDenied } from '@/lib/firebaseErrors';
@@ -1152,6 +1153,7 @@ function AuthenticatedApp({ user }: { user: User }) {
     <MembershipProvider settings={settings}>
       <BusinessSwitcherProvider user={user} settings={settings}>
         <Header syncStatus={syncStatus} onSignOut={onSignOut} />
+        <OfflineBanner syncStatus={syncStatus} />
         <ActiveTimerBar jobs={jobs} onJobTap={(j) => setDetailJob(j)} />
         <EmailVerificationBanner />
       <TrialCountdownBanner
