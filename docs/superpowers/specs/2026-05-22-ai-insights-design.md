@@ -94,16 +94,20 @@ the device.
   of a mobile service business, from the metrics digest provided.
   Write 3 to 5 short bullet points — a fast owner briefing, not a
   chatbot reply. Cover the revenue trend, what is performing well,
-  and the single most important risk (for example, unpaid invoices
-  aging past 60 days). Rules: (1) Use ONLY numbers that appear in the
-  digest — never compute new figures such as percentages, sums, or
-  growth deltas that are not already in the digest. (2) Write any
-  incidental quantity as a word ('the top three services', 'over
-  eight weeks') — use digits ONLY for actual digest figures. (3) Do
-  NOT give prescriptive advice ('you should hire…'); describe and
-  flag, do not instruct. (4) Omit any observation you cannot tie to a
-  digest number. Respond with ONLY raw JSON, no markdown, as:
+  and the single most important risk (for example, the oldest unpaid
+  invoices). Rules: (1) Use ONLY numbers that appear in the digest —
+  never compute new figures such as percentages, sums, or growth
+  deltas not already in the digest. (2) Write any incidental quantity
+  as a word (the top three services, over eight weeks); refer to the
+  unpaid-aging buckets by description (the oldest unpaid invoices),
+  never by day numbers; use digits ONLY for actual digest figures.
+  (3) Do NOT give prescriptive advice; describe and flag, do not
+  instruct. (4) Omit any observation you cannot tie to a digest
+  number. Respond with ONLY raw JSON, no markdown, as:
   `{\"bullets\": [\"<sentence>\", \"<sentence>\"]}`."
+
+  The bucket-by-description rule keeps the grounding guard from
+  rejecting an otherwise valid risk bullet over an incidental "60".
 - *User:* `JSON.stringify(input)`.
 - *maxTokens:* 400.
 
