@@ -28,6 +28,28 @@ import type { VoiceParseFields } from '@/lib/voiceParser';
 import type { PaymentMethod } from '@/types';
 const VoicePreviewSheet = lazy(() => import('@/components/VoicePreviewSheet'));
 
+// User-facing copy for each voice-failure cause. Generic "try again"
+// hides whether the mic was denied, STT silently died (iOS PWA), or
+// the AI was unreachable — each demands a different fix.
+function voiceErrorMessage(reason: string): string {
+  switch (reason) {
+    case 'denied':
+      return 'Microphone permission required — enable it in Settings, then try again.';
+    case 'no_speech':
+      return "Didn't hear anything — try again, closer to the mic.";
+    case 'silent_stt':
+      return 'Voice not available on this device. If you opened the app from your home screen, try opening it in Safari instead — iOS strips microphone access from installed PWAs.';
+    case 'unreachable':
+      return "Couldn't reach the AI service — check your connection and try again.";
+    case 'parser':
+      return "Couldn't understand the voice — say service, vehicle, location, payment more clearly.";
+    case 'unsupported':
+      return 'Voice fill is not supported on this browser.';
+    default:
+      return "Couldn't read the voice fill — try again.";
+  }
+}
+
 // ─── DynamicJobField: shared renderer for vertical.jobFields ──────────
 // Renders a single Job field declared by a vertical config. Mechanic
 // uses this for labor hours / parts cost / diagnostic code / vehicle
@@ -344,6 +366,13 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
     'idle' | 'listening' | 'parsing' | 'done' | 'error'>('idle');
   const [voiceFields, setVoiceFields] = useState<VoiceParseFields | null>(null);
   const [justFilled, setJustFilled] = useState<ReadonlySet<string>>(new Set());
+  // Specific cause of the last voice failure, so the inline error
+  // can tell the tech *why* — generic "try again" hides whether the
+  // mic was denied, STT silently died, or the AI was unreachable.
+  const [voiceError, setVoiceError] = useState<
+    | 'no_speech' | 'denied' | 'unsupported' | 'silent_stt'
+    | 'unreachable' | 'parser' | 'other' | 'unknown'
+  >('unknown');
 
   // Press-vs-tap disambiguation.
   const pressStartRef = useRef<number>(0);
@@ -368,23 +397,38 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
       vehicleTypes: allowedVehicleTypes,
     });
     const res = await callAI('voice_parse', input);
-    if (!res.ok || !res.text) { setVoiceState('error'); return; }
+    if (!res.ok || !res.text) {
+      console.warn('[voice] callAI failed:', res);
+      setVoiceError('unreachable');
+      setVoiceState('error');
+      return;
+    }
     const parsed = parseVoiceParseResponse(res.text, {
       services: allowedServices,
       vehicleTypes: allowedVehicleTypes,
     });
-    if (!parsed.ok) { setVoiceState('error'); return; }
+    if (!parsed.ok) {
+      console.warn('[voice] parser dropped everything:', parsed.error, 'raw:', res.text);
+      setVoiceError('parser');
+      setVoiceState('error');
+      return;
+    }
     setVoiceFields(parsed.fields);
     setVoiceState('done');
   };
 
   const recorder = useVoiceRecorder({
     onResult: (t) => { void handleVoiceResult(t); },
-    onError: () => { setVoiceState('error'); },
+    onError: (reason) => {
+      console.warn('[voice] STT onError:', reason);
+      setVoiceError(reason);
+      setVoiceState('error');
+    },
   });
 
   const startVoice = (): void => {
     if (voiceState === 'parsing' || voiceState === 'listening') return;
+    setVoiceError('unknown');
     setVoiceState('listening');
     recorder.start();
   };
@@ -425,7 +469,9 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
   useEffect(() => {
     if (voiceState !== 'listening') return;
     const t = setTimeout(() => {
+      console.warn('[voice] watchdog: 12 s in listening with no STT event');
       recorder.reset();
+      setVoiceError('silent_stt');
       setVoiceState('error');
     }, 12000);
     return () => clearTimeout(t);
@@ -509,7 +555,7 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
             </div>
           )}
           {voiceState === 'error' && (
-            <div className="voice-error">Couldn't read the voice fill — try again.</div>
+            <div className="voice-error">{voiceErrorMessage(voiceError)}</div>
           )}
         </div>
       )}
