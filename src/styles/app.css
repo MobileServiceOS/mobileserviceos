@@ -478,6 +478,26 @@ a { color: var(--brand-primary); text-decoration: none; }
 }
 .inv-reservation-add button:disabled { opacity: .4; cursor: default; }
 
+/* ── Inventory match badge (Add Job — Phase 3) ──────────────── */
+.inv-match-badge {
+  margin-top: 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--brand-primary-dim);
+  border: 1px solid var(--brand-primary);
+  color: var(--brand-primary);
+  font-size: 12px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.inv-match-badge.warn {
+  background: rgba(245, 158, 11, .14);
+  border-color: var(--amber);
+  color: var(--amber);
+}
+
 /* ── Forms ──────────────────────────────────────────────── */
 .field { margin-bottom: 12px; }
 .field label { font-size: 11px; color: var(--t3); font-weight: 700; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 4px; }

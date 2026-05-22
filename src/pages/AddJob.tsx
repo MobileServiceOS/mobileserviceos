@@ -8,6 +8,7 @@ import { computeBreakdownTagged } from '@/lib/pricing';
 import { calcQuote, money, normalizeTireSize, planInventoryDeduction } from '@/lib/utils';
 import { addToast } from '@/lib/toast';
 import { uploadReceipt } from '@/lib/firebase';
+import { availableQty, reservedQty } from '@/lib/inventoryReservations';
 import { useBrand } from '@/context/BrandContext';
 import { usePermissions } from '@/context/MembershipContext';
 import { formatPhone, formatPhonePartial } from '@/lib/formatPhone';
@@ -774,6 +775,40 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
             <div className={'field'}>
               <label>Size</label>
               <input value={job.tireSize} onChange={(e) => set('tireSize', e.target.value)} placeholder="225/65R17" />
+              {(() => {
+                const typed = (job.tireSize || '').trim();
+                if (!typed) return null;
+                const target = normalizeTireSize(typed);
+                if (!target) return null;
+                const match = inventory.find(
+                  (it) => normalizeTireSize(it.size || '') === target,
+                );
+                if (!match) return null;
+                const total = Number(match.qty || 0);
+                const avail = availableQty(match);
+                const reserved = reservedQty(match);
+                const needed = Number(job.qty || 0);
+                const low = needed > 0 && needed > avail;
+                if (reserved > 0 && low) {
+                  return (
+                    <div className="inv-match-badge warn">
+                      ⚠ Low availability: {total} in stock, {reserved} reserved
+                    </div>
+                  );
+                }
+                if (reserved > 0) {
+                  return (
+                    <div className="inv-match-badge">
+                      ✓ In stock: {total} × {match.size} · available {avail}
+                    </div>
+                  );
+                }
+                return (
+                  <div className="inv-match-badge">
+                    ✓ In stock: {total} × {match.size}
+                  </div>
+                );
+              })()}
             </div>
             <div className={'field'}>
               <label>Qty</label>
