@@ -176,7 +176,11 @@ export function Dashboard({
     }
   }, [enabledServices, qqForm.service]);
 
-  const [qqMode, setQqMode] = useState<'suggested' | 'premium'>('suggested');
+  const [qqMode, setQqMode] = useState<'suggested' | 'premium' | 'custom'>('suggested');
+  // Custom price the actor types directly — used when qqMode is
+  // 'custom' (e.g. a price negotiated with the customer that the
+  // pricing engine's Suggested / Premium don't capture).
+  const [qqCustom, setQqCustom] = useState('');
   const qqChange = <K extends keyof QuoteForm>(k: K, v: QuoteForm[K]) => setQqForm((p) => ({ ...p, [k]: v }));
 
   // ─── Role resolution ─────────────────────────────────────────────
@@ -330,8 +334,18 @@ export function Dashboard({
   const heroAnimTarget = showCompanyData ? totals.grossProfit : weekJobs.length;
   const heroValue = useCountUp(heroAnimTarget);
 
+  // The price the actor has selected — one of the engine's two
+  // figures, or a hand-typed amount. Drives the CTA label and the
+  // revenue the started job is prefilled with.
+  const qqRevenue =
+    qqMode === 'custom'
+      ? Number(qqCustom) || 0
+      : qqMode === 'premium'
+        ? quote.premium
+        : quote.suggested;
+
   const handleStartJob = () => {
-    onStartJob({ ...qqForm, revenue: qqMode === 'suggested' ? quote.suggested : quote.premium });
+    onStartJob({ ...qqForm, revenue: qqRevenue });
   };
 
   // Development-only role-resolution log (spec: defensive check).
@@ -716,10 +730,32 @@ export function Dashboard({
             <div className="qq-price-tile-label">Premium</div>
             <div className="qq-price-tile-amount">{money(quote.premium)}</div>
           </div>
+          {/* Custom — the actor types their own price (e.g. one
+              negotiated on the spot). Selecting the tile, focusing
+              the input, or typing all switch qqMode to 'custom'. */}
+          <div className={'qq-price-tile custom' + (qqMode === 'custom' ? ' active' : '')}
+            onClick={() => setQqMode('custom')} role="button">
+            <div className="qq-price-tile-label">Custom</div>
+            <div className="qq-price-tile-amount">
+              <div className="qq-custom-input-wrap">
+                <span className="qq-custom-prefix">$</span>
+                <input
+                  className="qq-custom-input"
+                  type="number"
+                  inputMode="decimal"
+                  value={qqCustom}
+                  placeholder="0"
+                  aria-label="Custom quote price"
+                  onFocus={() => setQqMode('custom')}
+                  onChange={(e) => { setQqCustom(e.target.value); setQqMode('custom'); }}
+                />
+              </div>
+            </div>
+          </div>
         </div>
         <div className="qq-meta">Direct cost {money(quote.directCosts)} · target profit {money(quote.targetProfit)}</div>
         <button className="cta-btn press-scale qq-cta" onClick={handleStartJob}>
-          Start Job at {money(qqMode === 'suggested' ? quote.suggested : quote.premium)} →
+          Start Job at {money(qqRevenue)} →
         </button>
       </div>
 
