@@ -65,28 +65,47 @@ interface PricingInput {
     premium: number;
     directCosts: number;
   };
-  recentJobs: Array<{          // this business's own history
-    vehicleType: string;
-    revenue: number;
-    date: string;
-  }>;
+  history: PricingHistoryDigest;
+}
+
+// A compact statistical digest of the business's own past jobs for
+// this service — computed locally, so individual job rows are never
+// sent. Constant size regardless of how much history exists.
+// Price fields are null when recentJobCount is 0; a condition
+// average is null when no job in the window carried that flag.
+interface PricingHistoryDigest {
+  recentJobCount: number;
+  avgPrice: number | null;
+  medianPrice: number | null;
+  minPrice: number | null;
+  maxPrice: number | null;
+  lastJobDate: string | null;
+  recentEmergencyAvg: number | null;
+  recentHighwayAvg: number | null;
+  recentLateNightAvg: number | null;
 }
 ```
 
-`recentJobs` carries **no customer PII** — only vehicle, price, and
-date. The client is responsible for that (see `buildPricingInput`).
+`history` is an aggregate — no per-job rows, and therefore **no
+customer PII**, ever leave the device. `buildPricingInput` computes
+it locally. This also makes the payload constant-size: a business
+with 10 past jobs and one with 10,000 send an identically small
+digest.
 
 **Prompt** (server-side, in the task handler):
 
 - *System:* "You are a pricing assistant for a mobile service
   business (tire / mechanic / detailing). You are given a
-  deterministic cost-plus quote and the business's own recent jobs
-  for this service. Recommend ONE price and a one-sentence rationale.
-  Anchor to the deterministic quote and the recent-job prices — do
-  NOT invent market rates or use outside pricing knowledge. If there
-  is little or no history, lean on the deterministic quote and say so
-  in the rationale. Respond with ONLY raw JSON, no markdown, as:
-  `{\"price\": <number>, \"rationale\": \"<one sentence>\"}`."
+  deterministic cost-plus quote and a statistical digest of the
+  business's own recent jobs for this service (job count, average /
+  median / min / max price, and per-condition averages). Recommend
+  ONE price and a one-sentence rationale. Anchor to the deterministic
+  quote and the digest — do NOT invent market rates or use outside
+  pricing knowledge. Treat a `null` field as 'no data', never as
+  zero. If `recentJobCount` is 0 or low, lean on the deterministic
+  quote and say so in the rationale. Respond with ONLY raw JSON, no
+  markdown, as: `{\"price\": <number>, \"rationale\": \"<one
+  sentence>\"}`."
 - *User:* `JSON.stringify(input)`.
 - *maxTokens:* 200.
 
@@ -107,9 +126,21 @@ buildPricingInput(
 
 - `conditions` — the subset of `emergency`/`lateNight`/`highway`/
   `weekend` that are `true` on `form`.
-- `recentJobs` — `completedJobs` filtered to `job.service === form.service`,
-  sorted by `date` descending, capped at the **15** most recent, each
-  mapped to `{ vehicleType, revenue, date }` only.
+- `history` — a `PricingHistoryDigest` computed locally. Take
+  `completedJobs` filtered to `job.service === form.service`, sorted
+  by `date` descending, windowed to the **50 most recent** (recency
+  bound — old prices are stale; 50 is well past the count needed for
+  a stable median). From that window:
+  - `recentJobCount` — window size.
+  - `avgPrice` / `medianPrice` / `minPrice` / `maxPrice` — over
+    `job.revenue`; `null` when the window is empty.
+  - `lastJobDate` — the newest `date`; `null` when empty.
+  - `recentEmergencyAvg` / `recentHighwayAvg` / `recentLateNightAvg`
+    — mean `revenue` of window jobs whose `emergency` / `highway` /
+    `lateNight` flag is `true`; `null` when no window job carries
+    that flag (so a sparse condition reads as no-data, not $0).
+  `Job` persists `emergency` / `lateNight` / `highway` as required
+  booleans, so these are always computable.
 - `deterministicQuote` — `suggested` / `premium` / `directCosts` lifted
   from `quote`.
 
@@ -161,23 +192,58 @@ by an AI failure.
 
 ## Edge cases
 
-- **No history for the service** — `recentJobs` is empty; the prompt
-  instructs Claude to lean on the deterministic quote and say so.
+- **No history for the service** — `recentJobCount` is 0 and every
+  digest price field is `null`; the prompt instructs Claude to treat
+  `null` as no-data and lean on the deterministic quote.
 - **Roles** — the Quick Quote is already visible to every role
   (technicians can see revenue), so AI Price Check needs no extra
   gating.
 - **Cost** — one Haiku call (~200 tokens) per tap, on demand only —
   fractions of a cent. No auto-firing.
 
+## Token efficiency
+
+The history is sent as a fixed ~9-field digest rather than an array
+of job rows. This is the design's main scaling decision:
+
+- **Per-call input tokens:** ~40% lower. A 15-row job array is the
+  bulk of the variable payload; a constant ~9-number digest replaces
+  it. The history portion alone shrinks ~80% (~220 → ~45 tokens);
+  the whole call's input drops roughly 440 → 270 tokens.
+- **Per-call cost:** ~25% lower — less than the token cut because the
+  fixed system prompt and the output tokens are unchanged. At an
+  assumed Haiku 4.5 rate of ~$1 / $5 per million input / output
+  tokens, that is roughly $0.00067 → $0.00050 per call.
+- **Projected monthly savings:** volume-dependent. At 10,000 active
+  users averaging 15 checks/month (~150k calls) the saving is on the
+  order of ~$25–30/month; at ~400k calls/month, ~$70/month. Modest in
+  absolute dollars (Haiku is cheap), but it scales linearly and
+  leaves more headroom under the operator's Anthropic spend cap.
+- **Scalability:** the payload is O(1) in history depth — a business
+  with 10,000 past jobs sends the same small digest as one with 10.
+- **Privacy:** aggregates leave the device, never per-job rows.
+
+**Pricing-quality effect:** negligible, arguably neutral-to-positive.
+A "recommend one price" task needs central tendency (avg / median),
+spread (min / max), and a volume / recency signal — exactly what the
+digest carries — and aggregates are less prone to over-anchoring on a
+single outlier row than raw rows are. The one thing lost is
+per-vehicle-type correlation within the history, but `calcQuote`
+already prices vehicle type via its `vehiclePricing` multipliers and
+sends that result as the anchor, so the AI layer does not need
+vehicle-type granularity in the history.
+
 ## Testing
 
 `tests/aiPricing.test.ts` (hand-rolled tsx runner, like the other
 `tests/*.test.ts`):
 
-- `buildPricingInput` — conditions mapped correctly; `recentJobs`
-  filtered to the matching service, sorted newest-first, capped at 15,
-  and carrying no fields beyond `vehicleType`/`revenue`/`date`;
-  `deterministicQuote` lifted correctly.
+- `buildPricingInput` — conditions mapped correctly; the `history`
+  digest is correct: `recentJobCount` / `avg` / `median` (verify both
+  even- and odd-count medians) / `min` / `max` over matching-service
+  jobs, the 50-job recency window applied, condition averages taken
+  only over flagged jobs, and every stat `null` when no matching
+  history exists; `deterministicQuote` lifted correctly.
 - `parsePricingResponse` — clean JSON parsed; JSON inside markdown
   fences extracted; non-JSON rejected as `unparseable`; missing/
   non-numeric `price` rejected as `malformed`; out-of-band price
