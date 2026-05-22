@@ -475,12 +475,11 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
           )}
         </div>
 
-        {/* Pricing breakdown panel — vertical-aware. Tire renders
-            the exact same Revenue / Tire cost / Material cost /
-            Travel / Profit layout as pre-Phase-2.1. Mechanic renders
-            a labor+parts breakdown. Detailing renders a size/package
-            preview (filled in 2.3). */}
-        {breakdown.model === 'flat' && (
+        {/* Pricing breakdown panel — vertical-aware, owner/admin
+            only. It exposes cost + profit, so technicians
+            (canViewProfit false) don't see it; they still get the
+            suggested-price tiles above to set revenue. */}
+        {permissions.canViewProfit && breakdown.model === 'flat' && (
           <div className="pricing-breakdown">
             <div className="pricing-breakdown-row"><span>Revenue</span><span className="num green">{money(breakdown.revenue)}</span></div>
             <div className="pricing-breakdown-row"><span>Tire cost</span><span className="num red">-{money(breakdown.tireCost)}</span></div>
@@ -495,7 +494,7 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
             </div>
           </div>
         )}
-        {breakdown.model === 'labor_parts' && (
+        {permissions.canViewProfit && breakdown.model === 'labor_parts' && (
           <div className="pricing-breakdown">
             <div className="pricing-breakdown-row"><span>Revenue</span><span className="num green">{money(breakdown.revenue)}</span></div>
             {breakdown.laborCost > 0 && (
@@ -540,7 +539,7 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
             </div>
           </div>
         )}
-        {breakdown.model === 'package_multiplier' && (
+        {permissions.canViewProfit && breakdown.model === 'package_multiplier' && (
           <div className="pricing-breakdown">
             <div className="pricing-breakdown-row"><span>Revenue</span><span className="num green">{money(breakdown.revenue)}</span></div>
             <div className="pricing-breakdown-row">

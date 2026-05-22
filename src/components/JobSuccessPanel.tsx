@@ -1,6 +1,7 @@
 import type { Job, Settings, Brand } from '@/types';
 import { jobGrossProfit, money, paymentPillClass, resolvePaymentStatus } from '@/lib/utils';
 import { addToast } from '@/lib/toast';
+import { usePermissions } from '@/context/MembershipContext';
 
 interface Props {
   job: Job;
@@ -34,6 +35,8 @@ export function JobSuccessPanel({
   const profit = jobGrossProfit(job, settings);
   const ps = resolvePaymentStatus(job);
   const header = buildHeader(job, ps);
+  // Technicians see revenue + payment but not the profit tile.
+  const canViewProfit = usePermissions().canViewProfit;
   const isCompleted = job.status === 'Completed';
   const location =
     job.fullLocationLabel ||
@@ -54,10 +57,12 @@ export function JobSuccessPanel({
             <div className="kpi-label">Revenue</div>
             <div className="kpi-value" style={{ color: 'var(--green)' }}>{money(job.revenue)}</div>
           </div>
-          <div className="kpi">
-            <div className="kpi-label">Profit</div>
-            <div className="kpi-value" style={{ color: profit >= 0 ? 'var(--green)' : 'var(--red)' }}>{money(profit)}</div>
-          </div>
+          {canViewProfit && (
+            <div className="kpi">
+              <div className="kpi-label">Profit</div>
+              <div className="kpi-value" style={{ color: profit >= 0 ? 'var(--green)' : 'var(--red)' }}>{money(profit)}</div>
+            </div>
+          )}
           <div className="kpi">
             <div className="kpi-label">Payment</div>
             <div className="kpi-value" style={{ fontSize: 14 }}>{job.payment || '—'}</div>

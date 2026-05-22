@@ -24,9 +24,12 @@ interface Props {
 export function Customers({ jobs: rawJobs, settings }: Props) {
   // Technicians see only customers from their own scoped jobs.
   const jobs = useScopedJobs(rawJobs);
-  const { member, role } = useMembership();
+  const { member, role, permissions } = useMembership();
   const businessId = member?.businessId || null;
   const canEditNote = role === 'owner' || role === 'admin';
+  // Technicians see revenue but not profit (matches the rest of
+  // the app's revenue/profit split).
+  const canViewProfit = permissions.canViewProfit;
 
   const [query, setQuery] = useState('');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -56,6 +59,7 @@ export function Customers({ jobs: rawJobs, settings }: Props) {
         settings={settings}
         businessId={businessId}
         canEditNote={canEditNote}
+        canViewProfit={canViewProfit}
         onBack={() => setSelectedKey(null)}
       />
     );
@@ -68,10 +72,12 @@ export function Customers({ jobs: rawJobs, settings }: Props) {
     <div className="page page-enter">
       <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 14 }}>Customers</div>
 
-      <div className="kpi-grid three">
+      <div className={'kpi-grid' + (canViewProfit ? ' three' : '')}>
         <div className="kpi"><div className="kpi-label">Total</div><div className="kpi-value">{customers.length}</div></div>
         <div className="kpi"><div className="kpi-label">Revenue</div><div className="kpi-value">{money(customers.reduce((s, c) => s + c.revenue, 0))}</div></div>
-        <div className="kpi"><div className="kpi-label">Profit</div><div className="kpi-value">{money(customers.reduce((s, c) => s + c.profit, 0))}</div></div>
+        {canViewProfit && (
+          <div className="kpi"><div className="kpi-label">Profit</div><div className="kpi-value">{money(customers.reduce((s, c) => s + c.profit, 0))}</div></div>
+        )}
       </div>
 
       {topThree.length > 0 && (
@@ -100,7 +106,9 @@ export function Customers({ jobs: rawJobs, settings }: Props) {
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <div className="value green num">{money(c.revenue)}</div>
-                    <div style={{ fontSize: 11, color: 'var(--t3)' }}>profit {money(c.profit)}</div>
+                    {canViewProfit && (
+                      <div style={{ fontSize: 11, color: 'var(--t3)' }}>profit {money(c.profit)}</div>
+                    )}
                   </div>
                 </button>
               ))}
@@ -176,12 +184,13 @@ function RepeatBadge() {
 
 // ─── Profile drill-down ────────────────────────────────────────────
 function CustomerProfileView({
-  profile, settings, businessId, canEditNote, onBack,
+  profile, settings, businessId, canEditNote, canViewProfit, onBack,
 }: {
   profile: CustomerProfile;
   settings: Settings;
   businessId: string | null;
   canEditNote: boolean;
+  canViewProfit: boolean;
   onBack: () => void;
 }) {
   const phoneDigits = profile.phone.replace(/\D/g, '');
@@ -257,7 +266,9 @@ function CustomerProfileView({
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
           <Stat label="Jobs" value={String(profile.jobCount)} />
           <Stat label="Revenue" value={money(profile.revenue)} green />
-          <Stat label="Profit" value={money(profile.profit)} green={profile.profit >= 0} />
+          {canViewProfit && (
+            <Stat label="Profit" value={money(profile.profit)} green={profile.profit >= 0} />
+          )}
           <Stat label="Reviews sent" value={String(profile.reviewsSent)} />
           <Stat label="First seen" value={profile.firstDate ? fmtDate(profile.firstDate) : '—'} />
           <Stat label="Last seen" value={profile.lastDate ? fmtDate(profile.lastDate) : '—'} />

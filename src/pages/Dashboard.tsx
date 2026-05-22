@@ -183,9 +183,12 @@ export function Dashboard({
   const membership = useMembership();
   const myUid = _auth?.currentUser?.uid ?? null;
   const isTechnician = membership.role === 'technician';
-  // Defensive: only owner/admin see company financials. Loading state
-  // OR unresolved role → safer non-financial view.
-  const showCompanyData = membership.role === 'owner' || membership.role === 'admin';
+  // Company financials (profit, costs) are owner/admin only. Driven
+  // by the canViewProfit permission — the single app-wide gate, so
+  // Dashboard stays consistent with JobDetailModal / History /
+  // Customers / AddJob. A loading / unresolved role yields
+  // canViewProfit false → the safer non-financial view.
+  const showCompanyData = membership.permissions.canViewProfit;
 
   const safeJobs = Array.isArray(jobs) ? jobs : [];
   const today = TODAY();

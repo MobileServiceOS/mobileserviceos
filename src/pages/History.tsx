@@ -8,6 +8,7 @@ import { useLongPress } from '@/lib/useLongPress';
 import { QuickActionSheet } from '@/components/QuickActionSheet';
 import { useScopedJobs } from '@/lib/useScopedJobs';
 import { useActiveLifecycle } from '@/lib/useActiveLifecycle';
+import { usePermissions } from '@/context/MembershipContext';
 import { groupJobsByStage } from '@/lib/jobPermissions';
 
 interface Props {
@@ -160,6 +161,8 @@ function HistoryJobCard({
 }) {
   const pr = jobGrossProfit(job, settings);
   const ps = resolvePaymentStatus(job);
+  // Technicians see revenue but not the per-job profit line.
+  const canViewProfit = usePermissions().canViewProfit;
   const lp = useLongPress(onLongPress);
 
   return (
@@ -198,7 +201,9 @@ function HistoryJobCard({
         </div>
         <div className="job-right">
           <div className="value green">{money(job.revenue)}</div>
-          <div style={{ fontSize: 11, color: pr >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>{money(pr)}</div>
+          {canViewProfit && (
+            <div style={{ fontSize: 11, color: pr >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>{money(pr)}</div>
+          )}
           <span className={'pill ' + paymentPillClass(ps)} style={{ marginTop: 4 }}>{ps}</span>
           {/* Method badge under the Paid pill. Helps operators scan
               history for "did this job actually clear via Zelle vs.

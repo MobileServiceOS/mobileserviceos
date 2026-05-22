@@ -58,8 +58,11 @@ export function JobDetailModal({
   // paymentMethod updated).
   const [editingMethod, setEditingMethod] = useState(false);
   const resolved = useActiveLifecycle();
-  const { role, member } = useMembership();
+  const { role, member, permissions } = useMembership();
   const myUid = member?.uid || null;
+  // Technicians see revenue (they set the price) but never the
+  // cost breakdown or profit. canViewProfit is the single gate.
+  const canViewProfit = permissions.canViewProfit;
   const { businessId } = useBrand();
   const { resolveName } = useMembersDirectory(businessId);
   const invDeds: InventoryDeduction[] | null = Array.isArray(job.inventoryDeductions)
@@ -87,23 +90,28 @@ export function JobDetailModal({
           <button onClick={onClose} className="modal-close" aria-label="Close">✕</button>
         </div>
         <div className="modal-body">
-          {/* Cost breakdown — each cost row renders only when it has
-              a value, so the rows always reconcile to Profit across
-              every vertical: tire shows Tire Cost, mechanic shows
-              Parts Cost, neither shows a meaningless -$0 line. */}
+          {/* Cost breakdown. Technicians (canViewProfit false) see a
+              single Revenue row — never costs, travel, or profit.
+              Owner/admin see the full reconciling breakdown: each
+              cost row renders only when it has a value, so the rows
+              always sum to Profit across every vertical. */}
           <div className="form-group" style={{ marginBottom: 12 }}>
             <Row label="Revenue" value={money(job.revenue)} className="green" bold />
-            {Number(job.tireCost || 0) > 0 && (
+            {canViewProfit && Number(job.tireCost || 0) > 0 && (
               <Row label="Tire Cost" value={'-' + money(job.tireCost)} className="red" />
             )}
-            {Number(job.partsCost || 0) > 0 && (
+            {canViewProfit && Number(job.partsCost || 0) > 0 && (
               <Row label="Parts Cost" value={'-' + money(job.partsCost)} className="red" />
             )}
-            {Number(job.materialCost || job.miscCost || 0) > 0 && (
+            {canViewProfit && Number(job.materialCost || job.miscCost || 0) > 0 && (
               <Row label="Material Cost" value={'-' + money(job.materialCost || job.miscCost)} className="red" />
             )}
-            <Row label={`Travel (${job.miles || 0} mi)`} value={'-' + money(Number(job.miles || 0) * Number(settings.costPerMile || 0))} className="red" />
-            <Row label="Profit" value={money(profit)} className={profit >= 0 ? 'green' : 'red'} bold />
+            {canViewProfit && (
+              <Row label={`Travel (${job.miles || 0} mi)`} value={'-' + money(Number(job.miles || 0) * Number(settings.costPerMile || 0))} className="red" />
+            )}
+            {canViewProfit && (
+              <Row label="Profit" value={money(profit)} className={profit >= 0 ? 'green' : 'red'} bold />
+            )}
           </div>
 
           <div className="form-group" style={{ marginBottom: 12 }}>
