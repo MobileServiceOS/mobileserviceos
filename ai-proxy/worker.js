@@ -62,6 +62,40 @@ const TASKS = {
       maxTokens: 400,
     };
   },
+
+  // Inventory AI Insights (roadmap inventory Phase 4). Turns a
+  // compact inventory + jobs digest into an owner briefing. The
+  // client (src/lib/aiInventoryInsights.ts) builds `input` and
+  // enforces a numeric grounding guard on the reply; this handler
+  // owns the prompt.
+  inventory_insights: (input) => {
+    if (!input || typeof input !== 'object') {
+      throw new Error('inventory_insights: input must be an object');
+    }
+    return {
+      system:
+        'You are writing a brief inventory briefing for the owner ' +
+        'of a mobile tire / roadside service business, from the ' +
+        'digest provided. Write 3 to 5 short bullet points ' +
+        'covering: what to restock (use criticalCount / lowCount ' +
+        'and the topSelling list), what to clear out (use ' +
+        'slowMovers), and the single biggest risk (consider ' +
+        'deadCount, reservedQty pressure). Rules: (1) Use ONLY ' +
+        'numbers that appear in the digest — never compute new ' +
+        'figures such as percentages, sums, or growth deltas not ' +
+        'already in the digest. (2) Refer to a tire size by its ' +
+        "exact string from the digest (e.g. '225/65R17') — that " +
+        'string is allowed. (3) Write any incidental quantity as ' +
+        'a word (the top three sizes, over thirty days); use ' +
+        'digits ONLY for actual digest figures. (4) Do NOT give ' +
+        'prescriptive advice; describe and flag, do not instruct. ' +
+        '(5) Omit any observation you cannot tie to a digest ' +
+        'number. Respond with ONLY raw JSON, no markdown, as: ' +
+        '{"bullets": ["<sentence>", "<sentence>"]}.',
+      user: JSON.stringify(input),
+      maxTokens: 400,
+    };
+  },
 };
 
 export default {
