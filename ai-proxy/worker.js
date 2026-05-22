@@ -62,6 +62,39 @@ const TASKS = {
       maxTokens: 400,
     };
   },
+
+  // Voice Logging (roadmap #7). Parses a tech's spoken job
+  // description into a structured field map. The client
+  // (src/lib/voiceParser.ts) builds `input` with the allowed enums
+  // and validates the reply; this handler owns the prompt.
+  voice_parse: (input) => {
+    if (!input || typeof input !== 'object') {
+      throw new Error('voice_parse: input must be an object');
+    }
+    return {
+      system:
+        "You extract structured job fields from a mobile service " +
+        "technician's spoken job description. You will receive the " +
+        'transcript and the allowed enum values for this business. ' +
+        'Return ONLY raw JSON, no markdown, with any of these ' +
+        'OPTIONAL fields: service (one of the allowed services), ' +
+        'quantity (integer 1-20), vehicleType (one of the allowed ' +
+        "vehicle types), vehicleMakeModel (a free-text year + make + " +
+        "model, e.g. '2018 Honda Accord'), tireSize (free text, e.g. " +
+        "'225/65R17'), location (the spoken city or area, free text), " +
+        'paymentMethod (one of the allowed payment methods), revenue ' +
+        '(the dollar amount as a number, no $ sign), notes (any ' +
+        'free-text remainder), conditions (subset of the allowed ' +
+        "conditions). Mappings: 'roadside' -> emergency, " +
+        "'overnight' / 'middle of the night' / '2 AM' -> lateNight, " +
+        "'highway' / 'I-95' / 'I-something' -> highway, 'weekend' -> " +
+        'weekend. OMIT any field you cannot confidently extract — do ' +
+        'not guess and do not pad. Return {} when nothing is ' +
+        'extractable. Respond with ONLY the JSON object.',
+      user: JSON.stringify(input),
+      maxTokens: 300,
+    };
+  },
 };
 
 export default {
