@@ -15,8 +15,9 @@ compatibility_date = "2024-09-23"
 FIREBASE_PROJECT_ID = "mobile-service-os"
 
 # Comma-separated origin allowlist (no trailing slash). Only these
-# origins may call the proxy. Add localhost for local dev.
-ALLOWED_ORIGINS = "https://nashyberry.github.io,http://localhost:5173"
+# origins may call the proxy. Production is the custom domain from
+# the GitHub Pages CNAME; localhost:5173 is the Vite dev server.
+ALLOWED_ORIGINS = "https://app.mobileserviceos.app,http://localhost:5173"
 
 # Anthropic model id used for every task.
 AI_MODEL = "claude-haiku-4-5"
