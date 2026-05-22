@@ -612,6 +612,20 @@ function AuthenticatedApp({ user }: { user: User }) {
     [businessId]
   );
 
+  // Single entry point for "start a blank new job". Resets the draft,
+  // clears any edit/quote context, and switches to the add tab. Used
+  // by the bottom-nav Log button AND the Dashboard "Log New Job"
+  // CTAs — previously the Dashboard CTAs called setTab('add')
+  // directly, so they skipped the reset and preloaded whatever job
+  // was last saved (the non-reset saveJob path leaves the draft
+  // populated). That was the "old job preloads on a new entry" bug.
+  const startNewJob = useCallback(() => {
+    setJobDraft(EMPTY_JOB());
+    setEditingJobId(null);
+    setPrefilledFromQuote(false);
+    setTab('add');
+  }, []);
+
   const handleStartJob = useCallback((form: QuoteForm) => {
     setJobDraft({
       ...EMPTY_JOB(),
@@ -967,8 +981,16 @@ function AuthenticatedApp({ user }: { user: User }) {
     // prefers explicit `method` arg — lets the "Change" affordance
     // on an already-paid job overwrite a wrong method. Falls back
     // to whatever's stored, then cash.
+    //
+    // status → 'Completed' is REQUIRED, not cosmetic: resolvePaymentStatus
+    // returns 'Pending Payment' for ANY job whose status === 'Pending',
+    // ignoring paymentStatus entirely. Without flipping status here, a
+    // Pending job's pill stays "Pending Payment" and the Mark Paid
+    // button never disappears — the exact "Mark Paid does nothing"
+    // bug. A job that's been paid is, by definition, completed.
     const updated: Job = {
       ...j,
+      status: 'Completed',
       paymentStatus: 'Paid',
       paidAt: j.paidAt || new Date().toISOString(),
       paymentMethod: method || j.paymentMethod || 'cash',
@@ -1024,6 +1046,7 @@ function AuthenticatedApp({ user }: { user: User }) {
           settings={settings}
           inventory={inventory}
           setTab={setTab}
+          onNewJob={startNewJob}
           onStartJob={handleStartJob}
           onViewJob={handleViewJob}
           onGenerateInvoice={handleGenerateInvoice}
@@ -1085,7 +1108,7 @@ function AuthenticatedApp({ user }: { user: User }) {
     return null;
   }, [tab, jobs, settings, inventory, jobDraft, editingJobId, prefilledFromQuote, savedJob, brand,
       handleStartJob, handleViewJob, handleGenerateInvoice, handleSendReview, handleMarkPaid,
-      handleEditJob, handleDuplicate, saveJob, persistExpenses, persistInventory, persistSettings]);
+      handleEditJob, handleDuplicate, saveJob, startNewJob, persistExpenses, persistInventory, persistSettings]);
 
   if (brandLoading) {
     return (
@@ -1128,12 +1151,7 @@ function AuthenticatedApp({ user }: { user: User }) {
         <button className={'nav-btn' + (tab === 'history' ? ' active' : '')} onClick={() => setTab('history')}>
           <span className="nav-ico">📋</span><span>Jobs</span>
         </button>
-        <button className={'nav-btn primary' + (tab === 'add' ? ' active' : '')} onClick={() => {
-          setJobDraft(EMPTY_JOB());
-          setEditingJobId(null);
-          setPrefilledFromQuote(false);
-          setTab('add');
-        }}>
+        <button className={'nav-btn primary' + (tab === 'add' ? ' active' : '')} onClick={startNewJob}>
           <span className="nav-ico">＋</span><span>Log</span>
         </button>
         <button className={'nav-btn' + (tab === 'inventory' ? ' active' : '')} onClick={() => setTab('inventory')}>

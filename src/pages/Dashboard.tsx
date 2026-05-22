@@ -41,6 +41,10 @@ interface Props {
   settings: Settings;
   inventory: InventoryItem[];
   setTab: (t: TabId) => void;
+  /** Start a blank new job — resets the draft + clears edit context.
+   *  Use this for every "log a new job" CTA; setTab('add') alone
+   *  preloads the last-saved job into the form. */
+  onNewJob: () => void;
   onStartJob: (form: QuoteForm) => void;
   onViewJob: (j: Job) => void;
   onGenerateInvoice: (j: Job) => void;
@@ -131,7 +135,7 @@ function SubKpi({ label, value, tone }: { label: string; value: string; tone: 'n
 }
 
 export function Dashboard({
-  jobs: rawJobs, settings, inventory, setTab,
+  jobs: rawJobs, settings, inventory, setTab, onNewJob,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   onStartJob, onViewJob, onGenerateInvoice, onSendInvoice, onSendReview, onMarkPaid, onEditJob,
 }: Props) {
@@ -515,7 +519,7 @@ export function Dashboard({
       }}>
         <button
           className="press-scale"
-          onClick={() => setTab('add')}
+          onClick={onNewJob}
           style={{
             padding: '14px 12px',
             background: 'var(--brand-primary)',
@@ -781,7 +785,7 @@ export function Dashboard({
       )}
 
       <div style={{ marginTop: 28, marginBottom: 4 }}>
-        <button className="cta-btn press-scale" onClick={() => setTab('add')}>
+        <button className="cta-btn press-scale" onClick={onNewJob}>
           ＋ Log New Job
         </button>
       </div>
