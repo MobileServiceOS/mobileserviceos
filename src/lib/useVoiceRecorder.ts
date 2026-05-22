@@ -31,6 +31,12 @@ export interface UseVoiceRecorder {
   start: () => void;
   /** Stop the active recogniser (final onresult still fires). */
   stop: () => void;
+  /** Force-clear the listening state.
+   *
+   *  iOS PWA SpeechRecognition sometimes never fires `onend`, leaving
+   *  the hook stuck in `listening: true` and refusing any new
+   *  `start()`. A watchdog in the consumer calls `reset()` to escape. */
+  reset: () => void;
 }
 
 // SpeechRecognition is not in TypeScript's standard lib; cast through any.
@@ -107,7 +113,13 @@ export function useVoiceRecorder(opts: UseVoiceRecorderOpts = {}): UseVoiceRecor
     try { recRef.current?.stop?.(); } catch { /* noop */ }
   };
 
-  return { supported, listening, start, stop };
+  const reset = (): void => {
+    try { recRef.current?.stop?.(); } catch { /* noop */ }
+    recRef.current = null;
+    setListening(false);
+  };
+
+  return { supported, listening, start, stop, reset };
 }
 
 // Minimal local typing — the standard DOM lib does not ship a

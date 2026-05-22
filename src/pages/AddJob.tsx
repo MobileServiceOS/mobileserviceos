@@ -347,6 +347,11 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
 
   // Press-vs-tap disambiguation.
   const pressStartRef = useRef<number>(0);
+  // Captures `recorder.listening` at the START of pointerdown, BEFORE
+  // any startVoice() flips it. Without this snapshot, the closure in
+  // pointerup would read the post-start value (true) and immediately
+  // stop the very tap that started listening.
+  const wasListeningRef = useRef<boolean>(false);
   const TAP_MAX_MS = 300;
 
   useEffect(() => {
@@ -391,18 +396,18 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
 
   const onMicPointerDown = (e: React.PointerEvent): void => {
     pressStartRef.current = Date.now();
+    wasListeningRef.current = recorder.listening;
     e.preventDefault();
-    startVoice();
+    if (!recorder.listening) startVoice();
   };
   const onMicPointerUp = (e: React.PointerEvent): void => {
     const dt = Date.now() - pressStartRef.current;
     e.preventDefault();
     if (dt < TAP_MAX_MS) {
-      // Quick tap: toggle behaviour. If we're listening, stop on the
-      // NEXT tap, not this one — so do nothing on the tap that just
-      // started us, and stop on the tap that finds us listening.
-      if (!recorder.listening) return;       // first tap, keep listening
-      stopVoice();                           // second tap, stop
+      // Quick tap toggle: stop iff we were ALREADY listening before
+      // this tap. Reading recorder.listening here would be wrong —
+      // pointerdown just flipped it to true via startVoice().
+      if (wasListeningRef.current) stopVoice();
       return;
     }
     // Press-and-hold release: stop now.
@@ -412,6 +417,21 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
     // Finger slid off the button mid-press — treat like a release.
     if (recorder.listening) stopVoice();
   };
+
+  // Watchdog — if STT silently dies (common in iOS PWA standalone
+  // mode, where SpeechRecognition's onend can fail to fire), force a
+  // clean error state after 12 s of "listening" with no result.
+  // Without this, the form gets stuck with no way to retry.
+  useEffect(() => {
+    if (voiceState !== 'listening') return;
+    const t = setTimeout(() => {
+      recorder.reset();
+      setVoiceState('error');
+    }, 12000);
+    return () => clearTimeout(t);
+    // recorder.reset is stable across renders inside the hook; safe to omit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voiceState]);
 
   const applyVoiceFields = (
     chosen: VoiceParseFields,
