@@ -111,29 +111,27 @@ nothing breaks.
 The `ping` task exercises the whole chain (auth → routing → Anthropic)
 for a fraction of a cent. It needs a real Firebase ID token.
 
-The app uses the **modular** Firebase SDK, which does not expose a
-global `firebase` object. The simplest test runs entirely in the
-browser console — paste this while signed in to the app, and the
-token never leaves your machine:
+The app uses the **modular** Firebase SDK with `browserLocalPersistence`,
+so there is no global `firebase` object — the signed-in user (and its
+ID token) is persisted in `localStorage`. The simplest test runs
+entirely in the browser console: open the deployed app, sign in,
+then paste this. The token never leaves your machine.
 
 ```js
 (async () => {
-  const db = await new Promise((res, rej) => {
-    const r = indexedDB.open('firebaseLocalStorageDb');
-    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
-  });
-  const rows = await new Promise((res, rej) => {
-    const q = db.transaction('firebaseLocalStorage', 'readonly')
-      .objectStore('firebaseLocalStorage').getAll();
-    q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error);
-  });
-  const user = rows.map((r) => r.value).find((v) => v && v.stsTokenManager);
-  if (!user) return console.error('Not signed in.');
+  const k = Object.keys(localStorage).find((x) => x.startsWith('firebase:authUser:'));
+  if (!k) return console.error('Not signed in on THIS tab — open the app and sign in.');
+  const u = JSON.parse(localStorage.getItem(k));
+  const tm = u && u.stsTokenManager;
+  if (!tm || !tm.accessToken) return console.error('No token stored — reload and retry.');
+  if (tm.expirationTime && Date.now() > tm.expirationTime) {
+    return console.error('Token expired — reload the page, then re-run.');
+  }
   const resp = await fetch('https://mobileserviceos-ai-proxy.veyareid.workers.dev', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${user.stsTokenManager.accessToken}`,
+      Authorization: `Bearer ${tm.accessToken}`,
     },
     body: JSON.stringify({ task: 'ping' }),
   });
@@ -143,8 +141,9 @@ token never leaves your machine:
 
 Expected: `HTTP 200 { ok: true, text: 'pong' }`.
 
-If you get `HTTP 401`, the cached token has expired — reload the page
-so Firebase mints a fresh one, then re-run.
+Run it on the **app's own tab** (the deployed origin) — not on any
+other site, whose `localStorage` is separate. If you get `HTTP 401`,
+reload the page so Firebase mints a fresh token, then re-run.
 
 ### Error responses
 
