@@ -9,6 +9,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "for f in tests/*.test.ts; do echo \"\\n\\u25b6 $f\"; tsx \"$f\" || exit 1; done",
     "deploy:rules": "firebase deploy --only firestore:rules,storage"
   },
   "dependencies": {
@@ -21,6 +23,7 @@
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
+    "tsx": "^4.19.2",
     "typescript": "^5.5.4",
     "vite": "^5.4.1"
   }

@@ -4,7 +4,12 @@ import { App } from '@/App';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { setupInstallPrompt } from '@/lib/pwa';
 import { captureRefCodeFromUrl } from '@/lib/referral';
+import { initErrorMonitor } from '@/lib/errorMonitor';
 import '@/styles/app.css';
+
+// Install global error + unhandledrejection capture before anything
+// else runs, so a crash during early boot is still recorded.
+initErrorMonitor();
 
 setupInstallPrompt();
 

@@ -1,4 +1,5 @@
 import { _auth } from '@/lib/firebase';
+import { captureMessage } from '@/lib/errorMonitor';
 
 // ─────────────────────────────────────────────────────────────────────
 //  Firebase / Firestore error handling
@@ -99,13 +100,15 @@ export function logFirestoreError(
 
   // permission-denied is the noisiest case — log at info, not error,
   // so it doesn't fire monitoring alarms. Other codes (data loss,
-  // internal, etc) get error-level logging.
+  // internal, etc) get error-level logging AND go to the error
+  // monitor so they're visible in production, not just DevTools.
   if (code === 'permission-denied' || code === 'unauthenticated') {
     // eslint-disable-next-line no-console
     console.info(`[firestore] ${context}`, payload);
   } else {
     // eslint-disable-next-line no-console
     console.error(`[firestore] ${context}`, payload);
+    captureMessage('error', `firestore: ${context} — ${code}`, payload);
   }
 }
 

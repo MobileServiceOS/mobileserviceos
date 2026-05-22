@@ -52,6 +52,19 @@ service cloud.firestore {
     }
 
     // ─────────────────────────────────────────────────────────────────
+    // errorLogs — top-level, append-only client error monitoring sink
+    // (src/lib/errorMonitor.ts). Any authenticated user may CREATE a
+    // log entry; nobody reads, updates, or deletes from the client
+    // (you inspect via the Firebase console / an admin tool). Keeping
+    // it write-only client-side means a compromised client can't mine
+    // other businesses' error data.
+    // ─────────────────────────────────────────────────────────────────
+    match /errorLogs/{logId} {
+      allow create: if request.auth != null;
+      allow read, update, delete: if false;
+    }
+
+    // ─────────────────────────────────────────────────────────────────
     // Invites — top-level collection, token-keyed.
     // Schema: invites/{token} where token is a 128-bit random string.
     //

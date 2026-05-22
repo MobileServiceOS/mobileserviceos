@@ -1,6 +1,7 @@
 import { Component, type ReactNode, type CSSProperties } from 'react';
 import { signOut } from 'firebase/auth';
 import { _auth } from '@/lib/firebase';
+import { captureError } from '@/lib/errorMonitor';
 
 interface State {
   hasError: boolean;
@@ -34,10 +35,11 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
   }
 
   componentDidCatch(error: Error) {
-    // Log to console for now. A future batch should wire this into a
-    // proper telemetry sink (Sentry, LogRocket, etc.) so we get crash
-    // visibility without relying on users to report.
+    // React render crash — the highest-severity category. Route to
+    // the error monitor so it lands in Firestore errorLogs, not just
+    // the user's DevTools.
     console.error('[ErrorBoundary] caught:', error);
+    captureError(error, { kind: 'react.render-crash' });
   }
 
   private handleReload = () => {

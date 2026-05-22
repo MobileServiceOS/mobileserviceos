@@ -1,0 +1,49 @@
+# Mobile Service OS — CI gate
+# Repository: MobileServiceOS/mobileserviceos
+#
+# Runs on every push and pull request. Nothing merges to main
+# without typecheck + the full test suite + a production build all
+# passing. This is the safety net: a broken commit fails here
+# instead of in front of an operator.
+#
+# Separate from deploy.yml — CI just verifies; deploy ships.
+
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch cancels the in-flight run — no
+# point burning minutes on a commit that's already superseded.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Typecheck · Test · Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test suite
+        run: npm test
+
+      - name: Production build
+        run: npm run build
