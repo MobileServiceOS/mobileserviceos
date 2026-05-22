@@ -409,16 +409,24 @@ function ActiveMembersList({ businessId }: { businessId: string }) {
     return () => { if (unsub) unsub(); };
   }, [businessId]);
 
+  const ownerCount = members.filter((m) => m.role === 'owner').length;
+
   const remove = async (member: MemberDoc) => {
-    if (member.role === 'owner') {
-      addToast('Cannot remove the owner', 'warn');
+    if (member.role === 'owner' && ownerCount <= 1) {
+      addToast('Last owner — promote another member to owner first', 'warn');
       return;
     }
     if (!member.uid) {
       addToast('Member uid missing — cannot remove', 'warn');
       return;
     }
-    const ok = window.confirm(`Remove ${member.email} from the team?`);
+    const isSelf = !!_auth?.currentUser && member.uid === _auth.currentUser.uid;
+    let confirmMsg = member.role === 'owner'
+      ? `Remove owner ${member.email}? They will immediately lose access to this business.`
+      : `Remove ${member.email} from the team?`;
+    if (isSelf) confirmMsg += '\n\nYou will be signed out of this business.';
+    confirmMsg += '\n\nContinue?';
+    const ok = window.confirm(confirmMsg);
     if (!ok) return;
     try {
       const db = _db; if (!db) throw new Error("Firestore not initialized");
@@ -484,15 +492,22 @@ function ActiveMembersList({ businessId }: { businessId: string }) {
                 </div>
               </div>
               <RoleBadge role={m.role} />
-              {m.role !== 'owner' && (
-                <button
-                  className="btn sm danger"
-                  onClick={() => remove(m)}
-                  style={{ flexShrink: 0 }}
-                >
-                  Remove
-                </button>
-              )}
+              {(() => {
+                const isLastOwner = m.role === 'owner' && ownerCount <= 1;
+                return (
+                  <button
+                    className="btn sm danger"
+                    onClick={() => remove(m)}
+                    disabled={isLastOwner}
+                    title={isLastOwner
+                      ? 'Last owner — promote another member to owner first'
+                      : undefined}
+                    style={{ flexShrink: 0 }}
+                  >
+                    Remove
+                  </button>
+                );
+              })()}
             </div>
           ))}
         </div>
