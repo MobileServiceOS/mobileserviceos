@@ -111,27 +111,40 @@ nothing breaks.
 The `ping` task exercises the whole chain (auth → routing → Anthropic)
 for a fraction of a cent. It needs a real Firebase ID token.
 
-Grab a token from the browser console while signed in to the app:
+The app uses the **modular** Firebase SDK, which does not expose a
+global `firebase` object. The simplest test runs entirely in the
+browser console — paste this while signed in to the app, and the
+token never leaves your machine:
 
 ```js
-await firebase.auth().currentUser.getIdToken()
+(async () => {
+  const db = await new Promise((res, rej) => {
+    const r = indexedDB.open('firebaseLocalStorageDb');
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+  const rows = await new Promise((res, rej) => {
+    const q = db.transaction('firebaseLocalStorage', 'readonly')
+      .objectStore('firebaseLocalStorage').getAll();
+    q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error);
+  });
+  const user = rows.map((r) => r.value).find((v) => v && v.stsTokenManager);
+  if (!user) return console.error('Not signed in.');
+  const resp = await fetch('https://mobileserviceos-ai-proxy.veyareid.workers.dev', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${user.stsTokenManager.accessToken}`,
+    },
+    body: JSON.stringify({ task: 'ping' }),
+  });
+  console.log('HTTP', resp.status, await resp.json());
+})();
 ```
 
-Then:
+Expected: `HTTP 200 { ok: true, text: 'pong' }`.
 
-```bash
-curl -X POST https://mobileserviceos-ai-proxy.<subdomain>.workers.dev \
-  -H "Origin: https://nashyberry.github.io" \
-  -H "Authorization: Bearer <ID_TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{"task":"ping"}'
-```
-
-Expected:
-
-```json
-{ "ok": true, "text": "pong" }
-```
+If you get `HTTP 401`, the cached token has expired — reload the page
+so Firebase mints a fresh one, then re-run.
 
 ### Error responses
 
