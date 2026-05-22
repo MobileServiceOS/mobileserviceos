@@ -375,6 +375,40 @@ a { color: var(--brand-primary); text-decoration: none; }
   margin-top: 8px; font-size: 12px; color: var(--red); text-align: center;
 }
 
+/* ── Inventory — compact card v1 polish ─────────────────────── */
+.inv-card-sub {
+  font-size: 12px;
+  color: var(--t3);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.inv-qty-cluster {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: stretch;
+  margin-right: 6px;
+}
+.inv-qty-btn {
+  min-width: 44px;
+  min-height: 22px;
+  padding: 0 8px;
+  background: var(--s2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--t1);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+  touch-action: manipulation;
+}
+.inv-qty-btn:active { background: var(--s3); }
+.inv-qty-btn:disabled { opacity: .4; cursor: default; }
+
 /* ── Forms ──────────────────────────────────────────────── */
 .field { margin-bottom: 12px; }
 .field label { font-size: 11px; color: var(--t3); font-weight: 700; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 4px; }

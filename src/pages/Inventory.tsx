@@ -6,6 +6,7 @@ import { NumberField } from '@/components/NumberField';
 import { useActiveVertical } from '@/lib/useActiveVertical';
 import type { BusinessTypeInventoryField, BusinessTypeConfig } from '@/config/businessTypes/registry';
 import { MechanicInventoryView } from '@/components/inventory/MechanicInventoryView';
+import { SMART_CHIPS, matchesSmartChip, type SmartChip } from '@/lib/inventoryFilters';
 
 interface Props {
   inventory: InventoryItem[];
@@ -140,6 +141,17 @@ function TireInventoryView({ inventory, onSave }: InternalViewProps) {
   // shop carries mixed stock and the operator is hunting for a specific
   // condition (insurance jobs are often "new only", e.g.).
   const [condFilter, setCondFilter] = useState<CondFilter>('all');
+
+  // Phase 1 smart filters — multi-select chip set. Each active chip
+  // intersects with the others (item must match every active chip).
+  const [activeChips, setActiveChips] = useState<ReadonlySet<SmartChip>>(new Set());
+  const toggleChip = (c: SmartChip): void => {
+    setActiveChips((prev) => {
+      const next = new Set(prev);
+      if (next.has(c)) next.delete(c); else next.add(c);
+      return next;
+    });
+  };
 
   const isExpanded = (id: string, item: InventoryItem) => item._isNew || expanded.has(id);
   const toggleExpanded = (id: string) => {
@@ -278,6 +290,13 @@ function TireInventoryView({ inventory, onSave }: InternalViewProps) {
       for (const n of newOnes) if (!seen.has(n.id)) base = [n, ...base];
     }
 
+    if (activeChips.size) {
+      const chips = Array.from(activeChips);
+      base = base.filter((i) =>
+        chips.every((c) => matchesSmartChip(i, c)),
+      );
+    }
+
     const q = search.trim().toLowerCase();
     if (!q) return base;
 
@@ -295,7 +314,7 @@ function TireInventoryView({ inventory, onSave }: InternalViewProps) {
     });
     ranked.sort((a, b) => a.tier - b.tier || a.idx - b.idx);
     return ranked.map((r) => r.item);
-  }, [list, search, condFilter]);
+  }, [list, search, condFilter, activeChips]);
 
   /**
    * Hot Sizes — most-stocked sizes, ranked by total qty. Renders as chip
@@ -374,6 +393,21 @@ function TireInventoryView({ inventory, onSave }: InternalViewProps) {
         ))}
       </div>
 
+      {/* Smart filter chips — multi-select. Intersect with the
+          condition filter and the search query. */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+        {SMART_CHIPS.map((c) => (
+          <button
+            key={c}
+            type="button"
+            className={'chip sm' + (activeChips.has(c) ? ' active' : '')}
+            onClick={() => toggleChip(c)}
+          >
+            {c}
+          </button>
+        ))}
+      </div>
+
       {/* Hot Sizes — quick-add chip strip for repeat-stock sizes. */}
       {hotSizes.length > 0 && (
         <div style={{ marginBottom: 14 }}>
@@ -443,7 +477,7 @@ function TireInventoryView({ inventory, onSave }: InternalViewProps) {
                   display: 'flex',
                   alignItems: 'center',
                   gap: 12,
-                  padding: '12px 14px',
+                  padding: '10px 12px',
                   width: '100%',
                   background: 'transparent',
                   border: 'none',
@@ -455,18 +489,13 @@ function TireInventoryView({ inventory, onSave }: InternalViewProps) {
               >
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    {/* Tire size — the primary scan key. Larger so the
-                        operator's eye lands on it first. */}
-                    <div style={{ fontSize: 19, fontWeight: 800, color: 'var(--t1)', lineHeight: 1.1, letterSpacing: '-.2px' }}>
+                    {/* Tire size — primary scan key, bumped from 19 → 22 px. */}
+                    <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--t1)', lineHeight: 1.1, letterSpacing: '-.2px' }}>
                       {i.size || <span style={{ color: 'var(--t3)', fontStyle: 'italic', fontSize: 15 }}>(new tire)</span>}
                     </div>
-                    {/* Badges: condition shown ONLY when not New (the
-                        common case needs no badge); Low / Out flags. */}
-                    {i.condition && i.condition !== 'New' && (
-                      <span className="pill" style={{ fontSize: 9, padding: '2px 6px' }}>
-                        {i.condition}
-                      </span>
-                    )}
+                    {/* Low / Out status badges still render alongside size.
+                        The "Used" condition is now in the sub-line below
+                        instead of as a duplicate pill here. */}
                     {outOfStock && (
                       <span className="pill red" style={{ fontSize: 9, padding: '2px 6px' }}>
                         Out
@@ -478,17 +507,39 @@ function TireInventoryView({ inventory, onSave }: InternalViewProps) {
                       </span>
                     )}
                   </div>
-                  {/* Sub-line: brand only. Condition was previously
-                      repeated here AND as a badge — dropped the dupe.
-                      Hidden entirely when there's no brand, rather
-                      than printing "No brand" noise. */}
-                  {(i.brand || '').trim() && (
-                    <div style={{ fontSize: 12, color: 'var(--t3)', marginTop: 3 }}>
-                      {i.brand}
-                    </div>
-                  )}
+                  {/* Merged sub-line: brand · condition. Always renders so
+                      the absence of brand is visible at scan time. */}
+                  <div className="inv-card-sub">
+                    {(() => {
+                      const brand = (i.brand || '').trim() || 'No brand';
+                      const cond = i.condition === 'Used' ? 'Used' : '';
+                      return cond ? `${brand} · ${cond}` : brand;
+                    })()}
+                  </div>
                 </div>
-                <div style={{ textAlign: 'right', minWidth: 60 }}>
+                {/* Inline qty ± cluster — adjusts qty without expanding
+                    the card. stopPropagation prevents the surrounding
+                    button's onClick (toggleExpanded) from firing. */}
+                <div className="inv-qty-cluster" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    className="inv-qty-btn"
+                    aria-label="Increase quantity"
+                    onClick={(e) => { e.stopPropagation(); change(i.id, 'qty', qty + 1); }}
+                  >
+                    +
+                  </button>
+                  <button
+                    type="button"
+                    className="inv-qty-btn"
+                    aria-label="Decrease quantity"
+                    disabled={qty <= 0}
+                    onClick={(e) => { e.stopPropagation(); if (qty > 0) change(i.id, 'qty', qty - 1); }}
+                  >
+                    −
+                  </button>
+                </div>
+                <div style={{ textAlign: 'right', minWidth: 56 }}>
                   <div style={{
                     fontSize: 28, fontWeight: 800,
                     color: outOfStock ? 'var(--red)' : low ? 'var(--amber)' : 'var(--t1)',
