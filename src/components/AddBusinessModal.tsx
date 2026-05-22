@@ -14,9 +14,9 @@
 //  when canCreate is true. It does not re-check entitlement.
 // ═══════════════════════════════════════════════════════════════════
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { createBusiness, CreateBusinessStepError } from '@/lib/createBusiness';
+import { createBusiness, generateBusinessId, CreateBusinessStepError } from '@/lib/createBusiness';
 import { useBusinessSwitcher } from '@/context/BusinessSwitcherContext';
 import { addToast } from '@/lib/toast';
 import type { VerticalKey } from '@/lib/verticals';
@@ -34,6 +34,12 @@ export function AddBusinessModal({ uid, email, onClose }: Props) {
   // Selectable vertical. Tire and Mechanic are live; car wash /
   // detailing arrives in Stage 4. Defaults to tire.
   const [businessType, setBusinessType] = useState<VerticalKey>('tire');
+  // Stable business id for the whole lifetime of this modal. Minted
+  // lazily on the first submit and reused on every retry, so a
+  // createBusiness call that failed partway is RESUMED (each write
+  // is merge:true → idempotent) rather than orphaning the partial
+  // business and minting a fresh one.
+  const pendingIdRef = useRef<string | undefined>(undefined);
 
   async function handleCreate() {
     const trimmed = name.trim();
@@ -42,6 +48,7 @@ export function AddBusinessModal({ uid, email, onClose }: Props) {
       return;
     }
     setBusy(true);
+    if (!pendingIdRef.current) pendingIdRef.current = generateBusinessId();
     console.info('[add-business] STARTING createBusiness', {
       uid, businessType, businessName: trimmed,
       hasExistingUserDoc: ownedBusinesses.length > 0,
@@ -56,8 +63,13 @@ export function AddBusinessModal({ uid, email, onClose }: Props) {
         // The BusinessSwitcher context loaded users/{uid} on mount.
         // If ownedBusinesses is non-empty, the user doc exists.
         hasExistingUserDoc: ownedBusinesses.length > 0,
+        // Resume the same id on every attempt — see pendingIdRef.
+        resumeId: pendingIdRef.current,
       });
       businessId = result.businessId;
+      // Success — clear the pending id so a subsequent business
+      // (if the operator opens the modal again) gets a fresh one.
+      pendingIdRef.current = undefined;
       console.info('[add-business] createBusiness OK', { businessId });
     } catch (e) {
       // Surface the REAL error to the user — step, path, code, message.

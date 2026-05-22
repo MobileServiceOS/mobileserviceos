@@ -65,6 +65,7 @@ import { _db } from '@/lib/firebase';
 import { DEFAULT_BRAND, DEFAULT_VEHICLE_PRICING } from '@/lib/defaults';
 import { foundingMemberStamp } from '@/lib/growthMode';
 import { withTimeout, TimeoutError } from '@/lib/promiseTimeout';
+import { captureMessage } from '@/lib/errorMonitor';
 import {
   type VerticalKey,
   getVerticalConfig,
@@ -148,6 +149,11 @@ async function runStep<T>(
       elapsedMs: Math.round(performance.now() - t0),
       raw: err,
     });
+    // Surface to the error monitor so a partial createBusiness
+    // failure is visible in errorLogs, not just the user's console.
+    captureMessage('error', `createBusiness: ${step} failed`, {
+      path, code: e.code ?? 'unknown', timedOut,
+    });
     throw new CreateBusinessStepError(
       step,
       path,
@@ -172,6 +178,27 @@ export interface CreateBusinessInput {
    * write here uses `merge: true`.
    */
   hasExistingUserDoc: boolean;
+  /**
+   * Resume a previous partial attempt. When a createBusiness call
+   * fails partway (e.g. step 3 of 5), the first 1-2 docs are already
+   * on disk. Without a stable id a retry generates a FRESH id and
+   * orphans the partial business. The caller (AddBusinessModal)
+   * generates the id once via generateBusinessId() and passes it
+   * here on every attempt — so a retry resumes the same business.
+   * Every write is `merge: true`, so re-running a step that already
+   * succeeded is a harmless no-op.
+   */
+  resumeId?: string;
+}
+
+/**
+ * Mint a fresh businesses/{id}. Exported so a caller can generate
+ * the id ONCE, up front, and pass it as `resumeId` on every
+ * createBusiness attempt — making retries idempotent (see resumeId).
+ */
+export function generateBusinessId(): string {
+  if (!_db) throw new Error('Firestore not initialized');
+  return doc(collection(_db, 'businesses')).id;
 }
 
 export interface CreateBusinessResult {
@@ -203,15 +230,16 @@ export async function createBusiness(
   const db = _db;
   if (!db) throw new Error('Firestore not initialized');
 
-  const { uid, email, businessName, businessType, hasExistingUserDoc } = input;
+  const { uid, email, businessName, businessType, hasExistingUserDoc, resumeId } = input;
   const name = businessName.trim();
   if (!name) throw new Error('Business name is required');
 
-  // Generate a fresh business ID. NOTE: unlike Onboarding (which
-  // uses user.uid as the businessId for the founder's first
-  // business), here we must use a fresh ID because the user
-  // already owns a business at /businesses/{uid}.
-  const newId = doc(collection(db, 'businesses')).id;
+  // Business ID. A fresh business uses a new id; a retry passes the
+  // PARTIAL business's id as resumeId so the same business is
+  // completed instead of a fresh one being orphaned. (Onboarding
+  // uses user.uid for the founder's first business; here the user
+  // already owns /businesses/{uid}, so a distinct id is required.)
+  const newId = resumeId || doc(collection(db, 'businesses')).id;
   const now = new Date().toISOString();
 
   // Resolve the vertical config for service seeding. Falls back to

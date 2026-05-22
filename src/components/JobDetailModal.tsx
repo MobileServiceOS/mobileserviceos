@@ -87,10 +87,21 @@ export function JobDetailModal({
           <button onClick={onClose} className="modal-close" aria-label="Close">✕</button>
         </div>
         <div className="modal-body">
+          {/* Cost breakdown — each cost row renders only when it has
+              a value, so the rows always reconcile to Profit across
+              every vertical: tire shows Tire Cost, mechanic shows
+              Parts Cost, neither shows a meaningless -$0 line. */}
           <div className="form-group" style={{ marginBottom: 12 }}>
             <Row label="Revenue" value={money(job.revenue)} className="green" bold />
-            <Row label="Tire Cost" value={'-' + money(job.tireCost)} className="red" />
-            <Row label="Material Cost" value={'-' + money(job.materialCost || job.miscCost)} className="red" />
+            {Number(job.tireCost || 0) > 0 && (
+              <Row label="Tire Cost" value={'-' + money(job.tireCost)} className="red" />
+            )}
+            {Number(job.partsCost || 0) > 0 && (
+              <Row label="Parts Cost" value={'-' + money(job.partsCost)} className="red" />
+            )}
+            {Number(job.materialCost || job.miscCost || 0) > 0 && (
+              <Row label="Material Cost" value={'-' + money(job.materialCost || job.miscCost)} className="red" />
+            )}
             <Row label={`Travel (${job.miles || 0} mi)`} value={'-' + money(Number(job.miles || 0) * Number(settings.costPerMile || 0))} className="red" />
             <Row label="Profit" value={money(profit)} className={profit >= 0 ? 'green' : 'red'} bold />
           </div>
