@@ -234,6 +234,40 @@ a { color: var(--brand-primary); text-decoration: none; }
 .section-label.with-action { display: flex; justify-content: space-between; align-items: baseline; }
 .section-label-hint { font-size: 10px; color: var(--t3); text-transform: none; letter-spacing: 0; font-weight: 500; }
 
+/* ── Operational Today panel (Dashboard) ─────────────────────── */
+.op-panel {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.op-stat {
+  background: var(--s2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 10px;
+  min-height: 60px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: left;
+  cursor: pointer;
+  transition: background .12s ease, border-color .12s ease;
+}
+.op-stat:hover { background: var(--s3); border-color: var(--border2); }
+.op-stat:disabled { cursor: default; opacity: .8; }
+.op-stat-label {
+  font-size: 9px; font-weight: 800; letter-spacing: 1px;
+  text-transform: uppercase; color: var(--t3);
+}
+.op-stat-value {
+  font-size: 18px; font-weight: 800; color: var(--t1);
+  margin-top: 4px; line-height: 1;
+}
+.op-stat-value.amber { color: var(--amber); }
+.op-stat-value.red { color: var(--red); }
+.op-stat-value.green { color: var(--green); }
+
 /* ── KPI grid ───────────────────────────────────────────── */
 .kpi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 20px; }
 .kpi-grid.three { grid-template-columns: 1fr 1fr 1fr; }
@@ -1087,6 +1121,8 @@ a { color: var(--brand-primary); text-decoration: none; }
   .qq-price-tile.custom {
     grid-column: 1 / -1;
   }
+
+  .op-panel { grid-template-columns: repeat(2, 1fr); }
 
   /* Tighter side padding on cramped phones so cards have more
      horizontal room for content. */

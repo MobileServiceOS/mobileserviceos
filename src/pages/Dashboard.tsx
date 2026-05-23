@@ -328,6 +328,15 @@ export function Dashboard({
     return alerts.slice(0, 3);
   }, [visibleJobs, inventory, vertical.features.inventoryDeduction]);
 
+  // Phase 1 polish — operational Today panel needs an active-jobs
+  // count alongside the existing today-revenue / pending-payment
+  // figures. Computed once via useMemo so the panel doesn't churn
+  // on every keystroke in Quick Quote.
+  const activeJobsCount = useMemo(
+    () => visibleJobs.filter((j) => j.status === 'Pending').length,
+    [visibleJobs],
+  );
+
   const quote = useMemo(() => calcQuote(qqForm, settings), [qqForm, settings]);
 
   // Count-up animation target: profit for owner, jobs count for tech.
@@ -468,66 +477,103 @@ export function Dashboard({
         </div>
       </div>
 
-      {/* ─── 2b. Today block — quick "what did today produce" card ── */}
-      {/* Shows job count + revenue + profit (owner) or just job count
-          + pending count (technician). Sits under the weekly hero so
-          the operator gets a daily pulse without scrolling. */}
-      <div className="card-anim" style={{
-        background: 'var(--s2)',
-        border: '1px solid var(--border)',
-        borderRadius: 14,
-        padding: '14px 16px',
-        marginBottom: 14,
-      }}>
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          marginBottom: 10,
-        }}>
-          <div style={{
-            fontSize: 10, fontWeight: 800,
-            color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: 1.5,
-          }}>
-            Today
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--t3)' }}>
-            {new Date(today + 'T12:00:00').toLocaleDateString('en-US', {
-              weekday: 'short', month: 'short', day: 'numeric',
-              timeZone: 'America/New_York',
-            })}
-          </div>
-        </div>
-        <div style={{
-          display: 'grid', gridTemplateColumns: '1fr 1fr 1fr',
-          gap: 8,
-        }}>
-          <SubKpi
-            label="Jobs"
-            value={`${todayJobs.length}`}
-            tone="neutral"
-          />
-          {showCompanyData ? (
-            <>
-              <SubKpi label="Net" value={money(todayTotals.revenue)} tone="neutral" />
-              <SubKpi label="Profit" value={money(todayTotals.grossProfit)} tone="success" />
-            </>
-          ) : (
-            <>
-              <SubKpi label="Pending" value={`${pendingJobs.length}`} tone="neutral" />
-              <SubKpi label="Avg / Job" value={money(avgProfit)} tone="neutral" />
-            </>
-          )}
-        </div>
-        {showCompanyData && todayCosts > 0 && (
-          <div style={{
-            fontSize: 11, color: 'var(--t3)',
-            marginTop: 8, paddingTop: 8,
-            borderTop: '1px solid var(--border)',
-            textAlign: 'center',
-          }}>
-            {money(todayCosts)} in costs today
-          </div>
+      {/* ── Today operational panel ─────────────────────────────
+          4 ultra-compact stats. Each is a button that routes to
+          the relevant operational screen. Replaces the old Today
+          block (same data, denser layout + low-stock and active
+          jobs added). */}
+      <div className="op-panel">
+        <button
+          type="button"
+          className="op-stat"
+          onClick={() => setTab('history')}
+          aria-label="Active jobs"
+        >
+          <span className="op-stat-label">Active jobs</span>
+          <span className={'op-stat-value' + (activeJobsCount > 0 ? ' amber' : '')}>
+            {activeJobsCount}
+          </span>
+        </button>
+        {showCompanyData ? (
+          <button
+            type="button"
+            className="op-stat"
+            onClick={() => setTab('history')}
+            aria-label="Pending payments"
+          >
+            <span className="op-stat-label">Pending pay</span>
+            <span className={'op-stat-value' + (pendingPaymentJobs.length > 0 ? ' red' : '')}>
+              {pendingPaymentJobs.length}
+            </span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="op-stat"
+            onClick={() => setTab('history')}
+            aria-label="Today's jobs"
+          >
+            <span className="op-stat-label">Today</span>
+            <span className="op-stat-value green">
+              {todayJobs.length}
+            </span>
+          </button>
         )}
+        <button
+          type="button"
+          className="op-stat"
+          onClick={() => setTab('history')}
+          aria-label="Today's revenue"
+          disabled={!showCompanyData}
+        >
+          <span className="op-stat-label">{showCompanyData ? "Today's revenue" : 'Today'}</span>
+          <span className="op-stat-value green">
+            {showCompanyData
+              ? money(todayJobs.reduce((s, j) => s + Number(j.revenue || 0), 0))
+              : `${todayJobs.length} job${todayJobs.length === 1 ? '' : 's'}`}
+          </span>
+        </button>
+        <button
+          type="button"
+          className="op-stat"
+          onClick={() => setTab('inventory')}
+          aria-label="Low stock"
+        >
+          <span className="op-stat-label">Low stock</span>
+          <span className={'op-stat-value' + (lowStock.length > 0 ? ' amber' : '')}>
+            {lowStock.length}
+          </span>
+        </button>
       </div>
+
+      {/* ─── 4. Pending Payments — owner/admin only ──────────────── */}
+      {showCompanyData && pendingPaymentJobs.length > 0 && (
+        <>
+          <div className="section-label">Pending Payments</div>
+          <div className="card card-anim">
+            <div className="card-pad" style={{ paddingBottom: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--gold)' }}>Total Due</span>
+                <span className="num" style={{ fontSize: 15, fontWeight: 700, color: 'var(--gold)' }}>{money(pendingPaymentTotal)}</span>
+              </div>
+              {pendingPaymentJobs.slice(0, 5).map((j) => (
+                <div key={j.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderTop: '1px solid var(--border2)', gap: 10 }}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {j.customerName || j.service}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--t3)' }}>{j.service} · {fmtDate(j.date)}</div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                    <span className="num" style={{ fontSize: 14, fontWeight: 700, color: 'var(--gold)' }}>{money(j.revenue)}</span>
+                    <button className="btn xs success" onClick={() => onMarkPaid(j)}>Paid</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
 
       {/* ─── 3. Quick actions row ────────────────────────────────── */}
       <div style={{
@@ -605,35 +651,6 @@ export function Dashboard({
                 />
               );
             })}
-          </div>
-        </>
-      )}
-
-      {/* ─── 4. Pending Payments — owner/admin only ──────────────── */}
-      {showCompanyData && pendingPaymentJobs.length > 0 && (
-        <>
-          <div className="section-label">Pending Payments</div>
-          <div className="card card-anim">
-            <div className="card-pad" style={{ paddingBottom: 8 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--gold)' }}>Total Due</span>
-                <span className="num" style={{ fontSize: 15, fontWeight: 700, color: 'var(--gold)' }}>{money(pendingPaymentTotal)}</span>
-              </div>
-              {pendingPaymentJobs.slice(0, 5).map((j) => (
-                <div key={j.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderTop: '1px solid var(--border2)', gap: 10 }}>
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {j.customerName || j.service}
-                    </div>
-                    <div style={{ fontSize: 11, color: 'var(--t3)' }}>{j.service} · {fmtDate(j.date)}</div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                    <span className="num" style={{ fontSize: 14, fontWeight: 700, color: 'var(--gold)' }}>{money(j.revenue)}</span>
-                    <button className="btn xs success" onClick={() => onMarkPaid(j)}>Paid</button>
-                  </div>
-                </div>
-              ))}
-            </div>
           </div>
         </>
       )}
