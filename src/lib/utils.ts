@@ -40,6 +40,22 @@ export function fmtDate(d: string): string {
 }
 
 /**
+ * Short date for dense lists: "May 22" (year dropped). Useful in
+ * History rows where the calendar context is obvious from grouping.
+ * Full date stays available via `fmtDate` for detail views.
+ */
+export function fmtDateShort(date: string): string {
+  if (!date) return '';
+  try {
+    return new Date(date + 'T12:00:00').toLocaleDateString(undefined, {
+      month: 'short', day: 'numeric',
+    });
+  } catch {
+    return date;
+  }
+}
+
+/**
  * Resolve the ISO date (YYYY-MM-DD) of the start of the week that
  * contains date `d`. The week-start day is configurable per business:
  *

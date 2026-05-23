@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { Job, Settings } from '@/types';
 import { PAYMENT_METHOD_LABELS } from '@/types';
-import { fmtDate, jobGrossProfit, money, paymentPillClass, resolvePaymentStatus, serviceIcon } from '@/lib/utils';
+import { fmtDate, fmtDateShort, jobGrossProfit, money, paymentPillClass, resolvePaymentStatus, serviceIcon } from '@/lib/utils';
 import { useBrand } from '@/context/BrandContext';
 import { useMembersDirectory } from '@/lib/useMembersDirectory';
 import { useLongPress } from '@/lib/useLongPress';
@@ -179,10 +179,10 @@ function HistoryJobCard({
             {job.tireSize && (
               <span
                 style={{
-                  fontSize: 9, fontWeight: 800, color: 'var(--brand-primary)',
+                  fontSize: 10, fontWeight: 800, color: 'var(--brand-primary)',
                   letterSpacing: '0.3px',
                   padding: '2px 6px', borderRadius: 99,
-                  background: 'rgba(200,164,74,.1)',
+                  background: 'rgba(200,164,74,.06)',
                   border: '1px solid rgba(200,164,74,.25)',
                 }}
               >
@@ -191,7 +191,7 @@ function HistoryJobCard({
             )}
           </div>
           <div className="job-meta">
-            {job.service} · {job.fullLocationLabel || job.area || '—'} · {fmtDate(job.date)}
+            {job.service} · {job.fullLocationLabel || job.area || '—'} · {fmtDateShort(job.date)}
           </div>
           {techName && (
             <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 2 }}>
@@ -202,9 +202,9 @@ function HistoryJobCard({
         <div className="job-right">
           <div className="value green">{money(job.revenue)}</div>
           {canViewProfit && (
-            <div style={{ fontSize: 11, color: pr >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>{money(pr)}</div>
+            <div style={{ fontSize: 10, color: pr >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>{money(pr)}</div>
           )}
-          <span className={'pill ' + paymentPillClass(ps)} style={{ marginTop: 4 }}>{ps}</span>
+          <span className={'pill ' + paymentPillClass(ps)} style={{ marginTop: 3, padding: '3px 7px', fontSize: 10 }}>{ps}</span>
           {/* Method badge under the Paid pill. Helps operators scan
               history for "did this job actually clear via Zelle vs.
               cash?" without opening the detail modal. Hidden when
