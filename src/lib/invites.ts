@@ -245,9 +245,13 @@ export async function acceptInvite(
   const db = _db; if (!db) throw new Error("Firestore not initialized");
   const now = new Date().toISOString();
 
-  // Write users/{uid} first.
+  // Write users/{uid} first. activeBusinessId points the
+  // business switcher at the invited business immediately after
+  // acceptance — so an invitee who already owns another business
+  // lands on the invited one, per the spec'd routing priority.
   await setDoc(doc(db, 'users', uid), {
     businessId: invite.businessId,
+    activeBusinessId: invite.businessId,
     role: invite.role,
     email: e,
     invitedBy: invite.invitedBy,

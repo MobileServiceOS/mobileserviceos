@@ -71,15 +71,27 @@ export function BrandProvider({ children, user }: { children: ReactNode; user: U
           // snap.data().businessId — identical to prior behavior, so
           // every existing operator is unaffected.
           bId = resolveActiveBusinessId(snap.data().businessId, snap.data());
-          // Backfill members doc for users who signed up before this structure was added.
-          try {
-            await setDoc(
-              doc(db, `businesses/${bId}/members/${user.uid}`),
-              { uid: user.uid, email: user.email || '', role: 'owner', addedAt: new Date().toISOString() },
-              { merge: true }
-            );
-          } catch (e) {
-            console.warn('[brand] members backfill failed (non-fatal):', e);
+          // Backfill the legacy single-business owner's member doc
+          // for accounts that pre-date the members collection. ONLY
+          // safe when the resolved business equals the user's uid —
+          // that's the legacy convention guaranteeing ownership. For
+          // multi-business owners (resolveActiveBusinessId may pick a
+          // secondary business) or invitees (businessId points at the
+          // inviter's business), this would either be rejected by
+          // rules (technicians) or silently elevate the role to owner
+          // (admins) — both wrong. Skip the backfill in that case;
+          // the multi-business / accept-invite flows write the
+          // member doc with the correct role.
+          if (bId === user.uid) {
+            try {
+              await setDoc(
+                doc(db, `businesses/${bId}/members/${user.uid}`),
+                { uid: user.uid, email: user.email || '', role: 'owner', addedAt: new Date().toISOString() },
+                { merge: true }
+              );
+            } catch (e) {
+              console.warn('[brand] members backfill failed (non-fatal):', e);
+            }
           }
         } else if (snap.exists() && Array.isArray(snap.data().ownedBusinesses) && snap.data().ownedBusinesses.length > 0) {
           // ─── DEFENSIVE GUARD — never re-onboard an existing user ──

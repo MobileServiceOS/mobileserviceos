@@ -217,33 +217,45 @@ export function App() {
     );
   }
 
+  // ─── Pending invite (hoisted above the user check) ───────────────
+  // While we have an invite token, keep showing InviteAccept until
+  // the invite-acceptance pipeline finishes — even when auth state
+  // changes mid-flight. createUserWithEmailAndPassword resolves AND
+  // triggers onAuthStateChanged → setUser BEFORE InviteAccept's
+  // acceptInvite() write completes. Without this hoist, App would
+  // unmount InviteAccept the instant auth completed, race the
+  // in-flight acceptInvite, and BrandProvider would see "no users/
+  // {uid} doc yet" — falling into its fresh-signup branch and
+  // bootstrapping a brand new business for the invitee.
+  //
+  // InviteAccept's onAuth callback clears inviteToken AFTER
+  // acceptInvite() has fully resolved (or the user dismisses an
+  // invalid invite via "Continue to sign in"), so this branch only
+  // renders while an invite is genuinely pending.
+  if (inviteToken) {
+    return (
+      <>
+        <InviteAccept
+          token={inviteToken}
+          onAuth={(u) => {
+            // Invite is already accepted by the time we get here.
+            // Clear the token + clean the URL so a refresh doesn't
+            // try to re-process it.
+            try {
+              const url = new URL(window.location.href);
+              url.searchParams.delete('invite');
+              window.history.replaceState({}, document.title, url.toString());
+            } catch { /* */ }
+            setInviteToken(null);
+            setUser(u);
+          }}
+        />
+        <ToastHost />
+      </>
+    );
+  }
+
   if (!user) {
-    // If the URL has ?invite=<token>, route to the dedicated invite
-    // onboarding page. InviteAccept handles BOTH new and existing
-    // users — Google sign-in, email signup, email login — and calls
-    // acceptInvite() automatically after auth succeeds.
-    if (inviteToken) {
-      return (
-        <>
-          <InviteAccept
-            token={inviteToken}
-            onAuth={(u) => {
-              // Invite is already accepted by the time we get here.
-              // Clear the token + clean the URL so a refresh doesn't
-              // try to re-process it.
-              try {
-                const url = new URL(window.location.href);
-                url.searchParams.delete('invite');
-                window.history.replaceState({}, document.title, url.toString());
-              } catch { /* */ }
-              setInviteToken(null);
-              setUser(u);
-            }}
-          />
-          <ToastHost />
-        </>
-      );
-    }
     return (
       <>
         <AuthScreen onAuth={setUser} />
