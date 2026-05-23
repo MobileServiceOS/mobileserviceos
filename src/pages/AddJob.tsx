@@ -406,11 +406,11 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
             />
           </div>
           {/* Tire cost is a tire-vertical concept (cost basis of the
-              tire stock used). Mechanic uses parts cost; detailing
-              uses chemicals + supplies which are tracked separately.
-              Gated on inventoryDeduction so the field only appears
-              for tire. */}
-          {showTireBlock && (
+              tire stock used). Gated on needsTireDetails so it only
+              renders for tire-material services — Jump Start, Fuel
+              Delivery, Lockout, etc. in the tire vertical have no
+              tire cost and shouldn't show this field. */}
+          {needsTireDetails && (
             <div className="field">
               <label>Tire cost ($)</label>
               <input
