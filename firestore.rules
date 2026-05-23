@@ -387,6 +387,35 @@ service cloud.firestore {
               || request.resource.data.role == 'technician'
             )
           )
+          // ── Invite-based self-enroll. A signed-in user may CREATE
+          //    their own member doc when the same atomic writeBatch
+          //    has just transitioned an invite to status='accepted'
+          //    for them. The member doc stamps the invite token so
+          //    the rule can validate it against the post-batch
+          //    state via getAfter().
+          //
+          //    Constraints (all must hold):
+          //      • Writing your own doc (memberId == uid)
+          //      • Creating (no existing doc — never an update path)
+          //      • inviteToken field present on the payload
+          //      • Invite exists, points at THIS business
+          //      • Invite's recorded email matches the auth email
+          //      • Invite status is 'accepted' AND acceptedByUid is
+          //        the requesting user (which the same batch set)
+          //      • Member role matches the invite's role
+          //      • Role is admin | technician — never owner
+          || (
+            request.method == 'create'
+            && request.auth.uid == memberId
+            && request.resource.data.inviteToken is string
+            && existsAfter(/databases/$(database)/documents/invites/$(request.resource.data.inviteToken))
+            && getAfter(/databases/$(database)/documents/invites/$(request.resource.data.inviteToken)).data.businessId == businessId
+            && getAfter(/databases/$(database)/documents/invites/$(request.resource.data.inviteToken)).data.email == request.auth.token.email.lower()
+            && getAfter(/databases/$(database)/documents/invites/$(request.resource.data.inviteToken)).data.status == 'accepted'
+            && getAfter(/databases/$(database)/documents/invites/$(request.resource.data.inviteToken)).data.acceptedByUid == request.auth.uid
+            && request.resource.data.role == getAfter(/databases/$(database)/documents/invites/$(request.resource.data.inviteToken)).data.role
+            && (request.resource.data.role == 'admin' || request.resource.data.role == 'technician')
+          )
         );
       }
 

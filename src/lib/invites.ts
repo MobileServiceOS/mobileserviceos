@@ -8,11 +8,23 @@ import {
   setDoc,
   updateDoc,
   where,
+  writeBatch,
   type Unsubscribe,
   onSnapshot,
 } from 'firebase/firestore';
 import type { InviteDoc, InviteStatus, MemberDoc, Role } from '@/types';
 import { _auth, _db } from '@/lib/firebase';
+import {
+  validateInvite as validateInvitePure,
+  type InviteValidationResult,
+} from '@/lib/inviteValidation';
+
+// Re-export so existing call sites (InviteAccept.tsx) keep importing
+// from a single module. The actual implementation lives in
+// ./inviteValidation.ts so it can be unit-tested without booting
+// Firebase.
+export { validateInvitePure as validateInvite };
+export type { InviteValidationResult };
 
 // ─────────────────────────────────────────────────────────────────────
 //  Team invites — token-based, no Cloud Functions
@@ -212,6 +224,33 @@ export function isInviteAcceptable(invite: InviteDoc | null): boolean {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+//  humanizeAcceptError — translate any error thrown during the accept
+//  writeBatch into a calm, actionable, non-technical string. Raw
+//  Firestore error codes / stack traces NEVER reach the UI.
+// ─────────────────────────────────────────────────────────────────────
+
+function humanizeAcceptError(err: unknown): string {
+  const code = ((err as { code?: string })?.code || '').replace(/^firestore\//, '');
+  switch (code) {
+    case 'permission-denied':
+      return "You don't have permission to join this team. The email on your account must match the invited email.";
+    case 'unauthenticated':
+      return 'Please sign in to accept this invite.';
+    case 'not-found':
+      return 'This invite link is no longer valid.';
+    case 'failed-precondition':
+      return "This invite couldn't be applied right now — please try again.";
+    case 'unavailable':
+    case 'deadline-exceeded':
+      return "Connection is slow — couldn't reach the server. Please try again.";
+    case 'resource-exhausted':
+      return 'Too many requests — please wait a moment and try again.';
+    default:
+      return 'Something went wrong while joining the team. Please try again.';
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
 //  acceptInvite
 // ─────────────────────────────────────────────────────────────────────
 
@@ -220,82 +259,134 @@ export async function acceptInvite(
   uid: string,
   email: string,
 ): Promise<string> {
-  if (!token) throw new Error('Invite link missing');
-  if (!uid) throw new Error('Must be signed in to accept invite');
+  if (!token) throw new Error('This invite link is missing or malformed.');
+  if (!uid)   throw new Error('Please sign in to accept this invite.');
 
   const e = normalizeEmail(email);
-  if (!isValidEmail(e)) throw new Error('Email address is invalid');
+  if (!isValidEmail(e)) {
+    throw new Error("Your account doesn't have a valid email — try a different sign-in method.");
+  }
+
+  const db = _db;
+  if (!db) throw new Error('Service unavailable. Please reload and try again.');
 
   const invite = await getInviteByToken(token);
-  if (!invite) throw new Error("Invite not found — it may have been revoked");
-  if (invite.status === 'accepted') {
-    if (invite.acceptedByUid === uid) return invite.businessId;
-    throw new Error('This invite has already been used');
-  }
-  if (invite.status === 'revoked') throw new Error('This invite was revoked');
-  if (invite.status === 'expired' || isExpired(invite)) {
-    throw new Error('This invite has expired — ask for a new one');
-  }
-  if (invite.email !== e) {
+
+  // Single source of truth for accept-time validity — same helper the
+  // InviteAccept UI uses during initial render, with email + uid checks
+  // engaged here.
+  const verdict = validateInvitePure(invite, { authEmail: e, authUid: uid });
+  if (!verdict.ok) {
+    // Idempotency path: status='accepted' AND acceptedByUid==uid is
+    // validated above as ok:true, so reaching here always means an
+    // actual rejection the user needs to see.
     // eslint-disable-next-line no-console
-    console.warn('[invites] email mismatch on accept', { authEmail: e, inviteEmail: invite.email });
-    throw new Error("This invite was sent to a different email address");
+    console.warn('[invites] accept rejected', { token, uid, email: e, reason: verdict.reason });
+    throw new Error(verdict.reason);
+  }
+  // Validator passed; invite is non-null past this point.
+  const inviteDoc = invite as InviteDoc;
+
+  // Idempotency #2: if a member doc already exists for this user
+  // under this business, return success without re-writing — protects
+  // against the "owner accidentally invited themselves" case where a
+  // re-write would demote them to the invite's role.
+  try {
+    const memberSnap = await getDoc(
+      doc(db, 'businesses', inviteDoc.businessId, 'members', uid),
+    );
+    if (memberSnap.exists()) {
+      // eslint-disable-next-line no-console
+      console.info('[invites] user already a member, skipping rewrite', {
+        uid, businessId: inviteDoc.businessId, existingRole: memberSnap.data()?.role,
+      });
+      // Still flag the invite accepted (best-effort) so the team
+      // management UI stops showing it as pending. Non-fatal if it
+      // fails — the user is already attached.
+      try {
+        await updateDoc(doc(db, 'invites', token), {
+          status: 'accepted' as InviteStatus,
+          acceptedAt: new Date().toISOString(),
+          acceptedByUid: uid,
+        });
+      } catch { /* */ }
+      return inviteDoc.businessId;
+    }
+  } catch {
+    // If the member-exists probe itself fails (e.g. transient
+    // permission error during bootstrap), fall through to the
+    // writeBatch — the rule will reject if anything's actually wrong.
   }
 
-  const db = _db; if (!db) throw new Error("Firestore not initialized");
-  const now = new Date().toISOString();
+  // ─── Atomic accept: invite + user doc + member doc in one batch ──
+  // Order matters for the rule check: getAfter() in the members rule
+  // reads the invite's POST-batch state, so the invite→accepted write
+  // must be part of the same batch. Without atomicity, a partial
+  // failure could leave the invite accepted but the user un-attached
+  // (or vice versa), which is exactly the failure mode this avoids.
+  const nowIso = new Date().toISOString();
 
-  // Write users/{uid} first. activeBusinessId points the
-  // business switcher at the invited business immediately after
-  // acceptance — so an invitee who already owns another business
-  // lands on the invited one, per the spec'd routing priority.
-  await setDoc(doc(db, 'users', uid), {
-    businessId: invite.businessId,
-    activeBusinessId: invite.businessId,
-    role: invite.role,
-    email: e,
-    invitedBy: invite.invitedBy,
-    joinedAt: now,
-    createdAt: now,
-  }, { merge: true });
-
-  // Write the member doc.
   const memberPayload: MemberDoc = {
     uid,
     email: e,
-    role: invite.role as Role,
+    role: inviteDoc.role as Role,
     status: 'active',
-    assignedBusinessId: invite.businessId,
-    invitedBy: invite.invitedBy,
-    invitedAt: invite.invitedAt,
-    joinedAt: now,
+    assignedBusinessId: inviteDoc.businessId,
+    invitedBy: inviteDoc.invitedBy,
+    invitedAt: inviteDoc.invitedAt,
+    joinedAt: nowIso,
+    inviteToken: token,
   };
   const memberClean: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(memberPayload)) {
     if (v !== undefined) memberClean[k] = v;
   }
-  await setDoc(
-    doc(db, 'businesses', invite.businessId, 'members', uid),
+
+  const batch = writeBatch(db);
+  // 1. Flip invite to accepted. Rule enforces email-match + status
+  //    transition (pending → accepted) + acceptedByUid==request.auth.uid.
+  batch.update(doc(db, 'invites', token), {
+    status: 'accepted' as InviteStatus,
+    acceptedAt: nowIso,
+    acceptedByUid: uid,
+  });
+  // 2. Upsert the user doc. activeBusinessId points the switcher at
+  //    the invited business so an invitee who also owns another
+  //    business lands on the invited one. Rule allows isOwnUser write.
+  batch.set(doc(db, 'users', uid), {
+    businessId: inviteDoc.businessId,
+    activeBusinessId: inviteDoc.businessId,
+    role: inviteDoc.role,
+    email: e,
+    invitedBy: inviteDoc.invitedBy,
+    joinedAt: nowIso,
+    createdAt: nowIso,
+  }, { merge: true });
+  // 3. Create the member doc with inviteToken stamp. Rule clause 5
+  //    validates this against getAfter(invite) which reflects the
+  //    accepted-state write above.
+  batch.set(
+    doc(db, 'businesses', inviteDoc.businessId, 'members', uid),
     memberClean,
-    { merge: true },
   );
 
-  // Mark invite accepted last — idempotent retry on crash.
   try {
-    await updateDoc(doc(db, 'invites', token), {
-      status: 'accepted' as InviteStatus,
-      acceptedAt: now,
-      acceptedByUid: uid,
-    });
+    await batch.commit();
   } catch (err) {
-    // Non-fatal — user is attached, invite just doesn't show accepted.
     // eslint-disable-next-line no-console
-    console.warn('[invites] could not mark accepted (non-fatal):', err);
+    console.error('[invites] accept batch failed', {
+      code: (err as { code?: string })?.code,
+      message: (err as Error)?.message,
+      token, uid, businessId: inviteDoc.businessId,
+    });
+    throw new Error(humanizeAcceptError(err));
   }
 
   // eslint-disable-next-line no-console
-  console.info('[invites] accepted', { token, uid, businessId: invite.businessId, role: invite.role });
-  return invite.businessId;
+  console.info('[invites] accepted', {
+    token, uid, businessId: inviteDoc.businessId, role: inviteDoc.role,
+  });
+  return inviteDoc.businessId;
 }
 
 // ─────────────────────────────────────────────────────────────────────

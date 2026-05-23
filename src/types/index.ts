@@ -181,6 +181,16 @@ export interface MemberDoc {
    * and the membership resolver.
    */
   permissions?: Partial<Permissions>;
+  /**
+   * Token of the invite this member came in through, stamped at the
+   * moment of acceptance. Used by the Firestore rule that allows an
+   * invitee to self-create their own member doc: the rule reads
+   * `getAfter(invites/{inviteToken})` and confirms the invite was
+   * just transitioned to status='accepted' for this user in the same
+   * atomic writeBatch. Absent on owner-bootstrap and admin-added
+   * member docs. Never updated after create.
+   */
+  inviteToken?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────

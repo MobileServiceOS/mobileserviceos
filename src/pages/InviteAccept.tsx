@@ -12,8 +12,9 @@ import { APP_LOGO, FALLBACK_LOGO_SVG } from '@/lib/defaults';
 import {
   acceptInvite,
   getInviteByToken,
-  isInviteAcceptable,
+  validateInvite,
 } from '@/lib/invites';
+import { humanizeFirestoreError } from '@/lib/firebaseErrors';
 import type { InviteDoc } from '@/types';
 
 interface Props {
@@ -62,55 +63,33 @@ export function InviteAccept({ token, onAuth }: Props) {
   const [busy, setBusy] = useState(false);
 
   // ─── Load invite on mount ───────────────────────────────────────
+  // All raw Firestore errors are routed through humanizeFirestoreError
+  // so the UI never shows error codes / stack traces. Status / expiry
+  // / email checks are centralized in validateInvite() so this page
+  // and acceptInvite() agree on every reject reason.
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      let invite;
+      let invite: InviteDoc | null = null;
       try {
         invite = await getInviteByToken(token);
       } catch (err) {
         if (cancelled) return;
-        // Surface the real Firestore error to the UI so permission /
-        // network / config issues are diagnosable from the screen
-        // instead of being silently swallowed. The error's code (e.g.
-        // "permission-denied") + message tell us exactly what went
-        // wrong on the server side.
-        const e = err as { code?: string; message?: string };
-        const detail = e.code ? `${e.code}: ${e.message || ''}` : (e.message || String(err));
-        setState({
-          kind: 'invalid',
-          reason: `Could not load the invite. ${detail}`,
-        });
+        // Log the raw error for ops; surface a calm string to the user.
+        // eslint-disable-next-line no-console
+        console.warn('[invites] load failed', err);
+        setState({ kind: 'invalid', reason: humanizeFirestoreError(err) });
         return;
       }
       if (cancelled) return;
-      if (!invite) {
-        setState({
-          kind: 'invalid',
-          reason: `This invite link is invalid or no longer exists. (token: ${token.slice(0, 8)}…)`,
-        });
+      const verdict = validateInvite(invite);
+      if (!verdict.ok) {
+        setState({ kind: 'invalid', reason: verdict.reason });
         return;
       }
-      if (invite.status === 'accepted') {
-        setState({
-          kind: 'invalid',
-          reason: 'This invite has already been accepted. Sign in with the account you created.',
-        });
-        return;
-      }
-      if (invite.status === 'revoked') {
-        setState({ kind: 'invalid', reason: 'This invite was revoked by the team owner.' });
-        return;
-      }
-      if (!isInviteAcceptable(invite)) {
-        setState({
-          kind: 'invalid',
-          reason: 'This invite has expired. Ask the team owner to send a new one.',
-        });
-        return;
-      }
-      setEmailDraft(invite.email);
-      setState({ kind: 'ready', invite });
+      const ok = invite as InviteDoc;
+      setEmailDraft(ok.email);
+      setState({ kind: 'ready', invite: ok });
     })();
     return () => { cancelled = true; };
   }, [token]);
