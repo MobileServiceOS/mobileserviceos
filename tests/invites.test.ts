@@ -139,5 +139,62 @@ for (const [label, invite, opts] of scenarios) {
   check(`"${label}" reason is human-readable (no raw codes / firebase / firestore)`, clean);
 }
 
+// ─── Whitespace + casing in auth email ─────────────────────────────
+console.log('\n┌─ validateInvite — email normalization edges ──────');
+check('authEmail with leading/trailing whitespace → matches',
+  validateInvite(base(), { now: NOW, authEmail: '  tech@example.com  ' }).ok === true);
+check('authEmail with newline → matches via trim',
+  validateInvite(base(), { now: NOW, authEmail: 'tech@example.com\n' }).ok === true);
+check('authEmail empty string → email check skipped, falls back to ok',
+  validateInvite(base(), { now: NOW, authEmail: '' }).ok === true);
+
+// ─── Role variants on the invite ────────────────────────────────────
+// validateInvite itself doesn't gate on role (the rule does), but it
+// must not crash for any documented role value.
+console.log('\n┌─ validateInvite — role variants ──────────────────');
+check('invite role=technician → ok',
+  validateInvite(base({ role: 'technician' }), { now: NOW }).ok === true);
+check('invite role=admin → ok',
+  validateInvite(base({ role: 'admin' }), { now: NOW }).ok === true);
+
+// ─── Expiry boundary ────────────────────────────────────────────────
+console.log('\n┌─ validateInvite — expiry boundary ────────────────');
+const EXACT = '2026-05-22T12:00:00Z';
+check('expiresAt exactly equals now → ok (only STRICTLY less-than rejects)',
+  validateInvite(base({ expiresAt: EXACT }), { now: NOW }).ok === true);
+check('expiresAt 1ms before now → invalid',
+  validateInvite(base({ expiresAt: '2026-05-22T11:59:59.999Z' }), { now: NOW }).ok === false);
+check('expiresAt 1ms after now → ok',
+  validateInvite(base({ expiresAt: '2026-05-22T12:00:00.001Z' }), { now: NOW }).ok === true);
+
+// ─── Idempotency interplay with email mismatch ──────────────────────
+// If invite is accepted by uid X and a DIFFERENT email-y user comes
+// along, validateInvite should still reject — the same-uid replay is
+// the only ok path.
+console.log('\n┌─ validateInvite — idempotency vs wrong email ─────');
+check('accepted by other uid AND wrong-email auth → invalid (both reasons fail closed)',
+  validateInvite(
+    base({ status: 'accepted', acceptedByUid: 'someone' }),
+    { now: NOW, authUid: 'this-tech', authEmail: 'other@example.com' },
+  ).ok === false);
+check('accepted by this uid AND wrong-email auth → still ok (idempotent wins, no further checks)',
+  validateInvite(
+    base({ status: 'accepted', acceptedByUid: 'this-tech' }),
+    { now: NOW, authUid: 'this-tech', authEmail: 'other@example.com' },
+  ).ok === true);
+
+// ─── Owner-inviting-self defense (covered at acceptInvite layer) ────
+// validateInvite doesn't have the existing-member context, but a
+// pending invite that happens to be issued to the owner's email
+// still resolves as "ok" here. The idempotency probe inside
+// acceptInvite is what actually protects the owner from demotion.
+// This test simply documents the boundary.
+console.log('\n┌─ validateInvite — boundary documentation ─────────');
+check('pending invite to a user (any role context) → ok at this layer',
+  validateInvite(
+    base({ email: 'owner@example.com', role: 'technician' }),
+    { now: NOW, authEmail: 'owner@example.com', authUid: 'owner-uid' },
+  ).ok === true);
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

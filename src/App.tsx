@@ -328,7 +328,7 @@ function TechnicianLanding({
 }
 
 function AuthenticatedApp({ user }: { user: User }) {
-  const { brand, businessId, loading: brandLoading, onboardingComplete, updateBrand } = useBrand();
+  const { brand, businessId, loading: brandLoading, onboardingComplete, inviteAcceptError, updateBrand } = useBrand();
   // Active vertical's service catalog drives the operational_settings
   // backfill + strip pass below. Without this, mechanic / detailing
   // accounts would have tire services injected and their mechanic /
@@ -1205,6 +1205,53 @@ function AuthenticatedApp({ user }: { user: User }) {
         <img src={APP_LOGO} alt="" className="splash-logo" />
         <div className="splash-name">Loading your business…</div>
       </div>
+    );
+  }
+
+  // Invite-acceptance recovery. Set by BrandContext when a pending
+  // invite for this user's email exists but acceptInvite() failed —
+  // typically a transient rules / network issue. We surface a clean
+  // recovery screen instead of letting the user fall through to
+  // Onboarding (which would create a phantom-owner business they're
+  // not supposed to have).
+  if (inviteAcceptError) {
+    return (
+      <>
+        <div className="splash" style={{ maxWidth: 420, margin: '0 auto', padding: 24 }}>
+          <img src={APP_LOGO} alt="" className="splash-logo" />
+          <div style={{
+            fontSize: 18, fontWeight: 800, color: 'var(--t1)',
+            marginTop: 18, marginBottom: 10, textAlign: 'center',
+          }}>
+            We hit a snag joining your team
+          </div>
+          <div className="auth-banner error" style={{
+            marginTop: 6, lineHeight: 1.5, textAlign: 'left',
+          }}>
+            {inviteAcceptError}
+          </div>
+          <button
+            type="button"
+            className="btn primary"
+            onClick={() => window.location.reload()}
+            style={{ width: '100%', marginTop: 18 }}
+          >
+            Try again
+          </button>
+          <button
+            type="button"
+            className="btn ghost"
+            onClick={async () => {
+              try { await _auth?.signOut(); } catch { /* */ }
+              window.location.href = window.location.origin;
+            }}
+            style={{ width: '100%', marginTop: 8, fontSize: 12 }}
+          >
+            Sign out and start over
+          </button>
+        </div>
+        <ToastHost />
+      </>
     );
   }
 

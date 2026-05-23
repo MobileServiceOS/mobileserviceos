@@ -20,6 +20,12 @@ interface BrandContextValue {
   businessId: string | null;
   loading: boolean;
   onboardingComplete: boolean;
+  /** Set when bootstrap discovered a pending invite for this user
+   *  but couldn't complete it. App.tsx renders a friendly recovery
+   *  screen instead of dropping the user into Onboarding (the path
+   *  that previously created phantom-owner businesses). null means
+   *  no invite issue — proceed with normal rendering. */
+  inviteAcceptError: string | null;
   updateBrand: (updates: Partial<Brand>) => Promise<void>;
 }
 
@@ -28,6 +34,7 @@ const BrandContext = createContext<BrandContextValue>({
   businessId: null,
   loading: true,
   onboardingComplete: false,
+  inviteAcceptError: null,
   updateBrand: async () => {},
 });
 
@@ -39,6 +46,7 @@ export function BrandProvider({ children, user }: { children: ReactNode; user: U
   const [brand, setBrand] = useState<Brand>(DEFAULT_BRAND);
   const [businessId, setBusinessId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [inviteAcceptError, setInviteAcceptError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user || !_db) {
@@ -160,14 +168,21 @@ export function BrandProvider({ children, user }: { children: ReactNode; user: U
               );
             } catch (acceptErr) {
               // Real failure: rules / network / etc. DO NOT bootstrap
-              // — that would make the invitee a phantom owner. Throw
-              // up to the caller so the user sees a retry surface
-              // instead of being silently dumped into Onboarding.
+              // — that would make the invitee a phantom owner. Surface
+              // an explicit error state so AuthenticatedApp can render
+              // a friendly recovery screen rather than falling through
+              // to Onboarding.
               console.error('[brand] pending invite found but accept failed:', acceptErr);
-              throw new Error(
-                "We found your team invite but couldn't complete it. " +
-                'Please reload the app, or ask the team owner to resend the invite.',
-              );
+              if (!cancelled) {
+                setInviteAcceptError(
+                  (acceptErr as Error)?.message
+                    || "We found your team invite but couldn't complete it. "
+                       + 'Please reload the app, or ask the team owner to resend the invite.',
+                );
+                window.clearTimeout(timeoutId);
+                setLoading(false);
+              }
+              return;
             }
           }
 
@@ -412,6 +427,7 @@ export function BrandProvider({ children, user }: { children: ReactNode; user: U
       businessId,
       loading,
       onboardingComplete: !!brand.onboardingComplete,
+      inviteAcceptError,
       updateBrand,
     }}>
       {children}
