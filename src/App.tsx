@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { _auth, _db, scopedCol, fbDelete, fbListen, fbSet, fbSetFast, initError } from '@/lib/firebase';
@@ -10,16 +10,21 @@ import { servicePricingFromVertical } from '@/lib/verticals';
 import { AuthScreen } from '@/pages/AuthScreen';
 import { InviteAccept } from '@/pages/InviteAccept';
 import { PrivacyTerms } from '@/pages/PrivacyTerms';
-import { Help } from '@/pages/Help';
 import { Dashboard } from '@/pages/Dashboard';
 import { AddJob } from '@/pages/AddJob';
 import { History } from '@/pages/History';
-import { Customers } from '@/pages/Customers';
-import { Insights } from '@/pages/Insights';
-import { Payouts } from '@/pages/Payouts';
-import { Expenses } from '@/pages/Expenses';
 import { Inventory } from '@/pages/Inventory';
-import { Settings } from '@/pages/Settings';
+// Secondary tabs are lazy-loaded to keep the initial bundle lean.
+// Dashboard / AddJob / History / Inventory are the daily-driver
+// surfaces (the four eager imports above). Insights / Payouts /
+// Expenses / Customers / Settings / Help all live behind the More
+// sheet and are only loaded when the operator actually opens them.
+const Help      = lazy(() => import('@/pages/Help').then((m)      => ({ default: m.Help })));
+const Customers = lazy(() => import('@/pages/Customers').then((m) => ({ default: m.Customers })));
+const Insights  = lazy(() => import('@/pages/Insights').then((m)  => ({ default: m.Insights })));
+const Payouts   = lazy(() => import('@/pages/Payouts').then((m)   => ({ default: m.Payouts })));
+const Expenses  = lazy(() => import('@/pages/Expenses').then((m)  => ({ default: m.Expenses })));
+const Settings  = lazy(() => import('@/pages/Settings').then((m)  => ({ default: m.Settings })));
 import { Header } from '@/components/Header';
 import { ToastHost } from '@/components/ToastHost';
 import { InstallBanner } from '@/components/InstallBanner';
@@ -1229,7 +1234,15 @@ function AuthenticatedApp({ user }: { user: User }) {
           setTab('settings');
         }}
       />
-      <main className="main-content">{tabContent}</main>
+      <main className="main-content">
+        <Suspense fallback={
+          <div className="page" style={{ padding: 18, color: 'var(--t3)', fontSize: 12 }}>
+            Loading…
+          </div>
+        }>
+          {tabContent}
+        </Suspense>
+      </main>
       <nav className="bottom-nav">
         <button className={'nav-btn' + (tab === 'dashboard' ? ' active' : '')} onClick={() => setTab('dashboard')}>
           <span className="nav-ico">🏠</span><span>Home</span>
