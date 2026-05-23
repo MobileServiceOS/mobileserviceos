@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { collection, onSnapshot, deleteDoc, doc, type Unsubscribe } from 'firebase/firestore';
+import { collection, onSnapshot, deleteDoc, doc, setDoc, writeBatch, type Unsubscribe } from 'firebase/firestore';
 import type { InviteDoc, MemberDoc, Role } from '@/types';
 import { useBrand } from '@/context/BrandContext';
 import { usePermissions } from '@/context/MembershipContext';
@@ -13,6 +13,7 @@ import {
   type CreateInviteResult,
 } from '@/lib/invites';
 import { _auth, _db } from '@/lib/firebase';
+import { canChangeRole, canRemoveMember, isLastOwner } from '@/lib/teamRoleChange';
 
 // ─────────────────────────────────────────────────────────────────────
 //  TeamManagement
@@ -66,7 +67,7 @@ export function TeamManagement() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <InviteForm businessId={businessId} businessName={brand.businessName} />
       <PendingInvitesList businessId={businessId} />
-      <ActiveMembersList businessId={businessId} />
+      <ActiveMembersList businessId={businessId} canManageOwners={permissions.canManageOwners} />
     </div>
   );
 }
@@ -358,10 +359,97 @@ function PendingInvitesList({ businessId }: { businessId: string }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+//  Transfer Ownership sub-component
+// ─────────────────────────────────────────────────────────────────────
+
+function TransferOwnership({
+  members, businessId,
+}: {
+  members: MemberDoc[];
+  businessId: string;
+}) {
+  const [target, setTarget] = useState('');
+  const candidates = members.filter((m) => m.role !== 'owner' && m.uid);
+
+  const onTransfer = async (): Promise<void> => {
+    if (!target) return;
+    const actorUid = _auth?.currentUser?.uid;
+    if (!actorUid) {
+      addToast('Sign-in required', 'warn');
+      return;
+    }
+    const targetMember = members.find((m) => m.uid === target);
+    if (!targetMember) {
+      addToast('Target member not found', 'warn');
+      return;
+    }
+    const name = targetMember.displayName || targetMember.email;
+    const ok = window.confirm(
+      `Transfer ownership to ${name}? You will become Admin and they will become Owner. Continue?`,
+    );
+    if (!ok) return;
+
+    try {
+      const db = _db; if (!db) throw new Error('Firestore not initialized');
+      const batch = writeBatch(db);
+      batch.set(
+        doc(db, 'businesses', businessId, 'members', target),
+        { ...targetMember, role: 'owner' as Role },
+        { merge: true },
+      );
+      const actorMember = members.find((m) => m.uid === actorUid);
+      if (actorMember) {
+        batch.set(
+          doc(db, 'businesses', businessId, 'members', actorUid),
+          { ...actorMember, role: 'admin' as Role },
+          { merge: true },
+        );
+      }
+      await batch.commit();
+      addToast(`Ownership transferred to ${name}`, 'info');
+      setTarget('');
+    } catch (e) {
+      addToast((e as Error).message || 'Transfer failed', 'error');
+    }
+  };
+
+  return (
+    <div className="team-transfer">
+      <div className="team-transfer-title">Transfer ownership</div>
+      <div className="team-transfer-row">
+        <select
+          className="team-role-select"
+          value={target}
+          onChange={(e) => setTarget(e.target.value)}
+        >
+          <option value="">Pick a member…</option>
+          {candidates.map((m) => (
+            <option key={m.uid} value={m.uid}>
+              {(m.displayName || m.email)} · {m.role}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          className="btn sm primary"
+          disabled={!target}
+          onClick={onTransfer}
+        >
+          Transfer
+        </button>
+      </div>
+      <div className="team-warning">
+        You will become Admin and the selected member will become Owner.
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
 //  Active members list
 // ─────────────────────────────────────────────────────────────────────
 
-function ActiveMembersList({ businessId }: { businessId: string }) {
+function ActiveMembersList({ businessId, canManageOwners }: { businessId: string; canManageOwners: boolean }) {
   const [members, setMembers] = useState<MemberDoc[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -411,6 +499,49 @@ function ActiveMembersList({ businessId }: { businessId: string }) {
 
   const ownerCount = members.filter((m) => m.role === 'owner').length;
 
+  const changeRole = async (member: MemberDoc, toRole: Role) => {
+    if (!member.uid) {
+      addToast('Member uid missing — cannot change role', 'warn');
+      return;
+    }
+    const actorUid = _auth?.currentUser?.uid || '';
+    const me = members.find((x) => x.uid === actorUid);
+    const actorRole = (me?.role ?? 'technician') as Role;
+    const verdict = canChangeRole({
+      actorRole,
+      targetCurrentRole: member.role,
+      isSelf: member.uid === actorUid,
+      isLastOwner: isLastOwner(members, member.uid),
+    }, { kind: 'changeRole', toRole });
+    if (!verdict.allowed) {
+      addToast(verdict.reason || 'Role change not allowed', 'warn');
+      return;
+    }
+
+    const isSelf = member.uid === actorUid;
+    const wasOwner = member.role === 'owner';
+    const becomesOwner = toRole === 'owner';
+    let msg: string;
+    if (becomesOwner) {
+      msg = `Promote ${member.email} to Owner? They will get full permissions including billing and team management. Continue?`;
+    } else if (wasOwner) {
+      msg = `Demote owner ${member.email} to ${toRole}? They will lose owner permissions. Continue?`;
+      if (isSelf) msg += '\n\nYou will lose your owner permissions immediately.';
+    } else {
+      msg = `Set ${member.email} to ${toRole}? Continue?`;
+    }
+    if (!window.confirm(msg)) return;
+
+    try {
+      const db = _db; if (!db) throw new Error('Firestore not initialized');
+      const ref = doc(db, 'businesses', businessId, 'members', member.uid);
+      await setDoc(ref, { ...member, role: toRole }, { merge: true });
+      addToast(`${member.email} → ${toRole}`, 'info');
+    } catch (e) {
+      addToast((e as Error).message || 'Role change failed', 'error');
+    }
+  };
+
   const remove = async (member: MemberDoc) => {
     if (member.role === 'owner' && ownerCount <= 1) {
       addToast('Last owner — promote another member to owner first', 'warn');
@@ -447,6 +578,10 @@ function ActiveMembersList({ businessId }: { businessId: string }) {
 
   return (
     <div>
+      {canManageOwners && members.filter((m) => m.role !== 'owner').length > 0 && (
+        <TransferOwnership members={members} businessId={businessId} />
+      )}
+
       <div style={{
         fontSize: 11, color: 'var(--t3)', fontWeight: 800,
         textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8,
@@ -469,47 +604,75 @@ function ActiveMembersList({ businessId }: { businessId: string }) {
           borderRadius: 10,
           overflow: 'hidden',
         }}>
-          {members.map((m, idx) => (
-            <div
-              key={m.uid || m.email}
-              style={{
-                padding: 10,
-                borderTop: idx === 0 ? 'none' : '1px solid var(--border2)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-              }}
-            >
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{
-                  fontSize: 13, fontWeight: 700, color: 'var(--t1)',
-                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                }}>
-                  {m.displayName || m.email}
+          {members.map((m) => {
+            const actorUid = _auth?.currentUser?.uid;
+            const isSelf = !!actorUid && m.uid === actorUid;
+            const actorRole = (() => {
+              if (!actorUid) return 'technician' as const;
+              const me = members.find((x) => x.uid === actorUid);
+              return (me?.role ?? 'technician') as Role;
+            })();
+            const lastOwner = m.uid ? isLastOwner(members, m.uid) : false;
+
+            // Build the dropdown options + per-option allow verdict
+            // so the UI can disable forbidden transitions.
+            const roleOptions: Role[] = ['owner', 'admin', 'technician'];
+            const optionVerdict = (toRole: Role) => canChangeRole({
+              actorRole, targetCurrentRole: m.role, isSelf, isLastOwner: lastOwner,
+            }, { kind: 'changeRole', toRole });
+            const anyChangeAllowed = roleOptions.some((r) => r !== m.role && optionVerdict(r).allowed);
+            const removeVerdict = canRemoveMember({
+              actorRole, targetCurrentRole: m.role, isSelf, isLastOwner: lastOwner,
+            });
+
+            return (
+              <div key={m.uid || m.email} className={'team-member-row' + (isSelf ? ' self' : '')}>
+                <div className="team-member-row-head">
+                  <div className="team-member-row-info">
+                    <div className="team-member-row-name">
+                      {m.displayName || m.email}
+                      {isSelf && <span className="self-tag">(you)</span>}
+                    </div>
+                    <div className="team-member-row-email">{m.email}</div>
+                  </div>
+                  <RoleBadge role={m.role} />
                 </div>
-                <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 2 }}>
-                  {m.email}
-                </div>
-              </div>
-              <RoleBadge role={m.role} />
-              {(() => {
-                const isLastOwner = m.role === 'owner' && ownerCount <= 1;
-                return (
+                <div className="team-member-row-controls">
+                  <select
+                    className="team-role-select"
+                    aria-label={`Role for ${m.email}`}
+                    value={m.role}
+                    disabled={!anyChangeAllowed}
+                    onChange={(e) => changeRole(m, e.target.value as Role)}
+                  >
+                    {roleOptions.map((r) => {
+                      const v = r === m.role ? { allowed: true } : optionVerdict(r);
+                      const label = r.charAt(0).toUpperCase() + r.slice(1);
+                      return (
+                        <option key={r} value={r} disabled={!v.allowed}>
+                          {label}
+                        </option>
+                      );
+                    })}
+                  </select>
                   <button
                     className="btn sm danger"
                     onClick={() => remove(m)}
-                    disabled={isLastOwner}
-                    title={isLastOwner
-                      ? 'Last owner — promote another member to owner first'
-                      : undefined}
+                    disabled={!removeVerdict.allowed}
+                    title={removeVerdict.allowed ? undefined : removeVerdict.reason}
                     style={{ flexShrink: 0 }}
                   >
                     Remove
                   </button>
-                );
-              })()}
-            </div>
-          ))}
+                </div>
+                {!anyChangeAllowed && actorRole !== 'technician' && (
+                  <div className="team-warning" title={lastOwner ? 'Last owner — promote another member to owner first' : undefined}>
+                    {lastOwner ? '⚠ Last owner — no role change possible' : '⚠ No allowed role change'}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
