@@ -3,7 +3,7 @@ import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { _auth, _db, scopedCol, fbDelete, fbListen, fbSet, fbSetFast, initError } from '@/lib/firebase';
 import { BrandProvider, useBrand } from '@/context/BrandContext';
-import { MembershipProvider } from '@/context/MembershipContext';
+import { MembershipProvider, usePermissions } from '@/context/MembershipContext';
 import { BusinessSwitcherProvider } from '@/context/BusinessSwitcherContext';
 import { useActiveVertical } from '@/lib/useActiveVertical';
 import { servicePricingFromVertical } from '@/lib/verticals';
@@ -257,6 +257,32 @@ export function App() {
       <AuthenticatedApp user={user} />
     </BrandProvider>
   );
+}
+
+/** Renders the Insights page only when the current user has canViewFinancials.
+ *  Must be rendered inside MembershipProvider so usePermissions() resolves. */
+function InsightsGate({ jobs, settings }: { jobs: Job[]; settings: SettingsT }) {
+  const permissions = usePermissions();
+  if (!permissions.canViewFinancials) {
+    return (
+      <div className="page page-enter">
+        <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 14 }}>Insights</div>
+        <div style={{
+          padding: 14,
+          background: 'var(--s2)',
+          border: '1px solid var(--border)',
+          borderRadius: 10,
+          fontSize: 12,
+          color: 'var(--t3)',
+          lineHeight: 1.5,
+        }}>
+          Insights are available to owners and admins. Ask the
+          business owner if you need access.
+        </div>
+      </div>
+    );
+  }
+  return <Insights jobs={jobs} settings={settings} />;
 }
 
 function AuthenticatedApp({ user }: { user: User }) {
@@ -1099,7 +1125,7 @@ function AuthenticatedApp({ user }: { user: User }) {
       />
     );
     if (tab === 'customers') return <Customers jobs={jobs} settings={settings} />;
-    if (tab === 'insights') return <Insights jobs={jobs} settings={settings} />;
+    if (tab === 'insights') return <InsightsGate jobs={jobs} settings={settings} />;
     if (tab === 'payouts') return <Payouts jobs={jobs} settings={settings} />;
     if (tab === 'expenses') return <Expenses expenses={settings.expenses || []} jobs={jobs} settings={settings} onSave={persistExpenses} />;
     if (tab === 'inventory') return <Inventory inventory={inventory} onSave={persistInventory} settings={settings} jobs={jobs} />;

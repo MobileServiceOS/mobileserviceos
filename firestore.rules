@@ -337,36 +337,57 @@ service cloud.firestore {
         allow read: if isMemberOfBusiness(businessId);
         allow write: if isOwnerOrAdmin(businessId) || request.auth.uid == businessId;
       }
-      // Members collection — owner/admin only writes for role/invite
-      // management. EXCEPTION: a user can write their OWN member doc
-      // (matched by memberId == auth.uid) to support self-deletion /
-      // "leave team" flows. The user can only mark themselves; they
-      // can't escalate to owner because rules don't validate fields,
-      // but the application-level UI controls what fields get
-      // written here (status: 'left', leftAt: timestamp).
+      // Members collection — role-transition matrix enforced server-side.
       match /members/{memberId} {
         allow read: if isMemberOfBusiness(businessId);
-        // WRITE paths:
-        //  1. An existing owner/admin manages members (invites, role
-        //     changes, removals) — normal team management.
-        //  2. Legacy convention-owner (uid == businessId) — the
-        //     pre-multi-business owner of their own business.
-        //  3. 1b SELF-ENROLL: a user may write THEIR OWN member doc
-        //     (memberId == uid) ONLY into a business they provably
-        //     created — i.e. whose settings/main.ownerUid equals their
-        //     uid. This is what lets the add-business flow enroll the
-        //     creator as owner of a new business WITHOUT a Cloud
-        //     Function, while closing the privilege-escalation hole:
-        //     a user CANNOT self-assign into someone else's business,
-        //     because they cannot forge that business's ownerUid
-        //     stamp (the settings-create rule above forces ownerUid
-        //     to equal the creator's own uid).
-        allow write: if isOwnerOrAdmin(businessId)
-          || request.auth.uid == businessId
+        // WRITE paths (owner-only role transitions are enforced
+        // server-side; last-owner protection is client-side):
+        //
+        //  1. Convention-owner (uid == businessId) — pre-multi-business
+        //     bootstrap path. Unchanged.
+        //
+        //  2. Self-enroll into a business YOU created (memberId == uid
+        //     and you are settings.ownerUid). Unchanged.
+        //
+        //  3. Owner of THIS business — any role transition on any
+        //     member doc (including their own demote / removal). The
+        //     UI prevents the last-owner from demoting / removing
+        //     themselves. A future server-side counter can add
+        //     defense-in-depth.
+        //
+        //  4. Admin of THIS business — bounded transitions. They can
+        //     write member docs only when:
+        //       • The existing doc (if any) is NOT an owner, AND
+        //       • The incoming role is NOT 'owner' (admin can't
+        //         promote to owner).
+        //     This rejects every owner-touching admin write.
+        allow write: if isSignedIn() && (
+          // ── Bootstrap & self-enroll paths (unchanged) ──
+          request.auth.uid == businessId
           || (
             request.auth.uid == memberId
             && businessOwnerUid(businessId) == request.auth.uid
-          );
+          )
+          // ── Owner: any role transition. Last-owner protection is
+          //    enforced client-side (a future hardening adds a
+          //    denormalised ownerCount). ──
+          || (
+            memberDocExists(businessId)
+            && memberRole(businessId) == 'owner'
+          )
+          // ── Admin: bounded transitions only. Cannot touch owner
+          //    docs, cannot promote to owner. ──
+          || (
+            memberDocExists(businessId)
+            && memberRole(businessId) == 'admin'
+            && (resource == null || resource.data.role != 'owner')
+            && (
+              request.method == 'delete'
+              || request.resource.data.role == 'admin'
+              || request.resource.data.role == 'technician'
+            )
+          )
+        );
       }
 
       // Meta collection — deletion requests and other admin signals.
