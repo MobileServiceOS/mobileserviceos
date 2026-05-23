@@ -284,6 +284,7 @@ export interface Permissions {
   canOverrideJobPrice: boolean;
   // Team + billing
   canManageTeam: boolean;
+  canManageOwners: boolean;
   canManageBilling: boolean;
   // Business settings + branding
   canEditBusinessSettings: boolean;

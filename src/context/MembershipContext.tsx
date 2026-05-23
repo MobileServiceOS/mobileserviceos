@@ -70,7 +70,7 @@ const ALL_FALSE: Permissions = {
   canViewFinancials: false, canViewRevenue: false, canViewProfit: false,
   canManageExpenses: false, canManageInventory: false, canEditPricingSettings: false,
   canViewPricingSettings: false, canUsePricingEngine: false, canOverrideJobPrice: false,
-  canManageTeam: false, canEditBusinessSettings: false, canUploadLogo: false,
+  canManageTeam: false, canManageOwners: false, canEditBusinessSettings: false, canUploadLogo: false,
   canGenerateInvoices: false, canSendReviews: false, canCreateJobs: false,
   canEditJobs: false, canDeleteJobs: false, canViewAdvancedReports: false,
   canManageBilling: false,

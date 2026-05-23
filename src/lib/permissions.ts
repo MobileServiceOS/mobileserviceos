@@ -26,6 +26,7 @@ const ALL_FALSE: Permissions = {
   canUsePricingEngine: false,
   canOverrideJobPrice: false,
   canManageTeam: false,
+  canManageOwners: false,
   canEditBusinessSettings: false,
   canUploadLogo: false,
   canGenerateInvoices: false,
@@ -48,6 +49,7 @@ const OWNER_PERMISSIONS: Permissions = {
   canUsePricingEngine: true,
   canOverrideJobPrice: true,
   canManageTeam: true,
+  canManageOwners: true,
   canEditBusinessSettings: true,
   canUploadLogo: true,
   canGenerateInvoices: true,
@@ -67,6 +69,7 @@ const OWNER_PERMISSIONS: Permissions = {
  */
 const ADMIN_PERMISSIONS: Permissions = {
   ...OWNER_PERMISSIONS,
+  canManageOwners: false,
   canManageBilling: false,
 };
 
