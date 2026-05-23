@@ -12,7 +12,7 @@ import { _db } from '@/lib/firebase';
 import { DEFAULT_BRAND } from '@/lib/defaults';
 import { resolveActiveBusinessId } from '@/lib/ownedBusinesses';
 import { applyBrandColors, normalizeHex } from '@/lib/utils';
-import { acceptInviteIfPresent } from '@/lib/invites';
+import { acceptInvite, findPendingInviteForEmail } from '@/lib/invites';
 import type { Brand } from '@/types';
 
 interface BrandContextValue {
@@ -124,22 +124,50 @@ export function BrandProvider({ children, user }: { children: ReactNode; user: U
           bId = recovered;
         } else {
           // ─── Pending invite check ─────────────────────────────────
-          // BEFORE creating a brand new business, look for a pending
-          // invite at invites/{userEmail}. If found, attach this user
-          // to the inviter's business as a member with the invited
-          // role — they do NOT get their own business.
           //
-          // The invites module handles the user doc, members doc, and
-          // invite cleanup atomically. Returns the businessId on
-          // success or null if no invite exists.
+          // BEFORE creating a brand new business, look for a pending
+          // invite for the user's email. The order matters and is
+          // load-bearing:
+          //
+          //   1. Find — does an invite exist at all? (cheap query)
+          //   2. Accept — try to attach the user to the inviter's
+          //      business.
+          //
+          // If step 1 finds an invite, step 2 MUST succeed before we
+          // proceed. We do NOT silently fall through to bootstrap on
+          // an accept failure — that path created phantom-owner ghost
+          // businesses for technicians whose acceptance hit a
+          // transient rules / network issue, and surfaced the bug
+          // as a confusing Onboarding screen for someone who was
+          // supposed to be joining an existing team. Refuse to
+          // bootstrap and surface a clear, retryable error instead.
           let acceptedBid: string | null = null;
+          let pendingInvite: Awaited<ReturnType<typeof findPendingInviteForEmail>> = null;
           if (user.email) {
             try {
-              acceptedBid = await acceptInviteIfPresent(user.uid, user.email);
+              pendingInvite = await findPendingInviteForEmail(user.email);
             } catch (e) {
-              // Non-fatal: log and fall through to first-signup flow.
-              // The invitee can be invited again later if this fails.
-              console.warn('[brand] invite accept failed (falling through to new business):', e);
+              console.warn('[brand] invite lookup failed (treating as no invite):', e);
+            }
+          }
+
+          if (pendingInvite) {
+            try {
+              acceptedBid = await acceptInvite(
+                pendingInvite.token,
+                user.uid,
+                user.email || pendingInvite.email,
+              );
+            } catch (acceptErr) {
+              // Real failure: rules / network / etc. DO NOT bootstrap
+              // — that would make the invitee a phantom owner. Throw
+              // up to the caller so the user sees a retry surface
+              // instead of being silently dumped into Onboarding.
+              console.error('[brand] pending invite found but accept failed:', acceptErr);
+              throw new Error(
+                "We found your team invite but couldn't complete it. " +
+                'Please reload the app, or ask the team owner to resend the invite.',
+              );
             }
           }
 

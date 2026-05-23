@@ -402,39 +402,50 @@ export async function acceptInvite(
 //  Returns the businessId on accept, null otherwise.
 // ─────────────────────────────────────────────────────────────────────
 
-export async function acceptInviteIfPresent(uid: string, email: string): Promise<string | null> {
+/**
+ * Look up the most recent pending, non-expired invite for an email.
+ * Returns null if none exist or if the query fails.
+ *
+ * Split out from acceptInviteIfPresent so BrandContext can know
+ * "this user has an invite waiting" BEFORE attempting acceptance —
+ * which lets us refuse to bootstrap a new business when the user is
+ * supposed to be joining someone else's, even if acceptInvite itself
+ * happens to fail (rules deploy lag, transient network, etc.).
+ */
+export async function findPendingInviteForEmail(email: string): Promise<InviteDoc | null> {
   const e = normalizeEmail(email);
   if (!isValidEmail(e)) return null;
 
-  const db = _db; if (!db) throw new Error("Firestore not initialized");
+  const db = _db; if (!db) return null;
   const q = query(
     collection(db, 'invites'),
     where('email', '==', e),
     where('status', '==', 'pending'),
   );
 
-  let invite: InviteDoc | null = null;
   try {
     const snap = await getDocs(q);
     if (snap.empty) return null;
-    // Pick the most recent pending invite if multiple.
     let latest: InviteDoc | null = null;
     snap.forEach((d) => {
       const data = d.data() as InviteDoc;
-      if (isExpired(data)) return; // skip already-expired
+      if (isExpired(data)) return;
       if (!latest || data.invitedAt > latest.invitedAt) latest = data;
     });
-    invite = latest;
+    return latest;
   } catch (err) {
     // eslint-disable-next-line no-console
-    console.info('[invites] no readable invites for email (normal signup proceeds)', err);
+    console.info('[invites] findPendingInviteForEmail failed', err);
     return null;
   }
+}
 
+export async function acceptInviteIfPresent(uid: string, email: string): Promise<string | null> {
+  const invite = await findPendingInviteForEmail(email);
   if (!invite) return null;
 
   try {
-    return await acceptInvite((invite as InviteDoc).token, uid, e);
+    return await acceptInvite(invite.token, uid, normalizeEmail(email));
   } catch (err) {
     // eslint-disable-next-line no-console
     console.warn('[invites] auto-accept after signup failed (non-fatal):', err);

@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signInWithPopup,
   GoogleAuthProvider,
+  onAuthStateChanged,
   type User,
 } from 'firebase/auth';
 import { _auth } from '@/lib/firebase';
@@ -61,6 +62,17 @@ export function InviteAccept({ token, onAuth }: Props) {
   const [mode, setMode] = useState<'signup' | 'login'>('signup');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  // Set when busy persists past ~6s — gives the user a "still
+  // working, hang tight" signal instead of an indefinite spinner.
+  const [slowHint, setSlowHint] = useState(false);
+  // Tracks any signed-in Firebase user so the page can offer a
+  // one-tap "Accept as <email>" path when the auth state matches the
+  // invite — no need to re-enter a password the user already has on
+  // their device.
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  // Held to prevent a stale "slow" timer firing after the component
+  // unmounts. Cleared in the finally block of every submit path.
+  const slowTimerRef = useRef<number | null>(null);
 
   // ─── Load invite on mount ───────────────────────────────────────
   // All raw Firestore errors are routed through humanizeFirestoreError
@@ -94,6 +106,45 @@ export function InviteAccept({ token, onAuth }: Props) {
     return () => { cancelled = true; };
   }, [token]);
 
+  // ─── Track current Firebase auth state ─────────────────────────
+  // Two roles:
+  //   1. Enables the "Accept as <email>" one-tap path below for users
+  //      already signed in with the invited email (e.g. opened the
+  //      link in the same browser they're already signed into).
+  //   2. Lets us detect a wrong-account session and offer a clean
+  //      sign-out before they try to accept.
+  useEffect(() => {
+    if (!_auth) return;
+    const unsub = onAuthStateChanged(_auth, (u) => setCurrentUser(u));
+    return () => unsub();
+  }, []);
+
+  // ─── Busy lifecycle helpers ─────────────────────────────────────
+  // Centralized so every submit path (Google / email-signup /
+  // email-login / one-tap-existing) gets the same slow-hint timer
+  // semantics. The timer fires after 6 seconds of pending work and
+  // shows "Still working — connecting to the server. This sometimes
+  // takes a few seconds." so the user knows the screen isn't frozen.
+  const beginBusy = () => {
+    setBusy(true);
+    setErr('');
+    setSlowHint(false);
+    if (slowTimerRef.current != null) window.clearTimeout(slowTimerRef.current);
+    slowTimerRef.current = window.setTimeout(() => setSlowHint(true), 6000);
+  };
+  const endBusy = () => {
+    setBusy(false);
+    setSlowHint(false);
+    if (slowTimerRef.current != null) {
+      window.clearTimeout(slowTimerRef.current);
+      slowTimerRef.current = null;
+    }
+  };
+  useEffect(() => () => {
+    // Cleanup on unmount.
+    if (slowTimerRef.current != null) window.clearTimeout(slowTimerRef.current);
+  }, []);
+
   // ─── Acceptance pipeline ────────────────────────────────────────
   // Shared across all three auth paths (Google, email login, email
   // signup). Validates the auth'd user's email against the invite,
@@ -126,8 +177,8 @@ export function InviteAccept({ token, onAuth }: Props) {
   // ─── Google sign-in path ────────────────────────────────────────
   const handleGoogle = async () => {
     if (state.kind !== 'ready' || busy) return;
-    if (!_auth) { setErr('Auth unavailable.'); return; }
-    setBusy(true); setErr('');
+    if (!_auth) { setErr('Sign-in is temporarily unavailable. Please try again.'); return; }
+    beginBusy();
     try {
       const c = await signInWithPopup(_auth, new GoogleAuthProvider());
       const ok = await finishAcceptance(c.user, state.invite);
@@ -135,7 +186,26 @@ export function InviteAccept({ token, onAuth }: Props) {
     } catch (e) {
       setErr(friendlyAuthError(e as { code?: string; message?: string }));
     } finally {
-      setBusy(false);
+      endBusy();
+    }
+  };
+
+  // ─── One-tap accept (already signed in) ─────────────────────────
+  // When the user is already signed in via Firebase Auth AND their
+  // email matches the invite, skip the password step entirely. This
+  // hits the path where someone opens an invite link in the same
+  // browser they're already signed into (most desktop users) — no
+  // reason to make them re-auth.
+  const handleAcceptAsCurrent = async () => {
+    if (state.kind !== 'ready' || busy || !currentUser) return;
+    beginBusy();
+    try {
+      const ok = await finishAcceptance(currentUser, state.invite);
+      if (ok) onAuth(currentUser);
+    } catch (e) {
+      setErr(friendlyAuthError(e as { code?: string; message?: string }));
+    } finally {
+      endBusy();
     }
   };
 
@@ -145,7 +215,7 @@ export function InviteAccept({ token, onAuth }: Props) {
   // have an MSOS account on this same email, they switch to login.
   const handleEmailSubmit = async () => {
     if (state.kind !== 'ready' || busy) return;
-    if (!_auth) { setErr('Auth unavailable.'); return; }
+    if (!_auth) { setErr('Sign-in is temporarily unavailable. Please try again.'); return; }
     if (!emailDraft || !pass) {
       setErr('Enter your email and a password.');
       return;
@@ -154,7 +224,7 @@ export function InviteAccept({ token, onAuth }: Props) {
       setErr('Password must be at least 6 characters.');
       return;
     }
-    setBusy(true); setErr('');
+    beginBusy();
     try {
       const c = mode === 'signup'
         ? await createUserWithEmailAndPassword(_auth, emailDraft, pass)
@@ -175,7 +245,7 @@ export function InviteAccept({ token, onAuth }: Props) {
         setErr(friendlyAuthError(errObj));
       }
     } finally {
-      setBusy(false);
+      endBusy();
     }
   };
 
@@ -289,6 +359,66 @@ export function InviteAccept({ token, onAuth }: Props) {
 
         {err && <div className="auth-banner error">{err}</div>}
 
+        {/* "Accept as <email>" — only when the user is ALREADY signed
+            in with the invited email. Skips re-auth entirely. */}
+        {currentUser
+          && currentUser.email
+          && currentUser.email.toLowerCase() === invite.email
+          && (
+            <>
+              <button
+                type="button"
+                className="btn primary"
+                onClick={handleAcceptAsCurrent}
+                disabled={busy}
+                style={{ width: '100%', marginBottom: 10 }}
+              >
+                {busy
+                  ? (slowHint ? 'Still working — almost there…' : 'Working…')
+                  : `Accept as ${currentUser.email}`}
+              </button>
+              <div style={{
+                fontSize: 11, color: 'var(--t3)', marginBottom: 12,
+                textAlign: 'center', lineHeight: 1.45,
+              }}>
+                You're already signed in. One tap is all it takes.
+              </div>
+            </>
+          )}
+
+        {/* Wrong-account warning: signed in, but as a different email.
+            Surface the mismatch upfront so the user signs out before
+            wasting a submit. */}
+        {currentUser
+          && currentUser.email
+          && currentUser.email.toLowerCase() !== invite.email
+          && (
+            <div className="auth-banner" style={{
+              padding: '10px 12px', marginBottom: 12, lineHeight: 1.45,
+              background: 'rgba(244,180,0,.08)',
+              border: '1px solid rgba(244,180,0,.3)',
+              borderRadius: 8, color: 'var(--t2)', fontSize: 12,
+            }}>
+              You're currently signed in as <b>{currentUser.email}</b>, but
+              this invite was sent to <b>{invite.email}</b>.{' '}
+              <button
+                type="button"
+                onClick={async () => {
+                  try { await _auth?.signOut(); }
+                  catch { /* */ }
+                }}
+                style={{
+                  background: 'transparent', border: 0, padding: 0,
+                  color: 'var(--brand-primary)', fontWeight: 700,
+                  textDecoration: 'underline', cursor: 'pointer',
+                }}
+              >
+                Sign out
+              </button>{' '}
+              and continue with the invited account.
+            </div>
+          )}
+
         <button
           type="button"
           className="btn secondary"
@@ -296,7 +426,9 @@ export function InviteAccept({ token, onAuth }: Props) {
           disabled={busy}
           style={{ width: '100%', marginBottom: 10 }}
         >
-          Continue with Google
+          {busy && !slowHint ? 'Working…' :
+           busy && slowHint  ? 'Still working…' :
+           'Continue with Google'}
         </button>
 
         <div style={{
@@ -344,11 +476,24 @@ export function InviteAccept({ token, onAuth }: Props) {
           style={{ width: '100%' }}
         >
           {busy
-            ? 'Working…'
+            ? (slowHint ? 'Still working — connecting to the server…' : 'Working…')
             : mode === 'signup'
               ? `Create account & join ${business}`
               : `Sign in & join ${business}`}
         </button>
+        {/* Slow-connection sub-text. Appears under the button so the
+            user knows the screen isn't stuck — it's just a slow round
+            trip. Far less alarming than a silent spinner. */}
+        {busy && slowHint && (
+          <div style={{
+            fontSize: 11, color: 'var(--t3)', marginTop: 8,
+            textAlign: 'center', lineHeight: 1.5,
+          }}>
+            This sometimes takes a few seconds on a slow connection.{' '}
+            If nothing happens after another 20 seconds, please reload
+            and try again.
+          </div>
+        )}
 
         <button
           type="button"
