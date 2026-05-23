@@ -181,6 +181,7 @@ export function Dashboard({
   // 'custom' (e.g. a price negotiated with the customer that the
   // pricing engine's Suggested / Premium don't capture).
   const [qqCustom, setQqCustom] = useState('');
+  const [qqDetailsOpen, setQqDetailsOpen] = useState(false);
   const qqChange = <K extends keyof QuoteForm>(k: K, v: QuoteForm[K]) => setQqForm((p) => ({ ...p, [k]: v }));
 
   // ─── Role resolution ─────────────────────────────────────────────
@@ -770,7 +771,17 @@ export function Dashboard({
             </div>
           </div>
         </div>
-        <div className="qq-meta">Direct cost {money(quote.directCosts)} · target profit {money(quote.targetProfit)}</div>
+        <button
+          type="button"
+          className="qq-details-toggle"
+          onClick={() => setQqDetailsOpen((v) => !v)}
+          aria-expanded={qqDetailsOpen}
+        >
+          {qqDetailsOpen ? 'Hide details ▴' : 'Details ▾'}
+        </button>
+        {qqDetailsOpen && (
+          <div className="qq-meta">Direct cost {money(quote.directCosts)} · target profit {money(quote.targetProfit)}</div>
+        )}
         <button className="cta-btn press-scale qq-cta" onClick={handleStartJob}>
           Start Job at {money(qqRevenue)} →
         </button>

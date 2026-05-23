@@ -374,6 +374,22 @@ a { color: var(--brand-primary); text-decoration: none; }
 .qq-price-tile.custom.active .qq-custom-input { color: var(--brand-primary); }
 
 .qq-meta { font-size: 11px; color: var(--t3); margin: 10px 0 4px 0; text-align: center; }
+
+/* ── Quick Quote — details toggle (Phase 1 polish) ───────────── */
+.qq-details-toggle {
+  background: transparent;
+  border: none;
+  color: var(--t3);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .3px;
+  padding: 6px 0;
+  cursor: pointer;
+  text-align: center;
+  width: 100%;
+}
+.qq-details-toggle:hover { color: var(--t2); }
+
 .qq-cta { margin-top: 12px; }
 
 /* ── Insights — AI summary ── */
