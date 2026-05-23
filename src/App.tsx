@@ -3,7 +3,7 @@ import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { _auth, _db, scopedCol, fbDelete, fbListen, fbSet, fbSetFast, initError } from '@/lib/firebase';
 import { BrandProvider, useBrand } from '@/context/BrandContext';
-import { MembershipProvider, usePermissions } from '@/context/MembershipContext';
+import { MembershipProvider, usePermissions, useMembership } from '@/context/MembershipContext';
 import { BusinessSwitcherProvider } from '@/context/BusinessSwitcherContext';
 import { useActiveVertical } from '@/lib/useActiveVertical';
 import { servicePricingFromVertical } from '@/lib/verticals';
@@ -295,6 +295,31 @@ function InsightsGate({ jobs, settings }: { jobs: Job[]; settings: SettingsT }) 
     );
   }
   return <Insights jobs={jobs} settings={settings} />;
+}
+
+/** Technician landing redirect. On first membership resolution, if
+ *  the user is a technician and they're still on the default Home
+ *  tab (no navigation yet), shift them to the Jobs tab — that's the
+ *  workspace they actually use, where the Dashboard's KPI-heavy
+ *  layout is largely irrelevant to them.
+ *
+ *  Owner / admin land on Home as before. The redirect only fires
+ *  once per session (applied ref) so the operator can still navigate
+ *  back to Home whenever they want. */
+function TechnicianLanding({
+  tab, setTab,
+}: { tab: TabId; setTab: (t: TabId) => void }) {
+  const membership = useMembership();
+  const applied = useRef(false);
+  useEffect(() => {
+    if (applied.current) return;
+    if (membership.loading || !membership.role) return;
+    applied.current = true;
+    if (membership.role === 'technician' && tab === 'dashboard') {
+      setTab('history');
+    }
+  }, [membership.loading, membership.role, tab, setTab]);
+  return null;
 }
 
 function AuthenticatedApp({ user }: { user: User }) {
@@ -1189,6 +1214,7 @@ function AuthenticatedApp({ user }: { user: User }) {
 
   return (
     <MembershipProvider settings={settings}>
+      <TechnicianLanding tab={tab} setTab={setTab} />
       <BusinessSwitcherProvider user={user} settings={settings}>
         <Header syncStatus={syncStatus} onSignOut={onSignOut} />
         <OfflineBanner syncStatus={syncStatus} />

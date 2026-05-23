@@ -241,6 +241,10 @@ export function Dashboard({
   const totals = useMemo(() => weekSummary(weekJobs, settings), [weekJobs, settings]);
   const lastWeekTotals = useMemo(() => weekSummary(lastWeekJobs, settings), [lastWeekJobs, settings]);
   const avgProfit = weekJobs.length ? r2(totals.grossProfit / weekJobs.length) : 0;
+  // avgRevenue is the tech-safe version of avgProfit — surfaces an
+  // average that doesn't expose company-level profit math. Used in
+  // the third SubKpi cell when showCompanyData is false.
+  const avgRevenue = weekJobs.length ? r2(totals.revenue / weekJobs.length) : 0;
 
   // Costs = revenue - profit. Visible to owner/admin only.
   const weekCosts = r2(Math.max(0, (totals.revenue || 0) - (totals.grossProfit || 0)));
@@ -472,7 +476,7 @@ export function Dashboard({
             <>
               <SubKpi label="Today" value={`${todayJobs.length}`} tone="neutral" />
               <SubKpi label="Pending" value={`${pendingJobs.length}`} tone="neutral" />
-              <SubKpi label="Avg / Job" value={money(avgProfit)} tone="neutral" />
+              <SubKpi label="Avg / Job" value={money(avgRevenue)} tone="neutral" />
             </>
           )}
         </div>
