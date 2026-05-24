@@ -1,5 +1,6 @@
 import type { ToastItem, ToastType } from '@/types';
 import { uid } from '@/lib/utils';
+import { hapticSuccess, hapticError, hapticWarning, hapticLight } from '@/lib/haptics';
 
 type Listener = (toasts: ToastItem[]) => void;
 let toasts: ToastItem[] = [];
@@ -9,10 +10,23 @@ function emit() {
   listeners.forEach((l) => l(toasts));
 }
 
+/** Map a toast type to its native-feeling tactile signature so the
+ *  operator gets uniform feedback across every flow that surfaces
+ *  a toast. */
+function hapticFor(type: ToastType): void {
+  switch (type) {
+    case 'success': hapticSuccess(); break;
+    case 'error':   hapticError();   break;
+    case 'warn':    hapticWarning(); break;
+    default:        hapticLight();
+  }
+}
+
 export function addToast(msg: string, type: ToastType = 'info'): void {
   const item: ToastItem = { id: uid(), msg, type, ts: Date.now() };
   toasts = [...toasts, item];
   emit();
+  hapticFor(type);
   setTimeout(() => {
     toasts = toasts.filter((t) => t.id !== item.id);
     emit();
@@ -42,6 +56,7 @@ export function addActionToast(
   };
   toasts = [...toasts, item];
   emit();
+  hapticFor(type);
   setTimeout(() => {
     toasts = toasts.filter((t) => t.id !== id);
     emit();

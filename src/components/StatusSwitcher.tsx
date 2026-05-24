@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { TECH_STATUSES, TECH_STATUS_LABELS, TECH_STATUS_TONE, type TechStatus, type PresenceDoc } from '@/types';
 import { setMyPresence, subscribeToPresence } from '@/lib/presence';
+import { hapticMedium } from '@/lib/haptics';
 import { _auth } from '@/lib/firebase';
 
 // ─────────────────────────────────────────────────────────────────────
@@ -45,6 +46,7 @@ export function StatusSwitcher({ businessId }: Props) {
     setBusy(true);
     try {
       await setMyPresence(businessId, next);
+      hapticMedium();
       setPicking(false);
     } finally {
       setBusy(false);

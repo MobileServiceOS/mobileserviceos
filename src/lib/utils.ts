@@ -323,6 +323,13 @@ export function serviceIcon(s: string): string {
   return SERVICE_ICONS[s] || '🛞';
 }
 
+/**
+ * Legacy haptic helper — preserved for back-compat with existing
+ * callers (mostly toggle/chip taps). Delegates to the new
+ * src/lib/haptics.ts abstraction; new code should import the
+ * named hapticLight / hapticMedium / hapticHeavy / hapticSuccess
+ * / hapticError directly so the intent is visible at the call site.
+ */
 export function haptic(): void {
   if (typeof navigator !== 'undefined' && navigator.vibrate) {
     try { navigator.vibrate(8); } catch { /* ignore */ }

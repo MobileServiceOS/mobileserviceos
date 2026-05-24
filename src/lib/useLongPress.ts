@@ -1,4 +1,5 @@
 import { useCallback, useRef } from 'react';
+import { hapticLongPressStart } from '@/lib/haptics';
 
 interface Options {
   /** Hold duration in ms before long-press fires. 450ms is the iOS default. */
@@ -57,13 +58,7 @@ export function useLongPress(
     startPosRef.current = { x, y };
     timerRef.current = window.setTimeout(() => {
       // Haptic feedback for gloved-hand roadside use.
-      try {
-        if (typeof navigator !== 'undefined' && navigator.vibrate) {
-          navigator.vibrate(20);
-        }
-      } catch {
-        // ignore — vibrate isn't critical
-      }
+      hapticLongPressStart();
       firedRef.current = true;
       onLongPress();
       // Reset after enough time for the upcoming click event to check
