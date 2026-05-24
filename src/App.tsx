@@ -67,6 +67,7 @@ import {
 import type {
   Brand, Expense, InventoryItem, Job, PaymentMethod, QuoteForm, Settings as SettingsT, SyncStatus, TabId,
 } from '@/types';
+import type { CustomerMeta } from '@/lib/customers';
 
 declare global {
   interface Window {
@@ -348,6 +349,10 @@ function AuthenticatedApp({ user }: { user: User }) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [inventory, setInventoryRaw] = useState<InventoryItem[]>([]);
   const [settings, setSettingsRaw] = useState<SettingsT>(DEFAULT_SETTINGS);
+  // Customer metadata (notes + tags). Subscribed at App level so the
+  // Customers list view can render tag chips and filter by tag
+  // without paying a per-row Firestore read.
+  const [customerMeta, setCustomerMeta] = useState<Map<string, CustomerMeta>>(new Map());
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('local');
   const [jobDraft, setJobDraft] = useState<Job>(EMPTY_JOB());
   const [editingJobId, setEditingJobId] = useState<string | null>(null);
@@ -435,6 +440,30 @@ function AuthenticatedApp({ user }: { user: User }) {
       setSettingsRaw((p) => ({ ...p, expenses: docs.map(deserializeExpense) }));
       markReady('exp');
     }, handleErr('expenses')));
+
+    // Customer metadata (notes + Phase-2 tags). Optional collection
+    // — only exists for customers that have had a note or tag
+    // explicitly set, so most accounts will see an empty subscription
+    // until the operator starts tagging. Permission errors are
+    // swallowed (technicians don't have write access to customers,
+    // but they can read).
+    unsubs.push(fbListen(scopedCol(businessId, 'customers'), (docs) => {
+      const map = new Map<string, CustomerMeta>();
+      for (const d of docs) {
+        const data = d as Record<string, unknown>;
+        const note = typeof data.note === 'string' ? data.note : undefined;
+        const tags = Array.isArray(data.tags)
+          ? (data.tags as unknown[]).filter((t) => typeof t === 'string') as string[]
+          : undefined;
+        if (note != null || tags != null) {
+          map.set(String(d.id), {
+            note, tags,
+            updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : undefined,
+          });
+        }
+      }
+      setCustomerMeta(map);
+    }, handleErr('customers')));
 
     unsubs.push(fbListen(scopedCol(businessId, 'operational_settings'), (docs) => {
       const main = docs.find((d) => d.id === 'main');
@@ -1167,7 +1196,7 @@ function AuthenticatedApp({ user }: { user: User }) {
         onSendReview={handleSendReview}
       />
     );
-    if (tab === 'customers') return <Customers jobs={jobs} settings={settings} onViewJob={handleViewJob} />;
+    if (tab === 'customers') return <Customers jobs={jobs} settings={settings} customerMeta={customerMeta} onViewJob={handleViewJob} />;
     if (tab === 'insights') return <InsightsGate jobs={jobs} settings={settings} />;
     if (tab === 'payouts') return <Payouts jobs={jobs} settings={settings} />;
     if (tab === 'expenses') return <Expenses expenses={settings.expenses || []} jobs={jobs} settings={settings} onSave={persistExpenses} />;

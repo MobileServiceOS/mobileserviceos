@@ -15,6 +15,25 @@
 import type { Job, Settings } from '@/types';
 import { jobGrossProfit, resolvePaymentStatus } from '@/lib/utils';
 
+/**
+ * Persisted per-customer metadata at `businesses/{bid}/customers/{key}`.
+ * Created on first note save / tag toggle. Absent for most customers.
+ *
+ * `note` is the free-text operator note (existing field).
+ * `tags` is the Phase-2 segmentation field — predefined values
+ * (VIP / Fleet / Seasonal / Do Not Contact) plus free-text.
+ */
+export interface CustomerMeta {
+  note?: string;
+  tags?: string[];
+  updatedAt?: string;
+}
+
+/** Predefined tag set used for the tag-edit chip grid. The list is
+ *  small on purpose — most operators want a handful of categories,
+ *  not a tag soup. Free-text additions are still allowed. */
+export const PRESET_CUSTOMER_TAGS = ['VIP', 'Fleet', 'Seasonal', 'Do Not Contact'] as const;
+
 export interface CustomerProfile {
   /** Firestore-safe, normalized key — also the customers/{key}
    *  note-doc id. See customerKey(). */

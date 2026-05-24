@@ -1,17 +1,23 @@
-import { useEffect, useMemo, useState } from 'react';
-import { doc, getDoc } from 'firebase/firestore';
+import { useMemo, useState } from 'react';
 import type { Job, Settings } from '@/types';
 import { PAYMENT_METHOD_LABELS } from '@/types';
 import { fmtDate, money, paymentPillClass, resolvePaymentStatus, serviceIcon } from '@/lib/utils';
 import { useScopedJobs } from '@/lib/useScopedJobs';
 import { useMembership } from '@/context/MembershipContext';
 import { scopedCol, fbSet } from '@/lib/firebase';
-import { deriveCustomerProfiles, type CustomerProfile } from '@/lib/customers';
+import {
+  deriveCustomerProfiles, type CustomerProfile,
+  type CustomerMeta, PRESET_CUSTOMER_TAGS,
+} from '@/lib/customers';
 import { addToast } from '@/lib/toast';
 
 interface Props {
   jobs: Job[];
   settings: Settings;
+  /** Live snapshot of all persisted per-customer metadata (notes +
+   *  tags). Subscribed at App level; passed here so the list view
+   *  can render tag chips and filter by tag without per-row reads. */
+  customerMeta: Map<string, CustomerMeta>;
   /** Open the job-detail modal for a specific job. Threaded from
    *  App.tsx so tapping a job row inside a customer profile opens
    *  the same modal the History page uses. Optional for legacy
@@ -36,7 +42,7 @@ interface Props {
 type FilterMode = 'all' | 'repeat' | 'new' | 'unpaid';
 type SortMode   = 'revenue' | 'recent' | 'name';
 
-export function Customers({ jobs: rawJobs, settings, onViewJob }: Props) {
+export function Customers({ jobs: rawJobs, settings, customerMeta, onViewJob }: Props) {
   const jobs = useScopedJobs(rawJobs);
   const { member, role, permissions } = useMembership();
   const businessId = member?.businessId || null;
@@ -45,6 +51,7 @@ export function Customers({ jobs: rawJobs, settings, onViewJob }: Props) {
 
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<FilterMode>('all');
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [sort, setSort] = useState<SortMode>('revenue');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
@@ -58,6 +65,24 @@ export function Customers({ jobs: rawJobs, settings, onViewJob }: Props) {
     [customers, selectedKey],
   );
 
+  // ── Tag aggregates ──────────────────────────────────────────────
+  // Collect every distinct tag in use, ordered: preset tags first
+  // (in their declared order), then any custom tags alphabetically.
+  // Counts come from the meta map directly.
+  const allTags = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const meta of customerMeta.values()) {
+      if (!meta.tags) continue;
+      for (const t of meta.tags) counts.set(t, (counts.get(t) || 0) + 1);
+    }
+    const presetSet = new Set<string>(PRESET_CUSTOMER_TAGS);
+    const presetUsed = (PRESET_CUSTOMER_TAGS as readonly string[]).filter((t) => counts.has(t));
+    const custom = [...counts.keys()]
+      .filter((t) => !presetSet.has(t))
+      .sort((a, b) => a.localeCompare(b));
+    return [...presetUsed, ...custom].map((t) => ({ tag: t, count: counts.get(t) || 0 }));
+  }, [customerMeta]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     let list = customers;
@@ -68,6 +93,12 @@ export function Customers({ jobs: rawJobs, settings, onViewJob }: Props) {
     if (filter === 'repeat') list = list.filter((c) => c.isRepeat);
     if (filter === 'new')    list = list.filter((c) => !c.isRepeat);
     if (filter === 'unpaid') list = list.filter((c) => c.unpaidCount > 0);
+    if (tagFilter) {
+      list = list.filter((c) => {
+        const tags = customerMeta.get(c.key)?.tags;
+        return tags ? tags.includes(tagFilter) : false;
+      });
+    }
     // deriveCustomerProfiles already sorts by revenue desc; only
     // re-sort when the user picked a different axis.
     if (sort === 'recent') {
@@ -76,13 +107,14 @@ export function Customers({ jobs: rawJobs, settings, onViewJob }: Props) {
       list = [...list].sort((a, b) => a.name.localeCompare(b.name));
     }
     return list;
-  }, [customers, query, filter, sort]);
+  }, [customers, query, filter, tagFilter, sort, customerMeta]);
 
   // ── Profile drill-down ──────────────────────────────────────────
   if (selected) {
     return (
       <CustomerProfileView
         profile={selected}
+        meta={customerMeta.get(selected.key) || {}}
         settings={settings}
         businessId={businessId}
         canEditNote={canEditNote}
@@ -169,6 +201,23 @@ export function Customers({ jobs: rawJobs, settings, onViewJob }: Props) {
         </FilterChip>
       </div>
 
+      {/* Tag-filter chip row — only renders when at least one
+          customer has a tag persisted. Lets the operator pick a
+          single tag to scope the list. Tap the active tag to clear. */}
+      {allTags.length > 0 && (
+        <div className="chip-grid" style={{ marginBottom: 10 }}>
+          {allTags.map(({ tag, count }) => (
+            <FilterChip
+              key={tag}
+              active={tagFilter === tag}
+              onClick={() => setTagFilter(tagFilter === tag ? null : tag)}
+            >
+              {tag} <Count n={count} />
+            </FilterChip>
+          ))}
+        </div>
+      )}
+
       {/* Sort chips */}
       <div style={{
         display: 'flex', gap: 8, alignItems: 'center',
@@ -208,9 +257,12 @@ export function Customers({ jobs: rawJobs, settings, onViewJob }: Props) {
               <div className="card-pad">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                   <div>
-                    <div style={{ fontSize: 14, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                       {c.name}
                       {c.isRepeat && <RepeatBadge />}
+                      {(customerMeta.get(c.key)?.tags || []).map((t) => (
+                        <TagPill key={t}>{t}</TagPill>
+                      ))}
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--t3)' }}>{c.phone || 'No phone'}</div>
                   </div>
@@ -282,6 +334,19 @@ function Count({ n }: { n: number }) {
   );
 }
 
+// ─── Tag pill — compact label shown on the row + profile header ───
+function TagPill({ children }: { children: React.ReactNode }) {
+  return (
+    <span style={{
+      fontSize: 9, fontWeight: 800, letterSpacing: 0.3, textTransform: 'uppercase',
+      color: 'var(--t1)', background: 'var(--s3)',
+      border: '1px solid var(--border)', borderRadius: 999, padding: '2px 7px',
+    }}>
+      {children}
+    </span>
+  );
+}
+
 // ─── Repeat-customer badge ─────────────────────────────────────────
 function RepeatBadge() {
   return (
@@ -297,9 +362,10 @@ function RepeatBadge() {
 
 // ─── Profile drill-down ────────────────────────────────────────────
 function CustomerProfileView({
-  profile, settings, businessId, canEditNote, canViewProfit, onBack, onViewJob,
+  profile, meta, settings, businessId, canEditNote, canViewProfit, onBack, onViewJob,
 }: {
   profile: CustomerProfile;
+  meta: CustomerMeta;
   settings: Settings;
   businessId: string | null;
   canEditNote: boolean;
@@ -329,36 +395,32 @@ function CustomerProfileView({
     return best;
   }, [profile.jobs]);
 
-  // ── Editable operator note (persisted at customers/{key}) ────────
-  const [note, setNote] = useState('');
-  const [noteLoaded, setNoteLoaded] = useState(false);
+  // ── Editable operator note + tags ────────────────────────────────
+  // Both persist to the same customers/{key} doc; tags are added as
+  // a new array field alongside the existing note. Reads come from
+  // the App-level subscription (props.meta) so there's no per-profile
+  // Firestore fetch any more.
+  const [note, setNote] = useState(meta.note || '');
   const [noteDirty, setNoteDirty] = useState(false);
+  const [tags, setTags] = useState<string[]>(meta.tags || []);
   const [savingNote, setSavingNote] = useState(false);
+  const [savingTags, setSavingTags] = useState(false);
+  const [customTagDraft, setCustomTagDraft] = useState('');
 
-  useEffect(() => {
-    let cancelled = false;
-    const col = businessId ? scopedCol(businessId, 'customers') : null;
-    if (!col) { setNoteLoaded(true); return; }
-    getDoc(doc(col, profile.key))
-      .then((snap) => {
-        if (cancelled) return;
-        const data = snap.exists() ? (snap.data() as { note?: unknown }) : null;
-        setNote(typeof data?.note === 'string' ? data.note : '');
-        setNoteLoaded(true);
-      })
-      .catch(() => { if (!cancelled) setNoteLoaded(true); });
-    return () => { cancelled = true; };
-  }, [businessId, profile.key]);
-
-  const saveNote = async () => {
+  const writeDoc = async (patch: { note?: string; tags?: string[] }) => {
     const col = businessId ? scopedCol(businessId, 'customers') : null;
     if (!col) return;
+    await fbSet(col, profile.key, {
+      ...(patch.note !== undefined ? { note: patch.note } : {}),
+      ...(patch.tags !== undefined ? { tags: patch.tags } : {}),
+      updatedAt: new Date().toISOString(),
+    });
+  };
+
+  const saveNote = async () => {
     setSavingNote(true);
     try {
-      await fbSet(col, profile.key, {
-        note: note.trim(),
-        updatedAt: new Date().toISOString(),
-      });
+      await writeDoc({ note: note.trim() });
       setNoteDirty(false);
       addToast('Note saved', 'success');
     } catch {
@@ -366,6 +428,38 @@ function CustomerProfileView({
     } finally {
       setSavingNote(false);
     }
+  };
+
+  const persistTags = async (next: string[]) => {
+    setSavingTags(true);
+    try {
+      await writeDoc({ tags: next });
+    } catch {
+      addToast('Could not save tags', 'error');
+      // Roll back local state on persistence failure so the UI
+      // stays consistent with what's actually saved.
+      setTags(meta.tags || []);
+    } finally {
+      setSavingTags(false);
+    }
+  };
+
+  const toggleTag = (tag: string) => {
+    const set = new Set(tags);
+    if (set.has(tag)) set.delete(tag); else set.add(tag);
+    const next = [...set].sort();
+    setTags(next);
+    void persistTags(next);
+  };
+
+  const addCustomTag = () => {
+    const t = customTagDraft.trim();
+    if (!t) return;
+    if (tags.includes(t)) { setCustomTagDraft(''); return; }
+    const next = [...tags, t].sort();
+    setTags(next);
+    setCustomTagDraft('');
+    void persistTags(next);
   };
 
   return (
@@ -378,9 +472,10 @@ function CustomerProfileView({
       >← Customers</button>
 
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
         <div style={{ fontSize: 20, fontWeight: 800 }}>{profile.name}</div>
         {profile.isRepeat && <RepeatBadge />}
+        {tags.map((t) => <TagPill key={t}>{t}</TagPill>)}
       </div>
       <div style={{ fontSize: 12, color: 'var(--t3)', marginBottom: 14 }}>
         {profile.phone || 'No phone on file'}
@@ -439,6 +534,56 @@ function CustomerProfileView({
         )}
       </div>
 
+      {/* Tags (Phase 2) — preset chips toggle on/off + free-text add.
+          Owner/admin only; technicians see the tags but can't edit. */}
+      {canEditNote && (
+        <div className="form-group">
+          <div className="form-group-title">
+            Tags {savingTags ? <span style={{ fontSize: 10, color: 'var(--t3)', marginLeft: 6 }}>saving…</span> : null}
+          </div>
+          <div className="chip-grid" style={{ marginBottom: 10 }}>
+            {(PRESET_CUSTOMER_TAGS as readonly string[]).map((t) => (
+              <button
+                key={t}
+                type="button"
+                className={'chip' + (tags.includes(t) ? ' active' : '')}
+                onClick={() => toggleTag(t)}
+              >
+                {t}
+              </button>
+            ))}
+            {tags.filter((t) => !(PRESET_CUSTOMER_TAGS as readonly string[]).includes(t)).map((t) => (
+              <button
+                key={t}
+                type="button"
+                className={'chip active'}
+                onClick={() => toggleTag(t)}
+                title="Remove this tag"
+              >
+                {t} ×
+              </button>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              value={customTagDraft}
+              onChange={(e) => setCustomTagDraft(e.target.value)}
+              placeholder="Add custom tag…"
+              onKeyDown={(e) => { if (e.key === 'Enter') addCustomTag(); }}
+              style={{ flex: 1 }}
+            />
+            <button
+              type="button"
+              className="btn sm secondary"
+              onClick={addCustomTag}
+              disabled={!customTagDraft.trim()}
+            >
+              Add
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Vehicles / tire sizes — whichever the customer's jobs carry. */}
       {(profile.vehicles.length > 0 || profile.tireSizes.length > 0 || profile.paymentMethods.length > 0 || topService) && (
         <div className="form-group">
@@ -469,9 +614,7 @@ function CustomerProfileView({
       {/* Operator note */}
       <div className="form-group">
         <div className="form-group-title">Notes</div>
-        {!noteLoaded ? (
-          <div style={{ fontSize: 12, color: 'var(--t3)' }}>Loading…</div>
-        ) : canEditNote ? (
+        {canEditNote ? (
           <>
             <textarea
               value={note}
