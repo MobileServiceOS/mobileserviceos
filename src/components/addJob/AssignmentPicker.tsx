@@ -22,13 +22,15 @@ export function AssignmentPicker({ value, onChange, members, currentUid }: Props
     () => assignableMembers(members, currentUid),
     [members, currentUid],
   );
-  // Hide entirely when there are no technicians to assign to — the
-  // picker would just show "Me" + "Unassigned" with no real
-  // assignment choice.
-  const hasTechs = options.length > 2;
-  if (!hasTechs) return null;
-
+  // Always render for owner/admin — even when the only options are
+  // Me + Unassigned. Lets a solo operator mark a job "Unassigned"
+  // (needs scheduling) without inviting a teammate first, and makes
+  // the assignment system discoverable.
   const selected = value === undefined || value === null ? UNASSIGNED : value;
+  // Surface a friendly hint when no other assignable members exist
+  // — distinguishes "you haven't invited a tech" from "you have a
+  // tech but they haven't accepted the invite yet".
+  const hasOthers = options.length > 2;
 
   return (
     <div className="form-group card-anim">
@@ -45,6 +47,14 @@ export function AssignmentPicker({ value, onChange, members, currentUid }: Props
           </button>
         ))}
       </div>
+      {!hasOthers && (
+        <div style={{
+          fontSize: 10, color: 'var(--t3)', marginTop: 6, lineHeight: 1.5,
+        }}>
+          Invite a technician or admin in Settings → Team Management.
+          They'll appear here as a chip once they accept their invite.
+        </div>
+      )}
     </div>
   );
 }

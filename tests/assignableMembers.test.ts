@@ -49,14 +49,17 @@ console.log('\n┌─ assignableMembers ─────────────�
     opts.length === 3 && opts[2].label === 'Alice');
 }
 {
+  // Admins are now assignable (small-business operators where an
+  // admin doubles as a working tech). Owners are still excluded —
+  // an owner can self-assign by picking "Me".
   const members = [
     mem({ uid: 'admin1', displayName: 'Adam', role: 'admin' }),
     mem({ uid: 'tech1', displayName: 'Bob' }),
     mem({ uid: 'owner1', displayName: 'O', role: 'owner' }),
   ];
   const opts = assignableMembers(members, 'owner-uid');
-  check('non-technician roles excluded',
-    opts.length === 3 && opts[2].label === 'Bob');
+  check('admins included, owners excluded',
+    opts.length === 4 && opts[2].label === 'Adam' && opts[3].label === 'Bob');
 }
 {
   const members = [

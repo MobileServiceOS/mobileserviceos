@@ -64,21 +64,26 @@ export interface AssigneeOption {
  * Build the picker options for the assignment dropdown. Returns:
  *   - "Me" first (current uid)
  *   - "Unassigned" second
- *   - Each active technician (sorted alphabetically by displayName /
+ *   - Each assignable member (sorted alphabetically by displayName /
  *     email / uid)
  *
- * Members with status !== 'active' are filtered out. The current
- * user is excluded from the technician list because they appear as
- * "Me" instead.
+ * Member-filter rules:
+ *   - status must be 'active' (pending invites can't be assigned —
+ *     their Firebase Auth uid doesn't exist yet)
+ *   - role is 'technician' OR 'admin'. Admins are field-eligible in
+ *     small businesses where an admin doubles as a working tech.
+ *     Owners are excluded (they're "Me" in any owner-AddJob session).
+ *   - must have a non-empty uid
+ *   - current user is excluded (they appear as "Me")
  */
 export function assignableMembers(
   members: ReadonlyArray<MemberDoc>,
   currentUid: string,
 ): AssigneeOption[] {
-  const techs = members
+  const others = members
     .filter((m): m is MemberDoc & { uid: string } =>
       m.status === 'active' &&
-      m.role === 'technician' &&
+      (m.role === 'technician' || m.role === 'admin') &&
       typeof m.uid === 'string' &&
       m.uid !== '' &&
       m.uid !== currentUid,
@@ -95,7 +100,7 @@ export function assignableMembers(
   return [
     { uid: currentUid, label: 'Me', isSelf: true },
     { uid: UNASSIGNED, label: 'Unassigned' },
-    ...techs,
+    ...others,
   ];
 }
 
