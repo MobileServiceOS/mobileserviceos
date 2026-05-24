@@ -1137,6 +1137,7 @@ function AuthenticatedApp({ user }: { user: User }) {
           onSendReview={handleSendReview}
           onMarkPaid={handleMarkPaid}
           onEditJob={handleEditJob}
+          onLogExpense={(e) => persistExpenses([e, ...(settings.expenses || [])])}
         />
       );
     }

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { Job, Settings, InventoryItem, QuoteForm, TabId } from '@/types';
+import type { Job, Settings, InventoryItem, QuoteForm, TabId, Expense } from '@/types';
+import { QuickExpenseSheet } from '@/components/QuickExpenseSheet';
 import {
   calcQuote, clamp, fmtDate, getWeekStart,
   jobGrossProfit, money, normalizeTireSize, paymentPillClass,
@@ -60,6 +61,10 @@ interface Props {
   onSendReview: (j: Job) => void;
   onMarkPaid: (j: Job) => void;
   onEditJob: (j: Job) => void;
+  /** Persist a single new expense from the quick-log sheet. Threaded
+   *  from App.tsx's persistExpenses so the Dashboard can log without
+   *  navigating to the Expenses page. */
+  onLogExpense?: (e: Expense) => void;
 }
 
 // ────── Circular progress ring (SVG, no library) ────────────────────
@@ -161,7 +166,9 @@ export function Dashboard({
   jobs: rawJobs, settings, inventory, setTab, onNewJob,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   onStartJob, onViewJob, onGenerateInvoice, onSendInvoice, onSendReview, onMarkPaid, onEditJob,
+  onLogExpense,
 }: Props) {
+  const [quickExpenseOpen, setQuickExpenseOpen] = useState(false);
   // Phase 2.2 Sub-Project B: scope jobs to what the current member is
   // allowed to see. Owner / admin: pass-through. Technician: union of
   // assigned + created. Every downstream computation reads `jobs`
@@ -771,7 +778,7 @@ export function Dashboard({
         </button>
         <button
           className="press-scale"
-          onClick={() => setTab('history')}
+          onClick={() => showCompanyData && onLogExpense ? setQuickExpenseOpen(true) : setTab('history')}
           style={{
             padding: '14px 12px',
             background: 'var(--s2)',
@@ -782,7 +789,9 @@ export function Dashboard({
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
           }}
         >
-          📋 {isTechnician ? 'Assigned' : 'All Jobs'}
+          {showCompanyData && onLogExpense
+            ? '＋ Expense'
+            : `📋 ${isTechnician ? 'Assigned' : 'All Jobs'}`}
         </button>
       </div>
 
@@ -1029,6 +1038,18 @@ export function Dashboard({
           ＋ Log New Job
         </button>
       </div>
+
+      {/* Quick-log expense sheet (Phase 4). Mounted at the page root
+          so the overlay covers everything. onLogExpense is the
+          owner-only persist callback threaded from App.tsx — gated
+          to canViewProfit roles in the Quick Actions button. */}
+      {quickExpenseOpen && onLogExpense && (
+        <QuickExpenseSheet
+          onSave={(e) => { onLogExpense(e); setQuickExpenseOpen(false); }}
+          onClose={() => setQuickExpenseOpen(false)}
+          onOpenFullExpenses={() => setTab('expenses')}
+        />
+      )}
     </div>
   );
 }
