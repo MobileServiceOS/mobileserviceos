@@ -26,7 +26,8 @@ export function clearInstallPrompt(): void {
 }
 
 /**
- * Service worker update detection.
+ * Watch for a waiting service worker and dispatch `msos:update-available`
+ * so the UpdateBanner can prompt the user to reload.
  *
  * When a new SW is deployed:
  *   1. Browser fetches sw.js, sees it changed → installs new SW in parallel
@@ -35,8 +36,9 @@ export function clearInstallPrompt(): void {
  *   3. We dispatch `msos:update-available` so <UpdateBanner> can show
  *   4. When user taps Update, applyServiceWorkerUpdate() posts SKIP_WAITING
  *      to the waiting SW, which triggers controllerchange + reload
+ *      (the reload itself is owned by main.tsx — single source of truth)
  */
-export function setupServiceWorkerUpdates(): void {
+export function watchServiceWorkerUpdates(): void {
   if (typeof window === 'undefined') return;
   if (!('serviceWorker' in navigator)) return;
 
@@ -55,13 +57,6 @@ export function setupServiceWorkerUpdates(): void {
     });
   }).catch((e) => {
     console.warn('[pwa] update detection setup failed:', e);
-  });
-
-  let reloading = false;
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (reloading) return;
-    reloading = true;
-    window.location.reload();
   });
 }
 

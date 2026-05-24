@@ -29,6 +29,7 @@ const Settings  = lazy(() => import('@/pages/Settings').then((m)  => ({ default:
 import { Header } from '@/components/Header';
 import { ToastHost } from '@/components/ToastHost';
 import { InstallBanner } from '@/components/InstallBanner';
+import { UpdateBanner } from '@/components/UpdateBanner';
 import { MoreSheet } from '@/components/MoreSheet';
 import { EmailVerificationBanner } from '@/components/EmailVerificationBanner';
 import { TrialCountdownBanner } from '@/components/TrialCountdownBanner';
@@ -1473,6 +1474,7 @@ function AuthenticatedApp({ user }: { user: User }) {
         />
       )}
       <InstallBanner />
+      <UpdateBanner />
       <ToastHost />
       </BusinessSwitcherProvider>
     </MembershipProvider>

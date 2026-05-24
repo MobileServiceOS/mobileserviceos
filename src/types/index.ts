@@ -998,6 +998,17 @@ export interface Settings {
    * Reusable for any future VIP / founder / promotional grant via
    * Admin SDK — never via client code.
    */
+  /** Stripe customer id (cus_…). Written by the webhook handler on
+   *  the first paid invoice / subscription event for this business.
+   *  Used by webhook lookups to find the business doc when only the
+   *  Stripe-side identity is available. Never written by the client. */
+  stripeCustomerId?: string;
+  /** Stripe subscription id (sub_…). Written alongside
+   *  stripeCustomerId by the webhook. Drives "Manage subscription"
+   *  link generation and webhook routing. Never written by the
+   *  client. */
+  stripeSubscriptionId?: string;
+
   /** Master kill-switch for Stripe billing on this account. When true,
    *  every plan check resolves to Pro regardless of Stripe state. */
   billingExempt?: boolean;

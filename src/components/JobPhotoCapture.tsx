@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { compressImage } from '@/lib/imageCompress';
-import { uploadJobPhoto } from '@/lib/firebase';
+import { enqueueJobPhotoUpload } from '@/lib/uploadQueue';
 import { addToast } from '@/lib/toast';
 
 // ─────────────────────────────────────────────────────────────────────
@@ -51,11 +51,19 @@ export function JobPhotoCapture({
     setBusy(true);
     setProgress({ done: 0, total: picked.length });
     const uploaded: string[] = [];
+    let queued = 0;
     for (const file of picked) {
       try {
         const compressed = await compressImage(file, { maxDim: 1600, quality: 0.82 });
-        const url = await uploadJobPhoto(businessId, jobId, compressed.blob);
+        // enqueueJobPhotoUpload tries the live upload first when
+        // online. On offline / network error it stashes the blob in
+        // IndexedDB and returns null — the queue drains automatically
+        // when the network returns (installUploadQueueDrain in
+        // main.tsx). The eventual upload writes job.photos via
+        // arrayUnion so the URL still lands on the doc.
+        const url = await enqueueJobPhotoUpload(businessId, jobId, compressed.blob);
         if (url) uploaded.push(url);
+        else queued++;
       } catch (err) {
         // eslint-disable-next-line no-console
         console.warn('[photo-capture] upload failed (non-fatal):', err);
@@ -67,6 +75,12 @@ export function JobPhotoCapture({
     if (uploaded.length > 0) {
       onChange([...photos, ...uploaded]);
       addToast(`${uploaded.length} photo${uploaded.length === 1 ? '' : 's'} added`, 'success');
+    }
+    if (queued > 0) {
+      addToast(
+        `${queued} photo${queued === 1 ? '' : 's'} queued — will upload when you're back online`,
+        'info',
+      );
     }
     setBusy(false);
     setProgress(null);

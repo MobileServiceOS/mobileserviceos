@@ -1,15 +1,18 @@
 // Mobile Service OS — Service Worker
 // ════════════════════════════════════════════════════════════════════
-// Caching strategy (deploy-safe):
-//   - HTML navigations  → NETWORK-FIRST, never cached. A stale
-//     index.html points at hashed JS bundles that no longer exist
-//     after a deploy → "No JavaScript loaded". So HTML always comes
-//     fresh from the network; offline shows a minimal fallback.
-//   - Hashed JS/CSS      → NETWORK-FIRST. Vite content-hashes these
-//     (index-AbC123.js); the filename itself is the cache key. Serving
-//     a cached bundle that the current index.html doesn't reference is
-//     pointless and risks version skew. Network-first keeps deploys
-//     instant; the cache is only an offline fallback.
+// Caching strategy (deploy-safe + offline-loadable):
+//   - HTML navigations  → NETWORK-FIRST, AND cache the successful
+//     response. Offline → serve the cached navigation so the app
+//     actually LOADS without network. The cached index.html points
+//     at hashed JS/CSS bundles that we ALSO cache on first load, so
+//     the matched pair (index + its bundles) is always co-cached.
+//     Worst case after a deploy: an offline user runs the previous
+//     version. On next online load, both index.html AND the new
+//     bundles refresh together — no "stale shell pointing at deleted
+//     bundles" trap, because the cache always serves the chunks the
+//     cached shell actually requested.
+//   - Hashed JS/CSS      → NETWORK-FIRST with cache write on success
+//     so the matching set is always present alongside index.html.
 //   - Static icons/manifest → cache-first (safe: stable filenames).
 //   - Firebase / Google APIs → network-first (never serve stale auth).
 //   - Font / script CDNs → stale-while-revalidate.
@@ -21,11 +24,9 @@
 // changes, stale caches live forever.
 // ════════════════════════════════════════════════════════════════════
 
-// Bumped to v4 — every respondWith path now guarantees a real Response
-// (no more undefined-from-caches.match leaks → no more "Failed to
-// convert value to 'Response'" TypeError on missing assets like
-// /favicon.ico). Bump evicts any v3 cache from prior production builds.
-const VERSION = 'msos-v4';
+// Bumped to v5 — app-shell now cached on navigation success so the
+// app loads offline. Evicts the v4 cache that never stored index.html.
+const VERSION = 'msos-v5';
 const SHELL_CACHE = VERSION + '-shell';
 const RUNTIME_CACHE = VERSION + '-runtime';
 
@@ -159,28 +160,41 @@ self.addEventListener('fetch', (event) => {
   }
 
   // ── Same-origin HTML navigation ──────────────────────────────────
-  // NETWORK-FIRST and NEVER cached. A cached index.html points at
-  // hashed bundles that are deleted on the next deploy → broken boot.
-  // Offline → a minimal inline fallback page (not a stale app shell).
+  // NETWORK-FIRST + cache the successful response under '/' so the
+  // app actually loads offline on subsequent visits. The cached
+  // shell points at hashed bundles that ALSO get cached on first
+  // request (see hashed-asset handler below), so the pair is always
+  // co-resident. After a deploy, the next online navigation refreshes
+  // both halves together — no stale-shell trap.
   if (req.mode === 'navigate') {
     event.respondWith(
-      fetch(req).catch(
-        () =>
+      fetch(req)
+        .then((res) => {
+          if (res && res.status === 200 && res.type === 'basic') {
+            const clone = res.clone();
+            caches.open(RUNTIME_CACHE).then((cache) => cache.put('/', clone));
+          }
+          return res;
+        })
+        .catch(() =>
+          caches.match('/').then((cached) =>
+            cached ||
           new Response(
             '<!doctype html><meta charset="utf-8">' +
               '<meta name="viewport" content="width=device-width,initial-scale=1">' +
               '<title>Offline \u2014 Mobile Service OS</title>' +
               '<body style="font-family:system-ui,sans-serif;padding:32px;text-align:center;color:#333">' +
               '<h2>You\u2019re offline</h2>' +
-              '<p>Mobile Service OS needs a connection to load. ' +
-              'Reconnect and try again.</p>' +
+              '<p>Open the app once with a connection so it can install. ' +
+              'After that, it works offline.</p>' +
               '<button onclick="location.reload()" ' +
               'style="margin-top:12px;padding:10px 20px;border-radius:8px;' +
               'border:1px solid #c8a44a;background:#c8a44a;color:#fff;font-size:15px">' +
               'Retry</button></body>',
             { status: 200, headers: { 'Content-Type': 'text/html' } }
           )
-      )
+          )
+        )
     );
     return;
   }

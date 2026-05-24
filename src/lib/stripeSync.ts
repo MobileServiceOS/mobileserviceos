@@ -315,33 +315,20 @@ export async function startCheckout(uid: string, priceId: string, returnUrl?: st
   // value would otherwise be sent verbatim to Stripe ("no such price").
   const cleanPrice = (priceId || '').trim();
 
-  // ════════════════════════════════════════════════════════════════
-  // DIAGNOSTIC: minimal payload.
-  // Reduced to the smallest VALID subscription-checkout payload the
-  // firestore-stripe-payments extension accepts. `mode` is kept —
-  // without it the extension defaults to one-time 'payment' mode, not
-  // a subscription. The optional fields (allow_promotion_codes,
-  // trial_period_days) are removed during the 400 investigation so a
-  // bad optional field can be ruled out.
-  //
-  // RESTORE after diagnosis — the full payload (with the 14-day trial)
-  // is preserved in the comment block below.
-  // ════════════════════════════════════════════════════════════════
+  // Full checkout payload for the firestore-stripe-payments extension.
+  //   mode='subscription'        — recurring subscription (not one-time)
+  //   trial_period_days=14       — the 14-day free trial period the
+  //                                Subscription card pitches in Settings
+  //   allow_promotion_codes=true — Stripe Dashboard promo codes work
+  //                                at checkout (founder discount path)
   const payload = {
+    mode: 'subscription',
     price: cleanPrice,
     success_url: cleanReturn,
     cancel_url: cleanReturn,
-    mode: 'subscription',
+    allow_promotion_codes: true,
+    trial_period_days: 14,
   };
-  // FULL payload (restore after the 400 is diagnosed):
-  // const payload = {
-  //   mode: 'subscription',
-  //   price: cleanPrice,
-  //   success_url: cleanReturn,
-  //   cancel_url: cleanReturn,
-  //   allow_promotion_codes: true,
-  //   trial_period_days: 14,
-  // };
 
   // eslint-disable-next-line no-console
   console.info('[stripeSync] startCheckout: creating session', {

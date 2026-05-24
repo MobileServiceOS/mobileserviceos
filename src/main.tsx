@@ -2,7 +2,8 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from '@/App';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
-import { setupInstallPrompt } from '@/lib/pwa';
+import { setupInstallPrompt, watchServiceWorkerUpdates } from '@/lib/pwa';
+import { installUploadQueueDrain } from '@/lib/uploadQueue';
 import { captureRefCodeFromUrl } from '@/lib/referral';
 import { initErrorMonitor } from '@/lib/errorMonitor';
 import '@/styles/app.css';
@@ -12,6 +13,12 @@ import '@/styles/app.css';
 initErrorMonitor();
 
 setupInstallPrompt();
+
+// Storage-upload queue drain. Listens for the 'online' edge and
+// processes any photo uploads that were stashed in IndexedDB while
+// offline. Also drains opportunistically on first load so a tab that
+// was closed mid-queue picks up where it left off.
+installUploadQueueDrain();
 
 // Capture ?ref=CODE URL parameter as early as possible — before any
 // auth redirect can strip it. Persists to localStorage and survives
@@ -66,6 +73,10 @@ if ('serviceWorker' in navigator) {
         .catch((err) => {
           console.warn('[sw] registration failed:', err);
         });
+
+      // After registration, watch for new versions and dispatch the
+      // update-available event so <UpdateBanner> can prompt a reload.
+      watchServiceWorkerUpdates();
 
       let reloadedForSW = false;
       navigator.serviceWorker.addEventListener('controllerchange', () => {
