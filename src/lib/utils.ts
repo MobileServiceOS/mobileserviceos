@@ -21,11 +21,6 @@ export const money = (n: number | string | null | undefined): string => {
   return '$' + Math.round(v).toLocaleString();
 };
 
-export const moneyFull = (n: number | string | null | undefined): string => {
-  const v = Number(n || 0);
-  return '$' + v.toFixed(2);
-};
-
 export const uid = (): string =>
   Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
@@ -84,17 +79,6 @@ export function getWeekStart(d: string, startDay: number = 1): string {
 }
 
 /**
- * Get the end date (6 days after start) for a given week-start date.
- * Returns ISO YYYY-MM-DD. Used to display "Week of May 5 — May 11"
- * style ranges throughout Payouts, Expenses, and Dashboard.
- */
-export function getWeekEnd(weekStart: string): string {
-  const dt = new Date(weekStart + 'T12:00:00');
-  dt.setDate(dt.getDate() + 6);
-  return dt.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
-}
-
-/**
  * Format a week range as "May 5 — May 11" given the week start ISO date.
  * If start + end are in different months, both months are shown:
  * "Apr 29 — May 5". The work-week start day is implicit in the input
@@ -102,9 +86,9 @@ export function getWeekEnd(weekStart: string): string {
  */
 export function formatWeekRange(weekStart: string): string {
   if (!weekStart) return '';
-  const weekEnd = getWeekEnd(weekStart);
   const start = new Date(weekStart + 'T12:00:00');
-  const end = new Date(weekEnd + 'T12:00:00');
+  const end = new Date(weekStart + 'T12:00:00');
+  end.setDate(end.getDate() + 6);
   const fmt = (d: Date) => d.toLocaleDateString('en-US', {
     month: 'short', day: 'numeric',
     timeZone: 'America/New_York',
@@ -231,17 +215,6 @@ export function weekSummary(wj: Job[], s: Settings): WeekSummary {
     directCosts: dc,
     grossProfit: gp,
   };
-}
-
-export interface MonthSummary extends WeekSummary {
-  fixed: number;
-  net: number;
-}
-
-export function monthSummary(mj: Job[], s: Settings): MonthSummary {
-  const ws = weekSummary(mj, s);
-  const fix = monthlyFixed(s);
-  return { ...ws, fixed: fix, net: r2(ws.grossProfit - fix) };
 }
 
 /**

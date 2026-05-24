@@ -276,30 +276,86 @@ export function App() {
   );
 }
 
-/** Renders the Insights page only when the current user has canViewFinancials.
- *  Must be rendered inside MembershipProvider so usePermissions() resolves. */
-function InsightsGate({ jobs, settings }: { jobs: Job[]; settings: SettingsT }) {
-  const permissions = usePermissions();
-  if (!permissions.canViewFinancials) {
-    return (
-      <div className="page page-enter">
-        <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 14 }}>Insights</div>
-        <div style={{
-          padding: 14,
-          background: 'var(--s2)',
-          border: '1px solid var(--border)',
-          borderRadius: 10,
-          fontSize: 12,
-          color: 'var(--t3)',
-          lineHeight: 1.5,
-        }}>
-          Insights are available to owners and admins. Ask the
-          business owner if you need access.
-        </div>
+/** Generic render-time permission gate. Wraps a page-content element
+ *  and replaces it with a friendly access-denied panel when the
+ *  requested permission isn't held. Defense-in-depth: the bottom-nav /
+ *  MoreSheet already hide the entry point, but a direct setTab() call
+ *  (e.g. from a notification deep-link) shouldn't be able to render a
+ *  financial page for a technician. */
+function PermissionGate({
+  title, granted, children,
+}: { title: string; granted: boolean; children: React.ReactNode }) {
+  if (granted) return <>{children}</>;
+  return (
+    <div className="page page-enter">
+      <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 14 }}>{title}</div>
+      <div style={{
+        padding: 14,
+        background: 'var(--s2)',
+        border: '1px solid var(--border)',
+        borderRadius: 10,
+        fontSize: 12,
+        color: 'var(--t3)',
+        lineHeight: 1.5,
+      }}>
+        {title} is available to owners and admins. Ask the business
+        owner if you need access.
       </div>
-    );
-  }
-  return <Insights jobs={jobs} settings={settings} />;
+    </div>
+  );
+}
+
+/** Insights tab gate — owner / admin only (canViewFinancials). */
+function InsightsGate({ jobs, settings }: { jobs: Job[]; settings: SettingsT }) {
+  const { canViewFinancials } = usePermissions();
+  return (
+    <PermissionGate title="Insights" granted={canViewFinancials}>
+      <Insights jobs={jobs} settings={settings} />
+    </PermissionGate>
+  );
+}
+
+/** Payouts tab gate — owner / admin only (canManageBilling). */
+function PayoutsGate({ jobs, settings }: { jobs: Job[]; settings: SettingsT }) {
+  const { canManageBilling } = usePermissions();
+  return (
+    <PermissionGate title="Payouts" granted={canManageBilling}>
+      <Payouts jobs={jobs} settings={settings} />
+    </PermissionGate>
+  );
+}
+
+/** Expenses tab gate — owner / admin only (canViewFinancials). */
+function ExpensesGate({
+  expenses, jobs, settings, onSave,
+}: {
+  expenses: Expense[];
+  jobs: Job[];
+  settings: SettingsT;
+  onSave: (next: Expense[]) => Promise<void>;
+}) {
+  const { canViewFinancials } = usePermissions();
+  return (
+    <PermissionGate title="Expenses" granted={canViewFinancials}>
+      <Expenses expenses={expenses} jobs={jobs} settings={settings} onSave={onSave} />
+    </PermissionGate>
+  );
+}
+
+/** Dispatch tab gate — owner / admin only (canManageTeam). */
+function DispatchGate({
+  jobs, settings, onViewJob,
+}: {
+  jobs: Job[];
+  settings: SettingsT;
+  onViewJob: (j: Job) => void;
+}) {
+  const { canManageTeam } = usePermissions();
+  return (
+    <PermissionGate title="Dispatch" granted={canManageTeam}>
+      <Dispatch jobs={jobs} settings={settings} onViewJob={onViewJob} />
+    </PermissionGate>
+  );
 }
 
 /** Technician landing redirect. On first membership resolution, if
@@ -1133,11 +1189,13 @@ function AuthenticatedApp({ user }: { user: User }) {
       // toast at the moment payment lands — gated by shouldPromptReview
       // (per-business setting + a configured review URL + not already
       // requested). onTap reuses handleSendReview, which builds the
-      // templated SMS and stamps reviewRequested.
-      if (shouldPromptReview(j, brand)) {
+      // templated SMS and stamps reviewRequested. Passes `updated`
+      // (post-payment job state) so the review SMS sees the freshly-
+      // stamped paidAt + paymentMethod, not the pre-payment values.
+      if (shouldPromptReview(updated, brand)) {
         addActionToast(
           'Marked as paid.',
-          { label: 'Send review', onTap: () => { void handleSendReview(j); } },
+          { label: 'Send review', onTap: () => { void handleSendReview(updated); } },
           'success',
         );
       } else {
@@ -1230,10 +1288,10 @@ function AuthenticatedApp({ user }: { user: User }) {
       />
     );
     if (tab === 'customers') return <Customers jobs={jobs} settings={settings} customerMeta={customerMeta} onViewJob={handleViewJob} />;
-    if (tab === 'dispatch') return <Dispatch jobs={jobs} settings={settings} onViewJob={handleViewJob} />;
+    if (tab === 'dispatch') return <DispatchGate jobs={jobs} settings={settings} onViewJob={handleViewJob} />;
     if (tab === 'insights') return <InsightsGate jobs={jobs} settings={settings} />;
-    if (tab === 'payouts') return <Payouts jobs={jobs} settings={settings} />;
-    if (tab === 'expenses') return <Expenses expenses={settings.expenses || []} jobs={jobs} settings={settings} onSave={persistExpenses} />;
+    if (tab === 'payouts') return <PayoutsGate jobs={jobs} settings={settings} />;
+    if (tab === 'expenses') return <ExpensesGate expenses={settings.expenses || []} jobs={jobs} settings={settings} onSave={persistExpenses} />;
     if (tab === 'inventory') return <Inventory inventory={inventory} onSave={persistInventory} settings={settings} jobs={jobs} />;
     if (tab === 'settings') return <Settings settings={settings} onSave={persistSettings} />;
     if (tab === 'help') return <Help onBack={() => setTab('dashboard')} />;

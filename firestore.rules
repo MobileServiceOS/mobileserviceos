@@ -561,27 +561,12 @@ service cloud.firestore {
       allow read: if isSignedIn() && request.auth.uid == uid;
       // No client writes — Stripe extension creates this via Admin SDK.
 
-      // ══════════════════════════════════════════════════════════════
-      // TEMPORARY DIAGNOSTIC RULE — checkout 400 investigation
-      // ══════════════════════════════════════════════════════════════
-      // This rule is intentionally loosened to the broadest SAFE form:
-      // any signed-in user may read/write any checkout_sessions doc.
-      //
-      // PURPOSE: isolate whether the "400 Bad Request" on the checkout
-      // write is caused by Firestore RULES or by the Stripe extension.
-      //   - If checkout WORKS with this rule  → the original
-      //     `request.auth.uid == uid` condition was the problem.
-      //   - If checkout STILL 400s            → rules are NOT the
-      //     cause; the Stripe extension install is.
-      //
-      // ⚠️ REVERT THIS after the test. The permanent rule is:
-      //   allow read, write: if isSignedIn() && request.auth.uid == uid;
-      // (kept below, commented, ready to swap back.)
-      // ══════════════════════════════════════════════════════════════
+      // Checkout sessions — scoped to the owning user only. The
+      // Stripe Firebase Extension reads the session the CLIENT
+      // writes and fills in the URL; any cross-user access would
+      // let one signed-in user hijack another's checkout link.
       match /checkout_sessions/{id} {
-        allow read, write: if isSignedIn();
-        // PERMANENT (restore after diagnosis):
-        // allow read, write: if isSignedIn() && request.auth.uid == uid;
+        allow read, write: if isSignedIn() && request.auth.uid == uid;
       }
 
       match /subscriptions/{id} {
