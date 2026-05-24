@@ -6,7 +6,9 @@ import { _auth } from '@/lib/firebase';
 import { attachStripeSync } from '@/lib/stripeSync';
 import { useActiveVertical } from '@/lib/useActiveVertical';
 import { BrandAccordion } from '@/components/settings/BrandSection';
-import { BusinessAccordion } from '@/components/settings/BusinessSection';
+import { OperationsAccordion } from '@/components/settings/OperationsSection';
+import { ProfitTargetsAccordion } from '@/components/settings/ProfitTargetsSection';
+import { OwnersAccordion } from '@/components/settings/OwnersSection';
 import { PricingAccordion } from '@/components/settings/PricingSection';
 import { VehicleAddonsAccordion } from '@/components/settings/VehiclePricingSection';
 import {
@@ -90,11 +92,11 @@ export function Settings({ settings, onSave }: Props) {
   const canSeePricing = permissions.canEditPricingSettings || permissions.canViewPricingSettings;
   const canSeeFinancials = permissions.canViewFinancials;
   const canSeeBilling = permissions.canManageBilling;
-  // Brand + Business + Team accordions live under one umbrella permission:
-  // canEditBusinessSettings. Technicians don't have this; owners + admins
-  // do. The "showOwners" block inside BusinessAccordion remains separately
-  // gated by canSeeFinancials so admins can edit business settings
-  // without seeing owner split %.
+  // Brand + Operations + Profit Targets + Team accordions live under
+  // one umbrella permission: canEditBusinessSettings. Technicians don't
+  // have this; owners + admins do. The separate Owners & Permissions
+  // accordion adds a second gate on canSeeFinancials so admins can
+  // edit operational settings without seeing owner split %.
   const canSeeBusinessSettings = permissions.canEditBusinessSettings;
   const canSeeTeam = permissions.canManageTeam;
 
@@ -131,13 +133,39 @@ export function Settings({ settings, onSave }: Props) {
         />
       )}
 
+      {/* Operations — every-vertical operational settings carved out
+          of the old Business junk drawer (goals, week start, travel,
+          job-level tax). */}
       {canSeeBusinessSettings && (
-        <BusinessAccordion
+        <OperationsAccordion
           settings={settings}
           onSave={onSave}
-          open={openSection === 'business'}
-          onToggle={() => setOpenSection(openSection === 'business' ? null : 'business')}
-          showOwners={canSeeFinancials}
+          open={openSection === 'operations'}
+          onToggle={() => setOpenSection(openSection === 'operations' ? null : 'operations')}
+        />
+      )}
+
+      {/* Profit Targets — vertical-aware (tire targets OR mechanic
+          labor / parts / low-stock). Hides automatically for verticals
+          with no editable targets (detailing for now). */}
+      {canSeeBusinessSettings && (
+        <ProfitTargetsAccordion
+          settings={settings}
+          onSave={onSave}
+          open={openSection === 'profit_targets'}
+          onToggle={() => setOpenSection(openSection === 'profit_targets' ? null : 'profit_targets')}
+        />
+      )}
+
+      {/* Owners & Permissions — owner names + splits + technician
+          override permission. Gated to canSeeFinancials so admins
+          and technicians never render the section at all. */}
+      {canSeeBusinessSettings && canSeeFinancials && (
+        <OwnersAccordion
+          settings={settings}
+          onSave={onSave}
+          open={openSection === 'owners'}
+          onToggle={() => setOpenSection(openSection === 'owners' ? null : 'owners')}
         />
       )}
 
