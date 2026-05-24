@@ -363,14 +363,115 @@ export interface VehiclePricing {
 
 // ─────────────────────────────────────────────────────────────────────
 //  Expenses
+//
+//  An Expense is any money-out event for the business. The system
+//  supports four distinct flavors via the `type` field:
+//
+//    • recurring     — monthly subscriptions / fixed costs (insurance,
+//                       rent, software). `active` toggles them on/off
+//                       without losing history.
+//    • one_time      — a single money-out event with a date (a tank
+//                       of gas, a toll, a hand tool).
+//    • job_linked    — a one-time expense attached to a specific job
+//                       via `jobId`. Caller decides whether it also
+//                       reduces job profit (typically yes for parts /
+//                       tire purchase, no for tolls / gas — UI shows
+//                       a hint either way).
+//    • inventory     — bulk purchase of inventory items. Tracked here
+//                       for business net profit, but the per-unit cost
+//                       flows into Job COGS via the existing
+//                       inventoryDeduction path so it isn't double-
+//                       counted.
+//
+//  Backward compat: legacy expense docs only carry {id, name, amount,
+//  active}. The deserializer fills `type: 'recurring'` and
+//  `category: 'other'` so they continue to behave exactly as before.
 // ─────────────────────────────────────────────────────────────────────
+
+export type ExpenseCategory =
+  | 'gas'
+  | 'tolls'
+  | 'tire_purchase'
+  | 'parts'
+  | 'tools'
+  | 'insurance'
+  | 'marketing'
+  | 'supplies'
+  | 'rent_storage'
+  | 'software'
+  | 'other';
+
+export type ExpenseType =
+  | 'recurring'
+  | 'one_time'
+  | 'job_linked'
+  | 'inventory';
+
+export type ExpensePaymentMethod =
+  | 'cash' | 'card' | 'zelle' | 'venmo' | 'cashapp' | 'check' | 'other';
 
 export interface Expense {
   id: string;
+  /** Human-readable label. For recurring expenses this is the
+   *  subscription / vendor name ("Geico", "Adobe CC"). For one-time
+   *  expenses the UI defaults this from the category if not set. */
   name: string;
   amount: number;
+  /** Recurring-expense on/off toggle. Ignored for non-recurring types
+   *  (one-time / job_linked / inventory always count as actuals). */
   active: boolean;
+  /** Spend category — see EXPENSE_CATEGORIES. Drives the dashboard
+   *  breakdown and reporting. Legacy docs default to 'other'. */
+  category?: ExpenseCategory;
+  /** Lifecycle type — see comment block above the interface. Legacy
+   *  docs default to 'recurring'. */
+  type?: ExpenseType;
+  /** ISO date (YYYY-MM-DD). Required for one_time / job_linked /
+   *  inventory so they can be summed into weekly / monthly windows.
+   *  Recurring expenses don't carry a date — they accrue every month. */
+  date?: string;
+  /** Free-text notes / receipt reference. */
+  notes?: string;
+  /** How it was paid. Helps reconciliation. */
+  paymentMethod?: ExpensePaymentMethod;
+  /** Vendor / source — free text ("Shell", "Discount Tire", etc). */
+  vendor?: string;
+  /** When type === 'job_linked', the job this expense belongs to. */
+  jobId?: string;
+  /** ISO timestamp the row was created. Used for audit + sort order. */
+  createdAt?: string;
 }
+
+/** Ordered list of all expense categories — drives chip rendering. */
+export const EXPENSE_CATEGORIES: ExpenseCategory[] = [
+  'gas', 'tolls', 'tire_purchase', 'parts', 'tools',
+  'insurance', 'marketing', 'supplies', 'rent_storage',
+  'software', 'other',
+];
+
+/** Display labels (kept here, not in a translation file, because the
+ *  app is English-only for v1). */
+export const EXPENSE_CATEGORY_LABELS: Record<ExpenseCategory, string> = {
+  gas:           'Gas',
+  tolls:         'Tolls',
+  tire_purchase: 'Tire Purchase',
+  parts:         'Parts',
+  tools:         'Tools',
+  insurance:     'Insurance',
+  marketing:     'Marketing',
+  supplies:      'Supplies',
+  rent_storage:  'Rent / Storage',
+  software:      'Software',
+  other:         'Other',
+};
+
+/** Display labels for the lifecycle type. */
+export const EXPENSE_TYPE_LABELS: Record<ExpenseType, string> = {
+  recurring:  'Recurring',
+  one_time:   'One-time',
+  job_linked: 'Job-linked',
+  inventory:  'Inventory purchase',
+};
 
 // ─────────────────────────────────────────────────────────────────────
 //  Inventory

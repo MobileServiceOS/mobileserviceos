@@ -177,9 +177,22 @@ export function jobGrossProfit(j: Job, s: Settings): number {
   return r2(Number(j.revenue || 0) - jobDirectCost(j, s));
 }
 
+/**
+ * Sum of all RECURRING fixed monthly expenses that are currently
+ * toggled on. Used by Payouts (weekly fixed = monthly / 4.33) and
+ * the dashboard cost breakdown.
+ *
+ * Type-aware as of the Phase-1 expense schema: only `type ===
+ * 'recurring'` expenses count here. One-time / job-linked / inventory
+ * purchases are tracked separately (see expenseCalc). Legacy expense
+ * docs without an explicit `type` deserialize as 'recurring' so the
+ * Payouts math for pre-upgrade accounts stays exactly the same.
+ */
 export function monthlyFixed(s: Settings): number {
   return r2(
-    (s.expenses || []).filter((e) => e.active).reduce((t, e) => t + Number(e.amount || 0), 0)
+    (s.expenses || [])
+      .filter((e) => (e.type || 'recurring') === 'recurring' && e.active)
+      .reduce((t, e) => t + Number(e.amount || 0), 0)
   );
 }
 

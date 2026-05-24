@@ -1,4 +1,5 @@
-import type { Job, InventoryItem, Expense, InventoryDeduction, Settings, ServicePricing, JobStatus, PaymentStatus, PaymentMethod, TireSource, JobPartLine, PartsMarginSnapshot, ReservedSlot } from '@/types';
+import type { Job, InventoryItem, Expense, ExpenseCategory, ExpenseType, ExpensePaymentMethod, InventoryDeduction, Settings, ServicePricing, JobStatus, PaymentStatus, PaymentMethod, TireSource, JobPartLine, PartsMarginSnapshot, ReservedSlot } from '@/types';
+import { EXPENSE_CATEGORIES } from '@/types';
 import type { LifecycleTransition } from '@/config/jobs/lifecycle';
 import { EMPTY_JOB, DEFAULT_SERVICE_PRICING } from '@/lib/defaults';
 
@@ -233,12 +234,45 @@ export function deserializeInventoryItem(raw: RawDoc): InventoryItem {
   };
 }
 
+function asExpenseCategory(v: unknown): ExpenseCategory | undefined {
+  if (typeof v !== 'string') return undefined;
+  return (EXPENSE_CATEGORIES as readonly string[]).includes(v)
+    ? (v as ExpenseCategory)
+    : undefined;
+}
+
+function asExpenseType(v: unknown): ExpenseType | undefined {
+  if (v === 'recurring' || v === 'one_time' || v === 'job_linked' || v === 'inventory') {
+    return v;
+  }
+  return undefined;
+}
+
+function asExpensePaymentMethod(v: unknown): ExpensePaymentMethod | undefined {
+  const allowed: ExpensePaymentMethod[] = ['cash', 'card', 'zelle', 'venmo', 'cashapp', 'check', 'other'];
+  if (typeof v === 'string' && (allowed as string[]).includes(v)) return v as ExpensePaymentMethod;
+  return undefined;
+}
+
 export function deserializeExpense(raw: RawDoc): Expense {
+  // Backward compat: legacy expense docs only had {id, name, amount,
+  // active}. The new schema adds category / type / date / vendor /
+  // paymentMethod / jobId / notes. Missing values default to the
+  // legacy-equivalent semantics so existing accounts continue to
+  // see their recurring fixed costs unchanged.
   return {
     id: asString(raw.id),
     name: asString(raw.name),
     amount: asNumber(raw.amount),
     active: asBool(raw.active, true),
+    category:      asExpenseCategory(raw.category) ?? 'other',
+    type:          asExpenseType(raw.type) ?? 'recurring',
+    date:          raw.date == null          ? undefined : asString(raw.date),
+    notes:         raw.notes == null         ? undefined : asString(raw.notes),
+    paymentMethod: asExpensePaymentMethod(raw.paymentMethod),
+    vendor:        raw.vendor == null        ? undefined : asString(raw.vendor),
+    jobId:         raw.jobId == null         ? undefined : asString(raw.jobId),
+    createdAt:     raw.createdAt == null     ? undefined : asString(raw.createdAt),
   };
 }
 
