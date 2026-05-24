@@ -5,6 +5,12 @@ import {
   jobGrossProfit, money, normalizeTireSize, paymentPillClass,
   r2, resolvePaymentStatus, serviceIcon, weekSummary,
 } from '@/lib/utils';
+import {
+  expenseTotalsInRange,
+  monthlyRecurringTotal,
+  weeklyRecurringFromMonthly,
+  businessNetProfit,
+} from '@/lib/expenseCalc';
 import { DEFAULT_SERVICE_PRICING, DEFAULT_VEHICLE_PRICING, TODAY } from '@/lib/defaults';
 import { useCountUp } from '@/lib/useCountUp';
 import { useMembership } from '@/context/MembershipContext';
@@ -106,6 +112,23 @@ function ProgressRing({
       }}>
         {children}
       </div>
+    </div>
+  );
+}
+
+// One line of the weekly cost breakdown card. Renders nothing for
+// zero-value buckets so the card stays compact on quiet weeks.
+function CostRow({ label, value }: { label: string; value: number }) {
+  if (!value) return null;
+  return (
+    <div style={{
+      display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+      padding: '4px 0', fontSize: 12, color: 'var(--t2)',
+    }}>
+      <span>{label}</span>
+      <span className="num" style={{ fontWeight: 700, color: 'var(--t1)' }}>
+        {money(value)}
+      </span>
     </div>
   );
 }
@@ -342,6 +365,49 @@ export function Dashboard({
     [visibleJobs],
   );
 
+  // ─── Today counter (Phase-3 spec) ───────────────────────────────
+  // Counts ALL jobs whose date === today, regardless of status,
+  // then splits into completed / pending. Cancelled jobs are tracked
+  // separately and EXCLUDED from the "Jobs Today" headline so a
+  // cancelled job never inflates the completed-today number.
+  const todayCreated   = useMemo(() => visibleJobs.filter((j) => j.date === today), [visibleJobs, today]);
+  const todayCompleted = useMemo(() => todayCreated.filter((j) => j.status === 'Completed'), [todayCreated]);
+  const todayPending   = useMemo(() => todayCreated.filter((j) => j.status === 'Pending'),   [todayCreated]);
+  const todayActiveCount = todayCompleted.length + todayPending.length;
+
+  // ─── Week expense breakdown (owner-only Phase-3 cost card) ──────
+  // Spec calls for clearly-labeled buckets: Job Costs / One-Time /
+  // Recurring / Inventory / Total. Job Costs come from the existing
+  // weekSummary.directCosts (tire/material/parts/travel). The other
+  // three flow from the new expense ledger via expenseCalc.
+  const weekExpenses = useMemo(
+    () => expenseTotalsInRange(settings.expenses || [], thisWeek, today),
+    [settings.expenses, thisWeek, today],
+  );
+  const weeklyRecurringExpense = useMemo(
+    () => weeklyRecurringFromMonthly(monthlyRecurringTotal(settings.expenses || [])),
+    [settings.expenses],
+  );
+  const weekTotalExpenses = r2(
+    weekCosts                                  // existing job-level COGS
+    + weekExpenses.byType.one_time
+    + weekExpenses.byType.job_linked
+    + weekExpenses.byType.inventory
+    + weeklyRecurringExpense
+  );
+  // Business net profit for the week = job gross profit minus the
+  // non-job-COGS expenses. (Inventory bucket is NOT subtracted again:
+  // per-unit cost already flowed into grossProfit via tireCost.)
+  const weekNetProfit = useMemo(
+    () => businessNetProfit({
+      jobsProfitSum: totals.grossProfit,
+      expenses: settings.expenses || [],
+      startISO: thisWeek,
+      endISO: today,
+    }),
+    [totals.grossProfit, settings.expenses, thisWeek, today],
+  );
+
   const quote = useMemo(() => calcQuote(qqForm, settings), [qqForm, settings]);
 
   // Count-up animation target: profit for owner, jobs count for tech.
@@ -550,6 +616,109 @@ export function Dashboard({
           </span>
         </button>
       </div>
+
+      {/* ── Today counter (Phase-3 spec) ──────────────────────────
+          Tells the operator at-a-glance how many jobs were created
+          today, how many completed, how many still pending. Cancelled
+          jobs are deliberately excluded from the headline so they
+          can't inflate "today's work" numbers. Tappable rows route
+          to Jobs filtered to today's date — though History doesn't
+          currently support deep-linking a date filter, so for now
+          they go to the Jobs tab and the operator can scan. */}
+      <div className="section-label">Today</div>
+      <button
+        type="button"
+        onClick={() => setTab('history')}
+        className="card card-anim press-scale"
+        style={{
+          width: '100%', textAlign: 'left', background: 'var(--s2)',
+          border: '1px solid var(--border)', borderRadius: 12,
+          padding: '12px 14px', marginBottom: 14, cursor: 'pointer',
+        }}
+        aria-label="Jobs today"
+      >
+        <div style={{
+          display: 'grid', gridTemplateColumns: '1fr 1fr 1fr',
+          gap: 8, alignItems: 'center',
+        }}>
+          <div>
+            <div className="op-stat-label">Jobs today</div>
+            <div className="op-stat-value">{todayActiveCount}</div>
+          </div>
+          <div>
+            <div className="op-stat-label">Completed</div>
+            <div className="op-stat-value green">{todayCompleted.length}</div>
+          </div>
+          <div>
+            <div className="op-stat-label">Pending</div>
+            <div className={'op-stat-value' + (todayPending.length > 0 ? ' amber' : '')}>
+              {todayPending.length}
+            </div>
+          </div>
+        </div>
+        {showCompanyData && todayCompleted.length > 0 && (
+          <div style={{
+            marginTop: 10, paddingTop: 10,
+            borderTop: '1px solid var(--border2)',
+            display: 'flex', justifyContent: 'space-between',
+            fontSize: 11, color: 'var(--t3)',
+          }}>
+            <span>Today's revenue · <span style={{ color: 'var(--t2)', fontWeight: 700 }}>{money(todayTotals.revenue)}</span></span>
+            <span>Profit · <span style={{ color: 'var(--t2)', fontWeight: 700 }}>{money(todayTotals.grossProfit)}</span></span>
+          </div>
+        )}
+      </button>
+
+      {/* ── Week cost breakdown (Phase-3 spec) — owner-only ───────
+          Splits the previously-vague "Costs" SubKpi into the five
+          buckets the spec calls out. Tappable → Expenses page. */}
+      {showCompanyData && (weekTotalExpenses > 0 || (settings.expenses || []).length > 0) && (
+        <>
+          <div className="section-label">This Week's Costs</div>
+          <button
+            type="button"
+            onClick={() => setTab('expenses')}
+            className="card card-anim press-scale"
+            style={{
+              width: '100%', textAlign: 'left', background: 'var(--s2)',
+              border: '1px solid var(--border)', borderRadius: 12,
+              padding: '12px 14px', marginBottom: 14, cursor: 'pointer',
+            }}
+            aria-label="View expenses"
+          >
+            <CostRow label="Job costs (parts / tire / material / travel)" value={weekCosts} />
+            <CostRow label="One-time expenses" value={weekExpenses.byType.one_time} />
+            <CostRow label="Job-linked expenses" value={weekExpenses.byType.job_linked} />
+            <CostRow label="Inventory purchases" value={weekExpenses.byType.inventory} />
+            <CostRow label="Recurring (weekly prorated)" value={weeklyRecurringExpense} />
+            <div style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+              marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border2)',
+              fontSize: 13, fontWeight: 800,
+            }}>
+              <span>Total expenses</span>
+              <span style={{ color: '#ef4444' }}>{money(weekTotalExpenses)}</span>
+            </div>
+            <div style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+              marginTop: 6, fontSize: 13, fontWeight: 800,
+            }}>
+              <span>Business net profit (this week)</span>
+              <span style={{ color: weekNetProfit >= 0 ? '#22c55e' : '#ef4444' }}>
+                {money(weekNetProfit)}
+              </span>
+            </div>
+            <div style={{
+              fontSize: 10, color: 'var(--t3)', marginTop: 8, lineHeight: 1.5,
+            }}>
+              Job profit (this week) is {money(totals.grossProfit)} — Net is after
+              one-time + recurring expenses. Inventory purchases aren't
+              double-counted since their per-unit cost already flows
+              into job profit.
+            </div>
+          </button>
+        </>
+      )}
 
       {/* ─── 4. Pending Payments — owner/admin only ──────────────── */}
       {showCompanyData && pendingPaymentJobs.length > 0 && (
