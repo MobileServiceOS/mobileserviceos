@@ -58,6 +58,16 @@ export interface CustomerProfile {
   vehicles: string[];
   /** Distinct payment methods used. */
   paymentMethods: string[];
+  /** Count of jobs paid with each method. Drives the Phase-3 payment-
+   *  mix bar in the profile drill-down. Keys are the raw payment
+   *  method strings from the Job (caller can map via
+   *  PAYMENT_METHOD_LABELS for display). */
+  paymentMethodCounts: Record<string, number>;
+  /** Average days between consecutive jobs for repeat customers.
+   *  Null when jobCount < 2 (cadence is undefined for one-job
+   *  customers). Computed as (lastDate - firstDate) / (jobCount - 1)
+   *  in days. */
+  visitCadenceDays: number | null;
   /** How many of the customer's jobs have had a review requested. */
   reviewsSent: number;
   /** Jobs not fully Paid — count + outstanding revenue total. */
@@ -127,6 +137,8 @@ export function deriveCustomerProfiles(
         tireSizes: [],
         vehicles: [],
         paymentMethods: [],
+        paymentMethodCounts: {},
+        visitCadenceDays: null,
         reviewsSent: 0,
         unpaidCount: 0,
         unpaidTotal: 0,
@@ -153,6 +165,10 @@ export function deriveCustomerProfiles(
     pushDistinct(p.tireSizes, j.tireSize);
     pushDistinct(p.vehicles, j.vehicleMakeModel);
     pushDistinct(p.paymentMethods, j.paymentMethod);
+    if (j.paymentMethod) {
+      const m = String(j.paymentMethod);
+      p.paymentMethodCounts[m] = (p.paymentMethodCounts[m] || 0) + 1;
+    }
 
     if (j.reviewRequested) p.reviewsSent += 1;
     if (resolvePaymentStatus(j) !== 'Paid') {
@@ -166,7 +182,76 @@ export function deriveCustomerProfiles(
     p.isRepeat = p.jobCount > 1;
     // Most recent job first within each profile.
     p.jobs.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    // Visit cadence — only meaningful for repeat customers.
+    if (p.jobCount > 1 && p.firstDate && p.lastDate && p.firstDate !== p.lastDate) {
+      const ms = Date.parse(p.lastDate + 'T12:00:00Z') - Date.parse(p.firstDate + 'T12:00:00Z');
+      if (Number.isFinite(ms) && ms > 0) {
+        p.visitCadenceDays = ms / 86_400_000 / (p.jobCount - 1);
+      }
+    }
   }
   out.sort((a, b) => b.revenue - a.revenue);
   return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+//  CSV export helper (Phase 3).
+//
+//  Pure: takes a list of profiles + their metadata map, returns a
+//  CSV string. UI handles the Blob + download. Columns ordered for
+//  accountant / spreadsheet consumption (name first, money last).
+// ─────────────────────────────────────────────────────────────────────
+
+function csvEscape(v: string | number | undefined | null): string {
+  if (v == null) return '';
+  const s = String(v);
+  if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
+
+export function customersToCsv(
+  profiles: ReadonlyArray<CustomerProfile>,
+  metaByKey: Map<string, CustomerMeta>,
+  options: { includeProfit?: boolean } = {},
+): string {
+  const includeProfit = options.includeProfit !== false;
+  const headers = [
+    'Name', 'Phone', 'Email',
+    'Jobs', 'Repeat',
+    'First date', 'Last date',
+    'Avg days between visits',
+    'Top payment method',
+    'Tags', 'Notes',
+    'Revenue',
+    ...(includeProfit ? ['Profit'] : []),
+    'Unpaid jobs', 'Unpaid total',
+  ];
+  const rows = profiles.map((p) => {
+    const meta = metaByKey.get(p.key);
+    const topMethod = (() => {
+      let best: [string, number] | null = null;
+      for (const [k, v] of Object.entries(p.paymentMethodCounts)) {
+        if (!best || v > best[1]) best = [k, v];
+      }
+      return best ? best[0] : '';
+    })();
+    return [
+      csvEscape(p.name),
+      csvEscape(p.phone),
+      csvEscape(p.email),
+      csvEscape(p.jobCount),
+      csvEscape(p.isRepeat ? 'yes' : 'no'),
+      csvEscape(p.firstDate),
+      csvEscape(p.lastDate),
+      csvEscape(p.visitCadenceDays != null ? p.visitCadenceDays.toFixed(1) : ''),
+      csvEscape(topMethod),
+      csvEscape((meta?.tags || []).join('; ')),
+      csvEscape(meta?.note || ''),
+      csvEscape(p.revenue.toFixed(2)),
+      ...(includeProfit ? [csvEscape(p.profit.toFixed(2))] : []),
+      csvEscape(p.unpaidCount),
+      csvEscape(p.unpaidTotal.toFixed(2)),
+    ].join(',');
+  });
+  return [headers.join(','), ...rows].join('\n');
 }

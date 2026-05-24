@@ -8,6 +8,7 @@ import { scopedCol, fbSet } from '@/lib/firebase';
 import {
   deriveCustomerProfiles, type CustomerProfile,
   type CustomerMeta, PRESET_CUSTOMER_TAGS,
+  customersToCsv,
 } from '@/lib/customers';
 import { addToast } from '@/lib/toast';
 
@@ -130,9 +131,44 @@ export function Customers({ jobs: rawJobs, settings, customerMeta, onViewJob }: 
   const unpaidCustomerCount = customers.filter((c) => c.unpaidCount > 0).length;
   const repeatCount = customers.filter((c) => c.isRepeat).length;
 
+  // CSV export — operates on the currently-filtered list, so the
+  // operator can scope the export by switching the filter / search
+  // first (e.g. "all unpaid customers"). Pure helper builds the
+  // string; this fn handles only the Blob + download.
+  const handleExportCsv = () => {
+    if (filtered.length === 0) {
+      addToast('Nothing to export with the current filters', 'warn');
+      return;
+    }
+    const csv = customersToCsv(filtered, customerMeta, { includeProfit: canViewProfit });
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const stamp = new Date().toISOString().slice(0, 10);
+    a.download = `customers-${stamp}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    addToast(`Exported ${filtered.length} customer${filtered.length !== 1 ? 's' : ''}`, 'success');
+  };
+
   return (
     <div className="page page-enter">
-      <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 14 }}>Customers</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+        <div style={{ fontSize: 18, fontWeight: 700 }}>Customers</div>
+        {customers.length > 0 && (
+          <button
+            type="button"
+            className="btn xs secondary"
+            onClick={handleExportCsv}
+            title="Download filtered customer list as CSV"
+          >
+            ↓ CSV
+          </button>
+        )}
+      </div>
 
       <div className={'kpi-grid' + (canViewProfit ? ' three' : '')}>
         <div className="kpi"><div className="kpi-label">Total</div><div className="kpi-value">{customers.length}</div></div>
@@ -522,6 +558,12 @@ function CustomerProfileView({
           <Stat label="Reviews sent" value={String(profile.reviewsSent)} />
           <Stat label="First seen" value={profile.firstDate ? fmtDate(profile.firstDate) : '—'} />
           <Stat label="Last seen" value={profile.lastDate ? fmtDate(profile.lastDate) : '—'} />
+          {profile.visitCadenceDays != null && (
+            <Stat
+              label="Visits"
+              value={`Every ${Math.round(profile.visitCadenceDays)} days`}
+            />
+          )}
         </div>
         {profile.unpaidCount > 0 && (
           <div style={{
@@ -608,6 +650,18 @@ function CustomerProfileView({
                 .join(', ')}
             />
           )}
+        </div>
+      )}
+
+      {/* Payment-method mix bar (Phase 3) — only renders when the
+          customer has paid more than once (a one-job customer's
+          single method is already in the History row above). Shows
+          a single horizontal stacked bar with percent labels per
+          method. Color palette uses brand tones for stability. */}
+      {profile.jobCount > 1 && Object.keys(profile.paymentMethodCounts).length > 0 && (
+        <div className="form-group">
+          <div className="form-group-title">Payment mix</div>
+          <PaymentMixBar counts={profile.paymentMethodCounts} />
         </div>
       )}
 
@@ -706,5 +760,58 @@ function Row({ label, value }: { label: string; value: string }) {
       <span className="label">{label}</span>
       <span className="value" style={{ fontWeight: 600, textAlign: 'right' }}>{value}</span>
     </div>
+  );
+}
+
+// Horizontal stacked bar showing how the customer pays. Colors rotate
+// through a fixed palette so the SAME method gets the SAME color
+// across customer profiles (cash → green, card → gold, etc.).
+const PAYMENT_COLORS: Record<string, string> = {
+  cash:    '#22c55e',
+  card:    'var(--brand-primary)',
+  zelle:   '#3b82f6',
+  venmo:   '#8b5cf6',
+  cashapp: '#10b981',
+  check:   '#64748b',
+};
+const FALLBACK_COLOR = 'var(--t3)';
+
+function PaymentMixBar({ counts }: { counts: Record<string, number> }) {
+  const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  const total = entries.reduce((s, [, c]) => s + c, 0);
+  if (total === 0) return null;
+  return (
+    <>
+      <div style={{
+        display: 'flex', height: 14, borderRadius: 8, overflow: 'hidden',
+        border: '1px solid var(--border)',
+      }}>
+        {entries.map(([method, count]) => (
+          <div
+            key={method}
+            title={`${PAYMENT_METHOD_LABELS[method as keyof typeof PAYMENT_METHOD_LABELS] ?? method}: ${count}`}
+            style={{
+              width: `${(count / total) * 100}%`,
+              background: PAYMENT_COLORS[method] || FALLBACK_COLOR,
+            }}
+          />
+        ))}
+      </div>
+      <div style={{
+        marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 8,
+        fontSize: 11, color: 'var(--t2)',
+      }}>
+        {entries.map(([method, count]) => (
+          <span key={method} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <span style={{
+              display: 'inline-block', width: 8, height: 8, borderRadius: 2,
+              background: PAYMENT_COLORS[method] || FALLBACK_COLOR,
+            }} />
+            <span>{PAYMENT_METHOD_LABELS[method as keyof typeof PAYMENT_METHOD_LABELS] ?? method}</span>
+            <span style={{ color: 'var(--t3)' }}>{Math.round((count / total) * 100)}%</span>
+          </span>
+        ))}
+      </div>
+    </>
   );
 }
