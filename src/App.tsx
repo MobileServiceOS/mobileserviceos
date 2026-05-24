@@ -14,6 +14,7 @@ import { Dashboard } from '@/pages/Dashboard';
 import { AddJob } from '@/pages/AddJob';
 import { History } from '@/pages/History';
 import { Inventory } from '@/pages/Inventory';
+import { Dispatch } from '@/pages/Dispatch';
 // Secondary tabs are lazy-loaded to keep the initial bundle lean.
 // Dashboard / AddJob / History / Inventory are the daily-driver
 // surfaces (the four eager imports above). Insights / Payouts /
@@ -1197,6 +1198,7 @@ function AuthenticatedApp({ user }: { user: User }) {
       />
     );
     if (tab === 'customers') return <Customers jobs={jobs} settings={settings} customerMeta={customerMeta} onViewJob={handleViewJob} />;
+    if (tab === 'dispatch') return <Dispatch jobs={jobs} settings={settings} onViewJob={handleViewJob} />;
     if (tab === 'insights') return <InsightsGate jobs={jobs} settings={settings} />;
     if (tab === 'payouts') return <Payouts jobs={jobs} settings={settings} />;
     if (tab === 'expenses') return <Expenses expenses={settings.expenses || []} jobs={jobs} settings={settings} onSave={persistExpenses} />;
@@ -1334,7 +1336,7 @@ function AuthenticatedApp({ user }: { user: User }) {
           <span className="nav-ico">🛞</span><span>Inv</span>
         </button>
         <button
-          className={'nav-btn' + ((tab === 'settings' || tab === 'payouts' || tab === 'expenses' || tab === 'customers' || tab === 'insights' || tab === 'help') ? ' active' : '')}
+          className={'nav-btn' + ((tab === 'settings' || tab === 'payouts' || tab === 'expenses' || tab === 'customers' || tab === 'insights' || tab === 'dispatch' || tab === 'help') ? ' active' : '')}
           onClick={() => setMoreOpen(true)}
         >
           <span className="nav-ico">⚙</span><span>More</span>

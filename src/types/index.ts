@@ -65,6 +65,7 @@ export type TabId =
   | 'payouts'
   | 'expenses'
   | 'inventory'
+  | 'dispatch'
   | 'settings'
   | 'help'
   | 'success';
@@ -127,6 +128,55 @@ export type Role = TeamRole;
  * = revoked but kept for historical attribution.
  */
 export type MemberStatus = 'active' | 'pending' | 'disabled';
+
+/**
+ * Technician work status — the field-service "where am I right now"
+ * signal. Distinct from `MemberStatus` (the member-doc lifecycle) and
+ * from `JobStatus` (the per-job state). Stored at
+ * `businesses/{bid}/presence/{uid}`. Self-managed: each user writes
+ * only their own presence doc.
+ *
+ *   available  — at base / dispatch-ready
+ *   enroute    — driving to a job
+ *   onsite     — at customer location
+ *   busy       — actively working / not interruptible
+ *   off_duty   — clocked out, not taking jobs
+ *
+ *   offline is implied by an absent / stale presence doc — the UI
+ *   shows "Offline" when no presence doc exists for the user.
+ */
+export type TechStatus = 'available' | 'enroute' | 'onsite' | 'busy' | 'off_duty';
+
+export interface PresenceDoc {
+  uid: string;
+  status: TechStatus;
+  /** Optional free-text the operator types when changing status
+   *  ("lunch", "stopped for gas", "headed to Smith job"). */
+  note?: string;
+  /** ISO timestamp the status was last set. Used to show "5 min ago"
+   *  on the dispatch board so stale presences are obvious. */
+  updatedAt: string;
+}
+
+export const TECH_STATUSES: TechStatus[] = ['available', 'enroute', 'onsite', 'busy', 'off_duty'];
+
+export const TECH_STATUS_LABELS: Record<TechStatus, string> = {
+  available: 'Available',
+  enroute:   'En Route',
+  onsite:    'On Site',
+  busy:      'Busy',
+  off_duty:  'Off Duty',
+};
+
+/** Colour tone for the status pill / dot. Matches existing pill
+ *  CSS conventions (green/amber/red/neutral). */
+export const TECH_STATUS_TONE: Record<TechStatus, 'green' | 'amber' | 'red' | 'neutral'> = {
+  available: 'green',
+  enroute:   'amber',
+  onsite:    'amber',
+  busy:      'red',
+  off_duty:  'neutral',
+};
 
 /**
  * Firestore document shape for `businesses/{bid}/members/{memberId}`.

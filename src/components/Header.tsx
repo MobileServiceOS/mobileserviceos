@@ -1,7 +1,9 @@
 import { useBrand } from '@/context/BrandContext';
 import { useActiveVertical } from '@/lib/useActiveVertical';
+import { useMembership } from '@/context/MembershipContext';
 import { APP_LOGO } from '@/lib/defaults';
 import { BusinessSwitcher } from '@/components/BusinessSwitcher';
+import { StatusSwitcher } from '@/components/StatusSwitcher';
 import type { SyncStatus } from '@/types';
 
 interface Props {
@@ -27,9 +29,15 @@ function statusPill(s: SyncStatus): PillSpec {
 }
 
 export function Header({ syncStatus, onSignOut }: Props) {
-  const { brand } = useBrand();
+  const { brand, businessId } = useBrand();
   const vertical = useActiveVertical();
+  const { role } = useMembership();
   const pill = statusPill(syncStatus);
+  // Techs see a work-status switcher in place of the sync pill —
+  // it's the field-service rhythm they live in. Owners + admins keep
+  // the sync pill since their concern is data integrity, not
+  // dispatch state.
+  const isTechnician = role === 'technician';
 
   return (
     <div className="header-compact">
@@ -61,7 +69,9 @@ export function Header({ syncStatus, onSignOut }: Props) {
             one business. For a single-business operator it returns
             null and the Header is visually unchanged. */}
         <BusinessSwitcher activeLabel={brand.businessName || 'Mobile Service OS'} />
-        <span className={pill.className} title={pill.title}>{pill.label}</span>
+        {isTechnician
+          ? <StatusSwitcher businessId={businessId} />
+          : <span className={pill.className} title={pill.title}>{pill.label}</span>}
         <button
           onClick={onSignOut}
           title="Sign out"

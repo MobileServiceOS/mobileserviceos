@@ -427,6 +427,19 @@ service cloud.firestore {
         allow write: if isMemberOfBusiness(businessId);
       }
 
+      // Presence collection — technician work status (Available /
+      // En Route / On Site / Busy / Off Duty). Each user writes ONLY
+      // their own presence doc; all members can read so the dispatch
+      // board sees everyone's status. Deliberately separated from
+      // members/{uid} so a tech's self-status update doesn't have
+      // to go through the (much stricter) role-transition matrix.
+      match /presence/{userId} {
+        allow read:  if isMemberOfBusiness(businessId);
+        allow write: if isSignedIn()
+                       && request.auth.uid == userId
+                       && isMemberOfBusiness(businessId);
+      }
+
       // Everything else under the business (jobs, inventory, customers,
       // technicians, products) — any member can read. Writes default to
       // member-level too (technicians need to log jobs and consume
