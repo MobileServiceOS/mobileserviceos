@@ -8,6 +8,7 @@ import { useActiveVertical } from '@/lib/useActiveVertical';
 import { BrandAccordion } from '@/components/settings/BrandSection';
 import { OperationsAccordion } from '@/components/settings/OperationsSection';
 import { ProfitTargetsAccordion } from '@/components/settings/ProfitTargetsSection';
+import { InvoicesAccordion } from '@/components/settings/InvoicesSection';
 import { OwnersAccordion } from '@/components/settings/OwnersSection';
 import { PricingAccordion } from '@/components/settings/PricingSection';
 import { VehicleAddonsAccordion } from '@/components/settings/VehiclePricingSection';
@@ -154,6 +155,19 @@ export function Settings({ settings, onSave }: Props) {
           onSave={onSave}
           open={openSection === 'profit_targets'}
           onToggle={() => setOpenSection(openSection === 'profit_targets' ? null : 'profit_targets')}
+        />
+      )}
+
+      {/* Invoices — sales-tax rate, warranty footer (universal),
+          warranty box (Pro), and the custom invoice footer. The
+          single place to configure everything that prints on a job's
+          invoice. */}
+      {canSeeBusinessSettings && (
+        <InvoicesAccordion
+          settings={settings}
+          onSave={onSave}
+          open={openSection === 'invoices'}
+          onToggle={() => setOpenSection(openSection === 'invoices' ? null : 'invoices')}
         />
       )}
 
