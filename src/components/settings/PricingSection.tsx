@@ -64,14 +64,62 @@ function PricingForm({ settings, onSave }: Props) {
     setSp({ ...sp, [k]: { ...sp[k], ...patch } });
   };
 
+  // Bulk toggle — flips every service in the catalog on or off in
+  // one shot. Useful when an operator wants to start from "all off"
+  // and selectively enable, or vice versa. Operates on the FULL
+  // catalog (not just the currently-stored entries) so a brand-new
+  // vertical without any operator overrides still gets all services
+  // flipped correctly.
+  const setAllEnabled = (enabled: boolean) => {
+    const next: Record<string, ServicePricing> = { ...sp };
+    for (const svc of vertical.services) {
+      const existing = next[svc.id] || {
+        basePrice: svc.defaultBasePrice,
+        minProfit: svc.defaultMinProfit,
+        enabled: svc.enabledByDefault,
+      };
+      next[svc.id] = { ...existing, enabled };
+    }
+    setSp(next);
+  };
+
+  const enabledCount = renderableServices.filter((r) => r.enabled).length;
+  const allOn  = enabledCount === renderableServices.length;
+  const allOff = enabledCount === 0;
+
   const save = async () => {
     try { await onSave({ servicePricing: sp }); markClean(); } catch { /* */ }
   };
 
   return (
     <>
-      <div style={{ fontSize: 11, color: 'var(--t3)', marginBottom: 8 }}>
-        Service base price + min profit per row.
+      <div style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        marginBottom: 8,
+      }}>
+        <div style={{ fontSize: 11, color: 'var(--t3)' }}>
+          Service base price + min profit per row.
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button
+            type="button"
+            className="btn xs secondary"
+            onClick={() => setAllEnabled(true)}
+            disabled={allOn}
+            style={{ fontSize: 10 }}
+          >
+            Enable all
+          </button>
+          <button
+            type="button"
+            className="btn xs secondary"
+            onClick={() => setAllEnabled(false)}
+            disabled={allOff}
+            style={{ fontSize: 10 }}
+          >
+            Disable all
+          </button>
+        </div>
       </div>
 
       {/* Compact pricing rows — table-style. Each row: name, base, min profit,

@@ -12,10 +12,16 @@ import { InvoicesAccordion } from '@/components/settings/InvoicesSection';
 import { OwnersAccordion } from '@/components/settings/OwnersSection';
 import { PricingAccordion } from '@/components/settings/PricingSection';
 import { VehicleAddonsAccordion } from '@/components/settings/VehiclePricingSection';
-import {
-  LaborPartsDefaultsAccordion,
-  PackageMultiplierDefaultsAccordion,
-} from '@/components/settings/VerticalDefaultsSection';
+// Phase 3 settings cleanup: the read-only Labor & Parts Defaults +
+// Vehicle Size Multipliers accordions used to render the active
+// vertical's pricingModel defaults as static rows. They were
+// scheduled to become editable in Phase 2.2 / 2.3 but that work
+// never landed, so they sat in the UI as confusing placeholders.
+// Removed from the page; the actual editable mechanic-defaults
+// (laborRate / partsMarkupDefault / lowStockThreshold) live in the
+// new Profit Targets accordion. If the deferred edit work is
+// revived later, VerticalDefaultsSection.tsx is still on disk and
+// can be re-imported.
 import { TeamAccordion } from '@/components/settings/TeamSection';
 import { SubscriptionAccordion } from '@/components/settings/SubscriptionSection';
 import { ReferralAccordion } from '@/components/settings/ReferralSection';
@@ -202,29 +208,6 @@ export function Settings({ settings, onSave }: Props) {
           onSave={onSave}
           open={openSection === 'vehicle'}
           onToggle={() => setOpenSection(openSection === 'vehicle' ? null : 'vehicle')}
-        />
-      )}
-
-      {/* Mechanic-specific defaults — read-only in Phase 2.1.
-          Editing these would require widening Settings with override
-          fields (laborRateOverride, partsMarkupPctOverride, etc.)
-          and threading them into the labor_parts pricing engine.
-          Scheduled for Phase 2.2 (mechanic full slice). */}
-      {canSeePricing && vertical.pricingModel.kind === 'labor_parts' && (
-        <LaborPartsDefaultsAccordion
-          model={vertical.pricingModel}
-          open={openSection === 'labor_parts_defaults'}
-          onToggle={() => setOpenSection(openSection === 'labor_parts_defaults' ? null : 'labor_parts_defaults')}
-        />
-      )}
-
-      {/* Detailing-specific defaults — read-only in Phase 2.1.
-          Scheduled for Phase 2.3 (detailing full slice). */}
-      {canSeePricing && vertical.pricingModel.kind === 'package_multiplier' && (
-        <PackageMultiplierDefaultsAccordion
-          model={vertical.pricingModel}
-          open={openSection === 'package_multiplier_defaults'}
-          onToggle={() => setOpenSection(openSection === 'package_multiplier_defaults' ? null : 'package_multiplier_defaults')}
         />
       )}
 
