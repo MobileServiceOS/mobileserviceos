@@ -74,6 +74,52 @@ export function Insights({ jobs, settings }: Props) {
         </div>
       )}
 
+      {/* ── Daily job stats (Phase 5) ─────────────────────────── */}
+      <div className="form-group">
+        <div className="form-group-title">Daily Jobs</div>
+        <div style={{
+          display: 'grid', gridTemplateColumns: '1fr 1fr 1fr',
+          gap: 10, marginBottom: 10,
+        }}>
+          <div>
+            <div style={{ fontSize: 9, fontWeight: 800, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: 1 }}>Today</div>
+            <div style={{ fontSize: 22, fontWeight: 800 }}>{ins.dailyJobs.jobsToday}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 9, fontWeight: 800, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: 1 }}>This week</div>
+            <div style={{ fontSize: 22, fontWeight: 800 }}>{ins.dailyJobs.jobsThisWeek}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 9, fontWeight: 800, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: 1 }}>Avg / day</div>
+            <div style={{ fontSize: 22, fontWeight: 800 }}>
+              {ins.dailyJobs.avgPerDay.toFixed(1)}
+            </div>
+          </div>
+        </div>
+        {(ins.dailyJobs.bestDayThisWeek || ins.dailyJobs.busiestServiceToday) && (
+          <div style={{ paddingTop: 8, borderTop: '1px solid var(--border2)' }}>
+            {ins.dailyJobs.bestDayThisWeek && (
+              <div className="card-row" style={{ padding: '6px 0', fontSize: 12 }}>
+                <span className="label">Best day this week</span>
+                <span className="value">
+                  {fmtDate(ins.dailyJobs.bestDayThisWeek.date)} ·{' '}
+                  <strong>{ins.dailyJobs.bestDayThisWeek.count} job{ins.dailyJobs.bestDayThisWeek.count !== 1 ? 's' : ''}</strong>
+                </span>
+              </div>
+            )}
+            {ins.dailyJobs.busiestServiceToday && (
+              <div className="card-row" style={{ padding: '6px 0', fontSize: 12 }}>
+                <span className="label">Busiest service today</span>
+                <span className="value">
+                  {ins.dailyJobs.busiestServiceToday.service} ·{' '}
+                  <strong>{ins.dailyJobs.busiestServiceToday.count}</strong>
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* ── Revenue trend ──────────────────────────────────────── */}
       <div className="form-group">
         <div className="form-group-title">Revenue — Last 8 Weeks</div>
@@ -175,6 +221,71 @@ export function Insights({ jobs, settings }: Props) {
           </>
         )}
       </div>
+
+      {/* ── Expense analysis (Phase 5) ─────────────────────────── */}
+      <div className="form-group">
+        <div className="form-group-title">Expenses — Last 8 Weeks</div>
+        <div className="card-row" style={{ padding: '6px 0' }}>
+          <span className="label">Business net profit</span>
+          <span
+            className="value"
+            style={{
+              fontWeight: 800,
+              color: ins.expenseAnalysis.netProfit8w >= 0 ? 'var(--green)' : 'var(--red)',
+            }}
+          >
+            {money(ins.expenseAnalysis.netProfit8w)}
+          </span>
+        </div>
+        <div className="card-row" style={{ padding: '6px 0' }}>
+          <span className="label">Recurring monthly burden</span>
+          <span className="value" style={{ fontWeight: 700 }}>
+            {money(ins.expenseAnalysis.monthlyRecurringBurden)}/mo
+          </span>
+        </div>
+
+        {/* Cost trend bars — mirror the Revenue trend visual so the
+            two charts read side-by-side. */}
+        <div style={{ marginTop: 12 }}>
+          <div style={{ fontSize: 10, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 800, marginBottom: 6 }}>
+            Weekly cost trend
+          </div>
+          {(() => {
+            const max = Math.max(1, ...ins.expenseAnalysis.weeklyExpenseTrend.map((w) => w.total));
+            return (
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 80 }}>
+                {ins.expenseAnalysis.weeklyExpenseTrend.map((w) => (
+                  <div key={w.weekStart} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                    <div
+                      style={{
+                        width: '100%',
+                        height: Math.max(2, Math.round((w.total / max) * 64)),
+                        background: 'linear-gradient(180deg, rgba(239,68,68,.85) 0%, rgba(239,68,68,.30) 100%)',
+                        borderRadius: '4px 4px 0 0',
+                      }}
+                      title={`${fmtDate(w.weekStart)} · ${money(w.total)}`}
+                    />
+                    <div style={{ fontSize: 8, color: 'var(--t3)' }}>
+                      {fmtDate(w.weekStart).split(' ')[1] || ''}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+        </div>
+      </div>
+
+      {/* ── Top cost categories (Phase 5) ──────────────────────── */}
+      <RankedCard
+        title="Top Cost Categories"
+        rows={ins.expenseAnalysis.topCategoriesByCost.slice(0, 6).map((c) => ({
+          label: c.label,
+          sub: `${money(c.total)} over 8 weeks`,
+          value: c.total,
+          valueLabel: money(c.total),
+        }))}
+      />
     </div>
   );
 }

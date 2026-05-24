@@ -127,6 +127,95 @@ console.log('\n┌─ Mechanic profit + empty input ─────────�
   check('empty input → repeat pct 0', empty.repeat.pct === 0);
 }
 
+// ─── Phase 5: daily job stats ───────────────────────────────────────
+console.log('\n┌─ Daily job stats ─────────────────────────────────');
+{
+  const todayId = '2026-05-22';
+  const yest    = '2026-05-21';
+  const earlier = '2026-05-19';
+  const jobs = [
+    mkJob({ date: todayId, service: 'Flat Tire Repair' }),
+    mkJob({ date: todayId, service: 'Flat Tire Repair' }),
+    mkJob({ date: todayId, service: 'Mounting & Balancing' }),
+    mkJob({ date: todayId, service: 'Lockout', status: 'Cancelled' }), // excluded
+    mkJob({ date: yest,    service: 'Flat Tire Repair' }),
+    mkJob({ date: yest,    service: 'Flat Tire Repair' }),
+    mkJob({ date: earlier, service: 'Flat Tire Repair' }),
+  ];
+  const ins = computeInsights(jobs, settings, TODAY);
+  check('jobsToday = 3 (cancelled excluded)',
+    ins.dailyJobs.jobsToday === 3);
+  check('jobsThisWeek = 6 (Mon-anchored week; excludes cancelled)',
+    ins.dailyJobs.jobsThisWeek === 6);
+  check('busiestServiceToday = Flat Tire Repair (2 today)',
+    ins.dailyJobs.busiestServiceToday?.service === 'Flat Tire Repair'
+    && ins.dailyJobs.busiestServiceToday?.count === 2);
+  check('bestDayThisWeek = today (3 jobs)',
+    ins.dailyJobs.bestDayThisWeek?.date === todayId
+    && ins.dailyJobs.bestDayThisWeek?.count === 3);
+  check('avgPerDay > 0',
+    ins.dailyJobs.avgPerDay > 0);
+
+  const noJobsToday = computeInsights(
+    [mkJob({ date: earlier, status: 'Completed' })],
+    settings, TODAY,
+  );
+  check('no jobs today → busiestServiceToday is null',
+    noJobsToday.dailyJobs.busiestServiceToday === null);
+  check('no jobs today → jobsToday is 0',
+    noJobsToday.dailyJobs.jobsToday === 0);
+
+  const allCancelled = computeInsights(
+    [mkJob({ date: todayId, status: 'Cancelled' })],
+    settings, TODAY,
+  );
+  check('cancelled-only day → jobsToday is 0 (not inflated)',
+    allCancelled.dailyJobs.jobsToday === 0);
+}
+
+// ─── Phase 5: expense analysis ──────────────────────────────────────
+console.log('\n┌─ Expense analysis ────────────────────────────────');
+{
+  // 8-week range ending on TODAY = 56-day window.
+  const inWindow = '2026-04-10'; // within 8w
+  const expenses = [
+    { id: 'r1', name: 'Insurance', amount: 200, active: true,  type: 'recurring' as const, category: 'insurance' as const },
+    { id: 'r2', name: 'Off',       amount: 999, active: false, type: 'recurring' as const, category: 'other' as const },
+    { id: 'g1', name: 'Gas',       amount: 60,  active: true,  type: 'one_time' as const, category: 'gas' as const,   date: inWindow },
+    { id: 'g2', name: 'Gas',       amount: 40,  active: true,  type: 'one_time' as const, category: 'gas' as const,   date: TODAY },
+    { id: 'i1', name: 'Bulk tires',amount: 800, active: true,  type: 'inventory' as const, category: 'tire_purchase' as const, date: TODAY },
+    { id: 'o1', name: 'Out of win',amount: 999, active: true,  type: 'one_time' as const, category: 'tools' as const, date: '2025-12-01' },
+  ];
+  const settingsWithExp = { ...settings, expenses } as unknown as Settings;
+  const ins = computeInsights(
+    [mkJob({ date: TODAY, revenue: 500 })],
+    settingsWithExp, TODAY,
+  );
+
+  check('monthlyRecurringBurden = 200 (inactive ignored)',
+    ins.expenseAnalysis.monthlyRecurringBurden === 200);
+  check('topCategoriesByCost includes Gas at $100',
+    ins.expenseAnalysis.topCategoriesByCost.find((c) => c.category === 'gas')?.total === 100);
+  check('topCategoriesByCost includes Tire Purchase at $800',
+    ins.expenseAnalysis.topCategoriesByCost.find((c) => c.category === 'tire_purchase')?.total === 800);
+  check('topCategoriesByCost is sorted desc (tire_purchase before gas)',
+    ins.expenseAnalysis.topCategoriesByCost[0].category === 'tire_purchase'
+    && ins.expenseAnalysis.topCategoriesByCost[0].total === 800);
+  check('expenses out of 8w window are excluded',
+    !ins.expenseAnalysis.topCategoriesByCost.some((c) => c.category === 'tools'));
+  check('weeklyExpenseTrend has 8 weeks',
+    ins.expenseAnalysis.weeklyExpenseTrend.length === 8);
+  check('netProfit8w is a number',
+    typeof ins.expenseAnalysis.netProfit8w === 'number'
+    && Number.isFinite(ins.expenseAnalysis.netProfit8w));
+
+  const emptyExp = computeInsights([], settings, TODAY);
+  check('empty expenses → topCategoriesByCost is []',
+    emptyExp.expenseAnalysis.topCategoriesByCost.length === 0);
+  check('empty expenses → monthlyRecurringBurden is 0',
+    emptyExp.expenseAnalysis.monthlyRecurringBurden === 0);
+}
+
 console.log('');
 console.log(passed + ' passed, ' + failed + ' failed');
 if (failed > 0) process.exit(1);
