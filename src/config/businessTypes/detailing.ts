@@ -174,17 +174,6 @@ export const DETAILING_CONFIG: BusinessTypeConfig = {
     },
   ],
 
-  lifecycle: {
-    applicableStages: [
-      'lead', 'quoted', 'scheduled', 'dispatched', 'enroute', 'onsite',
-      'in_progress', 'awaiting_approval', 'completed', 'invoiced', 'paid', 'canceled',
-      // 'waiting_parts' intentionally omitted — detailing has no parts.
-    ],
-    stageOverrides: {
-      awaiting_approval: { label: 'Awaiting customer walk-around', shortLabel: 'Walk-around' },
-    },
-  },
-
   // Mobile car wash / detailing: highway intentionally omitted —
   // no one washes a car on the highway. Emergency/late-night/weekend
   // are all plausible (rush detail before resale, evening fleet job,

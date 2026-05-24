@@ -2,17 +2,13 @@ import { useState } from 'react';
 import type { Job, Settings, InventoryDeduction, PaymentMethod } from '@/types';
 import { PAYMENT_METHOD_LABELS } from '@/types';
 import { fmtDate, jobGrossProfit, money, paymentPillClass, resolvePaymentStatus, serviceIcon } from '@/lib/utils';
-import { useActiveLifecycle } from '@/lib/useActiveLifecycle';
 import { useActiveVertical } from '@/lib/useActiveVertical';
 import { useMembership } from '@/context/MembershipContext';
 import { useBrand } from '@/context/BrandContext';
 import { useMembersDirectory } from '@/lib/useMembersDirectory';
-import { StagePicker } from '@/components/JobDetailModal/StagePicker';
-import { StageHistory } from '@/components/JobDetailModal/StageHistory';
 import { JobTimer } from '@/components/JobDetailModal/JobTimer';
 import { JobPhotoCapture } from '@/components/JobPhotoCapture';
 import { SignaturePad } from '@/components/SignaturePad';
-import type { JobLifecycleStage } from '@/config/jobs/lifecycle';
 
 interface Props {
   job: Job;
@@ -25,7 +21,6 @@ interface Props {
   onSendInvoice: () => void;
   onSendReview: () => void;
   onMarkPaid: (method?: PaymentMethod) => void;
-  onStageTransition?: (toStage: JobLifecycleStage, toSubstage?: string) => void;
   /** Optional patch-update callback used by the Phase-4 photos +
    *  signature surfaces. Threaded from App.tsx; when absent, the
    *  photo / signature sections render in read-only mode. */
@@ -35,7 +30,7 @@ interface Props {
 export function JobDetailModal({
   job, settings, onClose, onEdit, onDuplicate, onDelete,
   onGenerateInvoice, onSendInvoice, onSendReview, onMarkPaid,
-  onStageTransition, onUpdateJob,
+  onUpdateJob,
 }: Props) {
   const profit = jobGrossProfit(job, settings);
   const ps = resolvePaymentStatus(job);
@@ -63,7 +58,6 @@ export function JobDetailModal({
   // write path (paymentStatus stays 'Paid', paidAt preserved,
   // paymentMethod updated).
   const [editingMethod, setEditingMethod] = useState(false);
-  const resolved = useActiveLifecycle();
   const { role, member, permissions } = useMembership();
   const myUid = member?.uid || null;
   // Technicians see revenue (they set the price) but never the
@@ -316,24 +310,6 @@ export function JobDetailModal({
               </>
             )}
           </div>
-
-          {/* Sub-Project C: stage picker + history. Both render only
-              when the App passes an onStageTransition callback. */}
-          {onStageTransition && (
-            <>
-              <StagePicker
-                job={job}
-                resolved={resolved}
-                role={role}
-                onTransition={onStageTransition}
-              />
-              <StageHistory
-                job={job}
-                resolved={resolved}
-                resolveName={resolveName}
-              />
-            </>
-          )}
 
           {/* Sub-Project 2.4: time-tracking block. Renders for every
               job; START/STOP gated by canEditJob inside the

@@ -1,6 +1,5 @@
 import type { Job, InventoryItem, Expense, ExpenseCategory, ExpenseType, ExpensePaymentMethod, InventoryDeduction, Settings, ServicePricing, JobStatus, PaymentStatus, PaymentMethod, TireSource, JobPartLine, PartsMarginSnapshot, ReservedSlot } from '@/types';
 import { EXPENSE_CATEGORIES } from '@/types';
-import type { LifecycleTransition } from '@/config/jobs/lifecycle';
 import { EMPTY_JOB, DEFAULT_SERVICE_PRICING } from '@/lib/defaults';
 
 type RawDoc = Record<string, unknown> & { id: string };
@@ -186,13 +185,6 @@ export function deserializeJob(raw: RawDoc): Job {
       : null,
     partsMarginSnapshot: raw.partsMarginSnapshot && typeof raw.partsMarginSnapshot === 'object'
       ? (raw.partsMarginSnapshot as PartsMarginSnapshot)
-      : undefined,
-
-    // ─── Job lifecycle foundation (Phase 2.1 epilogue) ─────────────
-    lifecycleStage: raw.lifecycleStage == null ? undefined : (raw.lifecycleStage as Job['lifecycleStage']),
-    lifecycleSubstage: raw.lifecycleSubstage == null ? undefined : asString(raw.lifecycleSubstage),
-    transitions: Array.isArray(raw.transitions)
-      ? (raw.transitions as unknown as ReadonlyArray<LifecycleTransition>)
       : undefined,
   };
 }

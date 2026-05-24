@@ -217,14 +217,6 @@ export const MECHANIC_CONFIG: BusinessTypeConfig = {
     },
   ],
 
-  lifecycle: {
-    substages: [
-      { id: 'mechanic.parts_on_order',    parentStage: 'waiting_parts', label: 'Parts on order',    technicianVisible: true, customerVisible: true },
-      { id: 'mechanic.parts_back_order',  parentStage: 'waiting_parts', label: 'Parts back-order',  technicianVisible: true, customerVisible: true },
-      { id: 'mechanic.diagnosis_pending', parentStage: 'in_progress',   label: 'Diagnosing',        technicianVisible: true, customerVisible: false },
-    ],
-  },
-
   // Mobile mechanic: all 4 conditions apply. Highway is a real case
   // (highway battery replacement, roadside diagnostic, etc.).
   conditions: [

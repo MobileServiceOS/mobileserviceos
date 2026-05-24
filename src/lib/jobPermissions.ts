@@ -6,8 +6,6 @@
 // ═══════════════════════════════════════════════════════════════════
 
 import type { Job, Role, MemberDoc } from '@/types';
-import type { JobLifecycleStage, ResolvedLifecycle, StageSpec } from '@/config/jobs/lifecycle';
-import { deriveLifecycleStage } from '@/lib/jobLifecycle';
 
 /**
  * Scope the job list to what the given role + uid is allowed to see.
@@ -101,56 +99,3 @@ export function assignableMembers(
   ];
 }
 
-// ─────────────────────────────────────────────────────────────────
-//  Stage transition gating (Sub-Project C)
-// ─────────────────────────────────────────────────────────────────
-
-/**
- * Can the given role transition a job to the target stage?
- *
- * - Owner / admin: any stage
- * - Technician: in-field stages + completed + paid (techs collect
- *   payment on-site in mobile-service workflows); cannot transition
- *   to pre-service stages, invoiced, or canceled
- * - Null / undefined role: never
- */
-export function canTransitionToStage(
-  role: Role | null | undefined,
-  stage: JobLifecycleStage,
-): boolean {
-  if (role === 'owner' || role === 'admin') return true;
-  if (role !== 'technician') return false;
-  const TECH_STAGES: JobLifecycleStage[] = [
-    'dispatched', 'enroute', 'onsite',
-    'in_progress', 'waiting_parts', 'awaiting_approval',
-    'completed', 'paid',
-  ];
-  return TECH_STAGES.includes(stage);
-}
-
-// ─────────────────────────────────────────────────────────────────
-//  Stage grouping helper (Sub-Project C)
-// ─────────────────────────────────────────────────────────────────
-
-/**
- * Group jobs into per-stage buckets using deriveLifecycleStage on
- * each job. Stages not in the resolved vertical's applicableStages
- * are skipped (their jobs are dropped — empty stages get hidden).
- * Returns canonical-order array of populated buckets only.
- */
-export function groupJobsByStage(
-  jobs: ReadonlyArray<Job>,
-  resolved: ResolvedLifecycle,
-): Array<{ stage: StageSpec; jobs: Job[] }> {
-  const buckets = new Map<JobLifecycleStage, Job[]>();
-  for (const j of jobs) {
-    const stage = deriveLifecycleStage(j);
-    if (!resolved.stageById.has(stage)) continue;
-    let bucket = buckets.get(stage);
-    if (!bucket) { bucket = []; buckets.set(stage, bucket); }
-    bucket.push(j);
-  }
-  return resolved.stages
-    .filter((s) => buckets.has(s.id))
-    .map((s) => ({ stage: s, jobs: buckets.get(s.id)! }));
-}

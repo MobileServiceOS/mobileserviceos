@@ -49,9 +49,6 @@ import {
   derivePartsMarginSnapshot,
   shouldWarnOnDeduction,
 } from '@/lib/mechanicJob';
-import { transitionJobStage } from '@/lib/jobLifecycle';
-import { resolveLifecycle } from '@/config/jobs';
-import type { JobLifecycleStage } from '@/config/jobs/lifecycle';
 // invoice.ts is lazy-imported in handleGenerateInvoice — see comment
 // there. Keeps jspdf (358 KB) + html2canvas (201 KB) out of the main
 // bundle until the operator actually generates an invoice.
@@ -1023,42 +1020,6 @@ function AuthenticatedApp({ user }: { user: User }) {
     }
   }, [businessId, jobs]);
 
-  // Stage transition writer. Atomically:
-  //   - Stamps lifecycleStage + lifecycleSubstage
-  //   - Appends to transitions[]
-  //   - Dual-writes legacy status fields via transitionJobStage()
-  const handleStageTransition = useCallback(
-    async (job: Job, toStage: JobLifecycleStage, toSubstage?: string) => {
-      if (!businessId) return;
-      const jobsCol = scopedCol(businessId, 'jobs');
-      if (!jobsCol) return;
-
-      const verticalConfig = getBusinessTypeConfig(settings.businessType);
-      const resolvedLifecycle = resolveLifecycle(verticalConfig);
-      const next = transitionJobStage({
-        job,
-        toStage,
-        toSubstage,
-        byUid: _auth?.currentUser?.uid || '',
-        resolved: resolvedLifecycle,
-        settings,
-      });
-
-      try {
-        await fbSetFast(jobsCol, next.id, next);
-        setDetailJob(next);
-        addToast(
-          `Stage → ${resolvedLifecycle.stageById.get(toStage)?.label ?? toStage}`,
-          'success',
-        );
-      } catch (e) {
-        console.error('[handleStageTransition] failed:', e);
-        addToast(`Stage update failed: ${humanizeFirestoreError(e)}`, 'error');
-      }
-    },
-    [businessId, settings],
-  );
-
   const handleGenerateInvoice = useCallback(async (j: Job) => {
     // Lazy-load the PDF generator. invoice.ts statically imports
     // jspdf (358 KB) + html2canvas (201 KB) — together ~75% of the
@@ -1445,9 +1406,6 @@ function AuthenticatedApp({ user }: { user: User }) {
           onSendInvoice={() => handleSendInvoice(detailJob)}
           onSendReview={() => handleSendReview(detailJob)}
           onMarkPaid={(method) => handleMarkPaid(detailJob, method)}
-          onStageTransition={(toStage, toSubstage) =>
-            handleStageTransition(detailJob, toStage, toSubstage)
-          }
           onUpdateJob={async (patch) => {
             if (!businessId) return;
             const next = { ...detailJob, ...patch };
