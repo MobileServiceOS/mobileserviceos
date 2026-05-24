@@ -24,9 +24,11 @@
 // changes, stale caches live forever.
 // ════════════════════════════════════════════════════════════════════
 
-// Bumped to v5 — app-shell now cached on navigation success so the
-// app loads offline. Evicts the v4 cache that never stored index.html.
-const VERSION = 'msos-v5';
+// Bumped to v6 — install handler now also fetches '/' so the shell
+// is available offline even if the user closes the tab before the
+// first navigation completes. v5 only cached on a successful
+// navigation; v6 eagerly prefetches the shell at install time.
+const VERSION = 'msos-v6';
 const SHELL_CACHE = VERSION + '-shell';
 const RUNTIME_CACHE = VERSION + '-runtime';
 
@@ -49,9 +51,30 @@ const SHELL_ASSETS = [
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches
-      .open(SHELL_CACHE)
-      .then((cache) => cache.addAll(SHELL_ASSETS).catch(() => {}))
+    Promise.all([
+      // Stable, non-hashed assets — these never change between
+      // deploys so cache-first is safe.
+      caches
+        .open(SHELL_CACHE)
+        .then((cache) => cache.addAll(SHELL_ASSETS).catch(() => {})),
+      // Pre-fetch the shell at install time so the offline-load path
+      // works even if the user closes the tab before the first
+      // navigation completes. Caches under the RUNTIME_CACHE so it
+      // ages with the rest of the dynamic content. Soft-fails — a
+      // failed prefetch must not block install; the navigation
+      // handler still caches on first successful nav as a fallback.
+      caches
+        .open(RUNTIME_CACHE)
+        .then((cache) =>
+          fetch('/', { cache: 'no-cache' })
+            .then((res) => {
+              if (res && res.status === 200 && res.type === 'basic') {
+                return cache.put('/', res);
+              }
+            })
+            .catch(() => {}),
+        ),
+    ])
       // skipWaiting → the new SW activates immediately instead of
       // waiting for every tab to close. Combined with the VERSION
       // bump + activate-purge, this guarantees a poisoned cache is
