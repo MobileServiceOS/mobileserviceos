@@ -4,11 +4,16 @@ import { useMembership } from '@/context/MembershipContext';
 import { APP_LOGO } from '@/lib/defaults';
 import { BusinessSwitcher } from '@/components/BusinessSwitcher';
 import { StatusSwitcher } from '@/components/StatusSwitcher';
-import type { SyncStatus } from '@/types';
+import { NotificationCenter } from '@/components/NotificationCenter';
+import type { SyncStatus, TabId } from '@/types';
 
 interface Props {
   syncStatus: SyncStatus;
   onSignOut: () => void;
+  /** Optional navigation callback fired when the user taps a
+   *  notification that carries a routeTo hint. Threaded from App.tsx
+   *  so taps deep-link into the right tab. */
+  onNotificationNavigate?: (tab: TabId, entityId?: string) => void;
 }
 
 interface PillSpec {
@@ -28,7 +33,7 @@ function statusPill(s: SyncStatus): PillSpec {
   }
 }
 
-export function Header({ syncStatus, onSignOut }: Props) {
+export function Header({ syncStatus, onSignOut, onNotificationNavigate }: Props) {
   const { brand, businessId } = useBrand();
   const vertical = useActiveVertical();
   const { role } = useMembership();
@@ -69,6 +74,7 @@ export function Header({ syncStatus, onSignOut }: Props) {
             one business. For a single-business operator it returns
             null and the Header is visually unchanged. */}
         <BusinessSwitcher activeLabel={brand.businessName || 'Mobile Service OS'} />
+        <NotificationCenter onNavigate={onNotificationNavigate} />
         {isTechnician
           ? <StatusSwitcher businessId={businessId} />
           : <span className={pill.className} title={pill.title}>{pill.label}</span>}

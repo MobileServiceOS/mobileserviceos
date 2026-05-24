@@ -39,7 +39,8 @@ import { OfflineBanner } from '@/components/OfflineBanner';
 import { Onboarding } from '@/components/Onboarding';
 import { addToast, addActionToast } from '@/lib/toast';
 import { humanizeFirestoreError, logFirestoreError, isPermissionDenied } from '@/lib/firebaseErrors';
-import { applyBrandColors, planInventoryDeduction, r2, uid } from '@/lib/utils';
+import { applyBrandColors, money, planInventoryDeduction, r2, uid } from '@/lib/utils';
+import { createNotification } from '@/lib/notifications';
 import { getBusinessTypeConfig } from '@/config/businessTypes/registry';
 import {
   diffPartsForDeduction,
@@ -370,6 +371,11 @@ function AuthenticatedApp({ user }: { user: User }) {
   // Keep latest inventory ref for the save flow's inventory-deduction logic
   const inventoryRef = useRef<InventoryItem[]>([]);
   useEffect(() => { inventoryRef.current = inventory; }, [inventory]);
+  // Settings ref — needed by the inventory snapshot handler to read
+  // the current lowStockThreshold without re-subscribing on every
+  // settings change. Updated on every render.
+  const settingsRef = useRef<SettingsT>(settings);
+  useEffect(() => { settingsRef.current = settings; }, [settings]);
 
   // Once-per-session suppression flag for permission-denied toasts.
   // Avoids spamming the user with the same "Some data isn't
@@ -433,7 +439,42 @@ function AuthenticatedApp({ user }: { user: User }) {
     }, handleErr('jobs')));
 
     unsubs.push(fbListen(scopedCol(businessId, 'inventory'), (docs) => {
-      setInventoryRaw(docs.map(deserializeInventoryItem));
+      const next = docs.map(deserializeInventoryItem);
+      // Low-stock notification — fire when an item crossed below the
+      // threshold on THIS snapshot (was >threshold before, now ≤).
+      // Throttle via a per-id sessionStorage guard so a flapping
+      // qty doesn't spam the notification center on the same item.
+      const threshold = Number(settingsRef.current.lowStockThreshold ?? 2);
+      try {
+        const prev = inventoryRef.current || [];
+        const prevById = new Map(prev.map((p) => [p.id, p]));
+        for (const item of next) {
+          const before = prevById.get(item.id);
+          if (!before) continue;
+          const wasOk = Number(before.qty || 0) > threshold;
+          const isLow = Number(item.qty || 0) <= threshold && Number(item.qty || 0) >= 0;
+          if (wasOk && isLow) {
+            const guardKey = `msos_lowstock_${businessId}_${item.id}`;
+            const already = sessionStorage.getItem(guardKey) === '1';
+            if (!already) {
+              sessionStorage.setItem(guardKey, '1');
+              void createNotification(businessId, {
+                kind: 'low_inventory',
+                title: `${item.size || 'Inventory'} low (${item.qty} left)`,
+                body: 'Restock soon to avoid losing the next job.',
+                routeTo: { tab: 'inventory', entityId: item.id },
+                meta: { itemId: item.id, qty: Number(item.qty || 0), size: item.size || '' },
+              });
+            }
+          }
+          // Reset the guard when the item is restocked back above
+          // threshold so a future dip re-notifies.
+          if (!wasOk && Number(item.qty || 0) > threshold) {
+            try { sessionStorage.removeItem(`msos_lowstock_${businessId}_${item.id}`); } catch { /* */ }
+          }
+        }
+      } catch { /* sessionStorage unavailable - skip throttle */ }
+      setInventoryRaw(next);
       markReady('inv');
     }, handleErr('inventory')));
 
@@ -898,6 +939,27 @@ function AuthenticatedApp({ user }: { user: User }) {
       log('job-write-issued');
       await fbSetFast(jobsCol, finalJob.id, finalJob);
       log('job-write-acked');
+      // Notification — fire when this save (a) assigns the job to
+      // someone other than the saver. Skips self-assigned saves
+      // (no notification needed when a tech logs their own job)
+      // and skips edits where the assignee didn't change.
+      const prevAssignee = isEditing
+        ? jobs.find((existing) => existing.id === finalJob.id)?.assignedToUid
+        : undefined;
+      if (
+        finalJob.assignedToUid
+        && finalJob.assignedToUid !== currentUid
+        && finalJob.assignedToUid !== prevAssignee
+      ) {
+        void createNotification(businessId, {
+          kind: 'job_assigned',
+          title: `New job assigned${finalJob.fullLocationLabel ? ' in ' + finalJob.fullLocationLabel : ''}`,
+          body: `${finalJob.customerName || finalJob.service} · ${finalJob.service}`,
+          targetUid: finalJob.assignedToUid,
+          routeTo: { tab: 'history', entityId: finalJob.id },
+          meta: { jobId: finalJob.id, service: finalJob.service },
+        });
+      }
       addToast(isEditing ? 'Job updated' : 'Job saved', 'success');
       setSavedJob(finalJob);
       if (resetAfter) {
@@ -1097,6 +1159,15 @@ function AuthenticatedApp({ user }: { user: User }) {
     };
     try {
       await fbSetFast(jobsCol, j.id, updated);
+      // Notification — fire-and-forget. Owner/admin sees this in the
+      // notification center; business-wide visibility (no targetUid).
+      void createNotification(businessId, {
+        kind: 'payment_received',
+        title: `Payment received · ${money(Number(updated.revenue || 0))}`,
+        body: `${updated.customerName || updated.service} · ${updated.service}`,
+        routeTo: { tab: 'history', entityId: updated.id },
+        meta: { jobId: updated.id, amount: Number(updated.revenue || 0) },
+      });
       // Review automation: surface a one-tap "Send review" action
       // toast at the moment payment lands — gated by shouldPromptReview
       // (per-business setting + a configured review URL + not already
@@ -1300,7 +1371,21 @@ function AuthenticatedApp({ user }: { user: User }) {
     <MembershipProvider settings={settings}>
       <TechnicianLanding tab={tab} setTab={setTab} />
       <BusinessSwitcherProvider user={user} settings={settings}>
-        <Header syncStatus={syncStatus} onSignOut={onSignOut} />
+        <Header
+          syncStatus={syncStatus}
+          onSignOut={onSignOut}
+          onNotificationNavigate={(tab, entityId) => {
+            setTab(tab);
+            // When the notification targets a specific job, also open
+            // its detail modal. Other entity types (customers,
+            // inventory) just rely on the tab switch — those pages
+            // don't have a deep-link API yet.
+            if (entityId && tab === 'history') {
+              const target = jobs.find((j) => j.id === entityId);
+              if (target) setDetailJob(target);
+            }
+          }}
+        />
         <OfflineBanner syncStatus={syncStatus} />
         <ActiveTimerBar jobs={jobs} onJobTap={(j) => setDetailJob(j)} />
         <EmailVerificationBanner />
