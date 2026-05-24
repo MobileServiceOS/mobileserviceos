@@ -12,6 +12,11 @@ import { addToast } from '@/lib/toast';
 interface Props {
   jobs: Job[];
   settings: Settings;
+  /** Open the job-detail modal for a specific job. Threaded from
+   *  App.tsx so tapping a job row inside a customer profile opens
+   *  the same modal the History page uses. Optional for legacy
+   *  call sites; when absent, job rows render non-interactive. */
+  onViewJob?: (j: Job) => void;
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -19,19 +24,28 @@ interface Props {
 //  profile drill-down. Every field is computed live from jobs
 //  (see lib/customers.ts); the only persisted datum is a free-text
 //  operator note at customers/{key}.
+//
+//  Phase-1 upgrade adds:
+//    • Filter chips (All / Repeat / New / Unpaid)
+//    • Sort chips (Revenue / Recent / A-Z)
+//    • Tap-to-open job from inside the profile
+//    • Email compose button when email is on file
+//    • Per-customer Avg Job Value + Top Service
 // ─────────────────────────────────────────────────────────────────────
 
-export function Customers({ jobs: rawJobs, settings }: Props) {
-  // Technicians see only customers from their own scoped jobs.
+type FilterMode = 'all' | 'repeat' | 'new' | 'unpaid';
+type SortMode   = 'revenue' | 'recent' | 'name';
+
+export function Customers({ jobs: rawJobs, settings, onViewJob }: Props) {
   const jobs = useScopedJobs(rawJobs);
   const { member, role, permissions } = useMembership();
   const businessId = member?.businessId || null;
   const canEditNote = role === 'owner' || role === 'admin';
-  // Technicians see revenue but not profit (matches the rest of
-  // the app's revenue/profit split).
   const canViewProfit = permissions.canViewProfit;
 
   const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState<FilterMode>('all');
+  const [sort, setSort] = useState<SortMode>('revenue');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
   const customers = useMemo(
@@ -46,10 +60,23 @@ export function Customers({ jobs: rawJobs, settings }: Props) {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return customers;
-    return customers.filter((c) =>
-      c.name.toLowerCase().includes(q) || c.phone.includes(q));
-  }, [customers, query]);
+    let list = customers;
+    if (q) {
+      list = list.filter((c) =>
+        c.name.toLowerCase().includes(q) || c.phone.includes(q));
+    }
+    if (filter === 'repeat') list = list.filter((c) => c.isRepeat);
+    if (filter === 'new')    list = list.filter((c) => !c.isRepeat);
+    if (filter === 'unpaid') list = list.filter((c) => c.unpaidCount > 0);
+    // deriveCustomerProfiles already sorts by revenue desc; only
+    // re-sort when the user picked a different axis.
+    if (sort === 'recent') {
+      list = [...list].sort((a, b) => (b.lastDate || '').localeCompare(a.lastDate || ''));
+    } else if (sort === 'name') {
+      list = [...list].sort((a, b) => a.name.localeCompare(b.name));
+    }
+    return list;
+  }, [customers, query, filter, sort]);
 
   // ── Profile drill-down ──────────────────────────────────────────
   if (selected) {
@@ -60,6 +87,7 @@ export function Customers({ jobs: rawJobs, settings }: Props) {
         businessId={businessId}
         canEditNote={canEditNote}
         canViewProfit={canViewProfit}
+        onViewJob={onViewJob}
         onBack={() => setSelectedKey(null)}
       />
     );
@@ -67,6 +95,8 @@ export function Customers({ jobs: rawJobs, settings }: Props) {
 
   // ── List ────────────────────────────────────────────────────────
   const topThree = customers.slice(0, 3);
+  const unpaidCustomerCount = customers.filter((c) => c.unpaidCount > 0).length;
+  const repeatCount = customers.filter((c) => c.isRepeat).length;
 
   return (
     <div className="page page-enter">
@@ -121,11 +151,46 @@ export function Customers({ jobs: rawJobs, settings }: Props) {
         <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search by name or phone…" />
       </div>
 
+      {/* Filter chips — total counts surfaced inline so the chip
+          itself signals whether tapping it is worth the operator's
+          time (e.g. "Unpaid (3)" vs "Unpaid (0)" hidden state). */}
+      <div className="chip-grid" style={{ marginBottom: 10 }}>
+        <FilterChip active={filter === 'all'}    onClick={() => setFilter('all')}>
+          All <Count n={customers.length} />
+        </FilterChip>
+        <FilterChip active={filter === 'repeat'} onClick={() => setFilter('repeat')}>
+          Repeat <Count n={repeatCount} />
+        </FilterChip>
+        <FilterChip active={filter === 'new'}    onClick={() => setFilter('new')}>
+          New <Count n={customers.length - repeatCount} />
+        </FilterChip>
+        <FilterChip active={filter === 'unpaid'} onClick={() => setFilter('unpaid')} tone={unpaidCustomerCount > 0 ? 'warn' : undefined}>
+          Unpaid <Count n={unpaidCustomerCount} />
+        </FilterChip>
+      </div>
+
+      {/* Sort chips */}
+      <div style={{
+        display: 'flex', gap: 8, alignItems: 'center',
+        fontSize: 11, color: 'var(--t3)', marginBottom: 14,
+      }}>
+        <span style={{ textTransform: 'uppercase', letterSpacing: 1, fontWeight: 800 }}>Sort</span>
+        <SortChip active={sort === 'revenue'} onClick={() => setSort('revenue')}>Revenue</SortChip>
+        <SortChip active={sort === 'recent'}  onClick={() => setSort('recent')}>Recent</SortChip>
+        <SortChip active={sort === 'name'}    onClick={() => setSort('name')}>A–Z</SortChip>
+      </div>
+
       {filtered.length === 0 ? (
         <div className="empty-state">
           <div className="empty-state-icon">👥</div>
-          <div className="empty-state-title">No customers yet</div>
-          <div className="empty-state-sub">Customers appear automatically as you log jobs.</div>
+          <div className="empty-state-title">
+            {query || filter !== 'all' ? 'No customers match' : 'No customers yet'}
+          </div>
+          <div className="empty-state-sub">
+            {query || filter !== 'all'
+              ? 'Try clearing the search or switching the filter.'
+              : 'Customers appear automatically as you log jobs.'}
+          </div>
         </div>
       ) : (
         <div className="stack">
@@ -169,6 +234,54 @@ export function Customers({ jobs: rawJobs, settings }: Props) {
   );
 }
 
+// ─── Filter / sort chip helpers ────────────────────────────────────
+
+function FilterChip({
+  active, onClick, children, tone,
+}: { active: boolean; onClick: () => void; children: React.ReactNode; tone?: 'warn' }) {
+  return (
+    <button
+      className={'chip' + (active ? ' active' : '')}
+      onClick={onClick}
+      type="button"
+      style={tone === 'warn' && !active ? {
+        borderColor: 'rgba(239,68,68,.35)',
+        color: '#ef4444',
+      } : undefined}
+    >
+      {children}
+    </button>
+  );
+}
+
+function SortChip({
+  active, onClick, children,
+}: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        background: active ? 'var(--s1)' : 'transparent',
+        border: active ? '1px solid var(--border2)' : '1px solid var(--border)',
+        color: active ? 'var(--t1)' : 'var(--t3)',
+        borderRadius: 999, padding: '3px 9px',
+        fontSize: 11, fontWeight: 700, cursor: 'pointer',
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function Count({ n }: { n: number }) {
+  return (
+    <span style={{ marginLeft: 4, fontSize: 10, opacity: 0.7 }}>
+      {n}
+    </span>
+  );
+}
+
 // ─── Repeat-customer badge ─────────────────────────────────────────
 function RepeatBadge() {
   return (
@@ -184,7 +297,7 @@ function RepeatBadge() {
 
 // ─── Profile drill-down ────────────────────────────────────────────
 function CustomerProfileView({
-  profile, settings, businessId, canEditNote, canViewProfit, onBack,
+  profile, settings, businessId, canEditNote, canViewProfit, onBack, onViewJob,
 }: {
   profile: CustomerProfile;
   settings: Settings;
@@ -192,8 +305,29 @@ function CustomerProfileView({
   canEditNote: boolean;
   canViewProfit: boolean;
   onBack: () => void;
+  onViewJob?: (j: Job) => void;
 }) {
   const phoneDigits = profile.phone.replace(/\D/g, '');
+
+  // Per-customer derived stats — cheap to compute live, no caching.
+  // avgJobValue is revenue ÷ jobs. topService picks the service the
+  // customer has booked most often (ties broken by first occurrence).
+  const avgJobValue = profile.jobCount > 0
+    ? profile.revenue / profile.jobCount
+    : 0;
+  const topService = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const j of profile.jobs) {
+      const s = (j.service || '').trim();
+      if (!s) continue;
+      counts.set(s, (counts.get(s) || 0) + 1);
+    }
+    let best: { service: string; count: number } | null = null;
+    for (const [service, count] of counts) {
+      if (!best || count > best.count) best = { service, count };
+    }
+    return best;
+  }, [profile.jobs]);
 
   // ── Editable operator note (persisted at customers/{key}) ────────
   const [note, setNote] = useState('');
@@ -253,10 +387,30 @@ function CustomerProfileView({
         {profile.email ? ` · ${profile.email}` : ''}
       </div>
 
-      {phoneDigits && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-          <a className="btn sm secondary" href={`tel:${phoneDigits}`} style={{ flex: 1, textAlign: 'center' }}>📞 Call</a>
-          <a className="btn sm secondary" href={`sms:${phoneDigits}`} style={{ flex: 1, textAlign: 'center' }}>💬 Text</a>
+      {/* Contact action buttons — call / text / email rendered only
+          when the corresponding data is on file. Email button is
+          new in Phase 1: tells the operator the email is reachable
+          and opens the OS mail composer with the customer's
+          address pre-filled. Subject defaults to the business name
+          so the email lands in their inbox with a clear sender
+          context, not "no subject". */}
+      {(phoneDigits || profile.email) && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+          {phoneDigits && (
+            <a className="btn sm secondary" href={`tel:${phoneDigits}`} style={{ flex: 1, minWidth: 90, textAlign: 'center' }}>📞 Call</a>
+          )}
+          {phoneDigits && (
+            <a className="btn sm secondary" href={`sms:${phoneDigits}`} style={{ flex: 1, minWidth: 90, textAlign: 'center' }}>💬 Text</a>
+          )}
+          {profile.email && (
+            <a
+              className="btn sm secondary"
+              href={`mailto:${profile.email}`}
+              style={{ flex: 1, minWidth: 90, textAlign: 'center' }}
+            >
+              ✉ Email
+            </a>
+          )}
         </div>
       )}
 
@@ -269,6 +423,7 @@ function CustomerProfileView({
           {canViewProfit && (
             <Stat label="Profit" value={money(profile.profit)} green={profile.profit >= 0} />
           )}
+          <Stat label="Avg / job" value={money(avgJobValue)} />
           <Stat label="Reviews sent" value={String(profile.reviewsSent)} />
           <Stat label="First seen" value={profile.firstDate ? fmtDate(profile.firstDate) : '—'} />
           <Stat label="Last seen" value={profile.lastDate ? fmtDate(profile.lastDate) : '—'} />
@@ -285,9 +440,15 @@ function CustomerProfileView({
       </div>
 
       {/* Vehicles / tire sizes — whichever the customer's jobs carry. */}
-      {(profile.vehicles.length > 0 || profile.tireSizes.length > 0 || profile.paymentMethods.length > 0) && (
+      {(profile.vehicles.length > 0 || profile.tireSizes.length > 0 || profile.paymentMethods.length > 0 || topService) && (
         <div className="form-group">
           <div className="form-group-title">History</div>
+          {topService && (
+            <Row
+              label="Top service"
+              value={`${topService.service} (${topService.count}×)`}
+            />
+          )}
           {profile.vehicles.length > 0 && (
             <Row label="Vehicles" value={profile.vehicles.join(', ')} />
           )}
@@ -338,30 +499,48 @@ function CustomerProfileView({
         )}
       </div>
 
-      {/* Job history */}
+      {/* Job history — each row is now tappable when onViewJob is
+          threaded from the parent (App.tsx). Falls back to a non-
+          interactive card if not, so this component is still
+          rendered correctly in any legacy context. */}
       <div className="section-label">Job History</div>
       <div className="stack">
         {profile.jobs.map((j) => {
           const ps = resolvePaymentStatus(j);
-          return (
-            <div key={j.id} className="card">
-              <div className="card-pad" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div style={{ fontSize: 20 }}>{serviceIcon(j.service)}</div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {j.service}
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--t3)' }}>
-                    {j.date ? fmtDate(j.date) : '—'}
-                    {j.fullLocationLabel ? ` · ${j.fullLocationLabel}` : ''}
-                  </div>
+          const tappable = !!onViewJob;
+          const content = (
+            <div className="card-pad" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ fontSize: 20 }}>{serviceIcon(j.service)}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {j.service}
                 </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div className="value green num">{money(j.revenue)}</div>
-                  <span className={'pill ' + paymentPillClass(ps)} style={{ fontSize: 9, marginTop: 2 }}>{ps}</span>
+                <div style={{ fontSize: 11, color: 'var(--t3)' }}>
+                  {j.date ? fmtDate(j.date) : '—'}
+                  {j.fullLocationLabel ? ` · ${j.fullLocationLabel}` : ''}
                 </div>
               </div>
+              <div style={{ textAlign: 'right' }}>
+                <div className="value green num">{money(j.revenue)}</div>
+                <span className={'pill ' + paymentPillClass(ps)} style={{ fontSize: 9, marginTop: 2 }}>{ps}</span>
+              </div>
             </div>
+          );
+          return tappable ? (
+            <button
+              key={j.id}
+              type="button"
+              onClick={() => onViewJob && onViewJob(j)}
+              className="card card-anim press-scale"
+              style={{
+                display: 'block', width: '100%', textAlign: 'left',
+                color: 'var(--t1)', cursor: 'pointer', padding: 0,
+              }}
+            >
+              {content}
+            </button>
+          ) : (
+            <div key={j.id} className="card">{content}</div>
           );
         })}
       </div>

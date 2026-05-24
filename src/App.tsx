@@ -1167,7 +1167,7 @@ function AuthenticatedApp({ user }: { user: User }) {
         onSendReview={handleSendReview}
       />
     );
-    if (tab === 'customers') return <Customers jobs={jobs} settings={settings} />;
+    if (tab === 'customers') return <Customers jobs={jobs} settings={settings} onViewJob={handleViewJob} />;
     if (tab === 'insights') return <InsightsGate jobs={jobs} settings={settings} />;
     if (tab === 'payouts') return <Payouts jobs={jobs} settings={settings} />;
     if (tab === 'expenses') return <Expenses expenses={settings.expenses || []} jobs={jobs} settings={settings} onSave={persistExpenses} />;
