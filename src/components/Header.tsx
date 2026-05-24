@@ -1,6 +1,8 @@
 import { useBrand } from '@/context/BrandContext';
 import { useActiveVertical } from '@/lib/useActiveVertical';
 import { useMembership } from '@/context/MembershipContext';
+import { useSyncState } from '@/lib/useSyncState';
+import { presenceRelative } from '@/lib/presenceTime';
 import { APP_LOGO } from '@/lib/defaults';
 import { BusinessSwitcher } from '@/components/BusinessSwitcher';
 import { StatusSwitcher } from '@/components/StatusSwitcher';
@@ -43,6 +45,23 @@ export function Header({ syncStatus, onSignOut, onNotificationNavigate }: Props)
   // the sync pill since their concern is data integrity, not
   // dispatch state.
   const isTechnician = role === 'technician';
+  // Live sync detail — pending write count + last-synced timestamp
+  // shown in the pill tooltip + appended to its label when pending.
+  const { pendingWrites, lastSyncedAt, failedWrites } = useSyncState();
+  const tooltip = (() => {
+    const parts = [pill.title];
+    if (pendingWrites > 0) {
+      parts.push(`${pendingWrites} change${pendingWrites === 1 ? '' : 's'} queued`);
+    }
+    if (lastSyncedAt) {
+      parts.push(`Last synced ${presenceRelative(lastSyncedAt)}`);
+    }
+    if (failedWrites > 0) {
+      parts.push(`${failedWrites} write${failedWrites === 1 ? '' : 's'} failed`);
+    }
+    return parts.join(' · ');
+  })();
+  const labelSuffix = pendingWrites > 0 ? ` (${pendingWrites})` : '';
 
   return (
     <div className="header-compact">
@@ -77,7 +96,7 @@ export function Header({ syncStatus, onSignOut, onNotificationNavigate }: Props)
         <NotificationCenter onNavigate={onNotificationNavigate} />
         {isTechnician
           ? <StatusSwitcher businessId={businessId} />
-          : <span className={pill.className} title={pill.title}>{pill.label}</span>}
+          : <span className={pill.className} title={tooltip}>{pill.label}{labelSuffix}</span>}
         <button
           onClick={onSignOut}
           title="Sign out"

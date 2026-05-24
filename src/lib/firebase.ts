@@ -29,6 +29,7 @@ import {
   getDownloadURL,
   type FirebaseStorage,
 } from 'firebase/storage';
+import { noteWriteIssued, noteWriteAcked, noteWriteFailed } from '@/lib/syncState';
 
 const env = (import.meta as ImportMeta & { env: Record<string, string | undefined> }).env;
 
@@ -169,9 +170,15 @@ export function fbSetFast(
   });
   clean.id = String(id);
   const t0 = performance.now();
+  // Track this write in the global sync state so the UI can show
+  // "3 changes queued" while offline and "Last synced X min ago"
+  // when caught up. Incremented at issue time; decremented on
+  // resolve OR error.
+  noteWriteIssued();
   // Kick off the write. Don't await — let it propagate in background.
   const writePromise = setDoc(doc(col, String(id)), clean, { merge: true })
     .then(() => {
+      noteWriteAcked();
       const dt = performance.now() - t0;
       if (dt > 2000) {
         // eslint-disable-next-line no-console
@@ -179,6 +186,7 @@ export function fbSetFast(
       }
     })
     .catch((e: unknown) => {
+      noteWriteFailed();
       // eslint-disable-next-line no-console
       console.error('[firebase] fbSetFast background failure:', { path: col.path, id, error: e });
     });
