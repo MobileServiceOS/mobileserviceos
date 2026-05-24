@@ -114,6 +114,11 @@ export function deserializeJob(raw: RawDoc): Job {
     })(),
     tireReceiptUrl: asString(raw.tireReceiptUrl, ''),
     tireNotes: asString(raw.tireNotes, ''),
+    photos: Array.isArray(raw.photos)
+      ? (raw.photos as unknown[]).filter((p) => typeof p === 'string') as string[]
+      : undefined,
+    signatureDataUrl: raw.signatureDataUrl == null ? undefined : asString(raw.signatureDataUrl),
+    signatureCapturedAt: raw.signatureCapturedAt == null ? undefined : asString(raw.signatureCapturedAt),
     inventoryDeductions: deserializeInventoryDeductions(raw.inventoryDeductions),
     inventoryUsed: raw.inventoryUsed,
     paymentStatus: asEnum(raw.paymentStatus, VALID_PAYMENT_STATUSES, 'Paid'),

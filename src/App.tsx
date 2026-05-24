@@ -1448,6 +1448,12 @@ function AuthenticatedApp({ user }: { user: User }) {
           onStageTransition={(toStage, toSubstage) =>
             handleStageTransition(detailJob, toStage, toSubstage)
           }
+          onUpdateJob={async (patch) => {
+            if (!businessId) return;
+            const next = { ...detailJob, ...patch };
+            await fbSetFast(scopedCol(businessId, 'jobs'), detailJob.id, next);
+            setDetailJob(next);
+          }}
         />
       )}
       <InstallBanner />

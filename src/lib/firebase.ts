@@ -249,3 +249,23 @@ export async function uploadReceipt(
   await uploadBytes(ref, file, { contentType: file.type || 'image/jpeg' });
   return await getDownloadURL(ref);
 }
+
+/**
+ * Upload a job photo (Phase 4). Mirrors uploadReceipt but lands in
+ * a per-job-photos subfolder. Caller is expected to have already
+ * compressed via compressImage(); we still cap at 8 MB as a
+ * defensive ceiling. Each photo gets a unique timestamped name so
+ * multiple uploads on the same job don't collide.
+ */
+export async function uploadJobPhoto(
+  businessId: string,
+  jobId: string,
+  file: File | Blob,
+): Promise<string | null> {
+  if (!_storage || !businessId || !jobId || !file) return null;
+  if (file.size > 8 * 1024 * 1024) throw new Error('Photo must be under 8MB');
+  const path = `businesses/${businessId}/job-photos/${jobId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+  const ref = storageRef(_storage, path);
+  await uploadBytes(ref, file, { contentType: 'image/jpeg' });
+  return await getDownloadURL(ref);
+}
