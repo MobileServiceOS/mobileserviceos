@@ -6,6 +6,7 @@ interface Props {
   onClose: () => void;
   onView: () => void;
   onEdit: () => void;
+  onDuplicate?: () => void;
   onSendInvoice: () => void;
   onSendReview: () => void;
   onMarkPaid: () => void;
@@ -32,17 +33,23 @@ interface ActionDef {
  * for one-thumb roadside use.
  */
 export function QuickActionSheet({
-  job, onClose, onView, onEdit, onSendInvoice, onSendReview, onMarkPaid,
+  job, onClose, onView, onEdit, onDuplicate, onSendInvoice, onSendReview, onMarkPaid,
 }: Props) {
   const ps = resolvePaymentStatus(job);
   const canMarkPaid = ps !== 'Paid' && ps !== 'Cancelled';
 
+  // Duplicate goes right after Edit — same form-prefill mental model,
+  // and the use case (tire shops logging the 4th of the same job
+  // today) is the second-most-common History action after Mark Paid.
   const actions: ActionDef[] = [
     ...(canMarkPaid
       ? [{ key: 'paid', icon: '💰', label: 'Mark Paid', handler: onMarkPaid, emphasize: true }]
       : []),
     { key: 'view',    icon: '👁',  label: 'View Job',     handler: onView },
     { key: 'edit',    icon: '✏️', label: 'Edit Job',     handler: onEdit },
+    ...(onDuplicate
+      ? [{ key: 'dup', icon: '📋', label: 'Duplicate Job', handler: onDuplicate }]
+      : []),
     { key: 'invoice', icon: '📤', label: 'Send Invoice', handler: onSendInvoice },
     { key: 'review',  icon: '⭐', label: 'Send Review',  handler: onSendReview },
   ];

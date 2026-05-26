@@ -18,13 +18,14 @@ interface Props {
   onGenerateInvoice: (j: Job) => void;
   onSendInvoice: (j: Job) => void;
   onSendReview: (j: Job) => void;
+  onDuplicate: (j: Job) => void;
 }
 
 type Filter = 'all' | 'completed' | 'pending' | 'cancelled' | 'unpaid';
 
 export function History({
   jobs: rawJobs, settings, onViewJob, onMarkPaid, onEditJob,
-  onGenerateInvoice, onSendInvoice, onSendReview,
+  onGenerateInvoice, onSendInvoice, onSendReview, onDuplicate,
 }: Props) {
   // Phase 2.2 Sub-Project B: scope to what the current member sees.
   const jobs = useScopedJobs(rawJobs);
@@ -120,6 +121,7 @@ export function History({
           onClose={() => setSheetJob(null)}
           onView={() => onViewJob(sheetJob)}
           onEdit={() => onEditJob(sheetJob)}
+          onDuplicate={() => onDuplicate(sheetJob)}
           onSendInvoice={() => onSendInvoice(sheetJob)}
           onSendReview={() => onSendReview(sheetJob)}
           onMarkPaid={() => onMarkPaid(sheetJob)}

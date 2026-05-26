@@ -1297,6 +1297,7 @@ function AuthenticatedApp({ user }: { user: User }) {
         onGenerateInvoice={handleGenerateInvoice}
         onSendInvoice={handleSendInvoice}
         onSendReview={handleSendReview}
+        onDuplicate={handleDuplicate}
       />
     );
     if (tab === 'customers') return <Customers jobs={jobs} settings={settings} customerMeta={customerMeta} onViewJob={handleViewJob} />;
