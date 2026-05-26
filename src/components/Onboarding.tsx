@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import type { Brand, Settings, ServicePricing } from '@/types';
 import { useBrand } from '@/context/BrandContext';
 import { CityStateSelect } from '@/components/CityStateSelect';
-import { uploadLogo } from '@/lib/firebase';
+import { enqueueLogoUpload } from '@/lib/uploadQueue';
 import { addToast } from '@/lib/toast';
 import { APP_LOGO } from '@/lib/defaults';
 import { money } from '@/lib/utils';
@@ -125,7 +125,7 @@ export function Onboarding({ settings, onComplete }: Props) {
       // arm must use the same union so the generic type-checks; we
       // narrow back to a non-null string at the use site below.
       const url = await Promise.race<string | null>([
-        uploadLogo(businessId, file),
+        enqueueLogoUpload(businessId, file),
         new Promise<string | null>((_, reject) => {
           timeoutId = setTimeout(
             () => reject(new Error('Logo upload timed out — please try again')),
@@ -137,7 +137,9 @@ export function Onboarding({ settings, onComplete }: Props) {
         setLogoUrl(url);
         addToast('Logo uploaded', 'success');
       } else {
-        addToast('Upload returned no URL', 'error');
+        // Queued offline — show local preview until drain.
+        setLogoUrl(URL.createObjectURL(file));
+        addToast('Logo queued — uploads when online', 'info');
       }
     } catch (e) {
       addToast((e as Error).message || 'Logo upload failed', 'error');

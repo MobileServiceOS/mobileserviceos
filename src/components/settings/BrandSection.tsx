@@ -4,7 +4,7 @@ import { useBrand } from '@/context/BrandContext';
 import { CityStateSelect } from '@/components/CityStateSelect';
 import { NumberField } from '@/components/NumberField';
 import { addToast } from '@/lib/toast';
-import { uploadLogo } from '@/lib/firebase';
+import { enqueueLogoUpload } from '@/lib/uploadQueue';
 import { APP_LOGO } from '@/lib/defaults';
 import { normalizeHex } from '@/lib/utils';
 import { useDirtyDraft } from '@/lib/useDirtyDraft';
@@ -70,7 +70,7 @@ function BrandForm() {
       // so the generic type-checks; we narrow back to a non-null string
       // at the use site below.
       const url = await Promise.race<string | null>([
-        uploadLogo(businessId, file),
+        enqueueLogoUpload(businessId, file),
         new Promise<string | null>((_, reject) => {
           timeoutId = setTimeout(
             () => reject(new Error('Logo upload timed out — please try again')),
@@ -81,13 +81,16 @@ function BrandForm() {
       if (url) {
         // Logo upload auto-saves immediately. patch with markDirty=false
         // semantics via replace, so the form doesn't think the user has
-        // unsaved changes after a successful upload — there's nothing
-        // left to save.
+        // unsaved changes after a successful upload.
         replace({ ...draft, logoUrl: url }, false);
         await updateBrand({ logoUrl: url });
         addToast('Logo updated', 'success');
       } else {
-        addToast('Upload returned no URL', 'error');
+        // Queued offline. Show a local preview so the user sees the
+        // change immediately; the queue patches settings/main on drain.
+        const localUrl = URL.createObjectURL(file);
+        replace({ ...draft, logoUrl: localUrl }, false);
+        addToast('Logo queued — uploads when online', 'info');
       }
     } catch (e) {
       addToast((e as Error).message || 'Upload failed', 'error');

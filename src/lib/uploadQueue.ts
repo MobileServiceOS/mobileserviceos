@@ -1,5 +1,8 @@
 import { arrayUnion, doc, setDoc } from 'firebase/firestore';
-import { _db, _storage, uploadJobPhoto } from '@/lib/firebase';
+import {
+  _db, _storage,
+  uploadJobPhoto, uploadReceipt as storageUploadReceipt, uploadLogo as storageUploadLogo,
+} from '@/lib/firebase';
 import { noteWriteIssued, noteWriteAcked, noteWriteFailed } from '@/lib/syncState';
 
 // ─────────────────────────────────────────────────────────────────────
@@ -7,45 +10,59 @@ import { noteWriteIssued, noteWriteAcked, noteWriteFailed } from '@/lib/syncStat
 //
 //  Firebase Storage's uploadBytes() fails immediately when offline; it
 //  has no equivalent of Firestore's local-cache write queue. This
-//  module fills that gap for photo uploads:
+//  module fills that gap for ALL user-initiated storage uploads:
 //
-//    1. Online: enqueueJobPhotoUpload → tries the real upload first.
-//       Success → patches job.photos via arrayUnion → resolves.
+//    - 'job-photo'  → businesses/{bid}/job-photos/{jid}/...  | patches job.photos[]
+//    - 'receipt'    → businesses/{bid}/receipts/{jid}-...    | patches job.tireReceiptUrl
+//    - 'logo'       → businesses/{bid}/branding/logo.{ext}   | patches settings/main.logoUrl
+//
+//  Flow:
+//    1. Online: enqueueX → tries the real upload first. Success →
+//       patches the destination doc → resolves with URL.
 //    2. Offline / network error: stash the blob in IndexedDB, return
-//       'queued'. The notification + dispatch UI can show "queued"
-//       state via the syncState pendingWrites counter.
-//    3. On 'online' event: drainUploadQueue runs, processes everything
-//       in order. Successful uploads remove themselves from the queue.
-//       Failures bump attempts; if attempts exceed MAX_ATTEMPTS the
-//       entry is dropped so a permanently-broken file can't block
-//       healthy ones behind it forever.
+//       null (queued). The sync-state counter surfaces "queued" UI.
+//    3. On 'online' event: drainUploadQueue runs everything in order.
+//       Failures bump attempts; >= MAX_ATTEMPTS drops the entry so a
+//       permanently-broken file can't block healthy ones forever.
 //
-//  Survives reload: the queue lives in IndexedDB at db 'msos-upload-queue',
-//  store 'queue'. Each entry holds {kind, businessId, jobId, blob,
-//  queuedAt, attempts}. Closing the tab does not destroy the queue;
-//  the next page load re-attaches the drain handler and finishes any
-//  pending work as soon as the network comes back.
-//
-//  Per-photo job-doc patch uses arrayUnion so a tech editing the SAME
-//  job from another tab can't lose either the queued or the synced
-//  URL — both are appended atomically when the upload eventually
-//  succeeds.
+//  Survives reload: queue lives in IDB at db 'msos-upload-queue',
+//  store 'queue'. Closing the tab does not destroy the queue.
 // ─────────────────────────────────────────────────────────────────────
 
 const DB_NAME    = 'msos-upload-queue';
-const DB_VERSION = 1;
+// v2 — added 'receipt' and 'logo' kinds. Existing 'job-photo' entries
+// from v1 carry forward unchanged (same object store, same schema).
+const DB_VERSION = 2;
 const STORE      = 'queue';
 const MAX_ATTEMPTS = 5;
 
-interface QueueEntry {
+interface BaseEntry {
   id?: number;
+  queuedAt: string;
+  attempts: number;
+}
+interface JobPhotoEntry extends BaseEntry {
   kind: 'job-photo';
   businessId: string;
   jobId: string;
   blob: Blob;
-  queuedAt: string;
-  attempts: number;
 }
+interface ReceiptEntry extends BaseEntry {
+  kind: 'receipt';
+  businessId: string;
+  jobId: string;
+  blob: Blob;
+  contentType: string;
+  fileName: string;
+}
+interface LogoEntry extends BaseEntry {
+  kind: 'logo';
+  businessId: string;
+  blob: Blob;
+  contentType: string;
+  fileName: string;
+}
+type QueueEntry = JobPhotoEntry | ReceiptEntry | LogoEntry;
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -65,7 +82,11 @@ function openDb(): Promise<IDBDatabase> {
   return dbPromise;
 }
 
-async function addToQueue(entry: Omit<QueueEntry, 'id'>): Promise<number> {
+// Distributive Omit so the union narrows per branch (otherwise
+// `Omit<A | B | C, 'id'>` only keeps keys common to all three).
+type QueueInput = QueueEntry extends infer T ? (T extends QueueEntry ? Omit<T, 'id'> : never) : never;
+
+async function addToQueue(entry: QueueInput): Promise<number> {
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE, 'readwrite');
@@ -113,41 +134,8 @@ async function bumpAttempts(id: number): Promise<void> {
   });
 }
 
-/**
- * Try to upload a job photo. Falls back to the offline queue on
- * network failure. Returns either the real download URL OR null
- * (queued) so the caller can decide how to surface the state.
- */
-export async function enqueueJobPhotoUpload(
-  businessId: string,
-  jobId: string,
-  blob: Blob,
-): Promise<string | null> {
-  // Online attempt first — same path as before, no extra latency.
-  if (navigator.onLine) {
-    try {
-      const url = await uploadJobPhoto(businessId, jobId, blob);
-      if (url) await appendPhotoUrl(businessId, jobId, url);
-      return url;
-    } catch (err) {
-      // Fall through to queue on transient network errors. Permission
-      // errors will resurface on the next drain attempt and eventually
-      // exceed MAX_ATTEMPTS so they don't block forever.
-      // eslint-disable-next-line no-console
-      console.info('[uploadQueue] online upload failed, queueing', err);
-    }
-  }
-  await addToQueue({
-    kind: 'job-photo',
-    businessId, jobId, blob,
-    queuedAt: new Date().toISOString(),
-    attempts: 0,
-  });
-  noteWriteIssued();  // surface in sync-state counter
-  return null;
-}
-
-async function appendPhotoUrl(businessId: string, jobId: string, url: string): Promise<void> {
+// ── Per-kind post-upload patches ───────────────────────────────────
+async function patchJobPhoto(businessId: string, jobId: string, url: string): Promise<void> {
   const db = _db;
   if (!db) throw new Error('Firestore not initialized');
   await setDoc(
@@ -157,12 +145,136 @@ async function appendPhotoUrl(businessId: string, jobId: string, url: string): P
   );
 }
 
+async function patchJobReceipt(businessId: string, jobId: string, url: string): Promise<void> {
+  // Skip pending temp IDs — the parent form wasn't saved yet, so we
+  // have no real job doc to patch. The storage file is orphaned but
+  // intentionally so; the caller surfaces the URL back into the form
+  // synchronously on the online path.
+  if (jobId.startsWith('pending-')) return;
+  const db = _db;
+  if (!db) throw new Error('Firestore not initialized');
+  await setDoc(
+    doc(db, 'businesses', businessId, 'jobs', jobId),
+    { tireReceiptUrl: url },
+    { merge: true },
+  );
+}
+
+async function patchBrandLogo(businessId: string, url: string): Promise<void> {
+  const db = _db;
+  if (!db) throw new Error('Firestore not initialized');
+  await setDoc(
+    doc(db, 'businesses', businessId, 'settings', 'main'),
+    { logoUrl: url },
+    { merge: true },
+  );
+}
+
+// ── Public enqueue helpers — one per kind ──────────────────────────
+
+/**
+ * Try to upload a job photo. Falls back to the offline queue on
+ * network failure. Returns the real download URL on success, null
+ * when queued so the caller can decide how to surface state.
+ */
+export async function enqueueJobPhotoUpload(
+  businessId: string,
+  jobId: string,
+  blob: Blob,
+): Promise<string | null> {
+  if (navigator.onLine) {
+    try {
+      const url = await uploadJobPhoto(businessId, jobId, blob);
+      if (url) await patchJobPhoto(businessId, jobId, url);
+      return url;
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.info('[uploadQueue] photo online upload failed, queueing', err);
+    }
+  }
+  await addToQueue({
+    kind: 'job-photo',
+    businessId, jobId, blob,
+    queuedAt: new Date().toISOString(),
+    attempts: 0,
+  });
+  noteWriteIssued();
+  return null;
+}
+
+/**
+ * Try to upload a tire receipt. Falls back to the offline queue on
+ * network failure. Returns the download URL on success, null when
+ * queued. When queued, the caller should still store the local blob
+ * URL in form state so the user sees a thumbnail until drain.
+ */
+export async function enqueueReceiptUpload(
+  businessId: string,
+  jobId: string,
+  file: File,
+): Promise<string | null> {
+  if (navigator.onLine) {
+    try {
+      const url = await storageUploadReceipt(businessId, jobId, file);
+      if (url) await patchJobReceipt(businessId, jobId, url);
+      return url;
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.info('[uploadQueue] receipt online upload failed, queueing', err);
+    }
+  }
+  await addToQueue({
+    kind: 'receipt',
+    businessId, jobId,
+    blob: file,
+    contentType: file.type || 'image/jpeg',
+    fileName: file.name || 'receipt.jpg',
+    queuedAt: new Date().toISOString(),
+    attempts: 0,
+  });
+  noteWriteIssued();
+  return null;
+}
+
+/**
+ * Try to upload a brand logo. Falls back to the offline queue on
+ * network failure. Returns the download URL on success, null when
+ * queued. On drain success the queue itself patches settings/main
+ * with the new logoUrl, so the caller doesn't need to re-save.
+ */
+export async function enqueueLogoUpload(
+  businessId: string,
+  file: File,
+): Promise<string | null> {
+  if (navigator.onLine) {
+    try {
+      const url = await storageUploadLogo(businessId, file);
+      if (url) await patchBrandLogo(businessId, url);
+      return url;
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.info('[uploadQueue] logo online upload failed, queueing', err);
+    }
+  }
+  await addToQueue({
+    kind: 'logo',
+    businessId,
+    blob: file,
+    contentType: file.type || 'image/png',
+    fileName: file.name || 'logo.png',
+    queuedAt: new Date().toISOString(),
+    attempts: 0,
+  });
+  noteWriteIssued();
+  return null;
+}
+
 let draining = false;
 
 /**
  * Drain everything in the queue. Safe to call repeatedly — guards
  * against concurrent drains via the `draining` latch. Returns the
- * number of successful uploads in this drain (callers can log it).
+ * number of successful uploads in this drain.
  */
 export async function drainUploadQueue(): Promise<number> {
   if (draining) return 0;
@@ -174,23 +286,19 @@ export async function drainUploadQueue(): Promise<number> {
     for (const entry of entries) {
       if (entry.id == null) continue;
       try {
-        const url = await uploadJobPhoto(entry.businessId, entry.jobId, entry.blob);
+        const url = await uploadEntry(entry);
         if (url) {
-          await appendPhotoUrl(entry.businessId, entry.jobId, url);
+          await patchEntry(entry, url);
           await deleteFromQueue(entry.id);
           noteWriteAcked();
           succeeded++;
         } else {
-          // Defensive: unexpected null return — treat as a soft failure.
           await bumpAttempts(entry.id);
         }
       } catch (err) {
         // eslint-disable-next-line no-console
-        console.warn('[uploadQueue] drain attempt failed', { id: entry.id, err });
+        console.warn('[uploadQueue] drain attempt failed', { id: entry.id, kind: entry.kind, err });
         await bumpAttempts(entry.id);
-        // Permanently-stuck entries (auth gone, too-big-after-retry,
-        // bad blob) drop out after MAX_ATTEMPTS so they don't block
-        // the rest of the queue.
         if ((entry.attempts || 0) + 1 >= MAX_ATTEMPTS) {
           await deleteFromQueue(entry.id);
           noteWriteFailed();
@@ -203,7 +311,35 @@ export async function drainUploadQueue(): Promise<number> {
   return succeeded;
 }
 
-/** Count of currently-queued items. Drives "3 photos queued" UI. */
+function blobToFile(entry: ReceiptEntry | LogoEntry): File {
+  // uploadReceipt / uploadLogo expect File for content-type + ext
+  // sniffing. Reconstruct deterministically from the stored Blob.
+  return new File([entry.blob], entry.fileName, { type: entry.contentType });
+}
+
+async function uploadEntry(entry: QueueEntry): Promise<string | null> {
+  switch (entry.kind) {
+    case 'job-photo':
+      return uploadJobPhoto(entry.businessId, entry.jobId, entry.blob);
+    case 'receipt':
+      return storageUploadReceipt(entry.businessId, entry.jobId, blobToFile(entry));
+    case 'logo':
+      return storageUploadLogo(entry.businessId, blobToFile(entry));
+  }
+}
+
+async function patchEntry(entry: QueueEntry, url: string): Promise<void> {
+  switch (entry.kind) {
+    case 'job-photo':
+      return patchJobPhoto(entry.businessId, entry.jobId, url);
+    case 'receipt':
+      return patchJobReceipt(entry.businessId, entry.jobId, url);
+    case 'logo':
+      return patchBrandLogo(entry.businessId, url);
+  }
+}
+
+/** Count of currently-queued items. Drives "3 uploads queued" UI. */
 export async function queuedCount(): Promise<number> {
   const items = await readAllQueue();
   return items.length;
@@ -213,16 +349,13 @@ export async function queuedCount(): Promise<number> {
  * One-time setup, called from main.tsx. Attaches an 'online' handler
  * that drains the queue when the network returns, and kicks off an
  * initial drain in case the queue had items left over from the last
- * session (closing the tab mid-queue is safe — IDB survives).
+ * session.
  */
 export function installUploadQueueDrain(): void {
   if (typeof window === 'undefined') return;
   window.addEventListener('online', () => {
     void drainUploadQueue();
   });
-  // Initial drain — covers the "queue left over from last session"
-  // case where the user reloaded into an online state and we should
-  // sync immediately without waiting for an offline→online edge.
   if (navigator.onLine) {
     void drainUploadQueue();
   }

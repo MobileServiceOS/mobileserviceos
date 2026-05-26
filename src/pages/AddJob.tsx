@@ -7,7 +7,7 @@ import {
 import { computeBreakdownTagged } from '@/lib/pricing';
 import { calcQuote, money, normalizeTireSize, planInventoryDeduction } from '@/lib/utils';
 import { addToast } from '@/lib/toast';
-import { uploadReceipt } from '@/lib/firebase';
+import { enqueueReceiptUpload } from '@/lib/uploadQueue';
 import { availableQty, reservedQty } from '@/lib/inventoryReservations';
 import { useBrand } from '@/context/BrandContext';
 import { usePermissions } from '@/context/MembershipContext';
@@ -328,8 +328,18 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
     if (!businessId) { addToast('Sign in required', 'warn'); return; }
     setReceiptUploading(true);
     try {
-      const url = await uploadReceipt(businessId, job.id || 'pending-' + Date.now(), file);
-      if (url) { set('tireReceiptUrl', url); addToast('Receipt uploaded', 'success'); }
+      const url = await enqueueReceiptUpload(businessId, job.id || 'pending-' + Date.now(), file);
+      if (url) {
+        set('tireReceiptUrl', url);
+        addToast('Receipt uploaded', 'success');
+      } else {
+        // Offline path: queued for later upload. Store a local object URL
+        // so the form still shows a thumbnail; on next online drain the
+        // real CDN URL replaces this via the job patch.
+        const localUrl = URL.createObjectURL(file);
+        set('tireReceiptUrl', localUrl);
+        addToast('Receipt queued — uploads when online', 'info');
+      }
     } catch (e) {
       addToast((e as Error).message || 'Upload failed', 'error');
     } finally {
