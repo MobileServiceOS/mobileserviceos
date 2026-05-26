@@ -39,7 +39,7 @@ import { OfflineBanner } from '@/components/OfflineBanner';
 import { Onboarding } from '@/components/Onboarding';
 import { addToast, addActionToast } from '@/lib/toast';
 import { humanizeFirestoreError, logFirestoreError, isPermissionDenied } from '@/lib/firebaseErrors';
-import { applyBrandColors, money, planInventoryDeduction, r2, uid } from '@/lib/utils';
+import { applyBrandColors, planInventoryDeduction, r2, uid } from '@/lib/utils';
 import { getBusinessTypeConfig } from '@/config/businessTypes/registry';
 import {
   diffPartsForDeduction,
