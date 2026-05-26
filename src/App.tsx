@@ -1090,14 +1090,17 @@ function AuthenticatedApp({ user }: { user: User }) {
     const result = await generateInvoicePDF(j, settings, brand);
     if (!result || !businessId) return;
     const jobsCol = scopedCol(businessId, 'jobs');
-    const updated: Job = {
-      ...j,
+    // Write ONLY the fields we're changing. fbSetFast already does
+    // merge:true, so a concurrent edit on another device (e.g. notes
+    // change) is preserved instead of being clobbered by a stale full-
+    // job write.
+    const patch = {
       invoiceGenerated: true,
       invoiceGeneratedAt: new Date().toISOString(),
       invoiceNumber: result.invoiceNumber,
     };
     try {
-      await fbSetFast(jobsCol, j.id, updated);
+      await fbSetFast(jobsCol, j.id, patch);
       addToast('Invoice generated', 'success');
     } catch (e) {
       setSyncStatus('sync_failed');
@@ -1109,9 +1112,10 @@ function AuthenticatedApp({ user }: { user: User }) {
     if (!businessId) return;
     if (!j.invoiceGenerated) await handleGenerateInvoice(j);
     const jobsCol = scopedCol(businessId, 'jobs');
-    const updated: Job = { ...j, invoiceSent: true, invoiceSentAt: new Date().toISOString() };
+    // Partial write — see handleGenerateInvoice for rationale.
+    const patch = { invoiceSent: true, invoiceSentAt: new Date().toISOString() };
     try {
-      await fbSetFast(jobsCol, j.id, updated);
+      await fbSetFast(jobsCol, j.id, patch);
     } catch (e) {
       setSyncStatus('sync_failed');
       addToast(`Invoice update failed: ${humanizeFirestoreError(e)}`, 'error');
@@ -1142,9 +1146,10 @@ function AuthenticatedApp({ user }: { user: User }) {
     });
     if (!businessId) return;
     const jobsCol = scopedCol(businessId, 'jobs');
-    const updated: Job = { ...j, reviewRequested: true, reviewRequestedAt: new Date().toISOString() };
+    // Partial write — see handleGenerateInvoice for rationale.
+    const patch = { reviewRequested: true, reviewRequestedAt: new Date().toISOString() };
     try {
-      await fbSetFast(jobsCol, j.id, updated);
+      await fbSetFast(jobsCol, j.id, patch);
     } catch (e) {
       setSyncStatus('sync_failed');
       addToast(`Review flag save failed: ${humanizeFirestoreError(e)}`, 'error');
@@ -1168,15 +1173,21 @@ function AuthenticatedApp({ user }: { user: User }) {
     // Pending job's pill stays "Pending Payment" and the Mark Paid
     // button never disappears — the exact "Mark Paid does nothing"
     // bug. A job that's been paid is, by definition, completed.
-    const updated: Job = {
-      ...j,
-      status: 'Completed',
-      paymentStatus: 'Paid',
+    // Partial write — only the four fields a mark-paid touches. Sending
+    // the full `{...j, ...changes}` would re-broadcast every other
+    // field (notes, customer, etc.) and stomp concurrent edits on
+    // those fields from another device.
+    const patch = {
+      status: 'Completed' as const,
+      paymentStatus: 'Paid' as const,
       paidAt: j.paidAt || new Date().toISOString(),
       paymentMethod: method || j.paymentMethod || 'cash',
     };
+    // Local view of the post-write job — used for downstream
+    // notification + review-prompt logic. The WRITE is `patch` only.
+    const updated: Job = { ...j, ...patch };
     try {
-      await fbSetFast(jobsCol, j.id, updated);
+      await fbSetFast(jobsCol, j.id, patch);
       // Notification — fire-and-forget. Owner/admin sees this in the
       // notification center; business-wide visibility (no targetUid).
       void createNotification(businessId, {
@@ -1467,9 +1478,12 @@ function AuthenticatedApp({ user }: { user: User }) {
           onMarkPaid={(method) => handleMarkPaid(detailJob, method)}
           onUpdateJob={async (patch) => {
             if (!businessId) return;
-            const next = { ...detailJob, ...patch };
-            await fbSetFast(scopedCol(businessId, 'jobs'), detailJob.id, next);
-            setDetailJob(next);
+            // Send ONLY the patch — fbSetFast merges into Firestore, so
+            // a concurrent edit on another device for fields not in the
+            // patch is preserved. The local detailJob state still
+            // spreads for UI immediacy; the WRITE is the patch only.
+            await fbSetFast(scopedCol(businessId, 'jobs'), detailJob.id, patch);
+            setDetailJob({ ...detailJob, ...patch });
           }}
         />
       )}
