@@ -16,10 +16,15 @@ import { useDirtyDraft } from '@/lib/useDirtyDraft';
 //    • technicianWeeklyJobsGoal — per-tech goal shown on the tech hero
 //    • costPerMile             — travel surcharge per job
 //    • freeMilesIncluded       — pre-charge-free distance
-//    • taxRate                 — sales tax on the job itself
-//
-//  invoiceTaxRate moves to the new Invoices section in Phase 2 so the
-//  job-level tax and the invoice line-item tax stay clearly separate.
+//    • taxRate                 — income-tax RESERVE percentage. NOT
+//                                 sales tax. Drives the "Tax reserve"
+//                                 number on the Payouts page so the
+//                                 operator sees how much to set aside
+//                                 each week for self-employment tax.
+//                                 The customer-facing SALES tax is a
+//                                 separate setting (settings.invoiceTaxRate)
+//                                 configured under the Invoices accordion
+//                                 and rendered on the invoice PDF.
 // ─────────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -30,7 +35,7 @@ interface Props {
 export function OperationsAccordion({
   settings, onSave, open, onToggle,
 }: Props & { open: boolean; onToggle: () => void }) {
-  const summary = `Goal ${money(settings.weeklyGoal || 0)} · ${settings.taxRate || 0}% tax · ${money(settings.costPerMile || 0)}/mi`;
+  const summary = `Goal ${money(settings.weeklyGoal || 0)} · ${settings.taxRate || 0}% reserve · ${money(settings.costPerMile || 0)}/mi`;
 
   return (
     <AccordionShell title="Goals & Operations" icon="🎯" summary={summary} open={open} onToggle={onToggle}>
@@ -54,8 +59,11 @@ function OperationsForm({ settings, onSave }: Props) {
           <NumberField value={draft.weeklyGoal} onChange={(n) => set('weeklyGoal', n)} placeholder="1500" />
         </div>
         <div className="field">
-          <label>Tax rate (%)</label>
-          <NumberField value={draft.taxRate} onChange={(n) => set('taxRate', n)} placeholder="0" />
+          <label>Tax reserve (%)</label>
+          <NumberField value={draft.taxRate} onChange={(n) => set('taxRate', n)} placeholder="25" />
+          <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 4, lineHeight: 1.4 }}>
+            How much of net revenue to set aside for income/self-employment tax. Shows on Payouts. <em>This is NOT sales tax</em> — set customer-facing sales tax under Settings → Invoices.
+          </div>
         </div>
       </div>
 

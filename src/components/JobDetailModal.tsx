@@ -97,6 +97,22 @@ export function JobDetailModal({
               always sum to Profit across every vertical. */}
           <div className="form-group" style={{ marginBottom: 12 }}>
             <Row label="Revenue" value={money(job.revenue)} className="green" bold />
+            {/* Sales tax — only renders when settings.invoiceTaxRate > 0
+                so a non-taxed business sees the same single-line UI it
+                always did. Computed on the fly from the same field the
+                invoice PDF uses, so the modal and the printed invoice
+                are guaranteed to agree on the customer-facing math. */}
+            {Number(settings.invoiceTaxRate || 0) > 0 && (() => {
+              const rate = Number(settings.invoiceTaxRate || 0) / 100;
+              const taxAmt = Math.round(Number(job.revenue || 0) * rate * 100) / 100;
+              const total = Math.round((Number(job.revenue || 0) + taxAmt) * 100) / 100;
+              return (
+                <>
+                  <Row label={`Sales Tax (${settings.invoiceTaxRate}%)`} value={'+' + money(taxAmt)} />
+                  <Row label="Total Due" value={money(total)} bold />
+                </>
+              );
+            })()}
             {canViewProfit && Number(job.tireCost || 0) > 0 && (
               <Row label="Tire Cost" value={'-' + money(job.tireCost)} className="red" />
             )}
