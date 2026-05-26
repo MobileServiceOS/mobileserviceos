@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { InventoryItem, Job, Settings } from '@/types';
 import { money, normalizeTireSize, sanitizeInvItem, uid } from '@/lib/utils';
 import {
@@ -196,6 +196,12 @@ function TireInventoryView({ inventory, onSave, jobs }: InternalViewProps) {
   const [showDeleteAll, setShowDeleteAll] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // Render budget — pages of 50, reset on search. Inventory cards
+  // collapse by default so render cost per row is low, but at 500+
+  // SKUs the chip + image + condition badges still add up to ~150ms
+  // initial render on mid-range Android.
+  const [renderLimit, setRenderLimit] = useState(50);
+  useEffect(() => { setRenderLimit(50); }, [search]);
 
   // Track which cards are expanded by id. Compact-by-default UX — tapping
   // a card or hitting Edit flips the expanded state. New items (_isNew)
@@ -478,8 +484,21 @@ function TireInventoryView({ inventory, onSave, jobs }: InternalViewProps) {
     return Array.from(set).sort();
   }, [list]);
 
-  const totalQty = list.reduce((t, i) => t + Number(i.qty || 0), 0);
-  const lowStock = list.filter((i) => Number(i.qty || 0) <= 1).length;
+  // Memoize totals — list re-renders on every search keystroke; at 500+
+  // SKUs the reduce + filter cost adds up. Threshold uses per-item
+  // reorderPoint with global default of 1.
+  const totalQty = useMemo(
+    () => list.reduce((t, i) => t + Number(i.qty || 0), 0),
+    [list],
+  );
+  const lowStock = useMemo(
+    () => list.filter((i) => {
+      const qty = Number(i.qty || 0);
+      const threshold = Number(i.reorderPoint ?? 1);
+      return qty > 0 && qty <= threshold;
+    }).length,
+    [list],
+  );
 
   return (
     <div className="page page-enter">
@@ -640,7 +659,7 @@ function TireInventoryView({ inventory, onSave, jobs }: InternalViewProps) {
               {search.trim() ? 'No matches. Try a different search.' : 'Add tires individually or upload a CSV.'}
             </div>
           </div>
-        ) : filtered.map((i) => {
+        ) : filtered.slice(0, renderLimit).map((i) => {
           const open = isExpanded(i.id, i);
           const qty = Number(i.qty || 0);
           const cost = Number(i.cost || 0);
@@ -851,6 +870,16 @@ function TireInventoryView({ inventory, onSave, jobs }: InternalViewProps) {
             </div>
           );
         })}
+        {filtered.length > renderLimit && (
+          <button
+            type="button"
+            className="btn secondary"
+            onClick={() => setRenderLimit((n) => n + 50)}
+            style={{ marginTop: 6 }}
+          >
+            Load more ({filtered.length - renderLimit} remaining)
+          </button>
+        )}
       </div>
 
       {dirty && (
@@ -947,6 +976,9 @@ function GenericInventoryView({
   const [search, setSearch] = useState('');
   const [dirty, setDirty] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // Pagination — same rationale as TireInventoryView above.
+  const [renderLimit, setRenderLimit] = useState(50);
+  useEffect(() => { setRenderLimit(50); }, [search]);
 
   const fields: ReadonlyArray<BusinessTypeInventoryField> = vertical.inventoryFields;
   // The first field in vertical.inventoryFields acts as the primary
@@ -1003,8 +1035,19 @@ function GenericInventoryView({
     });
   }, [list, search, fields]);
 
-  const totalQty = list.reduce((t, i) => t + Number(i.qty || 0), 0);
-  const lowStock = list.filter((i) => Number(i.qty || 0) <= 1).length;
+  // Memoize totals — same rationale as the tire view above.
+  const totalQty = useMemo(
+    () => list.reduce((t, i) => t + Number(i.qty || 0), 0),
+    [list],
+  );
+  const lowStock = useMemo(
+    () => list.filter((i) => {
+      const qty = Number(i.qty || 0);
+      const threshold = Number(i.reorderPoint ?? 1);
+      return qty > 0 && qty <= threshold;
+    }).length,
+    [list],
+  );
 
   // Read the primary descriptor for a row (e.g. "Battery 12V Group 24"
   // for a mechanic part, "Wheel Cleaner" for a detailing chemical).
@@ -1056,7 +1099,7 @@ function GenericInventoryView({
                 : `Tap "Add Item" to start tracking ${vertical.copy.inventoryLabel.toLowerCase()}.`}
             </div>
           </div>
-        ) : filtered.map((i) => {
+        ) : filtered.slice(0, renderLimit).map((i) => {
           const open = i._isNew || expanded.has(i.id);
           const qty = Number(i.qty || 0);
           const cost = Number((i.unitCost ?? i.cost) || 0);
@@ -1188,6 +1231,16 @@ function GenericInventoryView({
             </div>
           );
         })}
+        {filtered.length > renderLimit && (
+          <button
+            type="button"
+            className="btn secondary"
+            onClick={() => setRenderLimit((n) => n + 50)}
+            style={{ marginTop: 6 }}
+          >
+            Load more ({filtered.length - renderLimit} remaining)
+          </button>
+        )}
       </div>
 
       {dirty && (

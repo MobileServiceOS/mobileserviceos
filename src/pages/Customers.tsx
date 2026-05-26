@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Job, Settings } from '@/types';
 import { PAYMENT_METHOD_LABELS } from '@/types';
 import { fmtDate, money, paymentPillClass, resolvePaymentStatus, serviceIcon } from '@/lib/utils';
@@ -55,6 +55,12 @@ export function Customers({ jobs: rawJobs, settings, customerMeta, onViewJob }: 
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [sort, setSort] = useState<SortMode>('revenue');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  // Render budget — see History.tsx rationale. Customer cards are
+  // taller than job cards (revenue + profit + tags + last-job line)
+  // so the cliff hits even sooner. 50 per page, reset on filter
+  // change.
+  const [renderLimit, setRenderLimit] = useState(50);
+  useEffect(() => { setRenderLimit(50); }, [query, filter, tagFilter, sort]);
 
   const customers = useMemo(
     () => deriveCustomerProfiles(jobs, settings),
@@ -279,7 +285,7 @@ export function Customers({ jobs: rawJobs, settings, customerMeta, onViewJob }: 
         </div>
       ) : (
         <div className="stack">
-          {filtered.map((c) => (
+          {filtered.slice(0, renderLimit).map((c) => (
             <button
               key={c.key}
               type="button"
@@ -316,6 +322,16 @@ export function Customers({ jobs: rawJobs, settings, customerMeta, onViewJob }: 
               </div>
             </button>
           ))}
+          {filtered.length > renderLimit && (
+            <button
+              type="button"
+              className="btn secondary"
+              onClick={() => setRenderLimit((n) => n + 50)}
+              style={{ marginTop: 6 }}
+            >
+              Load more ({filtered.length - renderLimit} remaining)
+            </button>
+          )}
         </div>
       )}
     </div>

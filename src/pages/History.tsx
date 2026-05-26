@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Job, Settings } from '@/types';
 import { PAYMENT_METHOD_LABELS } from '@/types';
 import { fmtDate, fmtDateShort, jobGrossProfit, money, paymentPillClass, resolvePaymentStatus, serviceIcon } from '@/lib/utils';
@@ -37,6 +37,14 @@ export function History({
 
   // Quick-action sheet state (long-press → bottom sheet).
   const [sheetJob, setSheetJob] = useState<Job | null>(null);
+  // Render budget. The History page used to render the entire job
+  // corpus into the DOM; at 500+ jobs that pushes mobile main-thread
+  // scroll past 200ms and produces visible jank. Page in chunks of
+  // 50 with an explicit "Load more" CTA — keeps the initial render
+  // snappy and gives the user a clear control rather than a
+  // mysterious cliff. Reset to 50 whenever the search/filter changes.
+  const [renderLimit, setRenderLimit] = useState(50);
+  useEffect(() => { setRenderLimit(50); }, [query, filter]);
 
   const filtered = useMemo(() => {
     let list = Array.isArray(jobs) ? [...jobs] : [];
@@ -82,7 +90,7 @@ export function History({
         </div>
       ) : (
         <div className="stack">
-          {filtered.map((j) => (
+          {filtered.slice(0, renderLimit).map((j) => (
             <HistoryJobCard
               key={j.id}
               job={j}
@@ -93,6 +101,16 @@ export function History({
               onMarkPaid={() => onMarkPaid(j)}
             />
           ))}
+          {filtered.length > renderLimit && (
+            <button
+              type="button"
+              className="btn secondary"
+              onClick={() => setRenderLimit((n) => n + 50)}
+              style={{ marginTop: 6 }}
+            >
+              Load more ({filtered.length - renderLimit} remaining)
+            </button>
+          )}
         </div>
       )}
 
