@@ -600,12 +600,20 @@ a { color: var(--brand-primary); text-decoration: none; }
 .chip-grid { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip {
   background: var(--s2); border: 1px solid var(--border); color: var(--t2);
-  border-radius: 99px; padding: 7px 12px; font-size: 12px; font-weight: 600;
+  border-radius: 99px; padding: 10px 14px; font-size: 13px; font-weight: 600;
   cursor: pointer;
+  /* iOS / Apple HIG and Material both require a 44px minimum hit
+     target for any tap-only control. The previous 7px/12px padding
+     produced ~32px chips that were missing taps in the field. */
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
   transition: background .13s ease, border-color .13s ease,
               color .13s ease, transform .07s ease;
 }
-.chip.sm { padding: 5px 10px; font-size: 11px; }
+/* Small-variant chips still meet the 44px minimum target — only the
+   visible padding shrinks, not the hit area. */
+.chip.sm { padding: 8px 11px; font-size: 12px; }
 .chip:hover { border-color: var(--border2); color: var(--t1); }
 .chip:active { transform: scale(.96); }
 .chip.active { background: rgba(244,180,0,.14); border-color: var(--brand-primary); color: var(--brand-primary); font-weight: 700; }

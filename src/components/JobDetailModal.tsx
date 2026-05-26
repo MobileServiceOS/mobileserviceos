@@ -117,8 +117,10 @@ export function JobDetailModal({
           <div className="form-group" style={{ marginBottom: 12 }}>
             <div className="form-group-title">Customer</div>
             <Row label="Name" value={job.customerName || '—'} />
-            <Row label="Phone" value={job.customerPhone || '—'} />
-            <Row label="Location" value={job.fullLocationLabel || (job.city && job.state ? `${job.city}, ${job.state}` : job.area || '—')} />
+            <PhoneRow phone={job.customerPhone} />
+            <LocationRow
+              label={job.fullLocationLabel || (job.city && job.state ? `${job.city}, ${job.state}` : job.area || '—')}
+            />
             <Row label="Source" value={job.source || '—'} />
           </div>
 
@@ -408,6 +410,53 @@ function Row({ label, value, className = '', bold = false }: { label: string; va
     <div className="card-row" style={{ padding: '8px 0' }}>
       <span className="label">{label}</span>
       <span className={'value ' + className} style={{ fontWeight: bold ? 700 : 500 }}>{value}</span>
+    </div>
+  );
+}
+
+// Tap-to-call row. iOS / Android both honor tel: URIs from PWA
+// standalone mode. On desktop most browsers prompt to launch a
+// dialer app or are no-ops, which is fine — the visual still
+// shows the number.
+function PhoneRow({ phone }: { phone: string | undefined }) {
+  const v = (phone || '').trim();
+  if (!v) return <Row label="Phone" value="—" />;
+  const tel = v.replace(/[^\d+]/g, '');
+  return (
+    <div className="card-row" style={{ padding: '8px 0' }}>
+      <span className="label">Phone</span>
+      <a
+        href={`tel:${tel}`}
+        className="value"
+        style={{ color: 'var(--brand-primary)', textDecoration: 'none', fontWeight: 600 }}
+      >
+        {v}
+      </a>
+    </div>
+  );
+}
+
+// Tap-to-navigate location row. iOS opens Apple Maps; Android opens
+// the user's default map app via the geo: scheme (with the daddr
+// query param honored by Google Maps when installed).
+function LocationRow({ label }: { label: string }) {
+  if (!label || label === '—') return <Row label="Location" value="—" />;
+  const isIOS = typeof navigator !== 'undefined' && /iPhone|iPad|iPod/.test(navigator.userAgent || '');
+  const href = isIOS
+    ? `maps://?q=${encodeURIComponent(label)}`
+    : `https://maps.google.com/?q=${encodeURIComponent(label)}`;
+  return (
+    <div className="card-row" style={{ padding: '8px 0' }}>
+      <span className="label">Location</span>
+      <a
+        href={href}
+        target={isIOS ? undefined : '_blank'}
+        rel="noopener noreferrer"
+        className="value"
+        style={{ color: 'var(--brand-primary)', textDecoration: 'none', fontWeight: 600 }}
+      >
+        {label}
+      </a>
     </div>
   );
 }
