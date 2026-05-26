@@ -14,7 +14,6 @@ import { Dashboard } from '@/pages/Dashboard';
 import { AddJob } from '@/pages/AddJob';
 import { History } from '@/pages/History';
 import { Inventory } from '@/pages/Inventory';
-import { Dispatch } from '@/pages/Dispatch';
 // Secondary tabs are lazy-loaded to keep the initial bundle lean.
 // Dashboard / AddJob / History / Inventory are the daily-driver
 // surfaces (the four eager imports above). Insights / Payouts /
@@ -342,21 +341,6 @@ function ExpensesGate({
   );
 }
 
-/** Dispatch tab gate — owner / admin only (canManageTeam). */
-function DispatchGate({
-  jobs, settings, onViewJob,
-}: {
-  jobs: Job[];
-  settings: SettingsT;
-  onViewJob: (j: Job) => void;
-}) {
-  const { canManageTeam } = usePermissions();
-  return (
-    <PermissionGate title="Dispatch" granted={canManageTeam}>
-      <Dispatch jobs={jobs} settings={settings} onViewJob={onViewJob} />
-    </PermissionGate>
-  );
-}
 
 /** Technician landing redirect. On first membership resolution, if
  *  the user is a technician and they're still on the default Home
@@ -1236,7 +1220,6 @@ function AuthenticatedApp({ user }: { user: User }) {
       />
     );
     if (tab === 'customers') return <Customers jobs={jobs} settings={settings} customerMeta={customerMeta} onViewJob={handleViewJob} />;
-    if (tab === 'dispatch') return <DispatchGate jobs={jobs} settings={settings} onViewJob={handleViewJob} />;
     if (tab === 'insights') return <InsightsGate jobs={jobs} settings={settings} />;
     if (tab === 'payouts') return <PayoutsGate jobs={jobs} settings={settings} />;
     if (tab === 'expenses') return <ExpensesGate expenses={settings.expenses || []} jobs={jobs} settings={settings} onSave={persistExpenses} />;
@@ -1377,7 +1360,7 @@ function AuthenticatedApp({ user }: { user: User }) {
           <span className="nav-ico">🛞</span><span>Inv</span>
         </button>
         <button
-          className={'nav-btn' + ((tab === 'settings' || tab === 'payouts' || tab === 'expenses' || tab === 'customers' || tab === 'insights' || tab === 'dispatch' || tab === 'help') ? ' active' : '')}
+          className={'nav-btn' + ((tab === 'settings' || tab === 'payouts' || tab === 'expenses' || tab === 'customers' || tab === 'insights' || tab === 'help') ? ' active' : '')}
           onClick={() => setMoreOpen(true)}
         >
           <span className="nav-ico">⚙</span><span>More</span>

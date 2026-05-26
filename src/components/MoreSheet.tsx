@@ -52,15 +52,6 @@ export function MoreSheet({ onClose, onPick }: Props) {
 
   const items: Item[] = [
     {
-      id: 'dispatch',
-      label: 'Dispatch',
-      icon: '🧭',
-      hint: 'Live technician status · active jobs · unassigned bucket',
-      // Same gate as Team Management — anyone who can manage techs
-      // benefits from the dispatch board.
-      visible: permissions.canManageTeam,
-    },
-    {
       id: 'payouts',
       label: 'Payouts',
       icon: '💰',
