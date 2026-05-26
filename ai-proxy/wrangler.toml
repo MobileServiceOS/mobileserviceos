@@ -25,3 +25,19 @@ AI_MODEL = "claude-haiku-4-5"
 # ANTHROPIC_API_KEY is NOT set here — it is a secret. Provision it with:
 #   wrangler secret put ANTHROPIC_API_KEY
 # Never commit the key to this file or to git.
+
+# Per-user rate limit (sliding hourly counter, keyed on Firebase uid).
+# Stored in KV. To enable:
+#   1. wrangler kv:namespace create "AI_RATE_LIMITS"
+#   2. paste the returned id below + uncomment the binding
+#   3. wrangler deploy
+# When the binding is absent, the proxy still works — rate limiting
+# is just skipped (logs a warning per request). This lets the worker
+# deploy roll out before the KV namespace is provisioned.
+# [[kv_namespaces]]
+# binding = "AI_RATE_LIMITS"
+# id = "<paste-from-create-output>"
+
+# Rate-limit thresholds — overridable per-environment without code.
+RATE_LIMIT_PER_HOUR = "30"
+RATE_LIMIT_PER_DAY  = "100"

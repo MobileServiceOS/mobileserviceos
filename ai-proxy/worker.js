@@ -120,6 +120,26 @@ export default {
       return json({ error: 'unauthorized' }, 401, origin, env);
     }
 
+    // ── Rate limit ──────────────────────────────────────────────
+    // Per-Firebase-uid sliding-window counter, stored in KV. Two
+    // tiers: hourly soft cap (returns 429 immediately) and daily
+    // hard cap (returns 429 with longer retry). Skips silently if
+    // the KV binding isn't configured yet — see wrangler.toml.
+    const rl = await checkRateLimit(claims.sub, env);
+    if (!rl.ok) {
+      return new Response(
+        JSON.stringify({ error: 'rate_limited', window: rl.window, retryAfter: rl.retryAfter }),
+        {
+          status: 429,
+          headers: {
+            'content-type': 'application/json',
+            'Retry-After': String(rl.retryAfter),
+            ...corsHeaders(origin, env),
+          },
+        },
+      );
+    }
+
     // ── Dispatch ────────────────────────────────────────────────
     let body;
     try {
@@ -147,6 +167,57 @@ export default {
     return json(result, result.ok ? 200 : 502, origin, env);
   },
 };
+
+// ─── Rate limit ────────────────────────────────────────────────────
+//  Two-tier sliding counter, keyed on Firebase uid:
+//    - HOURLY soft cap: prevents UI runaways (a stuck retry loop).
+//    - DAILY  hard cap: protects against compromised credentials.
+//  Both buckets live in KV. A failed KV roundtrip fails-open: we'd
+//  rather accept the request than 500 on a transient KV blip. The
+//  worker deploys cleanly even when the KV namespace isn't bound;
+//  rate limiting just no-ops with a logged warning in that case.
+async function checkRateLimit(uid, env) {
+  const kv = env.AI_RATE_LIMITS;
+  if (!kv) {
+    // Binding not provisioned — log once per request and pass.
+    // eslint-disable-next-line no-console
+    console.warn('[ai-proxy] AI_RATE_LIMITS KV not bound; rate limiting disabled');
+    return { ok: true };
+  }
+  const hourMax = Number(env.RATE_LIMIT_PER_HOUR || 30);
+  const dayMax  = Number(env.RATE_LIMIT_PER_DAY  || 100);
+  const now = Math.floor(Date.now() / 1000);
+  const hourBucket = Math.floor(now / 3600);
+  const dayBucket  = Math.floor(now / 86400);
+  const hourKey = `rl:h:${uid}:${hourBucket}`;
+  const dayKey  = `rl:d:${uid}:${dayBucket}`;
+
+  try {
+    const [hourRaw, dayRaw] = await Promise.all([kv.get(hourKey), kv.get(dayKey)]);
+    const hourCount = Number(hourRaw || 0);
+    const dayCount  = Number(dayRaw  || 0);
+    if (hourCount >= hourMax) {
+      const retryAfter = 3600 - (now % 3600);
+      return { ok: false, window: 'hour', retryAfter };
+    }
+    if (dayCount >= dayMax) {
+      const retryAfter = 86400 - (now % 86400);
+      return { ok: false, window: 'day', retryAfter };
+    }
+    // Bump both counters (fire-and-forget — failure to write means
+    // the count under-reports, which is the safe direction). TTL set
+    // generously past the bucket end so a slow KV consistency window
+    // can't double-spend.
+    void kv.put(hourKey, String(hourCount + 1), { expirationTtl: 4200 });
+    void kv.put(dayKey,  String(dayCount  + 1), { expirationTtl: 90000 });
+    return { ok: true };
+  } catch (e) {
+    // KV transient failure — fail open.
+    // eslint-disable-next-line no-console
+    console.warn('[ai-proxy] rate-limit KV error (fail-open):', String(e).slice(0, 120));
+    return { ok: true };
+  }
+}
 
 // ─── Anthropic ─────────────────────────────────────────────────────
 async function callClaude(prompt, apiKey, model) {
