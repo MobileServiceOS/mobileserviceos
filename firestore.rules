@@ -440,29 +440,6 @@ service cloud.firestore {
                        && isMemberOfBusiness(businessId);
       }
 
-      // Notifications collection — in-app notification center.
-      // Reads are open to every member (the notification center
-      // filters client-side by targetUid). Writes are open to every
-      // member because notifications are generated as side-effects
-      // of legitimate operations the user is already allowed to do
-      // (e.g. saving a job creates a "job assigned" notification).
-      // The readBy map is per-user state — anyone can update it
-      // for themselves via merge writes; the rule trusts that path
-      // because the only sensitive field is the message itself, and
-      // any member can read all messages anyway.
-      match /notifications/{notifId} {
-        allow read:  if isMemberOfBusiness(businessId);
-        allow write: if isMemberOfBusiness(businessId);
-      }
-
-      // Notification preferences — each user manages only their own.
-      match /notificationPrefs/{userId} {
-        allow read:  if isMemberOfBusiness(businessId);
-        allow write: if isSignedIn()
-                       && request.auth.uid == userId
-                       && isMemberOfBusiness(businessId);
-      }
-
       // Everything else under the business (jobs, inventory, customers,
       // technicians, products) — any member can read. Writes default to
       // member-level too (technicians need to log jobs and consume

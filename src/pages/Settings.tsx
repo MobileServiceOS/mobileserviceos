@@ -26,7 +26,6 @@ import { TeamAccordion } from '@/components/settings/TeamSection';
 import { SubscriptionAccordion } from '@/components/settings/SubscriptionSection';
 import { ReferralAccordion } from '@/components/settings/ReferralSection';
 import { AccountAccordion } from '@/components/settings/AccountSection';
-import { NotificationsAccordion } from '@/components/settings/NotificationsSection';
 
 interface Props {
   settings: SettingsT;
@@ -240,14 +239,6 @@ export function Settings({ settings, onSave }: Props) {
           onToggle={() => setOpenSection(openSection === 'referrals' ? null : 'referrals')}
         />
       )}
-      {/* Notifications — per-user category preferences. Every role
-          sees this (techs care about job_assigned, owners care about
-          payments / inventory / goals). */}
-      <NotificationsAccordion
-        open={openSection === 'notifications'}
-        onToggle={() => setOpenSection(openSection === 'notifications' ? null : 'notifications')}
-      />
-
       <AccountAccordion
         open={openSection === 'account'}
         onToggle={() => setOpenSection(openSection === 'account' ? null : 'account')}
