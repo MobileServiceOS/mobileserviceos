@@ -1,5 +1,5 @@
-import { doc, onSnapshot, setDoc, collection } from 'firebase/firestore';
-import { _auth, _db } from '@/lib/firebase';
+import { onSnapshot, collection } from 'firebase/firestore';
+import { _auth, _db, fbSetFast, scopedCol } from '@/lib/firebase';
 import type { PresenceDoc, TechStatus } from '@/types';
 // Pure helpers live in presenceTime.ts (no Firebase deps) so they
 // can be unit-tested in isolation via tsx. Re-exported here so
@@ -35,14 +35,17 @@ export async function setMyPresence(
   const uid = _auth?.currentUser?.uid;
   const db = _db;
   if (!uid || !db || !businessId) return;
-  const ref = doc(db, 'businesses', businessId, 'presence', uid);
   const payload: PresenceDoc = {
     uid,
     status,
     updatedAt: new Date().toISOString(),
     ...(note ? { note } : {}),
   };
-  await setDoc(ref, payload, { merge: true });
+  // fbSetFast races the local-cache write against a 2.5s budget so a
+  // stalled server ack on flaky LTE can't freeze the dispatcher UI.
+  // Cast to satisfy fbSetFast's `Record<string, unknown>` signature —
+  // PresenceDoc is a flat string-keyed object so this is safe.
+  await fbSetFast(scopedCol(businessId, 'presence'), uid, payload as unknown as Record<string, unknown>);
 }
 
 /**
