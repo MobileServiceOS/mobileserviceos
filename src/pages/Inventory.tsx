@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import type { InventoryItem, Job, Settings } from '@/types';
-import { money, sanitizeInvItem, uid } from '@/lib/utils';
+import { money, normalizeTireSize, sanitizeInvItem, uid } from '@/lib/utils';
 import {
   availableQty, reservedQty, addReservation, removeReservation,
 } from '@/lib/inventoryReservations';
@@ -335,22 +335,52 @@ function TireInventoryView({ inventory, onSave, jobs }: InternalViewProps) {
   const applyBulk = () => {
     if (!bulkRows) return;
     const ok = bulkRows.filter((r) => !r._error);
-    const next: InventoryItem[] = [
-      ...ok.map<InventoryItem>((r) => ({
-        id: uid(),
-        size: r.tireSize,
-        qty: r.quantity,
-        cost: r.cost,
-        condition: r.condition,
-        brand: '',
-        model: '',
-        notes: [r.vendor && `Vendor: ${r.vendor}`, r.sellingPrice ? `Sell: $${r.sellingPrice}` : '', r.notes].filter(Boolean).join(' · '),
-      })),
-      ...list,
-    ];
+    // Dedup against existing inventory: if an incoming row matches
+    // an existing item by normalized-size + condition, ADD its qty to
+    // the existing item instead of creating a parallel card. Without
+    // this, re-importing the same CSV doubles every line. Match key
+    // intentionally ignores cost/notes — a price update on the same
+    // SKU should merge, not split.
+    const keyOf = (size: string, condition: string) =>
+      normalizeTireSize(size) + '|' + (condition || 'New');
+    const existingByKey = new Map<string, number>();
+    list.forEach((i, idx) => {
+      existingByKey.set(keyOf(i.size, i.condition || 'New'), idx);
+    });
+    const merged = list.map((i) => ({ ...i }));
+    let mergedCount = 0;
+    const newRows: InventoryItem[] = [];
+    for (const r of ok) {
+      const k = keyOf(r.tireSize, r.condition);
+      const existingIdx = existingByKey.get(k);
+      if (existingIdx != null) {
+        merged[existingIdx] = {
+          ...merged[existingIdx],
+          qty: Number(merged[existingIdx].qty || 0) + Number(r.quantity || 0),
+        };
+        mergedCount++;
+      } else {
+        const fresh: InventoryItem = {
+          id: uid(),
+          size: r.tireSize,
+          qty: r.quantity,
+          cost: r.cost,
+          condition: r.condition,
+          brand: '',
+          model: '',
+          notes: [r.vendor && `Vendor: ${r.vendor}`, r.sellingPrice ? `Sell: $${r.sellingPrice}` : '', r.notes].filter(Boolean).join(' · '),
+        };
+        newRows.push(fresh);
+        existingByKey.set(k, merged.length + newRows.length - 1);
+      }
+    }
+    const next: InventoryItem[] = [...newRows, ...merged];
     update(next);
     setBulkRows(null);
-    addToast(`Added ${ok.length} row${ok.length === 1 ? '' : 's'}`, 'success');
+    const addedMsg = newRows.length ? `Added ${newRows.length} new` : '';
+    const mergedMsg = mergedCount ? `merged ${mergedCount} into existing` : '';
+    const parts = [addedMsg, mergedMsg].filter(Boolean).join(', ');
+    addToast(parts || 'No changes', 'success');
   };
 
   const confirmDeleteAll = () => {
@@ -615,7 +645,12 @@ function TireInventoryView({ inventory, onSave, jobs }: InternalViewProps) {
           const qty = Number(i.qty || 0);
           const cost = Number(i.cost || 0);
           const value = qty * cost;
-          const low = qty > 0 && qty <= 1;
+          // Per-item reorderPoint with global default of 1 — preserves
+          // current behavior for legacy items while letting an operator
+          // set "warn me when this SKU drops to 4 or fewer" for hot
+          // sellers.
+          const threshold = Number(i.reorderPoint ?? 1);
+          const low = qty > 0 && qty <= threshold;
           const outOfStock = qty === 0;
 
           return (
@@ -1026,7 +1061,9 @@ function GenericInventoryView({
           const qty = Number(i.qty || 0);
           const cost = Number((i.unitCost ?? i.cost) || 0);
           const value = qty * cost;
-          const low = qty > 0 && qty <= 1;
+          // Per-item reorderPoint w/ global default of 1.
+          const threshold = Number(i.reorderPoint ?? 1);
+          const low = qty > 0 && qty <= threshold;
           const outOfStock = qty === 0;
           const desc = primaryDescriptor(i);
 

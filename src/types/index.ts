@@ -644,6 +644,10 @@ export interface InventoryItem {
   /** Phase 3 — supplier / purchase source as free text. Future
    *  iterations may add per-source analytics. */
   purchaseSource?: string;
+  /** Per-item low-stock threshold. Falls back to a global default (1)
+   *  when undefined so legacy items keep current behavior. The
+   *  inventory list highlights any item whose qty <= reorderPoint. */
+  reorderPoint?: number;
   _isNew?: boolean;
 
   // ─── Mechanic-specific optional fields (Phase 2.1 + 2.2) ──────────
