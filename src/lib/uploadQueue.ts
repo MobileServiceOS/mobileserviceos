@@ -4,6 +4,7 @@ import {
   uploadJobPhoto, uploadReceipt as storageUploadReceipt, uploadLogo as storageUploadLogo,
 } from '@/lib/firebase';
 import { noteWriteIssued, noteWriteAcked, noteWriteFailed } from '@/lib/syncState';
+import { captureMessage } from '@/lib/errorMonitor';
 
 // ─────────────────────────────────────────────────────────────────────
 //  Offline upload queue — persistent across reload via IndexedDB.
@@ -302,6 +303,17 @@ export async function drainUploadQueue(): Promise<number> {
         if ((entry.attempts || 0) + 1 >= MAX_ATTEMPTS) {
           await deleteFromQueue(entry.id);
           noteWriteFailed();
+          // Dropped a queued upload after MAX_ATTEMPTS failures. Surface
+          // to the in-house error log so the operator can see that an
+          // upload was permanently lost (vs the much louder "queue
+          // grew but nothing uploaded" diagnostic from a stuck network).
+          captureMessage('error', '[uploadQueue] entry dropped after max attempts', {
+            kind: entry.kind,
+            id: entry.id,
+            businessId: entry.businessId,
+            attempts: (entry.attempts || 0) + 1,
+            error: (err as Error)?.message || String(err),
+          });
         }
       }
     }
