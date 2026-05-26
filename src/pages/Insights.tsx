@@ -5,6 +5,8 @@ import { TODAY } from '@/lib/defaults';
 import { computeInsights } from '@/lib/insights';
 import { callAI, isAIConfigured } from '@/lib/aiClient';
 import { buildInsightsInput, parseInsightsResponse } from '@/lib/aiInsights';
+import { PricingInsightsCard } from '@/components/insights/PricingInsightsCard';
+import { useBrand } from '@/context/BrandContext';
 
 interface Props {
   jobs: Job[];
@@ -18,6 +20,8 @@ interface Props {
 // ─────────────────────────────────────────────────────────────────────
 
 export function Insights({ jobs, settings }: Props) {
+  const { businessId } = useBrand();
+
   const ins = useMemo(
     () => computeInsights(jobs, settings, TODAY()),
     [jobs, settings],
@@ -73,6 +77,7 @@ export function Insights({ jobs, settings }: Props) {
           )}
         </div>
       )}
+      <PricingInsightsCard jobs={jobs} settings={settings} businessId={businessId} />
 
       {/* ── Daily job stats (Phase 5) ─────────────────────────── */}
       <div className="form-group">

@@ -24,7 +24,7 @@ import { addToast } from '@/lib/toast';
 interface Props {
   jobs: Job[];
   settings: Settings;
-  businessId: string;
+  businessId: string | null;
 }
 
 interface CachedPayload {
@@ -75,11 +75,12 @@ export function PricingInsightsCard({ jobs, settings, businessId }: Props) {
     isAIConfigured() &&
     vertical.features.inventoryDeduction &&        // tire only
     (role === 'owner' || role === 'admin') &&
-    completedInWindow >= MIN_COMPLETED_JOBS;
+    completedInWindow >= MIN_COMPLETED_JOBS &&
+    businessId !== null;
 
   // Hydrate state from cache on mount so a tab-switch doesn't lose
   // the user's freshly-generated bullets.
-  const cached = visible ? readCache(businessId) : null;
+  const cached = visible && businessId ? readCache(businessId) : null;
   const [bullets, setBullets] = useState<string[]>(cached?.bullets || []);
   const [generatedAt, setGeneratedAt] = useState<number | null>(cached?.generatedAt || null);
   const [status, setStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>(
@@ -89,7 +90,7 @@ export function PricingInsightsCard({ jobs, settings, businessId }: Props) {
   // If the businessId changes (rare — switcher), reset to whatever
   // the new business's cache says.
   useEffect(() => {
-    if (!visible) return;
+    if (!visible || !businessId) return;
     const fresh = readCache(businessId);
     setBullets(fresh?.bullets || []);
     setGeneratedAt(fresh?.generatedAt || null);
@@ -126,7 +127,7 @@ export function PricingInsightsCard({ jobs, settings, businessId }: Props) {
     setBullets(parsed.bullets);
     const now = Date.now();
     setGeneratedAt(now);
-    writeCache(businessId, parsed.bullets);
+    if (businessId) writeCache(businessId, parsed.bullets);
     setStatus('ready');
   };
 
