@@ -370,16 +370,41 @@ export async function acceptInvite(
     memberClean,
   );
 
-  try {
-    await batch.commit();
-  } catch (err) {
+  // Retry the commit on transient network failures. Invite acceptance
+  // is a single-shot user gesture — a single dropped packet on flaky
+  // LTE was leaving users in limbo (Auth user exists, member doc
+  // doesn't). Three attempts at 500/1500/3500 ms covers a brief outage
+  // without making the UI feel hung. Only retry transient codes —
+  // permission-denied / failed-precondition mean the rule rejected,
+  // so retrying with the same payload would just fail again.
+  const TRANSIENT_CODES = new Set([
+    'unavailable', 'deadline-exceeded', 'internal', 'aborted', 'cancelled',
+  ]);
+  const BACKOFF_MS = [500, 1500, 3500];
+  let lastErr: unknown = null;
+  for (let attempt = 0; attempt <= BACKOFF_MS.length; attempt++) {
+    try {
+      await batch.commit();
+      lastErr = null;
+      break;
+    } catch (err) {
+      lastErr = err;
+      const code = (err as { code?: string })?.code;
+      const isTransient = !code || TRANSIENT_CODES.has(code);
+      if (!isTransient || attempt >= BACKOFF_MS.length) break;
+      // eslint-disable-next-line no-console
+      console.warn('[invites] accept batch retry', { attempt: attempt + 1, code });
+      await new Promise((r) => setTimeout(r, BACKOFF_MS[attempt]));
+    }
+  }
+  if (lastErr) {
     // eslint-disable-next-line no-console
     console.error('[invites] accept batch failed', {
-      code: (err as { code?: string })?.code,
-      message: (err as Error)?.message,
+      code: (lastErr as { code?: string })?.code,
+      message: (lastErr as Error)?.message,
       token, uid, businessId: inviteDoc.businessId,
     });
-    throw new Error(humanizeAcceptError(err));
+    throw new Error(humanizeAcceptError(lastErr));
   }
 
   // eslint-disable-next-line no-console
