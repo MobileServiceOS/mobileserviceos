@@ -160,6 +160,50 @@ reload the page so Firebase mints a fresh token, then re-run.
 
 ---
 
+## Tasks
+
+### `ping`
+
+Health check. Exercises the whole chain (auth → routing → Anthropic) with a tiny prompt for end-to-end deployment verification.
+
+**Input:** None (no validation).
+
+**Output:** `{ ok: true, text: "pong" }`.
+
+**Cost:** ~$0.0001 per call.
+
+### `insights`
+
+AI Insights (roadmap #14). Turns a digest of `computeInsights()` metrics into a short plain-English owner briefing covering revenue trend, performance, and key risks.
+
+**Input shape:** Digest object from `src/lib/aiInsights.ts`.
+
+**Output:** `{"bullets": [string]}` JSON; client enforces numeric grounding.
+
+**Cost:** ~$0.003 per call at Haiku 4.5 pricing.
+
+### `inventory_insights`
+
+Inventory AI Insights (roadmap inventory Phase 4). Turns a compact inventory + jobs digest into an owner briefing covering restocking needs, slow movers, and risks.
+
+**Input shape:** Digest object from `src/lib/aiInventoryInsights.ts`.
+
+**Output:** `{"bullets": [string]}` JSON; client enforces numeric grounding.
+
+**Cost:** ~$0.003 per call at Haiku 4.5 pricing.
+
+### `pricing_insights`
+
+Smart Pricing observations (Phase B follow-up to audit). Compares 90-day median sale price to configured service basePrice per (service, tire-size) group. Returns 3–5 grounded bullets. Owner-facing on the Insights page (tire vertical only).
+
+**Input shape:** `PricingDigest` from `src/lib/pricingInsights.ts`.
+
+**Output:** `{"bullets": [string]}` JSON; client grounds every numeric token against the digest's number set.
+
+**Cost:** ~$0.003 per call at Haiku 4.5 pricing.
+
+---
+
 ## Adding tasks
 
 Each AI feature owns a prompt template server-side. The client only sends

@@ -96,6 +96,43 @@ const TASKS = {
       maxTokens: 400,
     };
   },
+
+  // Smart Pricing observations (Phase B follow-up to audit). Compares
+  // 90-day median sale prices to configured service basePrice and
+  // surfaces the gap as 3-5 bullets. The client
+  // (src/lib/pricingInsights.ts) builds `input` and grounds the reply
+  // against the digest's number set; this handler owns the prompt.
+  pricing_insights: (input) => {
+    if (!input || typeof input !== 'object') {
+      throw new Error('pricing_insights: input must be an object');
+    }
+    return {
+      system:
+        'You are writing a brief pricing observations summary for ' +
+        'the owner of a mobile tire / roadside service business, ' +
+        'from the digest provided. Write 3 to 5 short bullet points ' +
+        'covering where actual sale prices sit relative to the ' +
+        'configured minimum (configuredMin). Rules: (1) Use ONLY ' +
+        'numbers that appear in the digest — never compute new ' +
+        'figures such as percentages, sums, or growth deltas not ' +
+        'already in the digest. The gapPct field is precomputed ' +
+        'and is the ONLY percentage you may state. (2) Refer to a ' +
+        "tire size by its exact string from the digest (e.g. " +
+        "'225/65R17') — that string is allowed. (3) Skip any " +
+        'group where p75Revenue divided by p25Revenue exceeds 2.5 ' +
+        '— the spread is too wide to call a trend. (You do NOT need ' +
+        'to state this; just omit those groups.) (4) Write any ' +
+        'incidental quantity as a word (the top three sizes, over ' +
+        'ninety days); use digits ONLY for actual digest figures. ' +
+        '(5) Do NOT give prescriptive advice ("you should raise ' +
+        'your price"); describe the gap and let the owner decide. ' +
+        '(6) Omit any observation you cannot tie to a digest ' +
+        'number. Respond with ONLY raw JSON, no markdown, as: ' +
+        '{"bullets": ["<sentence>", "<sentence>"]}.',
+      user: JSON.stringify(input),
+      maxTokens: 400,
+    };
+  },
 };
 
 export default {
