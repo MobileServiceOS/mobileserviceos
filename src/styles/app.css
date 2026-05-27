@@ -576,6 +576,12 @@ a { color: var(--brand-primary); text-decoration: none; }
   outline: none;
   transition: border-color .15s ease, background .15s ease,
               box-shadow .15s ease;
+  /* Reserve 100px of buffer above focused inputs when the browser
+     auto-scrolls them into view. Covers the sticky .header-compact
+     (~70px) plus the sticky AddJob suggested-price tile (~50px) so
+     the focused field never lands underneath either of them. Pages
+     without the price tile waste ~20px of buffer; acceptable. */
+  scroll-margin-top: 100px;
 }
 /* iOS Safari forces input zoom when font-size < 16px on focus. The
    field at 14px would trigger that zoom on every form tap inside the
