@@ -1378,3 +1378,36 @@ a { color: var(--brand-primary); text-decoration: none; }
   margin-top: 4px;
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   Reduced-motion respect (WCAG 2.3.3 Animation from Interactions)
+   ═══════════════════════════════════════════════════════════════
+   Users who've toggled "Reduce motion" in iOS Settings → Accessibility
+   (or the equivalent on Android / desktop OSes) have a documented
+   vestibular preference. Honoring that preference is an accessibility
+   requirement, not a polish item — motion sickness, attention disorders,
+   and certain neurological conditions are real triggers.
+
+   This block catches EVERYTHING globally rather than per-selector so
+   new animations added later are automatically respectful. The
+   targeted blocks already in this file (.card-anim, .page-enter,
+   modal animations) remain — they're redundant when the global block
+   fires but harmless. State changes still happen; they just don't
+   animate in.
+
+   The 0.01ms duration is the WCAG-recommended pattern (vs `none`)
+   because some animations carry state — keyframes that change
+   opacity from 0 → 1 need to still RUN to a final state; setting
+   duration to a microsecond lets them complete instantly without
+   visible motion.
+*/
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
