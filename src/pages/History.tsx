@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Job, Settings } from '@/types';
 import { PAYMENT_METHOD_LABELS } from '@/types';
 import { fmtDate, fmtDateShort, jobGrossProfit, money, paymentPillClass, resolvePaymentStatus, serviceIcon } from '@/lib/utils';
 import { useBrand } from '@/context/BrandContext';
 import { useMembersDirectory } from '@/lib/useMembersDirectory';
 import { useLongPress } from '@/lib/useLongPress';
+import { useSwipeAction } from '@/lib/useSwipeAction';
 import { QuickActionSheet } from '@/components/QuickActionSheet';
 import { useScopedJobs } from '@/lib/useScopedJobs';
 import { usePermissions } from '@/context/MembershipContext';
@@ -157,58 +158,17 @@ function HistoryJobCard({
 
   // Swipe-to-mark-paid (power-user shortcut). The explicit "Mark Paid"
   // button below still renders for discoverability — swipe is the
-  // gesture for operators who do this 20× a day. Vertical movement
-  // > 12px aborts so the gesture never hijacks a list scroll.
+  // gesture for operators who do this 20× a day. Backed by
+  // useSwipeAction (src/lib/useSwipeAction.ts) so the same gesture
+  // works identically on Dashboard's recent-jobs cards.
   const canSwipe = ps !== 'Paid' && ps !== 'Cancelled';
-  // Reveal threshold = the green underlay starts showing AT this px of
-  // horizontal movement so a tiny finger graze (<20px) doesn't flash
-  // green. Commit threshold = release past this px = fire onMarkPaid.
-  const SWIPE_REVEAL = 20;
-  const SWIPE_COMMIT = 100;
-  const [swipeX, setSwipeX] = useState(0);
-  const swipeRef = useRef<{ startX: number; startY: number; tracking: boolean } | null>(null);
-  const swipeBind = canSwipe ? {
-    onPointerDown: (e: React.PointerEvent) => {
-      swipeRef.current = { startX: e.clientX, startY: e.clientY, tracking: true };
-    },
-    onPointerMove: (e: React.PointerEvent) => {
-      const s = swipeRef.current;
-      if (!s || !s.tracking) return;
-      const dx = e.clientX - s.startX;
-      const dy = Math.abs(e.clientY - s.startY);
-      // Vertical scroll dominates → abandon the swipe and let the
-      // scroll engine take over.
-      if (dy > 12 && Math.abs(dx) < dy) {
-        s.tracking = false;
-        setSwipeX(0);
-        return;
-      }
-      // Only track rightward motion. Negative dx is a no-op so a
-      // left-swipe doesn't do anything weird.
-      if (dx > 0) setSwipeX(Math.min(dx, SWIPE_COMMIT + 20));
-    },
-    onPointerUp: () => {
-      const s = swipeRef.current;
-      const committed = swipeRef.current?.tracking && swipeX >= SWIPE_COMMIT;
-      if (s) s.tracking = false;
-      swipeRef.current = null;
-      setSwipeX(0);
-      if (committed) onMarkPaid();
-    },
-    onPointerCancel: () => {
-      const s = swipeRef.current;
-      if (s) s.tracking = false;
-      swipeRef.current = null;
-      setSwipeX(0);
-    },
-  } : {};
+  const swipe = useSwipeAction({ enabled: canSwipe, onCommit: onMarkPaid });
 
   return (
     <div className="job-card card-anim" style={{ position: 'relative', overflow: 'hidden' }}>
       {/* Green reveal slides in from the left as the swipe progresses.
-          Only renders when actively swiping (swipeX > 0); pointer-events
-          off so it never blocks taps on the card content above. */}
-      {canSwipe && swipeX >= SWIPE_REVEAL && (
+          pointer-events off so it never blocks taps on the card above. */}
+      {canSwipe && swipe.reveal && (
         <div
           aria-hidden
           style={{
@@ -220,18 +180,17 @@ function HistoryJobCard({
             pointerEvents: 'none',
           }}
         >
-          {swipeX >= SWIPE_COMMIT ? '✓ Release to mark paid' : '→ Swipe to mark paid'}
+          {swipe.committed ? '✓ Release to mark paid' : '→ Swipe to mark paid'}
         </div>
       )}
       {/* Swipe-transform container — holds both the card body and the
-          unpaid-footer so they slide as one. Bg color is explicit (not
-          inherit) so the green reveal underneath doesn't bleed through
-          the rounded corners. */}
+          unpaid-footer so they slide as one. Explicit bg so the green
+          reveal underneath doesn't bleed through the rounded corners. */}
       <div
-        {...swipeBind}
+        {...swipe.bind}
         style={{
-          transform: `translateX(${swipeX}px)`,
-          transition: swipeX === 0 ? 'transform .18s ease' : 'none',
+          transform: `translateX(${swipe.swipeX}px)`,
+          transition: swipe.swipeX === 0 ? 'transform .18s ease' : 'none',
           position: 'relative',
           zIndex: 1,
           background: 'var(--s1)',

@@ -18,6 +18,7 @@ import { useMembership } from '@/context/MembershipContext';
 import { _auth } from '@/lib/firebase';
 import { useActiveVertical } from '@/lib/useActiveVertical';
 import { useScopedJobs } from '@/lib/useScopedJobs';
+import { useSwipeAction } from '@/lib/useSwipeAction';
 
 // ─────────────────────────────────────────────────────────────────────
 //  Dashboard — hybrid premium + operational
@@ -999,48 +1000,16 @@ export function Dashboard({
             {isTechnician ? 'Your Recent Jobs' : 'Recent Completed Jobs'}
           </div>
           <div className="stack">
-            {recentCompleted.map((j) => {
-              const pr = jobGrossProfit(j, settings);
-              const ps = resolvePaymentStatus(j);
-              return (
-                // Compressed recent-job card (2026-05-27): the prior
-                // version had a 3-button action row (Invoice / Review /
-                // Edit) below the main row, adding ~40px per card ×
-                // five cards = 200px of vertical real estate above the
-                // "Log New Job" CTA. Those same actions are available
-                // by tapping the card → JobDetailModal opens with the
-                // full action set, so the standalone buttons were a
-                // discoverability/redundancy trade. Removed in favor
-                // of denser scanning. fmtDateShort + dropped service
-                // duplicate (it's already in the icon) keep the meta
-                // row to one tight line.
-                <div key={j.id} className="job-card card-anim">
-                  <div className="job-card-main" onClick={() => onViewJob(j)}>
-                    <div className="job-icon">{serviceIcon(j.service)}</div>
-                    <div className="job-main">
-                      <div className="job-title">{j.customerName || j.service}</div>
-                      <div className="job-meta">
-                        {j.fullLocationLabel || j.area || j.service}
-                        {j.tireSize ? ' · ' + j.tireSize : ''}
-                        {' · ' + fmtDateShort(j.date)}
-                      </div>
-                    </div>
-                    <div className="job-right">
-                      {/* Revenue is owner/admin-only on the job card.
-                          Technicians see profit + payment pill but
-                          not company revenue. */}
-                      {showCompanyData && (
-                        <div className="value green">{money(j.revenue)}</div>
-                      )}
-                      <div style={{ fontSize: 11, color: pr >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>
-                        {money(pr)} profit
-                      </div>
-                      <span className={'pill ' + paymentPillClass(ps)} style={{ marginTop: 4 }}>{ps}</span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+            {recentCompleted.map((j) => (
+              <RecentJobCard
+                key={j.id}
+                job={j}
+                settings={settings}
+                showCompanyData={showCompanyData}
+                onView={() => onViewJob(j)}
+                onMarkPaid={() => onMarkPaid(j)}
+              />
+            ))}
           </div>
         </>
       )}
@@ -1062,6 +1031,80 @@ export function Dashboard({
           onOpenFullExpenses={() => setTab('expenses')}
         />
       )}
+    </div>
+  );
+}
+
+// ─── RecentJobCard ─────────────────────────────────────────────────
+// Compact recent-job card used on the Dashboard's Recent Completed
+// Jobs strip. Mirrors the visual shape of the prior inline render
+// (compressed on 2026-05-27 to a single-row layout) and adds
+// swipe-to-mark-paid via useSwipeAction so the gesture matches
+// History's HistoryJobCard. Tap = view modal (full action set).
+// Swipe right past 100px = mark paid.
+function RecentJobCard({
+  job, settings, showCompanyData, onView, onMarkPaid,
+}: {
+  job: Job;
+  settings: Settings;
+  showCompanyData: boolean;
+  onView: () => void;
+  onMarkPaid: () => void;
+}) {
+  const pr = jobGrossProfit(job, settings);
+  const ps = resolvePaymentStatus(job);
+  const canSwipe = ps !== 'Paid' && ps !== 'Cancelled';
+  const swipe = useSwipeAction({ enabled: canSwipe, onCommit: onMarkPaid });
+
+  return (
+    <div className="job-card card-anim" style={{ position: 'relative', overflow: 'hidden' }}>
+      {canSwipe && swipe.reveal && (
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute', inset: 0,
+            background: 'linear-gradient(90deg, var(--green) 0%, #16a34a 100%)',
+            display: 'flex', alignItems: 'center', justifyContent: 'flex-start',
+            paddingLeft: 18, color: '#fff', fontWeight: 800,
+            fontSize: 14, letterSpacing: 0.2,
+            pointerEvents: 'none',
+          }}
+        >
+          {swipe.committed ? '✓ Release to mark paid' : '→ Swipe to mark paid'}
+        </div>
+      )}
+      <div
+        {...swipe.bind}
+        style={{
+          transform: `translateX(${swipe.swipeX}px)`,
+          transition: swipe.swipeX === 0 ? 'transform .18s ease' : 'none',
+          position: 'relative',
+          zIndex: 1,
+          background: 'var(--s1)',
+        }}
+      >
+        <div className="job-card-main" onClick={onView}>
+          <div className="job-icon">{serviceIcon(job.service)}</div>
+          <div className="job-main">
+            <div className="job-title">{job.customerName || job.service}</div>
+            <div className="job-meta">
+              {job.fullLocationLabel || job.area || job.service}
+              {job.tireSize ? ' · ' + job.tireSize : ''}
+              {' · ' + fmtDateShort(job.date)}
+            </div>
+          </div>
+          <div className="job-right">
+            {/* Revenue is owner/admin-only — techs see profit + pill only. */}
+            {showCompanyData && (
+              <div className="value green">{money(job.revenue)}</div>
+            )}
+            <div style={{ fontSize: 11, color: pr >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>
+              {money(pr)} profit
+            </div>
+            <span className={'pill ' + paymentPillClass(ps)} style={{ marginTop: 4 }}>{ps}</span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
