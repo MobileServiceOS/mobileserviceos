@@ -91,9 +91,11 @@ console.log('\n┌─ parseInventoryNotes (full lines) ────────�
 }
 {
   const out = parseInventoryNotes('225/65R17');
-  check('line with size but no qty → _error', out.length === 1
+  check('line with size but no qty → defaults to 1 (no error)',
+    out.length === 1
     && out[0].tireSize === '225/65R17'
-    && out[0]._error === 'No quantity found');
+    && out[0].quantity === 1
+    && !out[0]._error);
 }
 {
   const out = parseInventoryNotes(`

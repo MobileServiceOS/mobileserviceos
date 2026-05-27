@@ -140,14 +140,20 @@ export function parseInventoryNotes(text: string): ParsedNotesRow[] {
     }
     const cost = extractCost(raw);
     const condition = extractCondition(raw);
-    const quantity = extractQuantity(raw);
+    const parsedQty = extractQuantity(raw);
+    // When no quantity is found in the line, default to 1 rather
+    // than flagging as an error. Operators who paste bare size lists
+    // (e.g. 71 lines like "235/65R16") typically mean "one of each";
+    // erroring would force them to retype every line. The preview
+    // grid is editable so they can adjust before saving. Cost
+    // defaults to 0 silently — already non-blocking pre-existing.
+    const quantity = parsedQty > 0 ? parsedQty : 1;
 
     rows.push({
       tireSize, condition, quantity, cost,
       sellingPrice: 0,
       vendor: '', notes: '',
       _row: row,
-      _error: quantity === 0 ? 'No quantity found' : undefined,
     });
   }
   return rows;

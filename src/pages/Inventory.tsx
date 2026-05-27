@@ -902,18 +902,58 @@ function TireInventoryView({ inventory, onSave, jobs }: InternalViewProps) {
           <div className="modal modal-lg">
             <div className="modal-title">Bulk Upload Preview</div>
             <div className="modal-sub">
-              {bulkRows.length} row{bulkRows.length === 1 ? '' : 's'} parsed
+              {bulkRows.length} row{bulkRows.length === 1 ? '' : 's'} parsed · tap Qty or Cost to edit
               {bulkRows.some((r) => r._error) ? ' · errored rows will be skipped' : ''}
             </div>
             <div className="bulk-preview">
               <div className="bulk-preview-row bulk-preview-head">
                 <span>Size</span><span>Qty</span><span>Cost</span><span>Sell</span><span>Vendor</span>
               </div>
-              {bulkRows.map((r) => (
+              {bulkRows.map((r, idx) => (
                 <div key={r._row} className={'bulk-preview-row' + (r._error ? ' err' : '')}>
-                  <span>{r.tireSize}</span>
-                  <span>{r.quantity}</span>
-                  <span>{money(r.cost)}</span>
+                  <span>{r.tireSize || <em style={{ color: 'var(--t3)' }}>—</em>}</span>
+                  {/* Inline-editable Qty + Cost. Operators pasting big lists
+                      (e.g. 71 sizes with no qty) need to fix counts WITHOUT
+                      going back to the textarea + re-parsing. Numeric
+                      inputmode on mobile pops the number pad. */}
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    value={r.quantity}
+                    onChange={(e) => {
+                      const v = Math.max(0, Math.floor(Number(e.target.value) || 0));
+                      setBulkRows((prev) => prev ? prev.map((row, i) =>
+                        i === idx ? { ...row, quantity: v } : row,
+                      ) : prev);
+                    }}
+                    style={{
+                      width: 56, padding: '4px 6px',
+                      fontSize: 13, textAlign: 'right',
+                      background: 'var(--s2)', border: '1px solid var(--border)',
+                      borderRadius: 6, color: 'var(--t1)',
+                    }}
+                  />
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    step="0.01"
+                    value={r.cost || ''}
+                    placeholder="$0"
+                    onChange={(e) => {
+                      const v = Math.max(0, Number(e.target.value) || 0);
+                      setBulkRows((prev) => prev ? prev.map((row, i) =>
+                        i === idx ? { ...row, cost: v } : row,
+                      ) : prev);
+                    }}
+                    style={{
+                      width: 64, padding: '4px 6px',
+                      fontSize: 13, textAlign: 'right',
+                      background: 'var(--s2)', border: '1px solid var(--border)',
+                      borderRadius: 6, color: 'var(--t1)',
+                    }}
+                  />
                   <span>{money(r.sellingPrice)}</span>
                   <span>{r.vendor || '—'}</span>
                   {r._error ? <span className="bulk-preview-error">⚠ {r._error}</span> : null}
