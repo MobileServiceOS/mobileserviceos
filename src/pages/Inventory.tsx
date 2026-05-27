@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { InventoryItem, Job, Settings } from '@/types';
 import { money, normalizeTireSize, sanitizeInvItem, uid } from '@/lib/utils';
 import { parseInventoryNotes } from '@/lib/inventoryNotesParser';
+import { mergeBulkRows } from '@/lib/inventoryBulkMerge';
 import {
   availableQty, reservedQty, addReservation, removeReservation,
 } from '@/lib/inventoryReservations';
@@ -368,49 +369,14 @@ function TireInventoryView({ inventory, onSave, jobs }: InternalViewProps) {
   const applyBulk = () => {
     if (!bulkRows) return;
     const ok = bulkRows.filter((r) => !r._error);
-    // Dedup against existing inventory: if an incoming row matches
-    // an existing item by normalized-size + condition, ADD its qty to
-    // the existing item instead of creating a parallel card. Without
-    // this, re-importing the same CSV doubles every line. Match key
-    // intentionally ignores cost/notes — a price update on the same
-    // SKU should merge, not split.
-    const keyOf = (size: string, condition: string) =>
-      normalizeTireSize(size) + '|' + (condition || 'New');
-    const existingByKey = new Map<string, number>();
-    list.forEach((i, idx) => {
-      existingByKey.set(keyOf(i.size, i.condition || 'New'), idx);
-    });
-    const merged = list.map((i) => ({ ...i }));
-    let mergedCount = 0;
-    const newRows: InventoryItem[] = [];
-    for (const r of ok) {
-      const k = keyOf(r.tireSize, r.condition);
-      const existingIdx = existingByKey.get(k);
-      if (existingIdx != null) {
-        merged[existingIdx] = {
-          ...merged[existingIdx],
-          qty: Number(merged[existingIdx].qty || 0) + Number(r.quantity || 0),
-        };
-        mergedCount++;
-      } else {
-        const fresh: InventoryItem = {
-          id: uid(),
-          size: r.tireSize,
-          qty: r.quantity,
-          cost: r.cost,
-          condition: r.condition,
-          brand: '',
-          model: '',
-          notes: [r.vendor && `Vendor: ${r.vendor}`, r.sellingPrice ? `Sell: $${r.sellingPrice}` : '', r.notes].filter(Boolean).join(' · '),
-        };
-        newRows.push(fresh);
-        existingByKey.set(k, merged.length + newRows.length - 1);
-      }
-    }
-    const next: InventoryItem[] = [...newRows, ...merged];
+    // Two-axis dedup: same-batch and against-existing. Pure helper
+    // at src/lib/inventoryBulkMerge.ts; see inventoryBulkMerge.test.ts
+    // for the regression cases (the second-match case had a bug
+    // shipped this morning in commit 9bea3ae that this extract fixed).
+    const { next, mergedCount, addedCount } = mergeBulkRows(list, ok, uid);
     update(next);
     setBulkRows(null);
-    const addedMsg = newRows.length ? `Added ${newRows.length} new` : '';
+    const addedMsg = addedCount ? `Added ${addedCount} new` : '';
     const mergedMsg = mergedCount ? `merged ${mergedCount} into existing` : '';
     const parts = [addedMsg, mergedMsg].filter(Boolean).join(', ');
     addToast(parts || 'No changes', 'success');
