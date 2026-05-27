@@ -9,6 +9,7 @@ import { calcQuote, money, normalizeTireSize, planInventoryDeduction } from '@/l
 import { addToast } from '@/lib/toast';
 import { enqueueReceiptUpload } from '@/lib/uploadQueue';
 import { compressImage } from '@/lib/imageCompress';
+import { rankByUsage } from '@/lib/chipFrequency';
 import { availableQty, reservedQty } from '@/lib/inventoryReservations';
 import { useBrand } from '@/context/BrandContext';
 import { usePermissions } from '@/context/MembershipContext';
@@ -101,13 +102,18 @@ interface Props {
   setJob: (next: Job) => void;
   settings: Settings;
   inventory: InventoryItem[];
+  /** Job history — drives frequency-ranked chip ordering. Pass the
+   *  full unscoped list; the helper ignores values that aren't in the
+   *  chip's option set, so cross-vertical noise doesn't bias the
+   *  ranking. */
+  jobs: ReadonlyArray<Job>;
   isEditing: boolean;
   prefilledFromQuote: boolean;
   onSave: () => Promise<void> | void;
   onSaveAndNew: () => Promise<void> | void;
 }
 
-export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledFromQuote, onSave, onSaveAndNew }: Props) {
+export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, prefilledFromQuote, onSave, onSaveAndNew }: Props) {
   const { businessId } = useBrand();
   const permissions = usePermissions();
   // Active vertical drives which fields, services, breakdown panel,
@@ -173,6 +179,14 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
   }, [vertical.pricingModel]);
 
   const vehicles = useMemo(() => Object.keys(settings.vehiclePricing || DEFAULT_VEHICLE_PRICING), [settings.vehiclePricing]);
+
+  // Frequency-ranked option lists — most-used first based on the
+  // operator's actual job history. Empty fresh deployments get the
+  // config-declared order back (rankByUsage falls through to original
+  // order when no jobs match). Memoized on [options, jobs] so re-
+  // renders don't re-sort.
+  const rankedVehicles = useMemo(() => rankByUsage(vehicles, jobs, 'vehicleType'), [vehicles, jobs]);
+  const rankedSources  = useMemo(() => rankByUsage(LEAD_SOURCES, jobs, 'source'), [jobs]);
 
   const set = <K extends keyof Job>(k: K, v: Job[K]) => setJob({ ...job, [k]: v });
 
@@ -660,7 +674,7 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
       <div className={'form-group card-anim'}>
         <div className="form-group-title">Vehicle</div>
         <div className="chip-grid">
-          {vehicles.map((v) => (
+          {rankedVehicles.map((v) => (
             <button key={v} className={'chip' + (job.vehicleType === v ? ' active' : '')}
               onClick={() => set('vehicleType', v)} type="button">{v}</button>
           ))}
@@ -989,7 +1003,7 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
         <div className="field">
           <label>Lead source</label>
           <div className="chip-grid">
-            {LEAD_SOURCES.map((s) => (
+            {rankedSources.map((s) => (
               <button key={s} type="button" className={'chip' + (job.source === s ? ' active' : '')} onClick={() => set('source', s)}>{s}</button>
             ))}
           </div>

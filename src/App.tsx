@@ -1199,6 +1199,7 @@ function AuthenticatedApp({ user }: { user: User }) {
           setJob={setJobDraft}
           settings={settings}
           inventory={inventory}
+          jobs={jobs}
           isEditing={Boolean(editingJobId)}
           prefilledFromQuote={prefilledFromQuote}
           onSave={async () => { await saveJob(false); }}
