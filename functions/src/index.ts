@@ -48,7 +48,17 @@ export {
   onReferralCodeDeleted,
 } from './firestoreTriggers';
 
-// Standalone Stripe webhook — DO NOT register in Stripe Dashboard
-// if you're still using the Firebase Stripe Extension's webhook
-// endpoint. See file header for migration guidance.
-export { stripeWebhook } from './stripeWebhook';
+// Standalone Stripe webhook — kept as source for future migration
+// flexibility but NOT exported here. Production uses the Firebase
+// Stripe Extension's webhook (ext-firestore-stripe-payments-
+// handleWebhookEvents) which writes to /customers/{uid}/subscriptions
+// and triggers onSubscriptionWrite for referral rewards. The function
+// previously deployed here was orphan — no Stripe webhook pointed at
+// it, no STRIPE_WEBHOOK_SECRET was configured, so every accidental
+// invocation returned 500.
+//
+// If you ever uninstall the Stripe extension, restore this export and
+// point Stripe at the deployed URL. See stripeWebhook.ts header for
+// the migration guide.
+//
+// export { stripeWebhook } from './stripeWebhook';
