@@ -185,8 +185,14 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
   // config-declared order back (rankByUsage falls through to original
   // order when no jobs match). Memoized on [options, jobs] so re-
   // renders don't re-sort.
-  const rankedVehicles = useMemo(() => rankByUsage(vehicles, jobs, 'vehicleType'), [vehicles, jobs]);
-  const rankedSources  = useMemo(() => rankByUsage(LEAD_SOURCES, jobs, 'source'), [jobs]);
+  const rankedVehicles       = useMemo(() => rankByUsage(vehicles, jobs, 'vehicleType'), [vehicles, jobs]);
+  const rankedSources        = useMemo(() => rankByUsage(LEAD_SOURCES, jobs, 'source'), [jobs]);
+  const rankedTireSources    = useMemo(() => rankByUsage(TIRE_SOURCES, jobs, 'tireSource'), [jobs]);
+  // Use the legacy `payment` field (string) for ranking — every job
+  // since day-0 has it populated, so historical counts are accurate.
+  // The newer `paymentMethod` typed union is only set on jobs saved
+  // since that field was introduced (much smaller corpus).
+  const rankedPaymentMethods = useMemo(() => rankByUsage(PAYMENT_METHODS, jobs, 'payment'), [jobs]);
 
   const set = <K extends keyof Job>(k: K, v: Job[K]) => setJob({ ...job, [k]: v });
 
@@ -874,7 +880,7 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
           <div className="field">
             <label>Tire source</label>
             <div className="chip-grid">
-              {TIRE_SOURCES.map((s) => (
+              {rankedTireSources.map((s) => (
                 <button key={s} className={'chip' + (tireSource === s ? ' active' : '')}
                   onClick={() => set('tireSource', s as TireSource)} type="button">{s}</button>
               ))}
@@ -1012,7 +1018,7 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
         <div className={'field'}>
           <label>Payment method</label>
           <div className="chip-grid">
-            {PAYMENT_METHODS.map((p) => (
+            {rankedPaymentMethods.map((p) => (
               <button key={p} type="button" className={'chip' + (job.payment === p ? ' active' : '')} onClick={() => set('payment', p)}>{p}</button>
             ))}
           </div>
