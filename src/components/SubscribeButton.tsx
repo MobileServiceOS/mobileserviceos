@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Settings } from '@/types';
 import { _auth } from '@/lib/firebase';
+import { useBrand } from '@/context/BrandContext';
 import { addToast } from '@/lib/toast';
 import { startCheckout, createPortalLink } from '@/lib/stripeSync';
 import { isBillingExempt, resolvePlan } from '@/lib/planAccess';
@@ -73,6 +74,7 @@ export function hasPriceId(plan: 'pro' | 'core'): boolean {
 
 export function SubscribeButton({ settings, plan }: Props) {
   const [busy, setBusy] = useState(false);
+  const { businessId } = useBrand();
 
   // Defensive exemption check.
   if (isBillingExempt(settings)) return null;
@@ -146,6 +148,14 @@ export function SubscribeButton({ settings, plan }: Props) {
       addToast('Please sign in first', 'warn');
       return;
     }
+    if (!businessId) {
+      // Defensive: businessId is what Phase 1 of the per-business
+      // rework uses to route subscription state. Without it the
+      // resulting subscription's metadata would be empty and the
+      // new onOwnerSubscriptionChange Cloud Function would skip it.
+      addToast('Loading business — try again in a moment', 'warn');
+      return;
+    }
     setBusy(true);
     // Safety timeout — if startCheckout's internal 10s timeout for
     // some reason doesn't fire (e.g., promise chain swallowed),
@@ -165,7 +175,7 @@ export function SubscribeButton({ settings, plan }: Props) {
         const url = await createPortalLink();
         window.location.assign(url);
       } else {
-        await startCheckout(uid, priceId);
+        await startCheckout(uid, priceId, businessId);
       }
       // If we reach here without a redirect, the operation succeeded
       // but didn't navigate away — unusual, but clear the guard.

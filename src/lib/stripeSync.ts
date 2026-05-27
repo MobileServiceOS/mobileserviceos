@@ -291,7 +291,12 @@ export function attachStripeSync(uid: string, businessId: string): Unsubscribe {
  * @param returnUrl Where to send the user after checkout completes or
  *                  is cancelled. Defaults to the current page.
  */
-export async function startCheckout(uid: string, priceId: string, returnUrl?: string): Promise<void> {
+export async function startCheckout(
+  uid: string,
+  priceId: string,
+  businessId: string,
+  returnUrl?: string,
+): Promise<void> {
   const db = _db; if (!db) throw new Error("Firestore not initialized");
   const sessionsRef = collection(db, 'customers', uid, 'checkout_sessions');
   const sessionDoc = doc(sessionsRef);
@@ -321,6 +326,14 @@ export async function startCheckout(uid: string, priceId: string, returnUrl?: st
   //                                Subscription card pitches in Settings
   //   allow_promotion_codes=true — Stripe Dashboard promo codes work
   //                                at checkout (founder discount path)
+  // Stripe per-business rework (spec 2026-05-27): pin this subscription
+  // to the specific business the owner is currently viewing. Stripe
+  // propagates checkout metadata onto the resulting subscription
+  // object, where the new onOwnerSubscriptionChange Cloud Function
+  // reads it to route the status update to businesses/{bid}/settings/main.
+  // Both `metadata` and `subscription_data.metadata` are set —
+  // belt-and-suspenders since Stripe inherits metadata via different
+  // paths depending on which webhook event fires.
   const payload = {
     mode: 'subscription',
     price: cleanPrice,
@@ -328,6 +341,10 @@ export async function startCheckout(uid: string, priceId: string, returnUrl?: st
     cancel_url: cleanReturn,
     allow_promotion_codes: true,
     trial_period_days: 14,
+    metadata: { businessId },
+    subscription_data: {
+      metadata: { businessId },
+    },
   };
 
   // eslint-disable-next-line no-console
