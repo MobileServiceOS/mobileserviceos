@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { InventoryItem, Job, Settings } from '@/types';
 import { money, normalizeTireSize, sanitizeInvItem, uid } from '@/lib/utils';
+import { parseInventoryNotes } from '@/lib/inventoryNotesParser';
 import {
   availableQty, reservedQty, addReservation, removeReservation,
 } from '@/lib/inventoryReservations';
@@ -194,6 +195,12 @@ function TireInventoryView({ inventory, onSave, jobs }: InternalViewProps) {
   const [dirty, setDirty] = useState(false);
   const [bulkRows, setBulkRows] = useState<ParsedRow[] | null>(null);
   const [showDeleteAll, setShowDeleteAll] = useState(false);
+  // "Paste from notes" modal — alternative entry point for the bulk
+  // import flow that accepts free-text rather than CSV. Reuses the
+  // same bulkRows preview/apply pipeline so the dedup-on-save logic
+  // we shipped earlier today (commit 9bea3ae) covers both paths.
+  const [pasteText, setPasteText] = useState('');
+  const [showPaste, setShowPaste] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   // Render budget — pages of 50, reset on search. Inventory cards
@@ -529,6 +536,7 @@ function TireInventoryView({ inventory, onSave, jobs }: InternalViewProps) {
           <input ref={fileInputRef} type="file" accept=".csv,text/csv" style={{ display: 'none' }}
             onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); if (fileInputRef.current) fileInputRef.current.value = ''; }} />
           <button className="btn xs secondary" onClick={() => fileInputRef.current?.click()}>⬆ Bulk Upload</button>
+          <button className="btn xs secondary" onClick={() => { setPasteText(''); setShowPaste(true); }}>📝 Paste Notes</button>
           {list.length > 0 && <button className="btn xs danger" onClick={() => setShowDeleteAll(true)}>Delete All</button>}
           <button className="btn xs primary" onClick={add}>＋ Add Tire</button>
         </div>
@@ -953,6 +961,59 @@ function TireInventoryView({ inventory, onSave, jobs }: InternalViewProps) {
           </div>
         </div>
       ) : null}
+
+      {/* Paste-from-notes modal — operator pastes free-text inventory
+          from iPhone Notes / SMS / scratchpad; parseInventoryNotes
+          extracts rows; same preview/apply pipeline as CSV upload. */}
+      {showPaste && (
+        <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) setShowPaste(false); }}>
+          <div className="modal modal-lg">
+            <div className="modal-title">Paste from Notes</div>
+            <div className="modal-sub">
+              Paste your inventory list. One tire per line. We'll parse sizes, quantities, and prices.
+            </div>
+            <div className="field" style={{ marginTop: 10 }}>
+              <label>Examples that work</label>
+              <div style={{
+                fontSize: 12, color: 'var(--t3)', fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+                background: 'var(--s2)', padding: '8px 10px', borderRadius: 8,
+                marginBottom: 8, lineHeight: 1.5,
+              }}>
+                225/65R17 5<br/>
+                245/40R18 used 2 $80<br/>
+                275/35R20 qty 1 $120<br/>
+                5x 225/65R17 used
+              </div>
+              <textarea
+                value={pasteText}
+                onChange={(e) => setPasteText(e.target.value)}
+                placeholder="Paste your inventory here…"
+                style={{ minHeight: 180, fontFamily: 'ui-monospace, SFMono-Regular, monospace', fontSize: 13 }}
+                autoFocus
+              />
+            </div>
+            <div className="modal-actions">
+              <button className="btn secondary" onClick={() => setShowPaste(false)}>Cancel</button>
+              <button
+                className="btn primary"
+                disabled={!pasteText.trim()}
+                onClick={() => {
+                  const parsed = parseInventoryNotes(pasteText);
+                  if (parsed.length === 0) {
+                    addToast('Nothing recognizable in that text', 'warn');
+                    return;
+                  }
+                  setBulkRows(parsed);
+                  setShowPaste(false);
+                  setPasteText('');
+                }}
+              >
+                Parse {pasteText.split(/\r?\n/).filter((l) => l.trim()).length} line{pasteText.split(/\r?\n/).filter((l) => l.trim()).length === 1 ? '' : 's'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showDeleteAll ? (
         <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) { setShowDeleteAll(false); setDeleteConfirm(''); } }}>
