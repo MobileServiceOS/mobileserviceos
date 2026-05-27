@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Job, Settings } from '@/types';
 import { PAYMENT_METHOD_LABELS } from '@/types';
 import { fmtDate, fmtDateShort, jobGrossProfit, money, paymentPillClass, resolvePaymentStatus, serviceIcon } from '@/lib/utils';
@@ -155,8 +155,88 @@ function HistoryJobCard({
   const canViewProfit = usePermissions().canViewProfit;
   const lp = useLongPress(onLongPress);
 
+  // Swipe-to-mark-paid (power-user shortcut). The explicit "Mark Paid"
+  // button below still renders for discoverability — swipe is the
+  // gesture for operators who do this 20× a day. Vertical movement
+  // > 12px aborts so the gesture never hijacks a list scroll.
+  const canSwipe = ps !== 'Paid' && ps !== 'Cancelled';
+  // Reveal threshold = the green underlay starts showing AT this px of
+  // horizontal movement so a tiny finger graze (<20px) doesn't flash
+  // green. Commit threshold = release past this px = fire onMarkPaid.
+  const SWIPE_REVEAL = 20;
+  const SWIPE_COMMIT = 100;
+  const [swipeX, setSwipeX] = useState(0);
+  const swipeRef = useRef<{ startX: number; startY: number; tracking: boolean } | null>(null);
+  const swipeBind = canSwipe ? {
+    onPointerDown: (e: React.PointerEvent) => {
+      swipeRef.current = { startX: e.clientX, startY: e.clientY, tracking: true };
+    },
+    onPointerMove: (e: React.PointerEvent) => {
+      const s = swipeRef.current;
+      if (!s || !s.tracking) return;
+      const dx = e.clientX - s.startX;
+      const dy = Math.abs(e.clientY - s.startY);
+      // Vertical scroll dominates → abandon the swipe and let the
+      // scroll engine take over.
+      if (dy > 12 && Math.abs(dx) < dy) {
+        s.tracking = false;
+        setSwipeX(0);
+        return;
+      }
+      // Only track rightward motion. Negative dx is a no-op so a
+      // left-swipe doesn't do anything weird.
+      if (dx > 0) setSwipeX(Math.min(dx, SWIPE_COMMIT + 20));
+    },
+    onPointerUp: () => {
+      const s = swipeRef.current;
+      const committed = swipeRef.current?.tracking && swipeX >= SWIPE_COMMIT;
+      if (s) s.tracking = false;
+      swipeRef.current = null;
+      setSwipeX(0);
+      if (committed) onMarkPaid();
+    },
+    onPointerCancel: () => {
+      const s = swipeRef.current;
+      if (s) s.tracking = false;
+      swipeRef.current = null;
+      setSwipeX(0);
+    },
+  } : {};
+
   return (
-    <div className="job-card card-anim">
+    <div className="job-card card-anim" style={{ position: 'relative', overflow: 'hidden' }}>
+      {/* Green reveal slides in from the left as the swipe progresses.
+          Only renders when actively swiping (swipeX > 0); pointer-events
+          off so it never blocks taps on the card content above. */}
+      {canSwipe && swipeX >= SWIPE_REVEAL && (
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute', inset: 0,
+            background: 'linear-gradient(90deg, var(--green) 0%, #16a34a 100%)',
+            display: 'flex', alignItems: 'center', justifyContent: 'flex-start',
+            paddingLeft: 18, color: '#fff', fontWeight: 800,
+            fontSize: 14, letterSpacing: 0.2,
+            pointerEvents: 'none',
+          }}
+        >
+          {swipeX >= SWIPE_COMMIT ? '✓ Release to mark paid' : '→ Swipe to mark paid'}
+        </div>
+      )}
+      {/* Swipe-transform container — holds both the card body and the
+          unpaid-footer so they slide as one. Bg color is explicit (not
+          inherit) so the green reveal underneath doesn't bleed through
+          the rounded corners. */}
+      <div
+        {...swipeBind}
+        style={{
+          transform: `translateX(${swipeX}px)`,
+          transition: swipeX === 0 ? 'transform .18s ease' : 'none',
+          position: 'relative',
+          zIndex: 1,
+          background: 'var(--s1)',
+        }}
+      >
       <div
         className="job-card-main"
         onClick={() => { if (lp.firedRef.current) return; onView(); }}
@@ -228,6 +308,7 @@ function HistoryJobCard({
           </button>
         </div>
       )}
+      </div> {/* /swipe-transform wrapper */}
     </div>
   );
 }

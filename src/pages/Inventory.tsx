@@ -228,6 +228,26 @@ function TireInventoryView({ inventory, onSave, jobs }: InternalViewProps) {
     return m;
   }, [list, jobs, today]);
 
+  // 30-day sold-velocity map — one pass through jobs, keyed by
+  // normalized tire size. Each card reads from the map in O(1)
+  // instead of iterating jobs N times. Surface as a small badge in
+  // the card header so the operator sees "this SKU moves" without
+  // expanding the card or opening Insights.
+  const velocityBySize = useMemo(() => {
+    const m = new Map<string, number>();
+    const todayMs = new Date(today + 'T00:00:00Z').getTime();
+    const cutoffMs = todayMs - 30 * 86_400_000;
+    for (const j of jobs) {
+      if (!j.tireSize || !j.date) continue;
+      const jobMs = new Date(j.date + 'T00:00:00Z').getTime();
+      if (!Number.isFinite(jobMs) || jobMs < cutoffMs) continue;
+      const n = normalizeTireSize(j.tireSize);
+      if (!n) continue;
+      m.set(n, (m.get(n) || 0) + Number(j.qty || 1));
+    }
+    return m;
+  }, [jobs, today]);
+
   // Phase 4 — Inventory AI insight (owner/admin only).
   const membership = useMembership();
   const isOwnerOrAdmin = membership.role === 'owner' || membership.role === 'admin';
@@ -715,13 +735,20 @@ function TireInventoryView({ inventory, onSave, jobs }: InternalViewProps) {
                       </span>
                     )}
                   </div>
-                  {/* Merged sub-line: brand · condition. Always renders so
-                      the absence of brand is visible at scan time. */}
+                  {/* Merged sub-line: brand · condition · 30-day velocity.
+                      Velocity reads from the precomputed velocityBySize
+                      map (O(1) per card) so this scales with jobs count.
+                      Only shows when ≥1 sale in the last 30 days — silent
+                      otherwise. Format keeps the line tight: "Brand · Used · 7↗30d". */}
                   <div className="inv-card-sub">
                     {(() => {
                       const brand = (i.brand || '').trim() || 'No brand';
                       const cond = i.condition === 'Used' ? 'Used' : '';
-                      return cond ? `${brand} · ${cond}` : brand;
+                      const vel = velocityBySize.get(normalizeTireSize(i.size || '')) || 0;
+                      const parts = [brand];
+                      if (cond) parts.push(cond);
+                      if (vel > 0) parts.push(`${vel}↗30d`);
+                      return parts.join(' · ');
                     })()}
                   </div>
                   {reservedQty(i) > 0 && (
@@ -759,6 +786,14 @@ function TireInventoryView({ inventory, onSave, jobs }: InternalViewProps) {
                     lineHeight: 1,
                   }}>
                     {qty}
+                    {/* Show "/threshold" inline ONLY when low — keeps the
+                        full-stock UI clean while making the reorder
+                        floor explicit at the moment the operator needs it. */}
+                    {low && (
+                      <span style={{ fontSize: 14, color: 'var(--t3)', fontWeight: 500, marginLeft: 2 }}>
+                        /{threshold}
+                      </span>
+                    )}
                   </div>
                   <div style={{ fontSize: 9, color: 'var(--t3)', marginTop: 3, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                     in stock
