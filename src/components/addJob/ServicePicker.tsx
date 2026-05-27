@@ -20,7 +20,9 @@
 
 import { useMemo, useState } from 'react';
 import type { BusinessTypeService } from '@/config/businessTypes/registry';
+import type { Job } from '@/types';
 import { serviceIcon } from '@/lib/utils';
+import { rankByUsage } from '@/lib/chipFrequency';
 
 interface Props {
   /** The active vertical's full service catalog (vertical.services). */
@@ -32,14 +34,37 @@ interface Props {
   selected: string;
   /** Fires with the chosen service id. */
   onSelect: (id: string) => void;
+  /** Optional job history. When provided, FLAT-mode services and the
+   *  GROUPED-mode "Popular" row are reordered by historical usage
+   *  frequency (most-tapped first). Category structure in GROUPED
+   *  mode is intentionally NOT reordered — operators rely on a
+   *  stable category layout for spatial memory. */
+  jobs?: ReadonlyArray<Job>;
 }
 
-export function ServicePicker({ services, enabledIds, selected, onSelect }: Props) {
+export function ServicePicker({ services, enabledIds, selected, onSelect, jobs }: Props) {
   // Resolve the enabled subset, preserving config order.
   const available = useMemo(() => {
     const enabled = new Set(enabledIds);
     return services.filter((s) => enabled.has(s.id));
   }, [services, enabledIds]);
+
+  // Frequency-ranked variant of `available`. Falls through to config
+  // order when no jobs are provided or no jobs match (greenfield).
+  // Computed once via the helper's id-array protocol, then re-mapped
+  // back to BusinessTypeService objects.
+  const rankedAvailable = useMemo(() => {
+    if (!jobs || jobs.length === 0) return available;
+    const ids = available.map((s) => s.id);
+    const rankedIds = rankByUsage(ids, jobs, 'service');
+    const byId = new Map(available.map((s) => [s.id, s]));
+    const out: BusinessTypeService[] = [];
+    for (const id of rankedIds) {
+      const s = byId.get(id);
+      if (s) out.push(s);
+    }
+    return out;
+  }, [available, jobs]);
 
   const grouped = useMemo(
     () => available.some((s) => !!s.category),
@@ -47,9 +72,9 @@ export function ServicePicker({ services, enabledIds, selected, onSelect }: Prop
   );
 
   if (!grouped) {
-    return <FlatPicker available={available} selected={selected} onSelect={onSelect} />;
+    return <FlatPicker available={rankedAvailable} selected={selected} onSelect={onSelect} />;
   }
-  return <GroupedPicker available={available} selected={selected} onSelect={onSelect} />;
+  return <GroupedPicker available={available} rankedAvailable={rankedAvailable} selected={selected} onSelect={onSelect} />;
 }
 
 // ─── Flat mode — tire / detailing ──────────────────────────────────
@@ -74,11 +99,18 @@ function FlatPicker({
 
 // ─── Grouped mode — mechanic ───────────────────────────────────────
 function GroupedPicker({
-  available, selected, onSelect,
-}: { available: ReadonlyArray<BusinessTypeService>; selected: string; onSelect: (id: string) => void }) {
+  available, rankedAvailable, selected, onSelect,
+}: {
+  available: ReadonlyArray<BusinessTypeService>;
+  rankedAvailable: ReadonlyArray<BusinessTypeService>;
+  selected: string;
+  onSelect: (id: string) => void;
+}) {
   const [query, setQuery] = useState('');
 
-  // Category order = first-seen order in the config array.
+  // Category order = first-seen order in the config array. Intentionally
+  // NOT reordered by usage — operators rely on stable category layouts
+  // for spatial memory ("Brakes is the second section, Engine the third").
   const categoryOrder = useMemo(() => {
     const seen: string[] = [];
     for (const s of available) {
@@ -99,9 +131,13 @@ function GroupedPicker({
     return map;
   }, [available]);
 
+  // Popular row IS reordered by usage frequency. The `popular: true`
+  // config flag still gates which services qualify (preserves the
+  // curated "fast access" intent); rankedAvailable just sorts those
+  // qualifying services by historical use.
   const popular = useMemo(
-    () => available.filter((s) => s.popular),
-    [available],
+    () => rankedAvailable.filter((s) => s.popular),
+    [rankedAvailable],
   );
 
   // Auto-expand the category containing the current selection so the

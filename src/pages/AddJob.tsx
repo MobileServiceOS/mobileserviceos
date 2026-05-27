@@ -637,6 +637,7 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
           enabledIds={enabledPackages}
           selected={job.service}
           onSelect={(id) => set('service', id)}
+          jobs={jobs}
         />
       </div>
 
