@@ -8,7 +8,7 @@ import { useLongPress } from '@/lib/useLongPress';
 import { useSwipeAction } from '@/lib/useSwipeAction';
 import { QuickActionSheet } from '@/components/QuickActionSheet';
 import { useScopedJobs } from '@/lib/useScopedJobs';
-import { usePermissions } from '@/context/MembershipContext';
+import { usePermissions, useMembership } from '@/context/MembershipContext';
 
 interface Props {
   jobs: Job[];
@@ -32,6 +32,8 @@ export function History({
   const jobs = useScopedJobs(rawJobs);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
+  const { role } = useMembership();
+  const canBulk = role === 'owner' || role === 'admin';
 
   // Member directory for "Tech: X" attribution on each row.
   const { businessId } = useBrand();
@@ -47,6 +49,43 @@ export function History({
   // mysterious cliff. Reset to 50 whenever the search/filter changes.
   const [renderLimit, setRenderLimit] = useState(50);
   useEffect(() => { setRenderLimit(50); }, [query, filter]);
+
+  // Bulk selection — owner/admin only. Toggling the mode resets the
+  // selected set; toggling individual cards while selecting flips
+  // membership in the set. Tap-out of select mode (Done button or
+  // when zero jobs selected and user re-taps Select) clears.
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const toggleSelected = (id: string): void => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const exitSelecting = (): void => {
+    setSelecting(false);
+    setSelected(new Set());
+  };
+  // Bulk-mark-paid: fire onMarkPaid for every selected job that's
+  // still unpaid, then exit selection mode. Filters paid/cancelled
+  // defensively (selection state could include them if filter shifts
+  // mid-selection). Parallel via Promise.all — onMarkPaid is a write
+  // that returns void; concurrent writes are safe because each job
+  // is a different Firestore doc.
+  const bulkMarkPaid = async (): Promise<void> => {
+    const targets = jobs.filter((j) => selected.has(j.id)
+      && resolvePaymentStatus(j) === 'Pending Payment');
+    await Promise.all(targets.map((j) => onMarkPaid(j)));
+    exitSelecting();
+  };
+  // How many of the currently-selected jobs are actually mark-paid-able?
+  // Drives the bottom bar's count + disabled state.
+  const eligibleSelectedCount = useMemo(
+    () => jobs.filter((j) => selected.has(j.id)
+      && resolvePaymentStatus(j) === 'Pending Payment').length,
+    [jobs, selected],
+  );
 
   const filtered = useMemo(() => {
     let list = Array.isArray(jobs) ? [...jobs] : [];
@@ -76,12 +115,38 @@ export function History({
           placeholder="Search name, service, location…"
         />
       </div>
-      <div className="chip-grid" style={{ marginBottom: 8 }}>
-        {(['all', 'completed', 'pending', 'cancelled', 'unpaid'] as Filter[]).map((f) => (
-          <button key={f} type="button" className={'chip sm' + (filter === f ? ' active' : '')} onClick={() => setFilter(f)}>
-            {f[0].toUpperCase() + f.slice(1)}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+        <div className="chip-grid" style={{ marginBottom: 0, flex: 1, minWidth: 0 }}>
+          {(['all', 'completed', 'pending', 'cancelled', 'unpaid'] as Filter[]).map((f) => (
+            <button key={f} type="button" className={'chip sm' + (filter === f ? ' active' : '')} onClick={() => setFilter(f)}>
+              {f[0].toUpperCase() + f.slice(1)}
+            </button>
+          ))}
+        </div>
+        {/* Owner/admin can flip into multi-select mode to mark several
+            jobs paid in one batch. Hidden for techs (canBulk gate)
+            since they typically don't have visibility across a
+            payment backlog. */}
+        {canBulk && (
+          <button
+            type="button"
+            onClick={() => (selecting ? exitSelecting() : setSelecting(true))}
+            style={{
+              flexShrink: 0,
+              padding: '6px 12px',
+              fontSize: 12,
+              fontWeight: 700,
+              background: selecting ? 'var(--brand-primary)' : 'transparent',
+              color: selecting ? '#0a0a0a' : 'var(--brand-primary)',
+              border: '1px solid var(--brand-primary)',
+              borderRadius: 99,
+              cursor: 'pointer',
+              minHeight: 32,
+            }}
+          >
+            {selecting ? 'Done' : 'Select'}
           </button>
-        ))}
+        )}
       </div>
 
       {filtered.length === 0 ? (
@@ -101,6 +166,9 @@ export function History({
               onView={() => onViewJob(j)}
               onLongPress={() => setSheetJob(j)}
               onMarkPaid={() => onMarkPaid(j)}
+              selecting={selecting}
+              isSelected={selected.has(j.id)}
+              onToggleSelect={() => toggleSelected(j.id)}
             />
           ))}
           {filtered.length > renderLimit && (
@@ -128,6 +196,68 @@ export function History({
           onMarkPaid={() => onMarkPaid(sheetJob)}
         />
       )}
+
+      {/* Bulk action bar — fixed bottom, only when in select mode AND
+          at least one job is selected. Honors safe-area-inset-bottom
+          so iOS Safari's home indicator doesn't crop the button.
+          Reuses the brand-primary CTA styling for visual coherence
+          with the existing "Get Founder Access" buttons. */}
+      {selecting && selected.size > 0 && (
+        <div
+          style={{
+            position: 'fixed',
+            left: 0, right: 0, bottom: 0,
+            paddingBottom: 'calc(env(safe-area-inset-bottom, 0) + 12px)',
+            paddingTop: 12,
+            paddingLeft: 16, paddingRight: 16,
+            background: 'linear-gradient(to top, var(--bg) 70%, transparent)',
+            zIndex: 20,
+            display: 'flex', alignItems: 'center', gap: 10,
+          }}
+        >
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--t2)', flex: 1 }}>
+            {selected.size} selected
+            {eligibleSelectedCount !== selected.size && (
+              <span style={{ fontSize: 11, color: 'var(--t3)', fontWeight: 500, marginLeft: 6 }}>
+                · {eligibleSelectedCount} unpaid
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={exitSelecting}
+            style={{
+              padding: '10px 14px',
+              fontSize: 13, fontWeight: 700,
+              background: 'transparent',
+              color: 'var(--t3)',
+              border: '1px solid var(--border2)',
+              borderRadius: 99,
+              cursor: 'pointer',
+              minHeight: 40,
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => { void bulkMarkPaid(); }}
+            disabled={eligibleSelectedCount === 0}
+            style={{
+              padding: '10px 16px',
+              fontSize: 13, fontWeight: 800,
+              background: eligibleSelectedCount > 0 ? 'var(--green)' : 'var(--s2)',
+              color: eligibleSelectedCount > 0 ? '#fff' : 'var(--t3)',
+              border: '1px solid ' + (eligibleSelectedCount > 0 ? 'var(--green)' : 'var(--border)'),
+              borderRadius: 99,
+              cursor: eligibleSelectedCount > 0 ? 'pointer' : 'not-allowed',
+              minHeight: 40,
+            }}
+          >
+            Mark {eligibleSelectedCount} paid
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -142,6 +272,7 @@ export function History({
  */
 function HistoryJobCard({
   job, settings, techName, onView, onLongPress, onMarkPaid,
+  selecting = false, isSelected = false, onToggleSelect,
 }: {
   job: Job;
   settings: Settings;
@@ -149,6 +280,13 @@ function HistoryJobCard({
   onView: () => void;
   onLongPress: () => void;
   onMarkPaid: () => void;
+  /** When true, the card switches to selection-mode behavior: tap
+   *  toggles selection instead of opening the detail modal, swipe-
+   *  to-mark-paid is disabled, and a checkbox circle renders on the
+   *  left of the card. Owner/admin only — parent gates the prop. */
+  selecting?: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: () => void;
 }) {
   const pr = jobGrossProfit(job, settings);
   const ps = resolvePaymentStatus(job);
@@ -156,12 +294,11 @@ function HistoryJobCard({
   const canViewProfit = usePermissions().canViewProfit;
   const lp = useLongPress(onLongPress);
 
-  // Swipe-to-mark-paid (power-user shortcut). The explicit "Mark Paid"
-  // button below still renders for discoverability — swipe is the
-  // gesture for operators who do this 20× a day. Backed by
-  // useSwipeAction (src/lib/useSwipeAction.ts) so the same gesture
-  // works identically on Dashboard's recent-jobs cards.
-  const canSwipe = ps !== 'Paid' && ps !== 'Cancelled';
+  // Swipe-to-mark-paid (power-user shortcut). Disabled while selecting
+  // so the gesture doesn't fire alongside selection toggles. The
+  // explicit "Mark Paid" button below still renders for discoverability
+  // outside of select mode.
+  const canSwipe = !selecting && ps !== 'Paid' && ps !== 'Cancelled';
   const swipe = useSwipeAction({ enabled: canSwipe, onCommit: onMarkPaid });
 
   return (
@@ -198,9 +335,41 @@ function HistoryJobCard({
       >
       <div
         className="job-card-main"
-        onClick={() => { if (lp.firedRef.current) return; onView(); }}
+        onClick={() => {
+          // In select mode, taps toggle selection instead of opening
+          // the detail modal. Long-press still works (drops the user
+          // into the QuickActionSheet) regardless of mode.
+          if (lp.firedRef.current) return;
+          if (selecting && onToggleSelect) { onToggleSelect(); return; }
+          onView();
+        }}
         {...lp.bind}
+        style={{
+          // Subtle highlight when this card is in the active selection.
+          background: isSelected ? 'rgba(200,164,74,.08)' : undefined,
+        }}
       >
+        {/* Selection checkbox — only renders in select mode. 28px
+            circle on the far left, before the service icon. Tap area
+            is the whole card; this is just the visual marker. */}
+        {selecting && (
+          <div
+            aria-hidden
+            style={{
+              flexShrink: 0,
+              width: 24, height: 24,
+              borderRadius: 99,
+              border: '2px solid ' + (isSelected ? 'var(--brand-primary)' : 'var(--border2)'),
+              background: isSelected ? 'var(--brand-primary)' : 'transparent',
+              color: '#0a0a0a',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 14, fontWeight: 900,
+              marginRight: 4,
+            }}
+          >
+            {isSelected ? '✓' : ''}
+          </div>
+        )}
         <div className="job-icon">{serviceIcon(job.service)}</div>
         <div className="job-main">
           <div className="job-title" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
