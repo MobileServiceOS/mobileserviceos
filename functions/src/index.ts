@@ -33,6 +33,18 @@ if (admin.apps.length === 0) {
 }
 
 export { onSubscriptionWrite } from './onSubscriptionWrite';
+// Phase 1 of the Stripe per-business rework (spec:
+// docs/superpowers/specs/2026-05-27-stripe-per-business-design.md).
+// Server-side mirror of subscription state into the specific business
+// scoped by sub.metadata.businessId. Runs additively alongside the
+// existing client-side attachStripeSync; Phase 3 deletes the client
+// mirror once the server path is verified.
+export { onOwnerSubscriptionChange } from './onOwnerSubscriptionChange';
+
+// Scheduled daily Firestore backup → GCS. Requires one-time operator
+// setup of the GCS bucket and IAM bindings — see the file header for
+// the gsutil + gcloud commands.
+export { scheduledFirestoreBackup } from './scheduledFirestoreBackup';
 export {
   adminApplyReferralReward,
   adminRevokeReferralReward,
