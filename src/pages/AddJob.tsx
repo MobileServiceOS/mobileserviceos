@@ -371,25 +371,46 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
           of the inputs. Updates live as service/vehicle/miles/tire
           cost/surcharges change. When revenue is locked (technician
           without override), this number IS what gets saved. */}
-      <div className="quote-box card-anim" style={{ marginBottom: 14 }}>
+      {/* Stick the suggested-price tile to the top of the scroll
+          viewport so the tech sees the live number while filling the
+          rest of the form. Without sticky, the tile scrolls away after
+          the first card and the live update becomes invisible — the
+          single biggest UX gap on the highest-friction screen. The
+          z-index keeps it above any in-flow content; the backdrop
+          blur + opaque bg keep content scrolling underneath from
+          showing through and looking noisy. The negative-margin
+          stretches it slightly so it sits flush with the page edges
+          and looks like a real header bar, not a floating chip. */}
+      <div
+        className="quote-box card-anim"
+        style={{
+          position: 'sticky',
+          top: 0,
+          zIndex: 10,
+          marginBottom: 12,
+          background: 'var(--s1)',
+          backdropFilter: 'blur(8px) saturate(140%)',
+          WebkitBackdropFilter: 'blur(8px) saturate(140%)',
+        }}
+      >
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          gap: 12, padding: '12px 14px',
+          gap: 10, padding: '10px 12px',
         }}>
           <div style={{ minWidth: 0 }}>
             <div style={{
               fontSize: 9, fontWeight: 800,
               color: 'var(--brand-primary)',
               textTransform: 'uppercase', letterSpacing: 1.5,
-              marginBottom: 4,
+              marginBottom: 2,
             }}>
-              Suggested price
+              Suggested
             </div>
-            <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--t1)', lineHeight: 1 }}>
+            <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--t1)', lineHeight: 1 }}>
               {money(liveQuote.suggested)}
-            </div>
-            <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 4 }}>
-              Premium: {money(liveQuote.premium)} · updates as you type
+              <span style={{ fontSize: 10, color: 'var(--t3)', marginLeft: 8, fontWeight: 500 }}>
+                · prem {money(liveQuote.premium)}
+              </span>
             </div>
           </div>
           {!revenueLocked && (
@@ -397,9 +418,9 @@ export function AddJob({ job, setJob, settings, inventory, isEditing, prefilledF
               type="button"
               className="btn sm primary"
               onClick={() => set('revenue', String(liveQuote.suggested))}
-              style={{ flexShrink: 0, minHeight: 44, padding: '0 14px' }}
+              style={{ flexShrink: 0, minHeight: 40, padding: '0 12px', fontSize: 13 }}
             >
-              Use suggested
+              Use
             </button>
           )}
         </div>

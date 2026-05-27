@@ -590,11 +590,16 @@ a { color: var(--brand-primary); text-decoration: none; }
 .field textarea { min-height: 64px; resize: vertical; }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
 
-.form-group { background: var(--s1); border: 1px solid var(--border); border-radius: 14px; padding: 16px; margin-bottom: 20px; max-width: 100%; }
+/* Form-group density bump 2026-05-26: padding 16 → 12, margin-bottom
+   20 → 12. AddJob has ~10 stacked form-groups; the prior values added
+   up to ~80px of pure spacing between sections on iPhone SE, pushing
+   the form to ~12 scrolls bottom-to-top. The new values shave ~50%
+   of that spacing without crowding inputs. */
+.form-group { background: var(--s1); border: 1px solid var(--border); border-radius: 14px; padding: 12px; margin-bottom: 12px; max-width: 100%; }
 /* Card section header — Title Case. Brighter + larger than the
    old ALL-CAPS label treatment so each form card has a clear
    header → content hierarchy. */
-.form-group-title { font-size: 14px; font-weight: 700; color: var(--t1); letter-spacing: -.1px; margin-bottom: 12px; }
+.form-group-title { font-size: 14px; font-weight: 700; color: var(--t1); letter-spacing: -.1px; margin-bottom: 8px; }
 
 /* ── Chips ──────────────────────────────────────────────── */
 .chip-grid { display: flex; flex-wrap: wrap; gap: 6px; }

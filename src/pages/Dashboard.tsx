@@ -467,16 +467,21 @@ export function Dashboard({
         </div>
       )}
 
-      {/* ─── 2. Hero KPI card — circular ring + role-aware content ── */}
+      {/* ─── 2. Hero KPI card — circular ring + role-aware content ──
+            Ring shrunk from 132 → 104 (stroke 10 → 8) on 2026-05-26 as
+            part of the operational-density pass. Goal: surface more
+            operational data above the fold on iPhone SE / 13 mini
+            without compromising the ring's visual identity. The card
+            padding also dropped from 20/18 → 14/14 for the same reason. */}
       <div className="card-anim" style={{
         background: 'linear-gradient(155deg, var(--s2) 0%, var(--s1) 100%)',
         border: '1px solid var(--border)',
         borderRadius: 16,
-        padding: '20px 18px',
-        marginBottom: 14,
+        padding: '14px 14px',
+        marginBottom: 12,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
-          <ProgressRing pct={progressPct} size={132} stroke={10}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <ProgressRing pct={progressPct} size={104} stroke={8}>
             <div style={{
               fontSize: 9, fontWeight: 800,
               color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: 1,
@@ -484,7 +489,7 @@ export function Dashboard({
             }}>
               {showCompanyData ? "This Week" : "Your Week"}
             </div>
-            <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--t1)', lineHeight: 1 }}>
+            <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--t1)', lineHeight: 1 }}>
               {Math.round(progressPct)}%
             </div>
             <div style={{ fontSize: 9, color: 'var(--t3)', marginTop: 2 }}>
