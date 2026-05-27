@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Job, Settings, InventoryItem, QuoteForm, TabId, Expense } from '@/types';
 import { QuickExpenseSheet } from '@/components/QuickExpenseSheet';
 import {
-  calcQuote, clamp, fmtDate, getWeekStart,
+  calcQuote, clamp, fmtDate, fmtDateShort, getWeekStart,
   jobGrossProfit, money, normalizeTireSize, paymentPillClass,
   r2, resolvePaymentStatus, serviceIcon, weekSummary,
 } from '@/lib/utils';
@@ -1003,14 +1003,26 @@ export function Dashboard({
               const pr = jobGrossProfit(j, settings);
               const ps = resolvePaymentStatus(j);
               return (
+                // Compressed recent-job card (2026-05-27): the prior
+                // version had a 3-button action row (Invoice / Review /
+                // Edit) below the main row, adding ~40px per card ×
+                // five cards = 200px of vertical real estate above the
+                // "Log New Job" CTA. Those same actions are available
+                // by tapping the card → JobDetailModal opens with the
+                // full action set, so the standalone buttons were a
+                // discoverability/redundancy trade. Removed in favor
+                // of denser scanning. fmtDateShort + dropped service
+                // duplicate (it's already in the icon) keep the meta
+                // row to one tight line.
                 <div key={j.id} className="job-card card-anim">
                   <div className="job-card-main" onClick={() => onViewJob(j)}>
                     <div className="job-icon">{serviceIcon(j.service)}</div>
                     <div className="job-main">
                       <div className="job-title">{j.customerName || j.service}</div>
                       <div className="job-meta">
-                        {j.service} · {j.fullLocationLabel || j.area || '—'} · {fmtDate(j.date)}
+                        {j.fullLocationLabel || j.area || j.service}
                         {j.tireSize ? ' · ' + j.tireSize : ''}
+                        {' · ' + fmtDateShort(j.date)}
                       </div>
                     </div>
                     <div className="job-right">
@@ -1025,11 +1037,6 @@ export function Dashboard({
                       </div>
                       <span className={'pill ' + paymentPillClass(ps)} style={{ marginTop: 4 }}>{ps}</span>
                     </div>
-                  </div>
-                  <div className="job-card-actions">
-                    <button onClick={() => onGenerateInvoice(j)}>📄 Invoice</button>
-                    <button onClick={() => onSendReview(j)}>⭐ Review</button>
-                    <button onClick={() => onEditJob(j)}>✏️ Edit</button>
                   </div>
                 </div>
               );
