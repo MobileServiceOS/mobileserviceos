@@ -188,7 +188,18 @@ export function Onboarding({ settings, onComplete }: Props) {
   };
 
   const finish = async () => {
-    if (!businessName.trim()) { addToast('Business name required', 'warn'); setStep(1); return; }
+    const trimmedName = businessName.trim();
+    if (!trimmedName) { addToast('Business name required', 'warn'); setStep(1); return; }
+    // Length cap protects against accidental long paste / corruption
+    // breaking downstream Firestore writes (Firestore field limit is
+    // 1 MiB, but a 500-char name already breaks UI in headers, browser
+    // tabs, and invoice PDFs). 80 is well above any legitimate
+    // business name and still safe for the longest header layout.
+    if (trimmedName.length > 80) {
+      addToast('Business name is too long (max 80 characters)', 'warn');
+      setStep(1);
+      return;
+    }
     if (!stateCode || !mainCity.trim()) { addToast('State and main city required', 'warn'); setStep(2); return; }
     setBusy(true);
     try {

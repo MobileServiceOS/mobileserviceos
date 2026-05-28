@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Expense, ExpenseCategory } from '@/types';
 import { EXPENSE_CATEGORY_LABELS } from '@/types';
 import { uid } from '@/lib/utils';
@@ -48,6 +48,22 @@ export function QuickExpenseSheet({ onSave, onClose, onOpenFullExpenses }: Props
   const [amount, setAmount] = useState('');
   const [vendor, setVendor] = useState('');
   const [vendorOpen, setVendorOpen] = useState(false);
+
+  // Lock body scroll + close on Escape (matches the MoreSheet pattern).
+  // Without this, a tech with a Bluetooth keyboard can't bail out of
+  // the sheet via the hardware key — they're stuck tapping Cancel.
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [onClose]);
 
   const canSave = category && Number(amount) > 0;
 

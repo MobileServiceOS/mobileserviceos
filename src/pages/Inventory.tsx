@@ -935,7 +935,15 @@ function TireInventoryView({ inventory, onSave, jobs }: InternalViewProps) {
       </div>
 
       {dirty && (
-        <div style={{ position: 'sticky', bottom: 0, paddingTop: 12, background: 'linear-gradient(to top, var(--bg) 60%, transparent)' }}>
+        <div style={{
+          position: 'sticky', bottom: 0,
+          // iPhone home-indicator pill lives in env(safe-area-inset-bottom).
+          // Without this padding the Save button can float over the
+          // indicator zone — visible but harder to hit. Pattern matches
+          // MoreSheet's bottom-padding formula.
+          padding: '12px 0 calc(8px + env(safe-area-inset-bottom)) 0',
+          background: 'linear-gradient(to top, var(--bg) 60%, transparent)',
+        }}>
           <button className="btn primary" style={{ width: '100%' }} onClick={save}>Save Inventory</button>
         </div>
       )}
@@ -1390,7 +1398,8 @@ function GenericInventoryView({
 
       {dirty && (
         <div style={{
-          position: 'sticky', bottom: 0, paddingTop: 12,
+          position: 'sticky', bottom: 0,
+          padding: '12px 0 calc(8px + env(safe-area-inset-bottom)) 0',
           background: 'linear-gradient(to top, var(--bg) 60%, transparent)',
         }}>
           <button className="btn primary" style={{ width: '100%' }} onClick={save}>

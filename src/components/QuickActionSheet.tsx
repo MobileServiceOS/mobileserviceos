@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import type { Job } from '@/types';
 import { resolvePaymentStatus } from '@/lib/utils';
 
@@ -35,6 +36,15 @@ interface ActionDef {
 export function QuickActionSheet({
   job, onClose, onView, onEdit, onDuplicate, onSendInvoice, onSendReview, onMarkPaid,
 }: Props) {
+  // Escape key dismiss — backdrop click already wired below. Matches
+  // the MoreSheet / QuickExpenseSheet pattern so every bottom sheet
+  // closes consistently from a hardware key.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
   const ps = resolvePaymentStatus(job);
   const canMarkPaid = ps !== 'Paid' && ps !== 'Cancelled';
 

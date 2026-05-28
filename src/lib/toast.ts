@@ -70,3 +70,13 @@ export function subscribeToasts(l: Listener): () => void {
     listeners = listeners.filter((x) => x !== l);
   };
 }
+
+/**
+ * Manual dismiss — clears a specific toast by id. Powers the close
+ * button on the ToastHost render. Idempotent; calling with a stale
+ * id (already auto-cleared by setTimeout) is a no-op.
+ */
+export function dismissToast(id: string): void {
+  toasts = toasts.filter((t) => t.id !== id);
+  emit();
+}

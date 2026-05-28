@@ -6,7 +6,7 @@
 //  no shadow types, no parallel store.
 // ═══════════════════════════════════════════════════════════════════
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { InventoryItem, Settings } from '@/types';
 import type { BusinessTypeConfig } from '@/config/businessTypes/registry';
 import { uid } from '@/lib/utils';
@@ -279,8 +279,20 @@ function EditSheet({
     Number(draft.retailPrice) >= 0 &&
     !!draft.category;
 
+  // Escape key dismisses the sheet (matches MoreSheet pattern).
+  // Bluetooth-keyboard users + accessibility tools were trapped
+  // here previously — only path out was the Cancel button.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onCancel]);
+
   return (
     <div
+      // Backdrop click dismisses. Inner card stops propagation
+      // (below) so tapping inside the form doesn't close.
+      onClick={onCancel}
       style={{
         position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
         zIndex: 100, display: 'flex', flexDirection: 'column',
@@ -288,6 +300,7 @@ function EditSheet({
     >
       <div
         className="card"
+        onClick={(e) => e.stopPropagation()}
         style={{
           flex: 1, overflowY: 'auto', padding: 16, margin: 0,
           borderRadius: 0,
