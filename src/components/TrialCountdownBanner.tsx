@@ -67,9 +67,21 @@ export function TrialCountdownBanner({ settings, onSubscribe }: Props) {
   // Past expiry: show lockout banner.
   const expired = remainingMs <= 0;
 
+  // Has the user already subscribed via Stripe? The soft trial
+  // (stamped by Onboarding / the existing-customer migration)
+  // doesn't set settings.plan — only the stripeSync mirror does,
+  // when a customers/{uid}/subscriptions doc appears in Firestore.
+  // So `settings.plan` present === card on file. We use this to
+  // switch copy + theme: "Subscribe →" CTA becomes confusing once
+  // the card is already in Stripe; show a calmer "card on file ·
+  // billing starts {date}" instead.
+  const hasStripeSubscription = !!settings.plan;
+
   // Urgency tiers — 1-3 days OR expired cannot be dismissed.
-  const urgent = expired || daysLeft <= 3;
-  const warning = !urgent && daysLeft <= 7;
+  // Stripe-subscription accounts are never urgent because the
+  // charge happens automatically — they don't need to take action.
+  const urgent = !hasStripeSubscription && (expired || daysLeft <= 3);
+  const warning = !urgent && !hasStripeSubscription && daysLeft <= 7;
 
   if (dismissed && !urgent) return null;
 
@@ -79,29 +91,46 @@ export function TrialCountdownBanner({ settings, onSubscribe }: Props) {
     setDismissed(true);
   };
 
-  // Theme by urgency tier.
-  const theme = expired
-    ? { bg: 'rgba(239,68,68,.12)', border: 'rgba(239,68,68,.35)', accent: '#ef4444' }
-    : urgent
-      ? { bg: 'rgba(249,115,22,.12)', border: 'rgba(249,115,22,.35)', accent: '#f97316' }
-      : warning
-        ? { bg: 'rgba(245,158,11,.12)', border: 'rgba(245,158,11,.30)', accent: '#f59e0b' }
-        : { bg: 'rgba(200,164,74,.10)', border: 'rgba(200,164,74,.25)', accent: 'var(--brand-primary, #f4b400)' };
+  // Format the trial-end date in a friendly way for "billing starts"
+  // copy. Operators read this on the road; "Jun 11" is faster to
+  // parse than an ISO string. en-US picks a short month + day.
+  const endDateLabel = new Date(endMs).toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric',
+  });
 
-  // Copy by tier.
-  const title = expired
-    ? 'Trial ended'
-    : urgent
-      ? `Trial ends in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}`
-      : warning
-        ? `${daysLeft} days left in your trial`
-        : `Free trial · ${daysLeft} days left`;
+  // Theme by urgency tier. Stripe-subscription accounts get the
+  // calm gold accent because there's no urgent action needed.
+  const theme = hasStripeSubscription
+    ? { bg: 'rgba(200,164,74,.10)', border: 'rgba(200,164,74,.25)', accent: 'var(--brand-primary, #f4b400)' }
+    : expired
+      ? { bg: 'rgba(239,68,68,.12)', border: 'rgba(239,68,68,.35)', accent: '#ef4444' }
+      : urgent
+        ? { bg: 'rgba(249,115,22,.12)', border: 'rgba(249,115,22,.35)', accent: '#f97316' }
+        : warning
+          ? { bg: 'rgba(245,158,11,.12)', border: 'rgba(245,158,11,.30)', accent: '#f59e0b' }
+          : { bg: 'rgba(200,164,74,.10)', border: 'rgba(200,164,74,.25)', accent: 'var(--brand-primary, #f4b400)' };
 
-  const sub = expired
-    ? 'Subscribe to keep Pro features unlocked.'
-    : urgent
-      ? 'Subscribe before lockout to keep Pro features.'
-      : 'You have full access during your trial.';
+  // Copy by state. The Stripe-subscribed branch is its own thing —
+  // the operator already paid (technically, gave us a card); they
+  // don't need a "Subscribe" CTA, just transparency about when
+  // money moves.
+  const title = hasStripeSubscription
+    ? `Card on file · Billing starts ${endDateLabel}`
+    : expired
+      ? 'Trial ended'
+      : urgent
+        ? `Trial ends in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}`
+        : warning
+          ? `${daysLeft} days left in your trial`
+          : `Free trial · ${daysLeft} days left`;
+
+  const sub = hasStripeSubscription
+    ? `Your ${settings.plan === 'pro' ? 'Pro' : 'Core'} subscription starts auto-billing in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}.`
+    : expired
+      ? 'Subscribe to keep Pro features unlocked.'
+      : urgent
+        ? 'Subscribe before lockout to keep Pro features.'
+        : 'You have full access during your trial.';
 
   return (
     <div
@@ -121,12 +150,17 @@ export function TrialCountdownBanner({ settings, onSubscribe }: Props) {
         <span style={{ fontWeight: 800, color: theme.accent }}>{title}</span>
         <span style={{ color: 'var(--t2)', marginLeft: 8 }}>{sub}</span>
       </span>
+      {/* CTA differs by state. Stripe-subscribed accounts get a
+          "Manage" button that routes to the same Settings section
+          (Stripe Customer Portal lives behind that path). Pre-
+          subscribe accounts get "Subscribe →" which kicks the
+          checkout flow. */}
       <button
         onClick={onSubscribe}
         style={{
           padding: '6px 12px',
           background: theme.accent,
-          color: expired ? '#fff' : (urgent ? '#fff' : '#000'),
+          color: hasStripeSubscription ? '#000' : (expired ? '#fff' : (urgent ? '#fff' : '#000')),
           border: 'none',
           borderRadius: 6,
           fontSize: 11, fontWeight: 800,
@@ -134,7 +168,7 @@ export function TrialCountdownBanner({ settings, onSubscribe }: Props) {
           whiteSpace: 'nowrap',
         }}
       >
-        Subscribe →
+        {hasStripeSubscription ? 'Manage' : 'Subscribe →'}
       </button>
       {!urgent && (
         <button
