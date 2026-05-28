@@ -11,6 +11,7 @@ import {
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import type { SubscriptionStatus, Plan } from '@/types';
 import { _db } from '@/lib/firebase';
+import { qualifiesForFounderDiscount } from '@/lib/founderDiscount';
 
 // ─────────────────────────────────────────────────────────────────────
 //  Stripe → Firestore subscription mirror
@@ -320,12 +321,42 @@ export async function startCheckout(
   // value would otherwise be sent verbatim to Stripe ("no such price").
   const cleanPrice = (priceId || '').trim();
 
+  // ── Founder discount check ─────────────────────────────────────────
+  // Accounts created before VITE_FOUNDER_CUTOFF_ISO automatically get
+  // the locked-in founder discount coupon. The coupon is configured in
+  // Stripe Dashboard (40% off forever, capped at N redemptions). One
+  // extra Firestore read per checkout — Stripe Checkout flows are
+  // bursty and infrequent, so the cost is negligible.
+  //
+  // Auto-applied via the `discounts` field on the session payload.
+  // Note: Stripe rejects payloads that set BOTH `discounts` AND
+  // `allow_promotion_codes` — we toggle between them. Non-founders
+  // still get the "Add promotion code" input so any future Stripe
+  // promo code (Black Friday, referral campaign, etc.) keeps working.
+  let isFounder = false;
+  const founderCouponId = ((import.meta.env.VITE_STRIPE_FOUNDER_COUPON_ID as string) || '').trim();
+  const founderCutoffIso = ((import.meta.env.VITE_FOUNDER_CUTOFF_ISO as string) || '').trim();
+  try {
+    const bizSnap = await getDoc(doc(db, 'businesses', businessId));
+    const createdAt = bizSnap.data()?.createdAt;
+    isFounder = qualifiesForFounderDiscount(
+      typeof createdAt === 'string' ? createdAt : null,
+      founderCutoffIso,
+    );
+  } catch (err) {
+    // Non-fatal — checkout proceeds without the discount. Surface in
+    // console so we can debug if every checkout starts charging full
+    // price unexpectedly.
+    // eslint-disable-next-line no-console
+    console.warn('[stripeSync] founder check failed — defaulting to full price', err);
+  }
+  const applyFounderCoupon = isFounder && !!founderCouponId;
+
   // Full checkout payload for the firestore-stripe-payments extension.
   //   mode='subscription'        — recurring subscription (not one-time)
   //   trial_period_days=14       — the 14-day free trial period the
   //                                Subscription card pitches in Settings
-  //   allow_promotion_codes=true — Stripe Dashboard promo codes work
-  //                                at checkout (founder discount path)
+  //   discounts / allow_promotion_codes — see founder block above
   // Stripe per-business rework (spec 2026-05-27): pin this subscription
   // to the specific business the owner is currently viewing. Stripe
   // propagates checkout metadata onto the resulting subscription
@@ -334,18 +365,22 @@ export async function startCheckout(
   // Both `metadata` and `subscription_data.metadata` are set —
   // belt-and-suspenders since Stripe inherits metadata via different
   // paths depending on which webhook event fires.
-  const payload = {
+  const payload: Record<string, unknown> = {
     mode: 'subscription',
     price: cleanPrice,
     success_url: cleanReturn,
     cancel_url: cleanReturn,
-    allow_promotion_codes: true,
     trial_period_days: 14,
-    metadata: { businessId },
+    metadata: { businessId, isFounder: String(isFounder) },
     subscription_data: {
-      metadata: { businessId },
+      metadata: { businessId, isFounder: String(isFounder) },
     },
   };
+  if (applyFounderCoupon) {
+    payload.discounts = [{ coupon: founderCouponId }];
+  } else {
+    payload.allow_promotion_codes = true;
+  }
 
   // eslint-disable-next-line no-console
   console.info('[stripeSync] startCheckout: creating session', {
