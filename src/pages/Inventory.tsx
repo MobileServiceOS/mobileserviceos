@@ -391,7 +391,16 @@ function TireInventoryView({ inventory, onSave, jobs }: InternalViewProps) {
     // for the regression cases (the second-match case had a bug
     // shipped this morning in commit 9bea3ae that this extract fixed).
     const { next, mergedCount, addedCount } = mergeBulkRows(list, ok, uid);
-    update(next);
+    // Persist immediately — operator expectation when tapping "Add N
+    // Tires" is that they're saved. Previously this only updated
+    // local state + flagged dirty, requiring an extra "Save Inventory"
+    // tap that's easy to miss. Closing the app before that second tap
+    // dropped every paste-noted tire. Mirrors confirmDeleteAll's
+    // pattern (which already calls onSave + update together).
+    const cleaned = next.filter((i) => (i.size || '').trim()).map(sanitizeInvItem);
+    setList(cleaned);
+    setDirty(false);
+    onSave(cleaned);
     setBulkRows(null);
     const addedMsg = addedCount ? `Added ${addedCount} new` : '';
     const mergedMsg = mergedCount ? `merged ${mergedCount} into existing` : '';
