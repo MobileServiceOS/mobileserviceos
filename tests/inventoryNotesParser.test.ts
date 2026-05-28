@@ -26,6 +26,10 @@ check('lowercase r works',       extractTireSize('225/65r17') === '225/65R17');
 check('inside sentence',         extractTireSize('Got 5 of 245/40R18 yesterday') === '245/40R18');
 check('no size → empty',         extractTireSize('Bring more tires from Discount') === '');
 check('only partial digits',     extractTireSize('22/65R17') === '');
+check('225/65/17 (no R) → 225/65R17',  extractTireSize('225/65/17') === '225/65R17');
+check('215/55/17 (user request)',      extractTireSize('215/55/17') === '215/55R17');
+check('225-65/17 mixed seps',          extractTireSize('225-65/17') === '225/65R17');
+check('225/65/17 inside line',         extractTireSize('Stock 225/65/17 4 @75') === '225/65R17');
 
 console.log('\n┌─ extractCost ────────────────────────────────');
 check('$80',                    extractCost('225/65R17 5 $80') === 80);

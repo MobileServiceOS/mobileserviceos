@@ -45,11 +45,13 @@ export interface ParsedNotesRow {
  *   225-65-17
  *   225 65 17
  *   225/65 R 17
+ *   225/65/17     ← rim inferred from third number (no R required)
+ *   225-65/17
  * Output is always normalized to "WIDTH/ASPECTRRIM" — e.g. "225/65R17".
  * Returns "" if no plausible size pattern matches.
  */
 export function extractTireSize(s: string): string {
-  const m = s.match(/(\d{3})\s*[/\- ]\s*(\d{2})\s*[R\- ]\s*(\d{2})\b/i);
+  const m = s.match(/(\d{3})\s*[/\- ]\s*(\d{2})\s*[R\-/ ]\s*(\d{2})\b/i);
   if (!m) return '';
   return `${m[1]}/${m[2]}R${m[3]}`;
 }
@@ -87,7 +89,7 @@ export function extractQuantity(line: string): number {
   // Strip the parts we already recognize so they don't confuse the
   // quantity scan. Tire size has digits that would otherwise win.
   const residue = line
-    .replace(/(\d{3})\s*[/\- ]\s*(\d{2})\s*[R\- ]\s*(\d{2})\b/i, ' ')
+    .replace(/(\d{3})\s*[/\- ]\s*(\d{2})\s*[R\-/ ]\s*(\d{2})\b/i, ' ')
     .replace(/[$@]\s*\$?\s*\d{1,4}(?:\.\d{1,2})?/g, ' ')
     .replace(/\bnew\b|\bused\b|\bblem(?:ished)?\b/gi, ' ')
     .replace(/[,;:]/g, ' ')
