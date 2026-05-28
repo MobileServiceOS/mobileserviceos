@@ -38,16 +38,13 @@ export function BestSellersCard({ jobs }: Props) {
   };
 
   return (
-    <div style={{ marginTop: 24 }}>
+    <div>
       <div style={{
         display: 'flex',
         alignItems: 'center',
-        justifyContent: 'space-between',
-        marginBottom: 8,
+        justifyContent: 'flex-end',
+        marginBottom: 10,
       }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--t2)', letterSpacing: 0.5, textTransform: 'uppercase' }}>
-          Best Selling Tires
-        </div>
         <div style={{ display: 'flex', gap: 4 }}>
           {(['30', '90', 'all'] as const).map((w) => {
             const val: BestSellerWindow = w === 'all' ? 'all' : (Number(w) as 30 | 90);
@@ -75,9 +72,8 @@ export function BestSellersCard({ jobs }: Props) {
         </div>
       </div>
 
-      <div className="card card-anim">
-        <div className="card-pad">
-          {rows.length === 0 ? (
+      <div>
+        {rows.length === 0 ? (
             <div style={{ fontSize: 12, color: 'var(--t3)', padding: '14px 0', textAlign: 'center', lineHeight: 1.5 }}>
               No completed tire jobs in the {windowLabel[window]}.{' '}
               Once you log a few jobs the ranking shows up here.
@@ -136,7 +132,6 @@ export function BestSellersCard({ jobs }: Props) {
             ))
           )}
         </div>
-      </div>
     </div>
   );
 }

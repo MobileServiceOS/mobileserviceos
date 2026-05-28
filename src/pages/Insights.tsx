@@ -7,6 +7,7 @@ import { callAI, isAIConfigured } from '@/lib/aiClient';
 import { buildInsightsInput, parseInsightsResponse } from '@/lib/aiInsights';
 import { PricingInsightsCard } from '@/components/insights/PricingInsightsCard';
 import { BestSellersCard } from '@/components/insights/BestSellersCard';
+import { AccordionShell } from '@/components/settings/AccordionShell';
 import { useBrand } from '@/context/BrandContext';
 
 interface Props {
@@ -52,6 +53,33 @@ export function Insights({ jobs, settings }: Props) {
   const trendProfit = ins.revenueTrend.reduce((s, w) => s + w.profit, 0);
   const unpaidTotal = ins.unpaidAging.reduce((s, r) => s + r.total, 0);
 
+  // ─── Accordion open-state for each section ───────────────────────
+  // Daily Jobs is the headline → opens by default. Everything else
+  // collapses. The dropdown chevron toggles, and multiple sections
+  // can be open at once (matches the Settings accordion behavior).
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
+    dailyJobs: true,
+    revenue: false,
+    repeat: false,
+    topServices: false,
+    topSources: false,
+    topCities: false,
+    bestSellers: false,
+    unpaid: false,
+    expenses: false,
+    topCosts: false,
+  });
+  const toggle = (key: string) => () =>
+    setOpenSections((p) => ({ ...p, [key]: !p[key] }));
+
+  // ─── Summary lines for collapsed-state preview ───────────────────
+  // Each accordion shows a short data-line in its summary so the
+  // value is visible without expanding. Truncated when no data.
+  const topService = ins.topServices[0];
+  const topSource = ins.topSources[0];
+  const topCity = ins.topCities[0];
+  const topCost = ins.expenseAnalysis.topCategoriesByCost[0];
+
   return (
     <div className="page page-enter">
       <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 14 }}>Insights</div>
@@ -79,11 +107,15 @@ export function Insights({ jobs, settings }: Props) {
         </div>
       )}
       <PricingInsightsCard jobs={jobs} settings={settings} businessId={businessId} />
-      <BestSellersCard jobs={jobs} />
 
       {/* ── Daily job stats (Phase 5) ─────────────────────────── */}
-      <div className="form-group">
-        <div className="form-group-title">Daily Jobs</div>
+      <AccordionShell
+        title="Daily Jobs"
+        icon="📋"
+        summary={`${ins.dailyJobs.jobsToday} today · ${ins.dailyJobs.jobsThisWeek} this week · avg ${ins.dailyJobs.avgPerDay.toFixed(1)}/day`}
+        open={openSections.dailyJobs}
+        onToggle={toggle('dailyJobs')}
+      >
         <div style={{
           display: 'grid', gridTemplateColumns: '1fr 1fr 1fr',
           gap: 10, marginBottom: 10,
@@ -125,11 +157,16 @@ export function Insights({ jobs, settings }: Props) {
             )}
           </div>
         )}
-      </div>
+      </AccordionShell>
 
       {/* ── Revenue trend ──────────────────────────────────────── */}
-      <div className="form-group">
-        <div className="form-group-title">Revenue — Last 8 Weeks</div>
+      <AccordionShell
+        title="Revenue — Last 8 Weeks"
+        icon="📈"
+        summary={`${money(trendRevenue)} revenue · ${money(trendProfit)} profit`}
+        open={openSections.revenue}
+        onToggle={toggle('revenue')}
+      >
         <div style={{
           display: 'flex', alignItems: 'flex-end', gap: 6,
           height: 110, marginBottom: 8,
@@ -152,11 +189,16 @@ export function Insights({ jobs, settings }: Props) {
           <span style={{ color: 'var(--t3)' }}>8-wk revenue <strong style={{ color: 'var(--green)' }}>{money(trendRevenue)}</strong></span>
           <span style={{ color: 'var(--t3)' }}>profit <strong style={{ color: trendProfit >= 0 ? 'var(--green)' : 'var(--red)' }}>{money(trendProfit)}</strong></span>
         </div>
-      </div>
+      </AccordionShell>
 
       {/* ── Repeat customers ───────────────────────────────────── */}
-      <div className="form-group">
-        <div className="form-group-title">Repeat Customers</div>
+      <AccordionShell
+        title="Repeat Customers"
+        icon="🔁"
+        summary={ins.repeat.total > 0 ? `${ins.repeat.pct}% repeat rate · ${ins.repeat.repeat} of ${ins.repeat.total}` : 'No customers yet'}
+        open={openSections.repeat}
+        onToggle={toggle('repeat')}
+      >
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
           <span style={{ fontSize: 34, fontWeight: 800, color: 'var(--green)', lineHeight: 1 }}>
             {ins.repeat.pct}%
@@ -165,44 +207,81 @@ export function Insights({ jobs, settings }: Props) {
             {ins.repeat.repeat} of {ins.repeat.total} customer{ins.repeat.total !== 1 ? 's' : ''} booked more than once
           </span>
         </div>
-      </div>
+      </AccordionShell>
 
       {/* ── Top services ───────────────────────────────────────── */}
-      <RankedCard
+      <AccordionShell
         title="Top Services — by Profit"
-        rows={ins.topServices.slice(0, 6).map((s) => ({
-          label: s.service,
-          sub: `${s.count} job${s.count !== 1 ? 's' : ''} · ${money(s.revenue)} revenue`,
-          value: s.profit,
-          valueLabel: money(s.profit),
-        }))}
-      />
+        icon="⭐"
+        summary={topService ? `${topService.service} · ${money(topService.profit)} profit` : 'No completed jobs yet'}
+        open={openSections.topServices}
+        onToggle={toggle('topServices')}
+      >
+        <RankedCard
+          rows={ins.topServices.slice(0, 6).map((s) => ({
+            label: s.service,
+            sub: `${s.count} job${s.count !== 1 ? 's' : ''} · ${money(s.revenue)} revenue`,
+            value: s.profit,
+            valueLabel: money(s.profit),
+          }))}
+        />
+      </AccordionShell>
 
       {/* ── Top lead sources ───────────────────────────────────── */}
-      <RankedCard
+      <AccordionShell
         title="Top Lead Sources — by Revenue"
-        rows={ins.topSources.slice(0, 6).map((s) => ({
-          label: s.source,
-          sub: `${s.count} job${s.count !== 1 ? 's' : ''}`,
-          value: s.revenue,
-          valueLabel: money(s.revenue),
-        }))}
-      />
+        icon="📣"
+        summary={topSource ? `${topSource.source} · ${money(topSource.revenue)}` : 'No lead-source data yet'}
+        open={openSections.topSources}
+        onToggle={toggle('topSources')}
+      >
+        <RankedCard
+          rows={ins.topSources.slice(0, 6).map((s) => ({
+            label: s.source,
+            sub: `${s.count} job${s.count !== 1 ? 's' : ''}`,
+            value: s.revenue,
+            valueLabel: money(s.revenue),
+          }))}
+        />
+      </AccordionShell>
 
       {/* ── Top cities ─────────────────────────────────────────── */}
-      <RankedCard
+      <AccordionShell
         title="Most Profitable Cities"
-        rows={ins.topCities.slice(0, 6).map((c) => ({
-          label: c.city,
-          sub: `${c.count} job${c.count !== 1 ? 's' : ''}`,
-          value: c.profit,
-          valueLabel: money(c.profit),
-        }))}
-      />
+        icon="📍"
+        summary={topCity ? `${topCity.city} · ${money(topCity.profit)} profit` : 'No city data yet'}
+        open={openSections.topCities}
+        onToggle={toggle('topCities')}
+      >
+        <RankedCard
+          rows={ins.topCities.slice(0, 6).map((c) => ({
+            label: c.city,
+            sub: `${c.count} job${c.count !== 1 ? 's' : ''}`,
+            value: c.profit,
+            valueLabel: money(c.profit),
+          }))}
+        />
+      </AccordionShell>
+
+      {/* ── Best selling tires ─────────────────────────────────── */}
+      <AccordionShell
+        title="Best Selling Tires"
+        icon="🛞"
+        summary="Top sizes by quantity sold"
+        open={openSections.bestSellers}
+        onToggle={toggle('bestSellers')}
+      >
+        <BestSellersCard jobs={jobs} />
+      </AccordionShell>
 
       {/* ── Unpaid aging ───────────────────────────────────────── */}
-      <div className="form-group">
-        <div className="form-group-title">Unpaid Invoice Aging</div>
+      <AccordionShell
+        title="Unpaid Invoice Aging"
+        icon="⏰"
+        summary={unpaidTotal > 0 ? `${money(unpaidTotal)} outstanding` : 'Everything paid'}
+        open={openSections.unpaid}
+        onToggle={toggle('unpaid')}
+      >
         {unpaidTotal === 0 ? (
           <div style={{ fontSize: 13, color: 'var(--t3)' }}>
             Nothing outstanding — every job is paid.
@@ -227,11 +306,16 @@ export function Insights({ jobs, settings }: Props) {
             </div>
           </>
         )}
-      </div>
+      </AccordionShell>
 
       {/* ── Expense analysis (Phase 5) ─────────────────────────── */}
-      <div className="form-group">
-        <div className="form-group-title">Expenses — Last 8 Weeks</div>
+      <AccordionShell
+        title="Expenses — Last 8 Weeks"
+        icon="💰"
+        summary={`Net ${money(ins.expenseAnalysis.netProfit8w)} · ${money(ins.expenseAnalysis.monthlyRecurringBurden)}/mo recurring`}
+        open={openSections.expenses}
+        onToggle={toggle('expenses')}
+      >
         <div className="card-row" style={{ padding: '6px 0' }}>
           <span className="label">Business net profit</span>
           <span
@@ -281,18 +365,25 @@ export function Insights({ jobs, settings }: Props) {
             );
           })()}
         </div>
-      </div>
+      </AccordionShell>
 
       {/* ── Top cost categories (Phase 5) ──────────────────────── */}
-      <RankedCard
+      <AccordionShell
         title="Top Cost Categories"
-        rows={ins.expenseAnalysis.topCategoriesByCost.slice(0, 6).map((c) => ({
-          label: c.label,
-          sub: `${money(c.total)} over 8 weeks`,
-          value: c.total,
-          valueLabel: money(c.total),
-        }))}
-      />
+        icon="📊"
+        summary={topCost ? `${topCost.label} · ${money(topCost.total)} over 8 weeks` : 'No expenses logged'}
+        open={openSections.topCosts}
+        onToggle={toggle('topCosts')}
+      >
+        <RankedCard
+          rows={ins.expenseAnalysis.topCategoriesByCost.slice(0, 6).map((c) => ({
+            label: c.label,
+            sub: `${money(c.total)} over 8 weeks`,
+            value: c.total,
+            valueLabel: money(c.total),
+          }))}
+        />
+      </AccordionShell>
     </div>
   );
 }
@@ -305,11 +396,10 @@ interface RankedRow {
   valueLabel: string;
 }
 
-function RankedCard({ title, rows }: { title: string; rows: RankedRow[] }) {
+function RankedCard({ rows }: { rows: RankedRow[] }) {
   const max = Math.max(1, ...rows.map((r) => r.value));
   return (
-    <div className="form-group">
-      <div className="form-group-title">{title}</div>
+    <div>
       {rows.length === 0 ? (
         <div style={{ fontSize: 13, color: 'var(--t3)' }}>Not enough data yet.</div>
       ) : (
