@@ -6,6 +6,7 @@ import { computeInsights } from '@/lib/insights';
 import { callAI, isAIConfigured } from '@/lib/aiClient';
 import { buildInsightsInput, parseInsightsResponse } from '@/lib/aiInsights';
 import { PricingInsightsCard } from '@/components/insights/PricingInsightsCard';
+import { BestSellersCard } from '@/components/insights/BestSellersCard';
 import { useBrand } from '@/context/BrandContext';
 
 interface Props {
@@ -78,6 +79,7 @@ export function Insights({ jobs, settings }: Props) {
         </div>
       )}
       <PricingInsightsCard jobs={jobs} settings={settings} businessId={businessId} />
+      <BestSellersCard jobs={jobs} />
 
       {/* ── Daily job stats (Phase 5) ─────────────────────────── */}
       <div className="form-group">
