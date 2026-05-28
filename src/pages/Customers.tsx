@@ -4,7 +4,7 @@ import { PAYMENT_METHOD_LABELS } from '@/types';
 import { fmtDate, money, paymentPillClass, resolvePaymentStatus, serviceIcon } from '@/lib/utils';
 import { useScopedJobs } from '@/lib/useScopedJobs';
 import { useMembership } from '@/context/MembershipContext';
-import { scopedCol, fbSet } from '@/lib/firebase';
+import { scopedCol, fbSet, fbListen } from '@/lib/firebase';
 import {
   deriveCustomerProfiles, type CustomerProfile,
   type CustomerMeta, PRESET_CUSTOMER_TAGS,
@@ -15,10 +15,6 @@ import { addToast } from '@/lib/toast';
 interface Props {
   jobs: Job[];
   settings: Settings;
-  /** Live snapshot of all persisted per-customer metadata (notes +
-   *  tags). Subscribed at App level; passed here so the list view
-   *  can render tag chips and filter by tag without per-row reads. */
-  customerMeta: Map<string, CustomerMeta>;
   /** Open the job-detail modal for a specific job. Threaded from
    *  App.tsx so tapping a job row inside a customer profile opens
    *  the same modal the History page uses. Optional for legacy
@@ -43,11 +39,46 @@ interface Props {
 type FilterMode = 'all' | 'repeat' | 'new' | 'unpaid';
 type SortMode   = 'revenue' | 'recent' | 'name';
 
-export function Customers({ jobs: rawJobs, settings, customerMeta, onViewJob }: Props) {
+export function Customers({ jobs: rawJobs, settings, onViewJob }: Props) {
   const jobs = useScopedJobs(rawJobs);
-  const { member, role, permissions } = useMembership();
+  const { member, permissions } = useMembership();
   const businessId = member?.businessId || null;
-  const canEditNote = role === 'owner' || role === 'admin';
+
+  // Lazy Customers metadata listener. Previously this lived in
+  // App.tsx and fired for every account on cold start — wasted
+  // bandwidth for the (common) case where the operator never opens
+  // the Customers tab. Moving the subscription here means it only
+  // engages when the user actually navigates here; teardown on
+  // unmount keeps it scoped to active use. The first paint shows
+  // an empty meta map for ~100-200ms before the first snapshot
+  // lands — acceptable since the customer list itself renders
+  // immediately from `jobs`.
+  const [customerMeta, setCustomerMeta] = useState<Map<string, CustomerMeta>>(new Map());
+  useEffect(() => {
+    if (!businessId) return;
+    const unsub = fbListen(scopedCol(businessId, 'customers'), (docs) => {
+      const map = new Map<string, CustomerMeta>();
+      for (const d of docs) {
+        const data = d as Record<string, unknown>;
+        const note = typeof data.note === 'string' ? data.note : undefined;
+        const tags = Array.isArray(data.tags)
+          ? (data.tags as unknown[]).filter((t) => typeof t === 'string') as string[]
+          : undefined;
+        if (note != null || tags != null) {
+          map.set(String(d.id), {
+            note, tags,
+            updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : undefined,
+          });
+        }
+      }
+      setCustomerMeta(map);
+    }, () => { /* permission errors are quiet — techs can read but won't break the page */ });
+    return () => unsub();
+  }, [businessId]);
+  // Editing per-customer notes is a business-data mutation — reuses
+  // canEditBusinessSettings rather than introducing a new flag for
+  // a single check. Owners + admins have it; techs don't.
+  const canEditNote = permissions.canEditBusinessSettings;
   const canViewProfit = permissions.canViewProfit;
 
   const [query, setQuery] = useState('');

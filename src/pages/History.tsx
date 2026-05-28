@@ -32,8 +32,13 @@ export function History({
   const jobs = useScopedJobs(rawJobs);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
-  const { role } = useMembership();
-  const canBulk = role === 'owner' || role === 'admin';
+  // Bulk delete/edit gates on canDeleteJobs — the destructive end of
+  // the bulk surface. Owners + admins have it by default; techs don't.
+  // Reading from permissions instead of comparing role directly means
+  // future permission tweaks (e.g. promoting a tech to "lead tech"
+  // with delete rights) automatically flow through.
+  const { permissions } = useMembership();
+  const canBulk = permissions.canDeleteJobs;
 
   // Member directory for "Tech: X" attribution on each row.
   const { businessId } = useBrand();

@@ -122,9 +122,12 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
   // byte-for-byte identical to pre-Phase-2.1.
   const vertical = useActiveVertical();
   const showTireBlock = vertical.features.inventoryDeduction;
-  // Sub-Project B: assignment picker visible only to owner/admin.
-  const { role, member } = useMembership();
-  const canAssign = role === 'owner' || role === 'admin';
+  // Sub-Project B: assignment picker is team management — surface
+  // when canManageTeam, not by raw role compare. Same default
+  // behavior (owners + admins see it) but the gate uses the flag
+  // that already controls every other team-mutation UI.
+  const { member } = useMembership();
+  const canAssign = permissions.canManageTeam;
   const currentUid = member?.uid || '';
   const businessMembers = useBusinessMembers();
   // Save-in-progress guard. While a save is mid-flight, the buttons

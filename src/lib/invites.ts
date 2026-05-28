@@ -318,6 +318,31 @@ export async function acceptInvite(
     // writeBatch — the rule will reject if anything's actually wrong.
   }
 
+  // ─── Multi-business detection ──────────────────────────────────
+  // If the user is already attached to a different business via
+  // users/{uid}.businessId, the batch below will overwrite it with
+  // the newly-accepted business (activeBusinessId tracking the
+  // active one). That's the intended UX — accepting a new invite
+  // moves the user to the new context, and BusinessSwitcher still
+  // shows the prior business via members docs. We log the move so
+  // it's diagnosable from the console alone if a confused user
+  // says "where did my data go." Probe failure is non-fatal — the
+  // batch still runs.
+  try {
+    const userSnap = await getDoc(doc(db, 'users', uid));
+    const prior = userSnap.exists()
+      ? (userSnap.data() as { businessId?: string }).businessId
+      : null;
+    if (prior && prior !== inviteDoc.businessId) {
+      // eslint-disable-next-line no-console
+      console.info('[invites] accept will switch active business', {
+        uid, from: prior, to: inviteDoc.businessId,
+      });
+    }
+  } catch {
+    // Probe failure — the batch below is the source of truth.
+  }
+
   // ─── Atomic accept: invite + user doc + member doc in one batch ──
   // Order matters for the rule check: getAfter() in the members rule
   // reads the invite's POST-batch state, so the invite→accepted write
