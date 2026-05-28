@@ -368,9 +368,14 @@ export function SubscriptionAccordion({ settings, open, onToggle }: { settings: 
             )}
           </div>
 
-          {/* Manage billing — only when paid, lets users hit Stripe portal
-              for any other action (cancel, view invoices, update card). */}
-          {isPaid && !exempt && (
+          {/* Manage billing — visible whenever there's a Stripe
+              subscription on file (trialing OR paid), not just when
+              isPaid. Previously a user could subscribe at noon,
+              change their mind at 1pm, and have no path to cancel
+              from inside the app because the trialing state hid this
+              CTA. The Stripe Portal handles cancel / update card /
+              view invoices uniformly across all states. */}
+          {!!settings.stripeSubscriptionId && !exempt && (
             <ManageBillingLink />
           )}
         </>

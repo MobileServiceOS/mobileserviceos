@@ -67,15 +67,14 @@ export function TrialCountdownBanner({ settings, onSubscribe }: Props) {
   // Past expiry: show lockout banner.
   const expired = remainingMs <= 0;
 
-  // Has the user already subscribed via Stripe? The soft trial
-  // (stamped by Onboarding / the existing-customer migration)
-  // doesn't set settings.plan — only the stripeSync mirror does,
-  // when a customers/{uid}/subscriptions doc appears in Firestore.
-  // So `settings.plan` present === card on file. We use this to
-  // switch copy + theme: "Subscribe →" CTA becomes confusing once
-  // the card is already in Stripe; show a calmer "card on file ·
-  // billing starts {date}" instead.
-  const hasStripeSubscription = !!settings.plan;
+  // Has the user already subscribed via Stripe? stripeSubscriptionId
+  // is set ONLY by stripeSync.ts mirror when a customers/{uid}/
+  // subscriptions doc appears in Firestore — admin-granted accounts
+  // (Wheel Rush) and the existing-customer migration both leave this
+  // field unset, so it's a clean "Stripe is in the loop" signal.
+  // Falsy values (null after cancel, undefined for pre-Stripe
+  // accounts) both flow through as "not subscribed."
+  const hasStripeSubscription = !!settings.stripeSubscriptionId;
 
   // Urgency tiers — 1-3 days OR expired cannot be dismissed.
   // Stripe-subscription accounts are never urgent because the

@@ -131,7 +131,7 @@ function extractPlan(d: StripeSubscriptionDoc): Plan {
  * Within the same priority bucket, the one with the most recent
  * current_period_end wins (most-recent subscription).
  */
-function pickPrimary(docs: StripeSubscriptionDoc[]): StripeSubscriptionDoc | null {
+function pickPrimary<T extends StripeSubscriptionDoc>(docs: T[]): T | null {
   if (!docs.length) return null;
   const rank: Record<string, number> = {
     active:                 1,
@@ -197,8 +197,10 @@ export function attachStripeSync(uid: string, businessId: string): Unsubscribe {
   ]));
 
   return onSnapshot(q, async (snap) => {
-    const docs: StripeSubscriptionDoc[] = [];
-    snap.forEach((d) => { docs.push(d.data() as StripeSubscriptionDoc); });
+    const docs: Array<StripeSubscriptionDoc & { _docId: string }> = [];
+    snap.forEach((d) => {
+      docs.push({ ...(d.data() as StripeSubscriptionDoc), _docId: d.id });
+    });
 
     const primary = pickPrimary(docs);
 
@@ -251,6 +253,14 @@ export function attachStripeSync(uid: string, businessId: string): Unsubscribe {
         {
           plan,
           subscriptionStatus: status,
+          // Uniquely-Stripe field. UI surfaces (banner copy, cancel
+          // CTA, "Manage in Stripe" link) check this instead of
+          // overloading `plan` — which legacy / admin-granted
+          // accounts (Wheel Rush) might also have set without a
+          // real Stripe subscription behind it. The Stripe Extension
+          // names subscription docs by their Stripe id, so doc.id
+          // is the canonical sub_xxx string.
+          stripeSubscriptionId: (primary as StripeSubscriptionDoc & { _docId?: string })._docId || null,
           ...(trialEndsAt ? { trialEndsAt } : {}),
         },
         { merge: true },

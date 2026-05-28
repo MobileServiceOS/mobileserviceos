@@ -605,6 +605,7 @@ function AuthenticatedApp({ user }: { user: User }) {
           const keys: Array<keyof SettingsT> = [
             'subscriptionStatus',
             'plan',
+            'stripeSubscriptionId',
             'trialStartedAt',
             'trialEndsAt',
             'billingExempt',

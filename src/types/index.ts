@@ -935,8 +935,16 @@ export interface Settings {
   /** Stripe subscription id (sub_…). Written alongside
    *  stripeCustomerId by the webhook. Drives "Manage subscription"
    *  link generation and webhook routing. Never written by the
-   *  client. */
-  stripeSubscriptionId?: string;
+   *  client.
+   *
+   *  As of 2026-05-28 this is ALSO the canonical "Stripe is in the
+   *  loop" signal for UI surfaces (TrialCountdownBanner copy, the
+   *  cancel/manage CTA in SubscriptionSection). stripeSync.ts mirror
+   *  writes it on every snapshot; admin-granted accounts (Wheel
+   *  Rush) and the existing-customer migration both leave it unset,
+   *  so falsy reliably means "no Stripe subscription on file."
+   *  Cleared to null if the mirror finds no active sub. */
+  stripeSubscriptionId?: string | null;
 
   /** Master kill-switch for Stripe billing on this account. When true,
    *  every plan check resolves to Pro regardless of Stripe state. */
