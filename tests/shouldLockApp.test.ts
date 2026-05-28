@@ -1,0 +1,137 @@
+// tests/shouldLockApp.test.ts
+// Run: npx tsx tests/shouldLockApp.test.ts
+//
+// Covers the hard-paywall gate. The lock decision drives whether the
+// PaywallLockout component replaces the entire app — getting this
+// wrong either traps paying customers behind a paywall they don't owe,
+// or hands the app away to expired-trial users. Both outcomes are
+// real-money bugs, so the coverage here is deliberately exhaustive.
+
+import { shouldLockApp } from '@/lib/planAccess';
+import type { Settings } from '@/types';
+
+let passed = 0;
+let failed = 0;
+function check(name: string, cond: boolean): void {
+  if (cond) { passed++; console.log(`  ✓ ${name}`); }
+  else { failed++; console.error(`  ✗ ${name}`); }
+}
+
+const futureIso = (msFromNow: number) => new Date(Date.now() + msFromNow).toISOString();
+const pastIso = (msAgo: number) => new Date(Date.now() - msAgo).toISOString();
+
+const MIN = 60 * 1000;
+const DAY = 24 * 60 * 60 * 1000;
+
+console.log('\n┌─ Safety: no settings / loading state ──────────');
+check('null settings → NOT locked (loading state)',
+  shouldLockApp(null) === false);
+check('undefined settings → NOT locked',
+  shouldLockApp(undefined) === false);
+
+console.log('\n┌─ Billing-exempt accounts (Wheel Rush) ─────────');
+check('billingExempt: true → NEVER locked, even with no subscription',
+  shouldLockApp({ billingExempt: true } as Settings) === false);
+check('billingExempt + canceled subscription → still NOT locked',
+  shouldLockApp({ billingExempt: true, subscriptionStatus: 'canceled' } as Settings) === false);
+
+console.log('\n┌─ Active paying subscribers ────────────────────');
+check('subscriptionStatus active → NOT locked',
+  shouldLockApp({ subscriptionStatus: 'active' } as Settings) === false);
+
+console.log('\n┌─ Trial in window — unlocked ───────────────────');
+check('trialing + trialEndsAt 7 days out → NOT locked',
+  shouldLockApp({
+    subscriptionStatus: 'trialing',
+    trialEndsAt: futureIso(7 * DAY),
+  } as Settings) === false);
+check('trialing + trialEndsAt 30 seconds out → NOT locked',
+  shouldLockApp({
+    subscriptionStatus: 'trialing',
+    trialEndsAt: futureIso(30_000),
+  } as Settings) === false);
+check('trialing + missing trialEndsAt → NOT locked (safer default)',
+  shouldLockApp({
+    subscriptionStatus: 'trialing',
+  } as Settings) === false);
+
+console.log('\n┌─ Trial expired — LOCKED ───────────────────────');
+check('trialing + trialEndsAt 1 day in past → LOCKED',
+  shouldLockApp({
+    subscriptionStatus: 'trialing',
+    trialEndsAt: pastIso(DAY),
+  } as Settings) === true);
+check('trialing + trialEndsAt 1 minute in past → LOCKED',
+  shouldLockApp({
+    subscriptionStatus: 'trialing',
+    trialEndsAt: pastIso(MIN),
+  } as Settings) === true);
+
+console.log('\n┌─ Non-active / non-trialing states — LOCKED ────');
+check('past_due → LOCKED',
+  shouldLockApp({ subscriptionStatus: 'past_due' } as Settings) === true);
+check('canceled → LOCKED',
+  shouldLockApp({ subscriptionStatus: 'canceled' } as Settings) === true);
+check('inactive → LOCKED',
+  shouldLockApp({ subscriptionStatus: 'inactive' } as Settings) === true);
+check('no subscriptionStatus at all → LOCKED (pre-paywall account must subscribe)',
+  shouldLockApp({} as Settings) === true);
+
+console.log('\n┌─ Date-shape resilience ────────────────────────');
+check('trialEndsAt as a Date object in the future → NOT locked',
+  shouldLockApp({
+    subscriptionStatus: 'trialing',
+    trialEndsAt: new Date(Date.now() + 5 * DAY),
+  } as Settings) === false);
+check('trialEndsAt as a Date object in the past → LOCKED',
+  shouldLockApp({
+    subscriptionStatus: 'trialing',
+    trialEndsAt: new Date(Date.now() - DAY),
+  } as Settings) === true);
+check('trialEndsAt as Firestore Timestamp-shape (toMillis) future → NOT locked',
+  shouldLockApp({
+    subscriptionStatus: 'trialing',
+    trialEndsAt: { toMillis: () => Date.now() + 2 * DAY } as unknown as Settings['trialEndsAt'],
+  } as Settings) === false);
+check('trialEndsAt as Firestore Timestamp-shape (toMillis) past → LOCKED',
+  shouldLockApp({
+    subscriptionStatus: 'trialing',
+    trialEndsAt: { toMillis: () => Date.now() - DAY } as unknown as Settings['trialEndsAt'],
+  } as Settings) === true);
+check('garbage trialEndsAt string + trialing → NOT locked (safer default)',
+  shouldLockApp({
+    subscriptionStatus: 'trialing',
+    trialEndsAt: 'not-a-date' as unknown as Settings['trialEndsAt'],
+  } as Settings) === false);
+
+console.log('\n┌─ Realistic scenarios ──────────────────────────');
+// Wheel Rush — the founder account.
+check('Wheel Rush exempt + canceled subscription override → unlocked',
+  shouldLockApp({
+    billingExempt: true,
+    subscriptionStatus: 'canceled',
+    subscriptionOverride: 'lifetime',
+  } as Settings) === false);
+// Fresh signup right after Onboarding stamps the trial.
+check('Brand-new signup (just stamped trialing, 14 days out) → unlocked',
+  shouldLockApp({
+    subscriptionStatus: 'trialing',
+    trialStartedAt: new Date().toISOString(),
+    trialEndsAt: futureIso(14 * DAY),
+  } as Settings) === false);
+// Pre-paywall account that never trialed (existed before today's flip).
+check('Pre-paywall account, no trial, no subscription → LOCKED',
+  shouldLockApp({
+    plan: undefined,
+    subscriptionStatus: undefined,
+    trialEndsAt: undefined,
+  } as Settings) === true);
+// User who paid then canceled mid-cycle.
+check('Paid subscriber who canceled (status canceled) → LOCKED',
+  shouldLockApp({
+    subscriptionStatus: 'canceled',
+    plan: 'pro',
+  } as Settings) === true);
+
+console.log(`\n  ${passed} passed, ${failed} failed`);
+process.exit(failed > 0 ? 1 : 0);

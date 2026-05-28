@@ -37,6 +37,8 @@ import { JobDetailModal } from '@/components/JobDetailModal';
 import { ActiveTimerBar } from '@/components/ActiveTimerBar';
 import { OfflineBanner } from '@/components/OfflineBanner';
 import { Onboarding } from '@/components/Onboarding';
+import { PaywallLockout } from '@/components/PaywallLockout';
+import { shouldLockApp } from '@/lib/planAccess';
 import { addToast, addActionToast } from '@/lib/toast';
 import { humanizeFirestoreError, logFirestoreError, isPermissionDenied } from '@/lib/firebaseErrors';
 import { applyBrandColors, planInventoryDeduction, r2, uid } from '@/lib/utils';
@@ -1313,6 +1315,19 @@ function AuthenticatedApp({ user }: { user: User }) {
     return (
       <>
         <Onboarding settings={settings} onComplete={handleOnboardingComplete} />
+        <ToastHost />
+      </>
+    );
+  }
+
+  // Hard paywall — replace the whole app when the soft trial has
+  // expired (or never started) and there's no active subscription.
+  // shouldLockApp short-circuits to FALSE for growth mode and exempt
+  // accounts, so Wheel Rush + early access users never see this.
+  if (shouldLockApp(settings)) {
+    return (
+      <>
+        <PaywallLockout settings={settings} onSignOut={onSignOut} />
         <ToastHost />
       </>
     );

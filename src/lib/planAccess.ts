@@ -247,6 +247,95 @@ export function isBillingExempt(settings: Settings | null | undefined): boolean 
 }
 
 /**
+ * Hard-paywall check: should the entire app be replaced by the
+ * lockout screen for this account?
+ *
+ * The product rule (set 2026-05-28): every account either has a paid
+ * subscription, is mid-trial, or is billing-exempt. There is no free
+ * tier. Accounts whose trial has expired without converting see a
+ * full-screen "choose a plan to continue" view that replaces the app
+ * entirely. The lockout is the conversion mechanism — without it the
+ * 14-day soft trial is effectively a permanent free tier.
+ *
+ * Returns TRUE (lock the app) when ALL of these hold:
+ *   - growth mode is OFF (the early-access bypass isn't in effect)
+ *   - account is NOT billing-exempt (Wheel Rush, comp accounts)
+ *   - subscriptionStatus is NOT 'active' (currently paying)
+ *   - either:
+ *       a. subscriptionStatus is 'trialing' but trialEndsAt is in the
+ *          past, OR
+ *       b. no subscriptionStatus at all (existing pre-paywall account
+ *          that never started a trial — must subscribe to use the app)
+ *       c. subscriptionStatus is 'past_due' or 'canceled'
+ *
+ * Returns FALSE (let them use the app) when ANY of these hold:
+ *   - growth mode is on
+ *   - account is billing-exempt
+ *   - subscription is active or trialing-in-window
+ *
+ * Edge case: a brand-new account whose Onboarding hasn't yet written
+ * the trialing stamp will briefly return TRUE here. That window is
+ * inside the Onboarding flow itself which doesn't render the locked
+ * view — Onboarding completes before the app renders the gated
+ * surface, so the user never sees a flash of lockout.
+ */
+export function shouldLockApp(settings: Settings | null | undefined): boolean {
+  // Safety: no settings yet → don't lock (likely mid-load; the app
+  // is already showing a loading state, not the main UI).
+  if (!settings) return false;
+  // Growth mode globally bypasses all billing enforcement.
+  if (isGrowthMode()) return false;
+  // Exempt accounts (Wheel Rush, comp grants) never see the lockout.
+  if (settings.billingExempt === true) return false;
+
+  const status = settings.subscriptionStatus;
+
+  // Active paying subscriber — unlocked.
+  if (status === 'active') return false;
+
+  // Trialing — unlocked IF the trial window is still open.
+  if (status === 'trialing') {
+    const endMs = parseTimestampMs(settings.trialEndsAt);
+    if (endMs === null) return false; // missing end date → treat as in-trial (safer)
+    return endMs < Date.now();
+  }
+
+  // past_due / canceled / unknown / undefined → lock.
+  return true;
+}
+
+/**
+ * Best-effort parse of the heterogeneous timestamp shapes Settings
+ * accepts (ISO string, JS Date, Firestore Timestamp). Returns
+ * milliseconds, or null when the value can't be interpreted.
+ *
+ * Centralized here so shouldLockApp and the existing trial banner
+ * use identical resolution semantics.
+ */
+function parseTimestampMs(
+  v: string | Date | { toMillis?: () => number } | null | undefined,
+): number | null {
+  if (v == null) return null;
+  if (typeof v === 'string') {
+    const ms = Date.parse(v);
+    return Number.isFinite(ms) ? ms : null;
+  }
+  if (v instanceof Date) {
+    const ms = v.getTime();
+    return Number.isFinite(ms) ? ms : null;
+  }
+  if (typeof (v as { toMillis?: () => number }).toMillis === 'function') {
+    try {
+      const ms = (v as { toMillis: () => number }).toMillis();
+      return Number.isFinite(ms) ? ms : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+/**
  * Does the account have a confirmed PAID or TRIALING subscription
  * mirrored from Stripe? Used by the Settings UI to decide whether to
  * show a "Current Plan" badge — never show that badge for accounts

@@ -6,7 +6,7 @@ import { enqueueLogoUpload } from '@/lib/uploadQueue';
 import { addToast } from '@/lib/toast';
 import { APP_LOGO } from '@/lib/defaults';
 import { money } from '@/lib/utils';
-import { sanitizeSubscriptionWrite } from '@/lib/planAccess';
+import { sanitizeSubscriptionWrite, isBillingExempt } from '@/lib/planAccess';
 import { foundingMemberStamp, isGrowthMode, FOUNDER_DISCOUNT_PERCENT, FOUNDER_DISCOUNT_TERM_MONTHS } from '@/lib/growthMode';
 import { verticalFromBusinessType } from '@/lib/useActiveVertical';
 import type { VerticalKey } from '@/lib/verticals';
@@ -232,6 +232,25 @@ export function Onboarding({ settings, onComplete }: Props) {
       // growthMode is later turned off, foundingMemberStamp() returns
       // {} and new signups go through normal Stripe checkout instead.
       const isFlatModel = vertical.pricingModel.kind === 'flat';
+      // 14-day soft-trial stamp. When GROWTH_MODE is off (paywall live)
+      // new accounts start in `trialing` status for 14 days. Resolver
+      // (planAccess.resolvePlan) treats trialing as Pro, so they get
+      // the full feature set during the trial. After trialEndsAt, the
+      // app-level shouldLockApp() check flips them into a hard paywall
+      // until they subscribe. No card required to start the trial;
+      // the lockout is what forces conversion.
+      //
+      // foundingMemberStamp() returns {} when GROWTH_MODE is off, so
+      // it's harmless here and remains in place for future re-flips.
+      const nowMs = Date.now();
+      const trialEndsAtIso = new Date(nowMs + 14 * 24 * 60 * 60 * 1000).toISOString();
+      const softTrialStamp = (!isGrowthMode() && !isBillingExempt(settings))
+        ? {
+            subscriptionStatus: 'trialing' as const,
+            trialStartedAt: new Date(nowMs).toISOString(),
+            trialEndsAt: trialEndsAtIso,
+          }
+        : {};
       const settingsPatch: Partial<Settings> = {
         weeklyGoal,
         costPerMile,
@@ -252,6 +271,7 @@ export function Onboarding({ settings, onComplete }: Props) {
           advancedReports: true,
         },
         ...foundingMemberStamp(),
+        ...softTrialStamp,
       };
 
       // Defensive: if an exempt account somehow lands back on
