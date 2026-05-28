@@ -385,6 +385,11 @@ export interface Brand {
   serviceCities?: string[];
   serviceRadius?: number;
   onboardingComplete?: boolean;
+  /** ISO timestamp when onboarding finished. Used by the existing-
+   *  customer trial migration in App.tsx + the grandfather check in
+   *  planAccess.ts (isExistingCustomer) to identify accounts that
+   *  signed up before the paywall flip and deserve a 14-day trial
+   *  on their first post-flip visit. */
   onboardingCompletedAt?: string | null;
   /** When true, the invoice renders a warranty box near the footer with
    *  warrantyText. When false/missing, the box is omitted entirely. */
@@ -856,6 +861,15 @@ export interface Settings {
   /** Free-text warranty policy printed at the bottom of mechanic
    *  invoices when set. */
   warrantyPolicy?: string;
+  /**
+   * Onboarding completion mirrors. The same fields live on the Brand
+   * type (since they're written to businesses/{bid}/settings/main),
+   * but App.tsx also mirrors them onto the in-memory Settings object
+   * so the existing-customer trial migration + shouldLockApp() can
+   * read them without taking a dependency on BrandContext.
+   */
+  onboardingComplete?: boolean;
+  onboardingCompletedAt?: string | null;
   /**
    * Subscription tier for this business. Single value ('pro') with
    * the platform's one-plan model. Drives feature gating in

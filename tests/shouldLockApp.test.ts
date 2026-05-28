@@ -7,7 +7,7 @@
 // or hands the app away to expired-trial users. Both outcomes are
 // real-money bugs, so the coverage here is deliberately exhaustive.
 
-import { shouldLockApp } from '@/lib/planAccess';
+import { shouldLockApp, isExistingCustomer, EXISTING_CUSTOMER_CUTOFF_ISO } from '@/lib/planAccess';
 import type { Settings } from '@/types';
 
 let passed = 0;
@@ -132,6 +132,40 @@ check('Paid subscriber who canceled (status canceled) → LOCKED',
     subscriptionStatus: 'canceled',
     plan: 'pro',
   } as Settings) === true);
+
+console.log('\n┌─ Existing-customer grandfather (pre-paywall) ──');
+const preCutoffIso = '2026-05-14T03:19:04.261Z';     // Wheel Rush onboarding date
+const postCutoffIso = '2026-05-28T08:19:00Z';        // Day-of-flip test signup
+check('isExistingCustomer with pre-cutoff onboarding → true',
+  isExistingCustomer({ onboardingCompletedAt: preCutoffIso } as Settings) === true);
+check('isExistingCustomer with post-cutoff onboarding → false',
+  isExistingCustomer({ onboardingCompletedAt: postCutoffIso } as Settings) === false);
+check('isExistingCustomer with no onboardingCompletedAt → false',
+  isExistingCustomer({} as Settings) === false);
+check('isExistingCustomer with null settings → false',
+  isExistingCustomer(null) === false);
+check('cutoff constant matches paywall flip moment',
+  EXISTING_CUSTOMER_CUTOFF_ISO === '2026-05-28T00:00:00Z');
+
+check('pre-cutoff signup, no subscriptionStatus → NOT locked (grandfathered)',
+  shouldLockApp({
+    onboardingCompletedAt: preCutoffIso,
+  } as Settings) === false);
+check('pre-cutoff signup, canceled status → STILL locked (status wins over grandfather)',
+  shouldLockApp({
+    onboardingCompletedAt: preCutoffIso,
+    subscriptionStatus: 'canceled',
+  } as Settings) === true);
+check('post-cutoff signup, no subscriptionStatus → LOCKED (must subscribe)',
+  shouldLockApp({
+    onboardingCompletedAt: postCutoffIso,
+  } as Settings) === true);
+check('pre-cutoff signup with stamped trialing (post-migration) → unlocked',
+  shouldLockApp({
+    onboardingCompletedAt: preCutoffIso,
+    subscriptionStatus: 'trialing',
+    trialEndsAt: futureIso(10 * DAY),
+  } as Settings) === false);
 
 console.log(`\n  ${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

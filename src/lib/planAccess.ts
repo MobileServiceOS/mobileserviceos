@@ -247,6 +247,35 @@ export function isBillingExempt(settings: Settings | null | undefined): boolean 
 }
 
 /**
+ * Cutoff ISO for "existing customer" classification — accounts whose
+ * onboarding completed STRICTLY BEFORE this moment are grandfathered
+ * into a free 14-day trial AND auto-apply the founder discount at
+ * checkout. Matches the paywall flip moment. Hardcoded (not env-var)
+ * because it's a one-time historical boundary, not a configuration
+ * value — changing it would let new signups game the system.
+ */
+export const EXISTING_CUSTOMER_CUTOFF_ISO = '2026-05-28T00:00:00Z' as const;
+
+/**
+ * Did this account complete onboarding before the paywall flip?
+ * Used to grandfather pre-paywall accounts into a 14-day trial that
+ * gets stamped on their first post-flip visit (by the migration
+ * effect in App.tsx). Without this, every existing free-tier account
+ * would hit the lockout immediately and feel cheated.
+ *
+ * Pure check on the Settings doc — no Firestore reads.
+ */
+export function isExistingCustomer(settings: Settings | null | undefined): boolean {
+  if (!settings) return false;
+  const completedAt = settings.onboardingCompletedAt;
+  if (!completedAt) return false;
+  const completedMs = Date.parse(completedAt);
+  const cutoffMs = Date.parse(EXISTING_CUSTOMER_CUTOFF_ISO);
+  if (!Number.isFinite(completedMs) || !Number.isFinite(cutoffMs)) return false;
+  return completedMs < cutoffMs;
+}
+
+/**
  * Hard-paywall check: should the entire app be replaced by the
  * lockout screen for this account?
  *
@@ -298,6 +327,16 @@ export function shouldLockApp(settings: Settings | null | undefined): boolean {
     const endMs = parseTimestampMs(settings.trialEndsAt);
     if (endMs === null) return false; // missing end date → treat as in-trial (safer)
     return endMs < Date.now();
+  }
+
+  // Existing customer (pre-paywall) with NO subscription state yet
+  // is grandfathered as unlocked. A migration effect (App.tsx) writes
+  // the actual trialing stamp on their next visit, but we don't want
+  // to flash a lockout during that brief window. Once the stamp lands,
+  // the trialing branch above takes over and the trial clock ticks
+  // for 14 days.
+  if (!status && isExistingCustomer(settings)) {
+    return false;
   }
 
   // past_due / canceled / unknown / undefined → lock.

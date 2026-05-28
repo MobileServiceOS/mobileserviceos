@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { _auth, _db, scopedCol, fbDelete, fbListen, fbSet, fbSetFast, initError } from '@/lib/firebase';
 import { BrandProvider, useBrand } from '@/context/BrandContext';
 import { MembershipProvider, usePermissions, useMembership } from '@/context/MembershipContext';
@@ -38,7 +38,7 @@ import { ActiveTimerBar } from '@/components/ActiveTimerBar';
 import { OfflineBanner } from '@/components/OfflineBanner';
 import { Onboarding } from '@/components/Onboarding';
 import { PaywallLockout } from '@/components/PaywallLockout';
-import { shouldLockApp } from '@/lib/planAccess';
+import { shouldLockApp, isExistingCustomer } from '@/lib/planAccess';
 import { addToast, addActionToast } from '@/lib/toast';
 import { humanizeFirestoreError, logFirestoreError, isPermissionDenied } from '@/lib/firebaseErrors';
 import { applyBrandColors, planInventoryDeduction, r2, uid } from '@/lib/utils';
@@ -614,6 +614,10 @@ function AuthenticatedApp({ user }: { user: User }) {
             'exemptionGrantedAt',
             'exemptionGrantedBy',
             'exemptionReason',
+            // Used by the existing-customer trial migration (App.tsx)
+            // and the shouldLockApp grandfather check (planAccess.ts).
+            'onboardingComplete',
+            'onboardingCompletedAt',
           ];
           for (const k of keys) {
             const v = main[k as string];
@@ -659,6 +663,54 @@ function AuthenticatedApp({ user }: { user: User }) {
     const unsub = attachStripeSync(user.uid, businessId);
     return () => unsub();
   }, [user?.uid, businessId]);
+
+  // ─── Existing-customer trial migration ─────────────────────────
+  // For accounts that completed onboarding BEFORE the paywall flip
+  // (2026-05-28T00:00:00Z) and don't yet have a subscription, stamp
+  // a 14-day trialing status starting on this first post-flip visit.
+  // This is the "fairness" path — pre-paywall users had free access
+  // during Founder Access and deserve a real trial window (plus the
+  // auto-applied founder discount at checkout) before being locked
+  // out. shouldLockApp() pre-emptively grandfathers them as unlocked,
+  // so they never see a flash of lockout while this write is in
+  // flight.
+  //
+  // Idempotent: once subscriptionStatus is set (to anything), the
+  // guard below short-circuits and the migration never runs again.
+  useEffect(() => {
+    if (!businessId || !_db) return;
+    if (!settings.onboardingComplete) return;
+    if (settings.subscriptionStatus) return; // already stamped (or paid/canceled)
+    if (settings.billingExempt === true) return; // exempt accounts skip
+    if (!isExistingCustomer(settings)) return; // post-flip signups go through Onboarding
+    const nowMs = Date.now();
+    const trialEndsAtIso = new Date(nowMs + 14 * 24 * 60 * 60 * 1000).toISOString();
+    const trialStartedAtIso = new Date(nowMs).toISOString();
+    // eslint-disable-next-line no-console
+    console.info('[trial-migration] stamping 14-day trial for existing customer', {
+      businessId,
+      onboardingCompletedAt: settings.onboardingCompletedAt,
+      trialStartedAt: trialStartedAtIso,
+      trialEndsAt: trialEndsAtIso,
+    });
+    const ref = doc(_db, `businesses/${businessId}/settings/main`);
+    setDoc(ref, {
+      subscriptionStatus: 'trialing',
+      trialStartedAt: trialStartedAtIso,
+      trialEndsAt: trialEndsAtIso,
+    }, { merge: true }).catch((err: unknown) => {
+      // Non-fatal — they stay grandfathered (shouldLockApp returns
+      // false for isExistingCustomer) on this load. Next load retries.
+      // eslint-disable-next-line no-console
+      console.warn('[trial-migration] stamp failed (non-fatal):', err);
+    });
+  }, [
+    businessId,
+    settings.onboardingComplete,
+    settings.onboardingCompletedAt,
+    settings.subscriptionStatus,
+    settings.billingExempt,
+  ]);
 
   // Online/offline awareness
   useEffect(() => {
