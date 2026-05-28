@@ -6,7 +6,7 @@ import {
   useCallback,
   type ReactNode,
 } from 'react';
-import { doc, onSnapshot, setDoc, getDoc } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, getDoc, writeBatch } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { _db } from '@/lib/firebase';
 import { DEFAULT_BRAND } from '@/lib/defaults';
@@ -232,34 +232,43 @@ export function BrandProvider({ children, user }: { children: ReactNode; user: U
                 // function below (setBusinessId, snapshot listener)
                 // already handles bId-from-existing-business cleanly.
               } else {
-                // Genuine fresh signup. Bootstrap the full structure.
+                // Genuine fresh signup. Bootstrap the full structure
+                // atomically — Firestore batches are all-or-nothing,
+                // so either every doc lands or none of them do. The
+                // legacy code used 4 sequential setDoc calls, which
+                // could leave dead refs in `users/{uid}` pointing at
+                // a business missing its settings doc if the network
+                // dropped between writes. The ghost-recovery code
+                // below would self-heal that, but silently — operators
+                // wouldn't see the partial state. Atomic write
+                // eliminates the failure mode entirely.
                 bId = user.uid;
                 console.info('[brand] bootstrapping new business for', user.uid);
 
-                await setDoc(userDocRef, {
+                const nowIso = new Date().toISOString();
+                const batch = writeBatch(db);
+                batch.set(userDocRef, {
                   businessId: bId,
                   role: 'owner',
                   email: user.email || '',
-                  createdAt: new Date().toISOString(),
+                  createdAt: nowIso,
                 }, { merge: true });
-
-                await setDoc(doc(db, `businesses/${bId}`), {
+                batch.set(doc(db, `businesses/${bId}`), {
                   ownerUid: user.uid,
                   ownerEmail: user.email || '',
-                  createdAt: new Date().toISOString(),
+                  createdAt: nowIso,
                 }, { merge: true });
-
-                await setDoc(doc(db, `businesses/${bId}/members/${user.uid}`), {
+                batch.set(doc(db, `businesses/${bId}/members/${user.uid}`), {
                   uid: user.uid,
                   email: user.email || '',
                   role: 'owner',
-                  addedAt: new Date().toISOString(),
+                  addedAt: nowIso,
                 }, { merge: true });
-
-                await setDoc(doc(db, `businesses/${bId}/settings/main`), {
+                batch.set(doc(db, `businesses/${bId}/settings/main`), {
                   ...DEFAULT_BRAND,
                   email: user.email || '',
                 }, { merge: true });
+                await batch.commit();
 
                 console.info('[brand] bootstrap complete for business', bId);
               }

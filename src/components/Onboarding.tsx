@@ -103,7 +103,45 @@ export function Onboarding({ settings, onComplete }: Props) {
   const [freeMiles, setFreeMiles] = useState<number>(Number(settings.freeMilesIncluded || 5));
 
   const totalSteps: Step = 4;
-  const next = () => setStep((s) => (Math.min(totalSteps, s + 1) as Step));
+
+  // ─── Step-by-step persistence so a refresh mid-onboarding doesn't
+  // wipe progress. Builds the partial brand patch from current state
+  // (without onboardingComplete) and fires it via onComplete. The
+  // parent handler is generic — it merges whatever's in the patch.
+  // Errors are non-fatal: the user just keeps going, with the data
+  // safely in component-local state until the next attempt. ─────────
+  const persistPartial = async () => {
+    try {
+      const serviceCities = serviceCitiesText.split(',').map((s) => s.trim()).filter(Boolean);
+      const partial: Partial<Brand> = {
+        businessName: businessName.trim(),
+        businessType,
+        phone: phone.trim(),
+        email: email.trim(),
+        logoUrl,
+        state: stateCode,
+        mainCity: mainCity.trim(),
+        serviceCities,
+        serviceRadius,
+      };
+      await onComplete(partial, {});
+    } catch (err) {
+      // Non-fatal — the user's local state is preserved and they can
+      // keep advancing. The next persistPartial or finish() will
+      // retry. Log so a real auth failure is visible during debug.
+      // eslint-disable-next-line no-console
+      console.warn('[Onboarding] partial save failed (non-fatal):', err);
+    }
+  };
+
+  const next = () => {
+    setStep((s) => (Math.min(totalSteps, s + 1) as Step));
+    // Fire-and-forget. Don't block the UI behind the network round-
+    // trip — the user advances immediately, the partial saves in the
+    // background. If they refresh mid-save, worst case they lose the
+    // last step's fields (still better than losing all 4).
+    void persistPartial();
+  };
   const back = () => setStep((s) => (Math.max(1, s - 1) as Step));
 
   /**

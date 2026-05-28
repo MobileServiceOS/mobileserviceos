@@ -407,6 +407,42 @@ export async function acceptInvite(
     throw new Error(humanizeAcceptError(lastErr));
   }
 
+  // ── Post-commit orphan probe ──────────────────────────────────────
+  // Firestore batches are atomic by spec, but read-after-write across
+  // listener channels can be eventually consistent for a few hundred
+  // ms. We read the member doc back to confirm it actually exists
+  // before declaring success. If it doesn't, the user would land
+  // in the app, hit a permission-denied on the dashboard query, and
+  // see "Missing or insufficient permissions" with no recovery path.
+  // Surfacing a clean error here lets them tap "Try again" and the
+  // retry hits the (already-accepted) invite path which handles
+  // duplicates gracefully.
+  try {
+    const memberRef = doc(db, 'businesses', inviteDoc.businessId, 'members', uid);
+    const memberSnap = await getDoc(memberRef);
+    if (!memberSnap.exists()) {
+      // eslint-disable-next-line no-console
+      console.error('[invites] orphan: batch committed but member doc missing', {
+        token, uid, businessId: inviteDoc.businessId,
+      });
+      throw new Error(
+        'We saved your invite but couldn\'t finish setting up your account. ' +
+        'Please try the invite link again — your spot is reserved.',
+      );
+    }
+  } catch (probeErr) {
+    // Re-throw the user-facing message above; swallow probe-level
+    // errors (e.g. brief offline window) without turning a successful
+    // batch into a phantom failure. If we can't read the doc but the
+    // batch succeeded, the next app load reads it through the
+    // normal members listener path.
+    if (probeErr instanceof Error && probeErr.message.startsWith('We saved your invite')) {
+      throw probeErr;
+    }
+    // eslint-disable-next-line no-console
+    console.warn('[invites] orphan probe inconclusive (non-fatal):', probeErr);
+  }
+
   // eslint-disable-next-line no-console
   console.info('[invites] accepted', {
     token, uid, businessId: inviteDoc.businessId, role: inviteDoc.role,

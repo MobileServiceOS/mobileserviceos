@@ -886,8 +886,48 @@ function AuthenticatedApp({ user }: { user: User }) {
     let deductions: { id: string; size: string; qty: number; cost: number }[] | null = null;
     let computedTireCost = Number(j.tireCost || 0);
 
+    // ─── Cancel refund path ───────────────────────────────────────
+    // When an edit transitions a Completed/Pending job into
+    // Cancelled, refund every prior inventory deduction (both tire
+    // and mechanic-parts arrays) and skip the deduction planning
+    // branches below. Without this, a $500 cancelled tire repair
+    // permanently lost its 4-tire stock — operators had to re-stock
+    // by hand. Mirrors the refund pattern in deleteJob().
+    const isCanceling = j.status === 'Cancelled';
+
     try {
-      if (j.tireSource === 'Inventory' && j.tireSize) {
+      if (isCanceling && isEditing) {
+        const prev = jobs.find((x) => x.id === editingJobId);
+        const prevTireDeds = prev && Array.isArray(prev.inventoryDeductions) ? prev.inventoryDeductions : null;
+        const prevMechDeds = prev && Array.isArray(prev.partsInventoryDeductions) ? prev.partsInventoryDeductions : null;
+        if (prevTireDeds || prevMechDeds) {
+          const restoreWrites: Promise<void>[] = [];
+          let totalRestored = 0;
+          const refundAll = [...(prevTireDeds ?? []), ...(prevMechDeds ?? [])];
+          for (const d of refundAll) {
+            const idx = workingInv.findIndex((i) => i.id === d.id);
+            if (idx >= 0) {
+              workingInv[idx] = { ...workingInv[idx], qty: Number(workingInv[idx].qty || 0) + Number(d.qty || 0) };
+              restoreWrites.push(fbSetFast(invCol, workingInv[idx].id, workingInv[idx]));
+              totalRestored += Number(d.qty || 0);
+            }
+          }
+          setInventoryRaw(workingInv);
+          log('cancel-restore-issued');
+          await Promise.all(restoreWrites);
+          log('cancel-restore-acked');
+          if (totalRestored > 0) {
+            addToast(`Cancelled — restored ${totalRestored} item${totalRestored !== 1 ? 's' : ''} to inventory`, 'success');
+          }
+        }
+        // Clear deduction records on the job so it doesn't claim
+        // ownership of stock it no longer holds. If the job is later
+        // un-cancelled via another edit, the normal save path will
+        // plan fresh deductions against current inventory.
+        deductions = null;
+      }
+
+      if (!isCanceling && j.tireSource === 'Inventory' && j.tireSize) {
         // If editing, restore previous deductions first
         if (isEditing) {
           const prev = jobs.find((x) => x.id === editingJobId);
@@ -943,7 +983,7 @@ function AuthenticatedApp({ user }: { user: User }) {
       let mechanicMarginSnapshot: ReturnType<typeof derivePartsMarginSnapshot> = undefined;
 
       const verticalConfig = getBusinessTypeConfig(settings.businessType);
-      if (verticalConfig.key === 'mechanic' && Array.isArray(j.parts) && j.parts.length > 0) {
+      if (!isCanceling && verticalConfig.key === 'mechanic' && Array.isArray(j.parts) && j.parts.length > 0) {
         // Soft-warn at save-time for any line that would push qty
         // negative. Single confirm() per offending line; tech can
         // override or cancel the save outright.
