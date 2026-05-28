@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { InventoryItem, Job, Settings } from '@/types';
 import { money, normalizeTireSize, sanitizeInvItem, uid } from '@/lib/utils';
-import { parseInventoryNotes } from '@/lib/inventoryNotesParser';
+import { parseInventoryNotes, normalizeTireSizeQuery } from '@/lib/inventoryNotesParser';
 import { mergeBulkRows } from '@/lib/inventoryBulkMerge';
 import {
   availableQty, reservedQty, addReservation, removeReservation,
@@ -459,8 +459,13 @@ function TireInventoryView({ inventory, onSave, jobs }: InternalViewProps) {
       );
     }
 
-    const q = search.trim().toLowerCase();
-    if (!q) return base;
+    const qRaw = search.trim().toLowerCase();
+    if (!qRaw) return base;
+    // Canonicalize the query when it parses as a tire size so
+    // "215/55/17" or "215-55-17" finds the same items as
+    // "215/55R17". Partial searches ("215", "michelin") fall
+    // through to raw substring matching.
+    const q = normalizeTireSizeQuery(qRaw).toLowerCase();
 
     type Ranked = { item: InventoryItem; tier: number; idx: number };
     const ranked: Ranked[] = [];

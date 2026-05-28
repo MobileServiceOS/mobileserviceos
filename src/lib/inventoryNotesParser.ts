@@ -57,6 +57,28 @@ export function extractTireSize(s: string): string {
 }
 
 /**
+ * Canonicalize a user-typed search query when it parses as a tire
+ * size. Examples:
+ *   "215/55/17"  → "215/55R17"
+ *   "215-55-17"  → "215/55R17"
+ *   "215/55R17"  → "215/55R17"  (no-op)
+ *   "215/55"     → "215/55"     (partial; no full pattern match)
+ *   "michelin"   → "michelin"   (not a tire size)
+ *
+ * Used by search inputs across the app so operators can type any
+ * of the common size formats and still find matches against
+ * inventory and job records stored in canonical form. Falls back
+ * to the original query when the input doesn't match a full
+ * width/aspect/rim triple — partial searches like "215" or
+ * brand-name queries still flow through unchanged.
+ */
+export function normalizeTireSizeQuery(q: string): string {
+  if (!q) return '';
+  const normalized = extractTireSize(q);
+  return normalized || q;
+}
+
+/**
  * Extract a cost figure from a $- or @-prefixed number. Handles
  * decimals up to 2 places. Returns 0 if none found.
  */

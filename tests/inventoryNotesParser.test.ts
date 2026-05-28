@@ -7,6 +7,7 @@ import {
   extractCost,
   extractCondition,
   extractQuantity,
+  normalizeTireSizeQuery,
 } from '@/lib/inventoryNotesParser';
 
 let passed = 0;
@@ -123,6 +124,26 @@ console.log('\n┌─ parseInventoryNotes (full lines) ────────�
   const out = parseInventoryNotes('');
   check('empty input → empty array', out.length === 0);
 }
+
+console.log('\n┌─ normalizeTireSizeQuery (search canonicalization) ──');
+check('full size: 215/55/17 → 215/55R17',
+  normalizeTireSizeQuery('215/55/17') === '215/55R17');
+check('full size: 215-55-17 → 215/55R17',
+  normalizeTireSizeQuery('215-55-17') === '215/55R17');
+check('full size: 215/55R17 → 215/55R17 (no-op)',
+  normalizeTireSizeQuery('215/55R17') === '215/55R17');
+check('full size: 215/55r17 lowercase → 215/55R17',
+  normalizeTireSizeQuery('215/55r17') === '215/55R17');
+check('partial (no rim): 215/55 stays as 215/55',
+  normalizeTireSizeQuery('215/55') === '215/55');
+check('partial (just width): 215 stays as 215',
+  normalizeTireSizeQuery('215') === '215');
+check('brand search: michelin stays as michelin',
+  normalizeTireSizeQuery('michelin') === 'michelin');
+check('empty: \'\' stays as \'\'',
+  normalizeTireSizeQuery('') === '');
+check('whitespace pads collapse: 215 / 55 / 17 → 215/55R17',
+  normalizeTireSizeQuery('215 / 55 / 17') === '215/55R17');
 
 console.log(`\n  ${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

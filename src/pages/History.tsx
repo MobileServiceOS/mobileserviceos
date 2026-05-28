@@ -8,6 +8,7 @@ import { useLongPress } from '@/lib/useLongPress';
 import { useSwipeAction } from '@/lib/useSwipeAction';
 import { QuickActionSheet } from '@/components/QuickActionSheet';
 import { useScopedJobs } from '@/lib/useScopedJobs';
+import { normalizeTireSizeQuery } from '@/lib/inventoryNotesParser';
 import { usePermissions, useMembership } from '@/context/MembershipContext';
 
 interface Props {
@@ -98,8 +99,12 @@ export function History({
     if (filter === 'pending') list = list.filter((j) => j.status === 'Pending');
     if (filter === 'cancelled') list = list.filter((j) => j.status === 'Cancelled');
     if (filter === 'unpaid') list = list.filter((j) => resolvePaymentStatus(j) === 'Pending Payment');
-    const q = query.trim().toLowerCase();
-    if (q) {
+    const qRaw = query.trim().toLowerCase();
+    if (qRaw) {
+      // Tire-size queries canonicalize: "215/55/17" matches jobs
+      // stored as "215/55R17" and vice versa. Non-size queries
+      // (customer name, service, phone, etc.) pass through.
+      const q = normalizeTireSizeQuery(qRaw).toLowerCase();
       list = list.filter((j) => {
         const blob = [j.customerName, j.service, j.area, j.tireSize, j.customerPhone, j.fullLocationLabel]
           .filter(Boolean).join(' ').toLowerCase();
