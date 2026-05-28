@@ -58,7 +58,7 @@
  * enforcement, and the value needs to be statically analyzable so
  * dead-code paths are obvious in review.
  */
-export const GROWTH_MODE = true as const;
+export const GROWTH_MODE = false as const;
 
 /**
  * Founder discount terms — the offer Founding Members lock in.
@@ -80,7 +80,7 @@ export const FOUNDER_DISCOUNT_TERM_MONTHS = 12 as const;
  * sourcing only touches this one function.
  */
 export function isGrowthMode(): boolean {
-  return GROWTH_MODE === true;
+  return GROWTH_MODE as boolean;
 }
 
 /**

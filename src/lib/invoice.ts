@@ -2,7 +2,7 @@ import { jsPDF } from 'jspdf';
 import type { Job, Settings, Brand } from '@/types';
 import { TODAY } from '@/lib/defaults';
 import { money, r2, resolvePaymentStatus, normalizeHex } from '@/lib/utils';
-import { hasProAccess } from '@/lib/planAccess';
+import { canAccessFeature } from '@/lib/planAccess';
 import { resolveVerticalKey } from '@/lib/verticalContext';
 import { getInvoiceTemplate, type InvoiceTemplate, type InvoiceLineItem } from '@/config/businessTypes/invoice';
 import { computeBreakdownTagged } from '@/lib/pricing';
@@ -175,8 +175,8 @@ async function preloadLogo(url: string | undefined | null): Promise<string | nul
  * still read sensibly and the local name signals "this is the
  * invoice-side branding gate" semantically.
  */
-function isProEntitled(settings: Settings): boolean {
-  return hasProAccess(settings);
+function canUseBrandedInvoices(settings: Settings): boolean {
+  return canAccessFeature(settings, 'brandedInvoices');
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -215,11 +215,12 @@ export interface InvoiceOptions {
  *   - business-set footer text
  *   - review CTA (only when brand.reviewUrl is set)
  *
- * Branding (logo + custom primary color) is GATED to the Pro plan.
- * Core-tier accounts get the same clean layout with the universal
- * gold accent and no logo, so the invoice is still professional —
- * just not white-labeled. This is the headline upgrade hook from
- * Core to Pro on the pricing page.
+ * Branding (logo + custom primary color + tagline + footer + warranty
+ * + review URL) is included on BOTH Core and Pro as of 2026-05-28.
+ * Accounts with no brand color simply render the universal gold accent.
+ * Accounts with no logo render the layout without one. The gate exists
+ * for future tiers that may revert branding to a paid feature; the
+ * matrix in planAccess.ts is the single source of truth.
  *
  * Async because it pre-fetches the brand logo into a base64 data URI
  * before drawing (jsPDF.addImage requires inlined image bytes).
@@ -235,9 +236,12 @@ export async function generateInvoicePDF(
     return null;
   }
 
-  // ── Plan gate ─────────────────────────────────────────────────────
-  // Pro accounts get logo + brand color. Core gets the default look.
-  const isPro = isProEntitled(settings);
+  // ── Branding gate ─────────────────────────────────────────────────
+  // Accounts entitled to brandedInvoices (Core + Pro as of 2026-05-28)
+  // get logo + brand color + tagline + footer + warranty + review URL.
+  // Local var stays `isPro` for historical comment continuity below; the
+  // semantic now is "branded invoice entitled," not "Pro plan."
+  const isPro = canUseBrandedInvoices(settings);
 
   // ── Inline the logo before drawing (Pro only) ─────────────────────
   // Skip the network round-trip entirely on Core so the invoice
