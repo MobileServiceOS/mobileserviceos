@@ -42,6 +42,7 @@ import { shouldLockApp, isExistingCustomer } from '@/lib/planAccess';
 import { addToast, addActionToast } from '@/lib/toast';
 import { humanizeFirestoreError, logFirestoreError, isPermissionDenied } from '@/lib/firebaseErrors';
 import { applyBrandColors, planInventoryDeduction, r2, uid } from '@/lib/utils';
+import { refundJobDeductions, extractJobDeductions } from '@/lib/inventoryRefund';
 import { getBusinessTypeConfig } from '@/config/businessTypes/registry';
 import {
   diffPartsForDeduction,
@@ -882,18 +883,23 @@ function AuthenticatedApp({ user }: { user: User }) {
     try {
       if (isCanceling && isEditing) {
         const prev = jobs.find((x) => x.id === editingJobId);
-        const prevTireDeds = prev && Array.isArray(prev.inventoryDeductions) ? prev.inventoryDeductions : null;
-        const prevMechDeds = prev && Array.isArray(prev.partsInventoryDeductions) ? prev.partsInventoryDeductions : null;
+        const { tireDeds: prevTireDeds, partsDeds: prevMechDeds } = extractJobDeductions(prev);
         if (prevTireDeds || prevMechDeds) {
+          // Compute the refunded inventory via the pure helper. Math
+          // identical to what tests/inventoryRefund.test.ts exercises
+          // (29 cases). Mutates a local copy; we then issue per-item
+          // Firestore writes for every TOUCHED item.
+          const refund = refundJobDeductions(workingInv, prevTireDeds, prevMechDeds);
+          workingInv = [...refund.inventory];
+          const totalRestored = refund.totalRestored;
+          const touchedIds = new Set<string>([
+            ...(prevTireDeds ?? []).map((d) => d.id),
+            ...(prevMechDeds ?? []).map((d) => d.id),
+          ]);
           const restoreWrites: Promise<void>[] = [];
-          let totalRestored = 0;
-          const refundAll = [...(prevTireDeds ?? []), ...(prevMechDeds ?? [])];
-          for (const d of refundAll) {
-            const idx = workingInv.findIndex((i) => i.id === d.id);
-            if (idx >= 0) {
-              workingInv[idx] = { ...workingInv[idx], qty: Number(workingInv[idx].qty || 0) + Number(d.qty || 0) };
-              restoreWrites.push(fbSetFast(invCol, workingInv[idx].id, workingInv[idx]));
-              totalRestored += Number(d.qty || 0);
+          for (const item of workingInv) {
+            if (touchedIds.has(item.id)) {
+              restoreWrites.push(fbSetFast(invCol, item.id, item));
             }
           }
           setInventoryRaw(workingInv);
@@ -1095,25 +1101,26 @@ function AuthenticatedApp({ user }: { user: User }) {
     const invCol = scopedCol(businessId, 'inventory');
     try {
       const j = jobs.find((x) => x.id === id);
-      const deds = j && Array.isArray(j.inventoryDeductions) ? j.inventoryDeductions : null;
-      // Phase 2.2: mechanic deduction array lives on a separate field
-      // so tire's edit/delete code stays byte-identical. Refund the
-      // union of both arrays.
-      const mechDeds = j && Array.isArray(j.partsInventoryDeductions) ? j.partsInventoryDeductions : null;
-      if (deds || mechDeds) {
-        const inv = [...(inventoryRef.current || [])];
-        // Parallelize inventory restore writes — same reasoning as
-        // saveJob's deduction loop.
+      const { tireDeds, partsDeds } = extractJobDeductions(j);
+      if (tireDeds || partsDeds) {
+        // Same pure helper the cancel branch uses (see saveJob).
+        // Math is covered by tests/inventoryRefund.test.ts — 29 cases.
+        const refund = refundJobDeductions(
+          inventoryRef.current || [],
+          tireDeds,
+          partsDeds,
+        );
+        const touchedIds = new Set<string>([
+          ...(tireDeds ?? []).map((d) => d.id),
+          ...(partsDeds ?? []).map((d) => d.id),
+        ]);
         const restoreWrites: Promise<void>[] = [];
-        const refundAll = [...(deds ?? []), ...(mechDeds ?? [])];
-        for (const d of refundAll) {
-          const idx = inv.findIndex((i) => i.id === d.id);
-          if (idx >= 0) {
-            inv[idx] = { ...inv[idx], qty: Number(inv[idx].qty || 0) + Number(d.qty || 0) };
-            restoreWrites.push(fbSetFast(invCol, inv[idx].id, inv[idx]));
+        for (const item of refund.inventory) {
+          if (touchedIds.has(item.id)) {
+            restoreWrites.push(fbSetFast(invCol, item.id, item));
           }
         }
-        setInventoryRaw(inv);
+        setInventoryRaw(refund.inventory);
         await Promise.all(restoreWrites);
       }
       await fbDelete(jobsCol, id);
