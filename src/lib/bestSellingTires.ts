@@ -13,7 +13,12 @@ import { extractTireSize } from '@/lib/inventoryNotesParser';
 //      "225/65-17" / "225-65-17" / "225 65 17" all → "225/65R17"
 //      so the same physical size doesn't split across rows AND the
 //      display value is operator-readable)
-//    - Sorted by total quantity sold DESC (ties broken by revenue DESC)
+//    - Sort order is configurable:
+//        'quantity' — qty DESC, tie-break revenue DESC (default,
+//                     the "best sellers" answer most operators want)
+//        'revenue'  — revenue DESC, tie-break qty DESC
+//        'size'     — numeric by tire size (width, aspect, rim) ASC
+//                     so 215/55R17 < 225/65R17 < 235/65R17 etc.
 //    - Returns the top N rows (default 10)
 //
 //  Window:
@@ -41,21 +46,37 @@ export interface BestSellerRow {
 }
 
 export type BestSellerWindow = 30 | 90 | 'all';
+export type BestSellerSort = 'quantity' | 'size' | 'revenue';
 
 export interface BestSellerOptions {
   /** Rolling window in days, or 'all' for no date filter. Default 90. */
   windowDays?: BestSellerWindow;
   /** Top-N cap. Default 10. */
   limit?: number;
+  /** Sort order. Default 'quantity'. */
+  sortBy?: BestSellerSort;
   /** Override "now" for tests. Default `new Date()`. */
   now?: Date;
+}
+
+/**
+ * Parse a canonical tire-size string ("WIDTH/ASPECTRRIM") into a
+ * numeric triple for size-order comparison. Returns [0,0,0] for
+ * unparseable input — sinks bad rows to the top in size-sort where
+ * they're easy to notice. Stays in this module rather than utils
+ * because the consumer (BestSellersCard) is the only call site.
+ */
+function tireSizeKey(canonical: string): [number, number, number] {
+  const m = canonical.match(/^(\d+)\/(\d+)R(\d+)$/);
+  if (!m) return [0, 0, 0];
+  return [Number(m[1]), Number(m[2]), Number(m[3])];
 }
 
 export function computeBestSellingTires(
   jobs: Job[] | null | undefined,
   options: BestSellerOptions = {},
 ): BestSellerRow[] {
-  const { windowDays = 90, limit = 10, now = new Date() } = options;
+  const { windowDays = 90, limit = 10, sortBy = 'quantity', now = new Date() } = options;
   if (!jobs || jobs.length === 0) return [];
 
   const cutoffMs = windowDays === 'all'
@@ -109,11 +130,22 @@ export function computeBestSellingTires(
     row.avgPerTire = row.quantity > 0 ? row.revenue / row.quantity : 0;
   }
 
-  // Sort by quantity DESC, tie-break by revenue DESC.
-  return Array.from(buckets.values())
-    .sort((a, b) => {
-      if (b.quantity !== a.quantity) return b.quantity - a.quantity;
-      return b.revenue - a.revenue;
-    })
-    .slice(0, limit);
+  const sorted = Array.from(buckets.values()).sort((a, b) => {
+    if (sortBy === 'size') {
+      const [aw, aa, ar] = tireSizeKey(a.tireSize);
+      const [bw, ba, br] = tireSizeKey(b.tireSize);
+      if (aw !== bw) return aw - bw;
+      if (aa !== ba) return aa - ba;
+      return ar - br;
+    }
+    if (sortBy === 'revenue') {
+      if (b.revenue !== a.revenue) return b.revenue - a.revenue;
+      return b.quantity - a.quantity;
+    }
+    // 'quantity' (default)
+    if (b.quantity !== a.quantity) return b.quantity - a.quantity;
+    return b.revenue - a.revenue;
+  });
+
+  return sorted.slice(0, limit);
 }

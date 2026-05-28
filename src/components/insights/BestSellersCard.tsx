@@ -4,6 +4,7 @@ import { money } from '@/lib/utils';
 import {
   computeBestSellingTires,
   type BestSellerWindow,
+  type BestSellerSort,
 } from '@/lib/bestSellingTires';
 
 // ─────────────────────────────────────────────────────────────────────
@@ -25,10 +26,11 @@ interface Props {
 
 export function BestSellersCard({ jobs }: Props) {
   const [window, setWindow] = useState<BestSellerWindow>(90);
+  const [sortBy, setSortBy] = useState<BestSellerSort>('quantity');
 
   const rows = useMemo(
-    () => computeBestSellingTires(jobs, { windowDays: window, limit: 10 }),
-    [jobs, window],
+    () => computeBestSellingTires(jobs, { windowDays: window, sortBy, limit: 10 }),
+    [jobs, window, sortBy],
   );
 
   const windowLabel: Record<BestSellerWindow, string> = {
@@ -37,38 +39,64 @@ export function BestSellersCard({ jobs }: Props) {
     all: 'all time',
   };
 
+  // Single pill helper — keeps the two control rows visually consistent
+  // without inlining the same 12-line button style block twice.
+  const pillStyle = (active: boolean) => ({
+    background: active ? 'var(--brand-primary)' : 'transparent',
+    color: active ? '#0a0a0a' : 'var(--t3)',
+    border: `1px solid ${active ? 'var(--brand-primary)' : 'var(--border)'}`,
+    borderRadius: 8,
+    fontSize: 11,
+    fontWeight: 700,
+    padding: '4px 10px',
+    cursor: 'pointer',
+    letterSpacing: 0.3,
+  }) as const;
+
+  const labelStyle = {
+    fontSize: 10,
+    color: 'var(--t3)',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    fontWeight: 700,
+  } as const;
+
   return (
     <div>
+      {/* Window — last N days */}
       <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'flex-end',
-        marginBottom: 10,
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        marginBottom: 8,
       }}>
+        <span style={labelStyle}>Window</span>
         <div style={{ display: 'flex', gap: 4 }}>
           {(['30', '90', 'all'] as const).map((w) => {
             const val: BestSellerWindow = w === 'all' ? 'all' : (Number(w) as 30 | 90);
-            const active = window === val;
             return (
-              <button
-                key={w}
-                onClick={() => setWindow(val)}
-                style={{
-                  background: active ? 'var(--brand-primary)' : 'transparent',
-                  color: active ? '#0a0a0a' : 'var(--t3)',
-                  border: `1px solid ${active ? 'var(--brand-primary)' : 'var(--border)'}`,
-                  borderRadius: 8,
-                  fontSize: 11,
-                  fontWeight: 700,
-                  padding: '4px 10px',
-                  cursor: 'pointer',
-                  letterSpacing: 0.3,
-                }}
-              >
+              <button key={w} onClick={() => setWindow(val)} style={pillStyle(window === val)}>
                 {w === 'all' ? 'All' : `${w}d`}
               </button>
             );
           })}
+        </div>
+      </div>
+
+      {/* Sort — quantity / size / revenue */}
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        marginBottom: 12,
+      }}>
+        <span style={labelStyle}>Sort</span>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {([
+            ['quantity', 'Sold'],
+            ['size', 'Size'],
+            ['revenue', '$'],
+          ] as const).map(([val, label]) => (
+            <button key={val} onClick={() => setSortBy(val)} style={pillStyle(sortBy === val)}>
+              {label}
+            </button>
+          ))}
         </div>
       </div>
 

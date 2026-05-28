@@ -159,5 +159,77 @@ console.log('\n┌─ String-typed qty/revenue (operator entry) ────');
     out[0].quantity === 6.5 && Math.abs(out[0].revenue - 1300.5) < 0.01);
 }
 
+console.log('\n┌─ Sort: by size (numeric width / aspect / rim) ──');
+{
+  // Out-of-order input; size-sort should land them in
+  // 215/55R17, 225/65R17, 235/40R18 — sorted by width then aspect then rim.
+  const jobs: Job[] = [
+    makeJob({ tireSize: '235/40R18', qty: 6, revenue: 1500, date: '2026-05-20' }),
+    makeJob({ tireSize: '215/55R17', qty: 4, revenue: 800,  date: '2026-05-20' }),
+    makeJob({ tireSize: '225/65R17', qty: 8, revenue: 1600, date: '2026-05-20' }),
+  ];
+  const out = computeBestSellingTires(jobs, { now: NOW, sortBy: 'size' });
+  check('size-sort orders by width ASC: 215 → 225 → 235',
+    out.length === 3
+    && out[0].tireSize === '215/55R17'
+    && out[1].tireSize === '225/65R17'
+    && out[2].tireSize === '235/40R18');
+}
+
+console.log('\n┌─ Sort: by size — tie-break on aspect / rim ──');
+{
+  // Same width 225; aspect 60 / 65 / 70 should sort ASC.
+  const jobs: Job[] = [
+    makeJob({ tireSize: '225/70R17', qty: 4, revenue: 800, date: '2026-05-20' }),
+    makeJob({ tireSize: '225/60R17', qty: 4, revenue: 800, date: '2026-05-20' }),
+    makeJob({ tireSize: '225/65R17', qty: 4, revenue: 800, date: '2026-05-20' }),
+  ];
+  const out = computeBestSellingTires(jobs, { now: NOW, sortBy: 'size' });
+  check('same width: ordered 60 → 65 → 70 on aspect',
+    out[0].tireSize === '225/60R17'
+    && out[1].tireSize === '225/65R17'
+    && out[2].tireSize === '225/70R17');
+}
+{
+  // Same width 225 + same aspect 65; rim 17 / 18 / 19 should sort ASC.
+  const jobs: Job[] = [
+    makeJob({ tireSize: '225/65R19', qty: 4, revenue: 800, date: '2026-05-20' }),
+    makeJob({ tireSize: '225/65R17', qty: 4, revenue: 800, date: '2026-05-20' }),
+    makeJob({ tireSize: '225/65R18', qty: 4, revenue: 800, date: '2026-05-20' }),
+  ];
+  const out = computeBestSellingTires(jobs, { now: NOW, sortBy: 'size' });
+  check('same width + aspect: ordered 17 → 18 → 19 on rim',
+    out[0].tireSize === '225/65R17'
+    && out[1].tireSize === '225/65R18'
+    && out[2].tireSize === '225/65R19');
+}
+
+console.log('\n┌─ Sort: by revenue ─────────────────────────────');
+{
+  const jobs: Job[] = [
+    makeJob({ tireSize: '225/65R17', qty: 20, revenue: 500,  date: '2026-05-20' }), // high qty, low rev
+    makeJob({ tireSize: '275/35R20', qty: 4,  revenue: 2400, date: '2026-05-20' }), // low qty, high rev
+    makeJob({ tireSize: '245/40R18', qty: 8,  revenue: 1600, date: '2026-05-20' }),
+  ];
+  const out = computeBestSellingTires(jobs, { now: NOW, sortBy: 'revenue' });
+  check('revenue-sort ranks 275/35R20 first ($2400) despite low qty',
+    out[0].tireSize === '275/35R20' && out[1].tireSize === '245/40R18' && out[2].tireSize === '225/65R17');
+}
+
+console.log('\n┌─ Sort: default is quantity (no regression) ──');
+{
+  const jobs: Job[] = [
+    makeJob({ tireSize: '225/65R17', qty: 4, revenue: 800, date: '2026-05-20' }),
+    makeJob({ tireSize: '245/40R18', qty: 8, revenue: 1600, date: '2026-05-20' }),
+  ];
+  const outDefault = computeBestSellingTires(jobs, { now: NOW });
+  const outExplicit = computeBestSellingTires(jobs, { now: NOW, sortBy: 'quantity' });
+  check('default sort matches explicit quantity sort',
+    outDefault.length === outExplicit.length
+    && outDefault[0].tireSize === outExplicit[0].tireSize
+    && outDefault[1].tireSize === outExplicit[1].tireSize
+    && outDefault[0].tireSize === '245/40R18');
+}
+
 console.log(`\n  ${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);
