@@ -898,16 +898,36 @@ function AuthenticatedApp({ user }: { user: User }) {
           }
           setInventoryRaw(workingInv);
           log('cancel-restore-issued');
-          await Promise.all(restoreWrites);
+          // Promise.allSettled instead of Promise.all so a single
+          // failed inventory write doesn't throw out of the whole
+          // save path. If we threw, the job doc would never save
+          // with cleared deductions — a retry would then re-restore
+          // the inventory items that DID succeed, double-counting.
+          // Robust path: surface partial failures via the toast,
+          // always continue to save the job with deductions=null
+          // so the job's accounting is authoritative regardless of
+          // which inventory writes the network ate.
+          const results = await Promise.allSettled(restoreWrites);
+          const failed = results.filter((r) => r.status === 'rejected').length;
           log('cancel-restore-acked');
-          if (totalRestored > 0) {
-            addToast(`Cancelled — restored ${totalRestored} item${totalRestored !== 1 ? 's' : ''} to inventory`, 'success');
+          if (failed > 0) {
+            addToast(
+              `Cancelled — ${totalRestored - failed} restored, ${failed} could not save (open inventory to retry)`,
+              'warn',
+            );
+          } else if (totalRestored > 0) {
+            addToast(
+              `Cancelled — restored ${totalRestored} item${totalRestored !== 1 ? 's' : ''} to inventory`,
+              'success',
+            );
           }
         }
-        // Clear deduction records on the job so it doesn't claim
-        // ownership of stock it no longer holds. If the job is later
-        // un-cancelled via another edit, the normal save path will
-        // plan fresh deductions against current inventory.
+        // Always clear deduction records on the job — the cancel
+        // intent is that this job claims no inventory. Partial
+        // restore failures are surfaced via the toast above; an
+        // operator can manually adjust those few items. Without
+        // this guarantee, a retry would re-attempt to restore the
+        // already-restored items.
         deductions = null;
       }
 
@@ -1259,7 +1279,13 @@ function AuthenticatedApp({ user }: { user: User }) {
     try {
       await updateBrand(brandPatch);
       if (Object.keys(settingsPatch).length) await persistSettings(settingsPatch);
-      addToast('Welcome aboard!', 'success');
+      // Only fire the welcome toast on the FINAL save (finish()
+      // sets onboardingComplete=true; partial step-by-step saves
+      // omit the flag). Previously the toast fired on every Next
+      // tap because persistPartial routes through this handler.
+      if (brandPatch.onboardingComplete) {
+        addToast('Welcome aboard!', 'success');
+      }
     } catch (e) {
       addToast(`Onboarding save failed: ${humanizeFirestoreError(e)}`, 'error');
       throw e;

@@ -663,7 +663,18 @@ export async function generateInvoicePDF(
   if (isPro && brand.warrantyEnabled && brand.warrantyText && brand.warrantyText.trim()) {
     y += 2;
     doc.setFillColor(248, 248, 252);
-    const warrLines = doc.splitTextToSize(brand.warrantyText, W - 2 * M - 6);
+    // Cap the warranty text at a sane length before splitTextToSize.
+    // jsPDF will happily try to flow a 5,000-character paste across
+    // 10+ pages and either crash or produce an ungainly invoice. 800
+    // chars is well over a paragraph and still fits cleanly on a
+    // single page after wrapping. The ellipsis tells operators they
+    // need to tighten the copy in Settings rather than silently
+    // truncating.
+    const MAX_WARRANTY_LEN = 800;
+    const warrSrc = brand.warrantyText.trim().length > MAX_WARRANTY_LEN
+      ? brand.warrantyText.trim().slice(0, MAX_WARRANTY_LEN - 1) + '…'
+      : brand.warrantyText;
+    const warrLines = doc.splitTextToSize(warrSrc, W - 2 * M - 6);
     const warrH = warrLines.length * 4 + 6;
     doc.roundedRect(M, y, W - 2 * M, warrH, 1.5, 1.5, 'F');
     doc.setFont('helvetica', 'normal');
