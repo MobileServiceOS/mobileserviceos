@@ -159,6 +159,13 @@ export function computeInsights(
   ]);
 
   for (const j of list) {
+    // Canceled jobs never represent real work. They've historically
+    // leaked into Top Services, Top Sources, Top Cities, and Unpaid
+    // Aging because the legacy loop processed every job in the list.
+    // Operator-visible symptom: cancel a $500 job → it still shows
+    // in "Top Cities" and "Unpaid 0-7d" the same week. Filter once
+    // at the top so every downstream metric inherits the exclusion.
+    if (j.status === 'Cancelled') continue;
     const revenue = Number(j.revenue || 0);
     const profit = jobGrossProfit(j, settings);
 

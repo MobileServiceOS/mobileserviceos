@@ -38,6 +38,16 @@ export function AccordionShell({
   // whenever the form grows.
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [maxH, setMaxH] = useState(0);
+  // Lazy-mount children — render only after the section has been
+  // opened at least once. Once mounted they stay mounted so re-open
+  // is instant and form state isn't lost. On the Insights page this
+  // turns 10 always-rendered accordions into 1 (only Daily Jobs
+  // defaults open); the other 9 don't pay the cost of their
+  // RankedCard / chart maps until tapped.
+  const [hasOpened, setHasOpened] = useState(open);
+  useEffect(() => {
+    if (open && !hasOpened) setHasOpened(true);
+  }, [open, hasOpened]);
 
   useEffect(() => {
     const el = contentRef.current;
@@ -180,7 +190,7 @@ export function AccordionShell({
             borderTop: '1px solid var(--border2)',
           }}
         >
-          {children}
+          {hasOpened ? children : null}
         </div>
       </div>
     </div>

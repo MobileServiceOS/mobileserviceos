@@ -88,12 +88,14 @@ function PartRow({ part, onUpdate, onRemove }: RowProps) {
         />
         <input
           type="number"
+          inputMode="numeric"
           value={part.qty}
           onChange={(e) => onUpdate({ qty: Number(e.target.value) || 0 })}
           style={{ width: 50, padding: 6 }}
         />
         <input
           type="number"
+          inputMode="decimal"
           value={part.unitPrice}
           onChange={(e) => onUpdate({ unitPrice: Number(e.target.value) || 0 })}
           style={{ width: 70, padding: 6 }}
@@ -128,6 +130,7 @@ function PartRow({ part, onUpdate, onRemove }: RowProps) {
             Unit cost:{' '}
             <input
               type="number"
+              inputMode="decimal"
               value={part.unitCost}
               onChange={(e) => onUpdate({ unitCost: Number(e.target.value) || 0 })}
               style={{ width: 80, padding: 4 }}
@@ -147,6 +150,7 @@ function PartRow({ part, onUpdate, onRemove }: RowProps) {
             Warranty days:{' '}
             <input
               type="number"
+              inputMode="numeric"
               value={part.warrantyDays ?? ''}
               onChange={(e) => {
                 const n = Number(e.target.value);
@@ -230,12 +234,14 @@ function PartRowNew({ inventory, onCommit, onCancel }: NewRowProps) {
         />
         <input
           type="number"
+          inputMode="numeric"
           value={qty}
           onChange={(e) => setQty(Number(e.target.value) || 1)}
           style={{ width: 50, padding: 6 }}
         />
         <input
           type="number"
+          inputMode="decimal"
           value={unitPrice}
           onChange={(e) => setUnitPrice(Number(e.target.value) || 0)}
           placeholder="$"

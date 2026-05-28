@@ -761,7 +761,15 @@ function AuthenticatedApp({ user }: { user: User }) {
     async (next: Expense[]) => {
       if (!businessId) { addToast('Sign in to save expenses', 'warn'); return; }
       const expCol = scopedCol(businessId, 'expenses');
-      const prev = settings.expenses || [];
+      // Read prior expenses through settingsRef instead of closing
+      // over settings.expenses. Closing over the array put it in the
+      // useCallback dep array, which meant EVERY expense edit
+      // regenerated persistExpenses → invalidated the tabContent
+      // useMemo that imports it → re-rendered the whole tab tree
+      // (Dashboard, History, Inventory) mid-save. settingsRef is
+      // already used by sister callbacks (persistInventory closes
+      // over inventoryRef for the same reason).
+      const prev = settingsRef.current.expenses || [];
       const nextIds = new Set(next.map((e) => e.id));
       try {
         // Parallelize: each fbDelete/fbSetFast is a Firestore call
@@ -780,7 +788,7 @@ function AuthenticatedApp({ user }: { user: User }) {
         throw e;
       }
     },
-    [businessId, settings.expenses]
+    [businessId]
   );
 
   const persistInventory = useCallback(

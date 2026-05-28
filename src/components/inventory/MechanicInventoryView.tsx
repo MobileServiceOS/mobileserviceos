@@ -306,18 +306,18 @@ function EditSheet({
           </select>
         </Row>
         <Row label="Subcategory"><input value={draft.subcategory || ''} onChange={(e) => update({ subcategory: e.target.value })} /></Row>
-        <Row label="Quantity *"><input type="number" value={draft.qty ?? 0} onChange={(e) => update({ qty: num(e.target.value) ?? 0 })} /></Row>
-        <Row label="Unit cost ($) *"><input type="number" value={draft.unitCost ?? 0} onChange={(e) => handleUnitCost(e.target.value)} /></Row>
+        <Row label="Quantity *"><input type="number" inputMode="numeric" value={draft.qty ?? 0} onChange={(e) => update({ qty: num(e.target.value) ?? 0 })} /></Row>
+        <Row label="Unit cost ($) *"><input type="number" inputMode="decimal" value={draft.unitCost ?? 0} onChange={(e) => handleUnitCost(e.target.value)} /></Row>
         <Row label={`Retail price ($) * — markup ${markupDefault}× applied`}>
-          <input type="number" value={draft.retailPrice ?? 0} onChange={(e) => update({ retailPrice: num(e.target.value) ?? 0 })} />
+          <input type="number" inputMode="decimal" value={draft.retailPrice ?? 0} onChange={(e) => update({ retailPrice: num(e.target.value) ?? 0 })} />
         </Row>
         <Row label="Condition">
           <select value={draft.condition || 'New'} onChange={(e) => update({ condition: e.target.value })}>
             {conditionOptions.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
         </Row>
-        <Row label="Default labor hours"><input type="number" value={draft.laborHoursDefault ?? ''} onChange={(e) => update({ laborHoursDefault: num(e.target.value) })} /></Row>
-        <Row label="Warranty days"><input type="number" value={draft.warrantyDays ?? ''} onChange={(e) => update({ warrantyDays: num(e.target.value) })} /></Row>
+        <Row label="Default labor hours"><input type="number" inputMode="decimal" value={draft.laborHoursDefault ?? ''} onChange={(e) => update({ laborHoursDefault: num(e.target.value) })} /></Row>
+        <Row label="Warranty days"><input type="number" inputMode="numeric" value={draft.warrantyDays ?? ''} onChange={(e) => update({ warrantyDays: num(e.target.value) })} /></Row>
         <Row label="Location / bin"><input value={draft.locationBin || ''} onChange={(e) => update({ locationBin: e.target.value })} /></Row>
         <Row label="Compatible vehicles (comma-separated)">
           <input

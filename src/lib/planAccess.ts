@@ -329,6 +329,13 @@ export function shouldLockApp(settings: Settings | null | undefined): boolean {
     return endMs < Date.now();
   }
 
+  // Past-due and canceled both lock explicitly. These would fall to
+  // the catch-all `return true` below anyway, but documenting them
+  // makes intent obvious and protects against a future status
+  // landing here without us realizing the lockout still engages.
+  if (status === 'past_due') return true;
+  if (status === 'canceled') return true;
+
   // Existing customer (pre-paywall) with NO subscription state yet
   // is grandfathered as unlocked. A migration effect (App.tsx) writes
   // the actual trialing stamp on their next visit, but we don't want
