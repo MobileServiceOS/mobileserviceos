@@ -197,11 +197,26 @@ export function InviteAccept({ token, onAuth }: Props) {
   // browser they're already signed into (most desktop users) — no
   // reason to make them re-auth.
   const handleAcceptAsCurrent = async () => {
-    if (state.kind !== 'ready' || busy || !currentUser) return;
+    if (state.kind !== 'ready' || busy) return;
+    // Re-read _auth.currentUser AT THE MOMENT OF TAP rather than
+    // trusting the subscription-tracked `currentUser`. Firebase Auth
+    // state updates run on a separate async listener; between the
+    // button rendering and the user tapping, an external sign-in
+    // (browser extension, multi-tab account switch, parallel device
+    // sync) could flip currentUser to a different account. If we
+    // commit the invite with stale data, the WRONG uid lands on the
+    // member doc and the wrong person joins the business.
+    // The finishAcceptance email-match check below is the second
+    // line of defense, but the freshest read closes the window.
+    const liveUser = _auth?.currentUser ?? null;
+    if (!liveUser) {
+      setErr('Sign-in state changed — please tap the button again.');
+      return;
+    }
     beginBusy();
     try {
-      const ok = await finishAcceptance(currentUser, state.invite);
-      if (ok) onAuth(currentUser);
+      const ok = await finishAcceptance(liveUser, state.invite);
+      if (ok) onAuth(liveUser);
     } catch (e) {
       setErr(friendlyAuthError(e as { code?: string; message?: string }));
     } finally {

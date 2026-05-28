@@ -12,6 +12,50 @@ import '@/styles/app.css';
 // else runs, so a crash during early boot is still recorded.
 initErrorMonitor();
 
+// ── Stale-bundle self-heal ────────────────────────────────────────
+// When the service worker's cached index.html points at deleted asset
+// hashes (the deploy happened between cache-fill and the user opening
+// the app), Vite's dynamic import for a chunk 404s. The page would
+// otherwise sit blank because React never mounted. Vite emits
+// `vite:preloadError` for this exact case; we catch it, force-update
+// the SW so the new index.html lands, then hard-reload bypassing
+// caches. Guard with sessionStorage so we never enter a reload loop
+// when the underlying error is something other than stale assets.
+window.addEventListener('vite:preloadError', (event) => {
+  // eslint-disable-next-line no-console
+  console.warn('[main] preload error — likely stale SW bundle', event);
+  const KEY = 'msos_stale_bundle_recover_at';
+  const now = Date.now();
+  const last = Number(sessionStorage.getItem(KEY) || 0);
+  if (now - last < 30_000) {
+    // We already tried within the last 30s; the failure isn't a
+    // stale-bundle issue. Let the page show the natural error rather
+    // than loop forever.
+    return;
+  }
+  sessionStorage.setItem(KEY, String(now));
+  // Best-effort: tell the SW to skipWaiting + drop its caches, then
+  // reload. Failure paths still hit the location.reload below so the
+  // user gets a fresh shot at booting the new bundle.
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations().then((regs) => {
+      Promise.all(regs.map((r) => r.unregister())).finally(() => {
+        if (typeof caches !== 'undefined') {
+          caches.keys().then((keys) => {
+            Promise.all(keys.map((k) => caches.delete(k))).finally(() => {
+              window.location.reload();
+            });
+          }).catch(() => window.location.reload());
+        } else {
+          window.location.reload();
+        }
+      });
+    }).catch(() => window.location.reload());
+  } else {
+    window.location.reload();
+  }
+});
+
 setupInstallPrompt();
 
 // Storage-upload queue drain. Listens for the 'online' edge and
