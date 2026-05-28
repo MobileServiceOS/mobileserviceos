@@ -15,7 +15,7 @@
 //  How to use:
 //    import { PRO_PRICE, CORE_PRICE, PRO_PRICE_LINE } from '@/lib/pricing-display';
 //
-//    <div>{PRO_PRICE_LINE}</div>          // "$89.99 / month"
+//    <div>{PRO_PRICE_LINE}</div>          // "$79 / month"
 //    <button>Subscribe · {PRO_PRICE_LINE}</button>
 //
 //  When Stripe price changes:
@@ -25,18 +25,18 @@
 // ─────────────────────────────────────────────────────────────────────
 
 /** Pro plan monthly price, dollar-formatted for inline use (no period). */
-export const PRO_PRICE = '$89.99' as const;
+export const PRO_PRICE = '$79' as const;
 
 /** Core plan monthly price. */
 export const CORE_PRICE = '$39' as const;
 
-/** Pre-composed "$89.99 / month" line used in buttons and headers. */
+/** Pre-composed "$79 / month" line used in buttons and headers. */
 export const PRO_PRICE_LINE = `${PRO_PRICE} / month` as const;
 
 /** Pre-composed "$39.99 / month" line for Core. */
 export const CORE_PRICE_LINE = `${CORE_PRICE} / month` as const;
 
-/** "$89.99/month" without spaces — used in summary lines where the
+/** "$79/month" without spaces — used in summary lines where the
  *  spaced version takes too much horizontal space. */
 export const PRO_PRICE_LINE_COMPACT = `${PRO_PRICE}/month` as const;
 
