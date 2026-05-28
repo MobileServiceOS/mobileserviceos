@@ -390,6 +390,13 @@ function AuthenticatedApp({ user }: { user: User }) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [inventory, setInventoryRaw] = useState<InventoryItem[]>([]);
   const [settings, setSettingsRaw] = useState<SettingsT>(DEFAULT_SETTINGS);
+  // Has the settings/main subscription listener fired at least once?
+  // Used to gate the paywall lockout — without this, a freshly-opened
+  // PWA briefly renders PaywallLockout because shouldLockApp({}) is
+  // true while subscription fields are still in flight. Flipped true
+  // on the first snapshot (whether the doc exists or not) and never
+  // flipped back. Stays true for the session.
+  const [subscriptionLoaded, setSubscriptionLoaded] = useState(false);
   // Customer metadata (notes + tags). Subscribed at App level so the
   // Customers list view can render tag chips and filter by tag
   // without paying a per-row Firestore read.
@@ -599,6 +606,12 @@ function AuthenticatedApp({ user }: { user: User }) {
       const unsubSettings = onSnapshot(
         settingsMainRef,
         (snap) => {
+          // Mark subscription-loaded on the very first snapshot,
+          // regardless of doc existence. A missing doc means the
+          // user has no subscription state on file (legitimate
+          // empty), which the lockout/grandfather logic handles —
+          // we just need to know we've heard back from the listener.
+          setSubscriptionLoaded(true);
           if (!snap.exists()) return;
           const main = snap.data() as Record<string, unknown>;
           // Whitelist the subscription/exemption fields. BrandContext
@@ -1376,7 +1389,12 @@ function AuthenticatedApp({ user }: { user: User }) {
   // expired (or never started) and there's no active subscription.
   // shouldLockApp short-circuits to FALSE for growth mode and exempt
   // accounts, so Wheel Rush + early access users never see this.
-  if (shouldLockApp(settings)) {
+  //
+  // Wait until the settings/main listener has fired at least once
+  // before evaluating — otherwise we'd render the lockout for the
+  // ~300ms window between mount and first snapshot, producing a
+  // visible flash on cold app open.
+  if (subscriptionLoaded && shouldLockApp(settings)) {
     return (
       <>
         <PaywallLockout settings={settings} onSignOut={onSignOut} />

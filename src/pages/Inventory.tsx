@@ -226,10 +226,10 @@ function TireInventoryView({ inventory, onSave, jobs }: InternalViewProps) {
   // render via the memo below.
   const [healthFilter, setHealthFilter] = useState<'all' | InventoryHealthBucket>('all');
   const today = TODAY();
-  const healthCounts = useMemo(
-    () => inventoryHealthCounts(list, jobs, today),
-    [list, jobs, today],
-  );
+  // healthByItem stays over the full list — every item's bucket is
+  // computed once. The displayed COUNTS, though, derive from the
+  // pre-health-filtered population (see healthCounts memo below),
+  // so the badge reflects what the user will actually see.
   const healthByItem = useMemo(() => {
     const m = new Map<string, InventoryHealthBucket>();
     for (const i of list) m.set(i.id, categorizeInventoryHealth(i, jobs, today));
@@ -255,6 +255,23 @@ function TireInventoryView({ inventory, onSave, jobs }: InternalViewProps) {
     }
     return m;
   }, [jobs, today]);
+
+  // All-time sold count per size — surfaced as a "Sold X" badge on
+  // each inventory card so the operator sees lifetime demand at a
+  // glance. Same O(jobs) one-pass shape as the 30-day velocity map
+  // above but with no date cutoff. Only counts Completed jobs so
+  // open / quoted work doesn't inflate the number.
+  const soldAllTimeBySize = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const j of jobs) {
+      if (j.status !== 'Completed') continue;
+      if (!j.tireSize) continue;
+      const n = normalizeTireSize(j.tireSize);
+      if (!n) continue;
+      m.set(n, (m.get(n) || 0) + (Number(j.qty || 0) || 1));
+    }
+    return m;
+  }, [jobs]);
 
   // Phase 4 — Inventory AI insight (owner/admin only).
   const membership = useMembership();
@@ -406,11 +423,15 @@ function TireInventoryView({ inventory, onSave, jobs }: InternalViewProps) {
    * The condition filter is applied BEFORE search so the search only
    * considers in-condition items.
    */
-  const filtered = useMemo(() => {
+  // Pre-health-filtered list: applies condition + chips + search but
+  // NOT the health bucket. This is the population the health bucket
+  // counts (and the bucket filter) operate over — keeps the badge
+  // honest about how many items will appear when the user taps a
+  // bucket. Previously inventoryHealthCounts used the unfiltered
+  // `list`, so "Critical (9)" could turn into 1 visible row when
+  // condition or search narrowed the list further.
+  const preHealthFiltered = useMemo(() => {
     let base = list;
-    if (healthFilter !== 'all') {
-      base = base.filter((i) => healthByItem.get(i.id) === healthFilter);
-    }
     if (condFilter !== 'all') {
       base = base.filter((i) => (i.condition || 'New') === condFilter);
     }
@@ -446,7 +467,24 @@ function TireInventoryView({ inventory, onSave, jobs }: InternalViewProps) {
     });
     ranked.sort((a, b) => a.tier - b.tier || a.idx - b.idx);
     return ranked.map((r) => r.item);
-  }, [list, search, condFilter, activeChips, healthFilter, healthByItem]);
+  }, [list, search, condFilter, activeChips]);
+
+  // Health bucket counts — derived from preHealthFiltered so the
+  // badges match what shows when the bucket is tapped. Critical (9)
+  // really means "9 items match your current search/condition/chips
+  // AND are critical." Previously this counted the unfiltered list
+  // and the user would see Critical (9) but only 1 row when their
+  // condition filter was set to Used.
+  const healthCounts = useMemo(
+    () => inventoryHealthCounts(preHealthFiltered, jobs, today),
+    [preHealthFiltered, jobs, today],
+  );
+
+  // Final filtered list — pre-health-filtered then health bucket.
+  const filtered = useMemo(() => {
+    if (healthFilter === 'all') return preHealthFiltered;
+    return preHealthFiltered.filter((i) => healthByItem.get(i.id) === healthFilter);
+  }, [preHealthFiltered, healthFilter, healthByItem]);
 
   /**
    * Hot Sizes — most-stocked sizes, ranked by total qty. Renders as chip
@@ -709,19 +747,24 @@ function TireInventoryView({ inventory, onSave, jobs }: InternalViewProps) {
                       </span>
                     )}
                   </div>
-                  {/* Merged sub-line: brand · condition · 30-day velocity.
-                      Velocity reads from the precomputed velocityBySize
-                      map (O(1) per card) so this scales with jobs count.
-                      Only shows when ≥1 sale in the last 30 days — silent
-                      otherwise. Format keeps the line tight: "Brand · Used · 7↗30d". */}
+                  {/* Merged sub-line: brand · condition · 30-day velocity · all-time sold.
+                      Velocity + all-time read from the precomputed
+                      velocityBySize / soldAllTimeBySize maps (O(1) per
+                      card) so this scales with jobs count. 30d velocity
+                      stays silent when zero; the all-time count always
+                      renders so operators can see lifetime demand
+                      regardless of recency. Format: "Brand · Used · 7↗30d · 47 sold". */}
                   <div className="inv-card-sub">
                     {(() => {
                       const brand = (i.brand || '').trim() || 'No brand';
                       const cond = i.condition === 'Used' ? 'Used' : '';
-                      const vel = velocityBySize.get(normalizeTireSize(i.size || '')) || 0;
+                      const normSize = normalizeTireSize(i.size || '');
+                      const vel = velocityBySize.get(normSize) || 0;
+                      const allTime = soldAllTimeBySize.get(normSize) || 0;
                       const parts = [brand];
                       if (cond) parts.push(cond);
                       if (vel > 0) parts.push(`${vel}↗30d`);
+                      if (allTime > 0) parts.push(`${allTime} sold`);
                       return parts.join(' · ');
                     })()}
                   </div>
