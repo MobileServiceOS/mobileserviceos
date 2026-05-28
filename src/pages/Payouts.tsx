@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import type { Job, Settings } from '@/types';
 import { getWeekStart, jobGrossProfit, money, monthlyFixed, formatWeekRange, formatMonth, getMonth } from '@/lib/utils';
 import { TODAY } from '@/lib/defaults';
+import { businessNetProfit } from '@/lib/expenseCalc';
 
 // ─────────────────────────────────────────────────────────────────────
 //  Payouts — owner cash distribution view
@@ -32,7 +33,23 @@ export function Payouts({ jobs, settings }: Props) {
   const weekProfit = weekJobs.reduce((t, j) => t + jobGrossProfit(j, settings), 0);
   const fixed = monthlyFixed(settings);
   const weeklyFixed = fixed / 4.33;
-  const netWeekly = weekProfit - weeklyFixed;
+  // Net weekly = jobs gross MINUS every kind of expense dated in the
+  // week (one-time, job-linked, prorated recurring). The previous
+  // calc only subtracted recurring fixed; one-time expenses like a
+  // $50 tool purchase weren't reducing the distributable, so weekly
+  // payouts could over-pay. businessNetProfit is the canonical
+  // helper used by Dashboard for the same calculation.
+  const thisWeekEnd = (() => {
+    const dt = new Date(thisWeek + 'T12:00:00');
+    dt.setDate(dt.getDate() + 6);
+    return dt.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  })();
+  const netWeekly = businessNetProfit({
+    jobsProfitSum: weekProfit,
+    expenses: settings.expenses || [],
+    startISO: thisWeek,
+    endISO: thisWeekEnd,
+  });
   const taxReserve = netWeekly * Number(settings.taxRate || 0) / 100;
   const distributable = netWeekly - taxReserve;
 

@@ -248,6 +248,15 @@ export function Dashboard({
     return dt.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
   }, [thisWeek]);
 
+  // Previous week end = one day before this week's anchor. Needed so
+  // businessNetProfit can deduct expenses dated within last week's
+  // 7-day span when comparing growth vs. last week.
+  const lastWeekEnd = useMemo(() => {
+    const dt = new Date(thisWeek + 'T12:00:00');
+    dt.setDate(dt.getDate() - 1);
+    return dt.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  }, [thisWeek]);
+
   const completedJobs = useMemo(
     () => visibleJobs.filter((j) => j.status === 'Completed'),
     [visibleJobs],
@@ -280,14 +289,44 @@ export function Dashboard({
   // Costs = revenue - profit. Visible to owner/admin only.
   const weekCosts = r2(Math.max(0, (totals.revenue || 0) - (totals.grossProfit || 0)));
 
+  // Business net profit — jobs gross profit MINUS expenses dated in
+  // the week (one-time, job-linked, prorated recurring). This is the
+  // number that DROPS when an operator logs a $50 expense; the hero
+  // ring + growth pill drive off this value so adding an expense
+  // immediately reflects in the headline "This Week's Profit". The
+  // gross-profit-only path (totals.grossProfit) is still used for
+  // costs math and for the legacy expense breakdown card below.
+  const weekNetProfit = useMemo(
+    () => businessNetProfit({
+      jobsProfitSum: totals.grossProfit,
+      expenses: settings.expenses || [],
+      startISO: thisWeek,
+      endISO: today,
+    }),
+    [totals.grossProfit, settings.expenses, thisWeek, today],
+  );
+  // Same computation for the previous full week so the growth pill
+  // compares like-with-like (last week net vs this week net).
+  const lastWeekNetProfit = useMemo(
+    () => businessNetProfit({
+      jobsProfitSum: lastWeekTotals.grossProfit,
+      expenses: settings.expenses || [],
+      startISO: lastWeek,
+      endISO: lastWeekEnd,
+    }),
+    [lastWeekTotals.grossProfit, settings.expenses, lastWeek, lastWeekEnd],
+  );
+
   // ─── Growth % vs previous week ──────────────────────────────────
-  // Owner/admin: profit-based growth. Technician: jobs-count growth.
-  // Edge case: when last week was 0 but this week has data, show "New"
-  // instead of an infinity %.
+  // Owner/admin: NET-profit-based growth (jobs gross MINUS week's
+  // expenses). Technician: jobs-count growth. Apples-to-apples both
+  // sides — last week's net vs this week's net so the comparison
+  // doesn't lie just because the operator logged a big one-time
+  // expense this week.
   const growth = useMemo(() => {
     if (showCompanyData) {
-      const prev = lastWeekTotals.grossProfit || 0;
-      const curr = totals.grossProfit || 0;
+      const prev = lastWeekNetProfit || 0;
+      const curr = weekNetProfit || 0;
       if (prev === 0 && curr === 0) return { label: '—', positive: null as boolean | null };
       if (prev === 0) return { label: 'New', positive: true };
       const delta = ((curr - prev) / prev) * 100;
@@ -299,18 +338,20 @@ export function Dashboard({
     if (prev === 0) return { label: 'New', positive: true };
     const delta = ((curr - prev) / prev) * 100;
     return { label: `${delta >= 0 ? '+' : ''}${Math.round(delta)}%`, positive: delta >= 0 };
-  }, [showCompanyData, totals.grossProfit, lastWeekTotals.grossProfit, weekJobs.length, lastWeekJobs.length]);
+  }, [showCompanyData, weekNetProfit, lastWeekNetProfit, weekJobs.length, lastWeekJobs.length]);
 
   // ─── Progress ring percentage ───────────────────────────────────
-  // Owner/admin: profit / weekly $ goal. Technician: jobs / weekly
+  // Owner/admin: NET profit / weekly $ goal. So when an operator
+  // logs an expense, the ring drops — matches the operator mental
+  // model of "money left after costs." Technician: jobs / weekly
   // jobs goal (technicianWeeklyJobsGoal, default 5).
   const technicianGoal = Number(settings.technicianWeeklyJobsGoal || 5);
   const progressPct = showCompanyData
-    ? clamp((totals.grossProfit / (settings.weeklyGoal || 1)) * 100, 0, 100)
+    ? clamp((weekNetProfit / (settings.weeklyGoal || 1)) * 100, 0, 100)
     : clamp((weekJobs.length / Math.max(1, technicianGoal)) * 100, 0, 100);
 
   const remainingToGoal = showCompanyData
-    ? Math.max(0, (settings.weeklyGoal || 0) - totals.grossProfit)
+    ? Math.max(0, (settings.weeklyGoal || 0) - weekNetProfit)
     : Math.max(0, technicianGoal - weekJobs.length);
 
   // ─── Pending / payments / sources / low stock ────────────────────
@@ -403,23 +444,16 @@ export function Dashboard({
     + weekExpenses.byType.inventory
     + weeklyRecurringExpense
   );
-  // Business net profit for the week = job gross profit minus the
-  // non-job-COGS expenses. (Inventory bucket is NOT subtracted again:
-  // per-unit cost already flowed into grossProfit via tireCost.)
-  const weekNetProfit = useMemo(
-    () => businessNetProfit({
-      jobsProfitSum: totals.grossProfit,
-      expenses: settings.expenses || [],
-      startISO: thisWeek,
-      endISO: today,
-    }),
-    [totals.grossProfit, settings.expenses, thisWeek, today],
-  );
+  // (weekNetProfit is now declared earlier — see the block above the
+  // growth/ring calculations. It's the canonical net-profit figure
+  // that flows into both the hero number AND the breakdown card.)
 
   const quote = useMemo(() => calcQuote(qqForm, settings), [qqForm, settings]);
 
-  // Count-up animation target: profit for owner, jobs count for tech.
-  const heroAnimTarget = showCompanyData ? totals.grossProfit : weekJobs.length;
+  // Count-up animation target: NET profit for owner (jobs gross minus
+  // the week's expenses — so adding a $50 expense visibly drops the
+  // hero number), jobs count for tech.
+  const heroAnimTarget = showCompanyData ? weekNetProfit : weekJobs.length;
   const heroValue = useCountUp(heroAnimTarget);
 
   // The price the actor has selected — one of the engine's two
