@@ -242,7 +242,7 @@ const WHEEL_LOCK: Variant[] = [
   ({ name, biz }) =>
     `${name}, hope you're rolling again. If the wheel lock removal went well, a quick review really helps ${biz} reach more drivers.`,
   ({ name, city, biz }) =>
-    `Thanks for trusting ${biz} with the lock removal in ${city}, ${name}. A quick review would mean a lot to our small team.`,
+    `${name}, thanks for trusting ${biz} with the lock removal in ${city}. A quick review would mean a lot to our small team.`,
 ];
 
 /**
@@ -270,7 +270,7 @@ const ROADSIDE: Variant[] = [
  */
 const COMMERCIAL: Variant[] = [
   ({ name, city, biz }) =>
-    `Thanks for trusting ${biz} with your fleet work in ${city}, ${name}. A quick Google review helps other local operators find a reliable mobile service.`,
+    `${name}, thanks for trusting ${biz} with your fleet work in ${city}. A quick Google review helps other local operators find a reliable mobile service.`,
   ({ name, biz }) =>
     `${name}, appreciate the partnership. A short Google review would help ${biz} reach more fleets in the area.`,
   ({ name, city, biz }) =>

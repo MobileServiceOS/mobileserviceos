@@ -359,6 +359,50 @@ section('JOB WRAPPER');
   delete g.window;
 }
 
+// ─── Regression: city,name comma collision ─────────────────────────
+// Sentences like "in ${city}, ${name}." became unreadable when city
+// already had a state suffix like "Aventura, FL" — the result was
+// "in Aventura, FL, Serge." which parses as if Serge is part of the
+// address. Fix moved the name to the start of the sentence. This
+// guard sweeps every variant across every bucket with a state-
+// suffixed location and asserts the body never contains
+// ", FL, " or the comma-name-period sequence that signalled the bug.
+section('Regression: city/name comma collision');
+{
+  const allServices = [
+    undefined,
+    'Flat Tire Repair', 'Tire Replacement', 'Tire Installation',
+    'Mounting & Balancing', 'Spare Tire Installation', 'Spare Change',
+    'Tire Rotation', 'Wheel Lock Removal', 'Roadside Tire Assistance',
+    'Mobile Tire Service', 'Jump Start', 'Fuel Delivery', 'Lockout',
+    'Fleet Tire Service', 'Heavy-Duty Tire Service', 'Custom Unknown',
+  ];
+  for (const svc of allServices) {
+    const seedFor = `seed-${svc || 'none'}`;
+    // Walk every variant by passing variantIndex 0..6 (max bucket
+    // is 4 variants, so a few of those will modulo back, but we
+    // still exercise the full set).
+    for (let i = 0; i < 6; i++) {
+      const body = buildReviewMessage({
+        customerName: 'Serge',
+        service: svc,
+        locationLabel: 'Aventura, FL',
+        businessName: 'Wheel Rush',
+        seed: seedFor,
+        variantIndex: i,
+      });
+      // The exact failure signature: ", FL, " mid-sentence (a state
+      // code wrapped by commas implies a city,state,name stack).
+      const hasStateNameComma = / FL, \S+\.\s/.test(body);
+      check(
+        `[${svc || 'none'}#${i}] no comma-stack around state code`,
+        !hasStateNameComma,
+        `body: ${body}`,
+      );
+    }
+  }
+}
+
 // ─── Sample output (visual inspection) ─────────────────────────────
 section('SAMPLE OUTPUTS — for visual inspection');
 
