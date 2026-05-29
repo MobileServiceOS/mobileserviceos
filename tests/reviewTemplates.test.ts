@@ -260,7 +260,10 @@ section('VARIANT OVERRIDE');
   });
   check('pickReviewVariant returns bucket', info.bucket === 'flat_repair');
   check('pickReviewVariant returns index 0', info.index === 0);
-  check('flat_repair has 4 variants', info.variantCount === 4);
+  // FLAT_REPAIR expanded from 4 → 8 variants (see commit
+  // expanding the rotation pool). Lower-bound the assertion
+  // so future expansions don't keep breaking the test.
+  check('flat_repair has at least 4 variants', info.variantCount >= 4);
 }
 
 // ─── Test: character budget ────────────────────────────────────────

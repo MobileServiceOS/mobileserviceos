@@ -201,6 +201,14 @@ const FLAT_REPAIR: Variant[] = [
     `Hi ${name}, hope you're back on the road. If we earned it, a quick review about your flat repair in ${city} helps ${biz} reach more drivers.`,
   ({ name, biz }) =>
     `Thanks again, ${name}. A 30-second Google review about your flat repair really helps ${biz} keep the lights on for the next driver.`,
+  ({ salutation, biz }) =>
+    `${salutation}, hope the flat is behind you. A quick Google review about ${biz} helps the next driver in a jam find us fast.`,
+  ({ salutation, city, biz }) =>
+    `${salutation}, glad the flat is patched and you're moving. A short Google review really helps ${biz} stay visible to other drivers in ${city}.`,
+  ({ name, biz }) =>
+    `Hi ${name}, just a quick ask — a Google review about your flat repair goes a long way for a small team like ${biz}.`,
+  ({ name, city, biz }) =>
+    `Hi ${name}, hope the rest of the day is uneventful. A quick review about ${biz} in ${city} helps neighbors find a fast flat-tire fix.`,
 ];
 
 /**
@@ -218,6 +226,14 @@ const REPLACEMENT: Variant[] = [
     `Hi ${name}, hope the new setup is rolling smooth. A quick review about ${service} would help ${biz} a ton.`,
   ({ name, service, city, biz }) =>
     `Thanks for the trust today, ${name}. If ${service} in ${city} went well, a Google review would help ${biz} reach more local drivers.`,
+  ({ name, service, city, biz }) =>
+    `Hi ${name}, hope the new tires feel solid. A quick Google review helps ${biz} keep showing up for ${city} drivers like you.`,
+  ({ salutation, biz }) =>
+    `${salutation}, appreciate you trusting ${biz} with today's install. A short review would help us reach more drivers in the area.`,
+  ({ name, biz }) =>
+    `Hi ${name}, glad ${biz} could handle the install today. A 30-second Google review really moves the needle for our small team.`,
+  ({ salutation, service, city, biz }) =>
+    `${salutation}, hope you're rolling smooth. If ${service} in ${city} hit the mark, a quick Google review would mean a lot to ${biz}.`,
 ];
 
 /**
@@ -233,6 +249,12 @@ const SPARE_INSTALL: Variant[] = [
     `Thanks for calling ${biz}, ${name}. If the spare swap went smooth, a short review would help us reach the next stranded driver.`,
   ({ name, city, biz }) =>
     `Hi ${name}, hope the rest of your day is easier. A quick review about the spare install in ${city} really helps ${biz} grow locally.`,
+  ({ salutation, biz }) =>
+    `${salutation}, hope the rest of the day is uneventful. A quick Google review about the spare swap helps ${biz} stay in front of other stranded drivers.`,
+  ({ name, city, biz }) =>
+    `Hi ${name}, glad ${biz} could get the spare on in ${city}. A short review helps the next driver find us fast.`,
+  ({ salutation, biz }) =>
+    `${salutation}, thanks for trusting ${biz} with the spare install. A 30-second Google review would help other drivers know we're reliable.`,
 ];
 
 /**
@@ -248,6 +270,12 @@ const WHEEL_LOCK: Variant[] = [
     `${salutation}, hope you're rolling again. If the wheel lock removal went well, a quick review really helps ${biz} reach more drivers.`,
   ({ salutation, city, biz }) =>
     `${salutation}, thanks for trusting ${biz} with the lock removal in ${city}. A quick review would mean a lot to our small team.`,
+  ({ name, biz }) =>
+    `Hi ${name}, hope the rest of the day is easier. A quick Google review about the wheel lock removal helps ${biz} stand out.`,
+  ({ salutation, biz }) =>
+    `${salutation}, glad we got that lock off and you're rolling. A short review really helps ${biz} reach more drivers stuck the same way.`,
+  ({ name, city, biz }) =>
+    `Hi ${name}, thanks for the trust on the lock removal in ${city}. A 30-second review would mean a lot to ${biz}.`,
 ];
 
 /**
@@ -265,6 +293,14 @@ const ROADSIDE: Variant[] = [
     `${salutation}, hope the rest of the day goes easier. A quick Google review about today's service in ${city} really helps ${biz}.`,
   ({ name, biz }) =>
     `Thanks for the trust today, ${name}. A short review would help ${biz} keep showing up for drivers who need us.`,
+  ({ name, city, biz }) =>
+    `Hi ${name}, glad ${biz} could get you sorted in ${city}. A quick Google review helps us stay top of mind for the next driver in a bind.`,
+  ({ salutation, biz }) =>
+    `${salutation}, hope the rest of the day is smoother. A short review about today's service helps ${biz} reach more drivers fast.`,
+  ({ name, biz }) =>
+    `Hi ${name}, thanks for calling ${biz}. If we hit the mark, a quick Google review really helps us reach more drivers.`,
+  ({ salutation, biz }) =>
+    `${salutation}, glad ${biz} could get you back on the road. A 30-second review would help us be there for the next stranded driver.`,
 ];
 
 /**
@@ -280,6 +316,12 @@ const COMMERCIAL: Variant[] = [
     `${salutation}, appreciate the partnership. A short Google review would help ${biz} reach more fleets in the area.`,
   ({ name, city, biz }) =>
     `Hi ${name}, hope today's service kept your trucks moving. A quick review about ${biz} in ${city} really helps our local presence.`,
+  ({ name, city, biz }) =>
+    `Hi ${name}, hope the trucks are rolling. A quick Google review about ${biz} helps other fleet operators in ${city} find a reliable mobile service.`,
+  ({ salutation, biz }) =>
+    `${salutation}, thanks for the trust on today's fleet work. A short review really helps ${biz} reach more fleets in the area.`,
+  ({ name, biz }) =>
+    `Hi ${name}, glad ${biz} could keep your operation moving. A 30-second Google review goes a long way for our small team.`,
 ];
 
 /**
@@ -292,6 +334,12 @@ const GENERIC: Variant[] = [
     `Thanks again, ${name}. A short Google review would help ${biz} keep doing what we do.`,
   ({ name, city, biz }) =>
     `Hi ${name}, hope today's service went well. A quick review about ${biz} in ${city} really helps neighbors find us.`,
+  ({ name, biz }) =>
+    `Hi ${name}, hope today went well. A quick Google review about ${biz} really helps other drivers find us.`,
+  ({ salutation, city, biz }) =>
+    `${salutation}, appreciate you choosing ${biz} in ${city}. A short review would help us reach more local drivers.`,
+  ({ name, biz }) =>
+    `Hi ${name}, thanks for the trust today. A 30-second Google review really helps ${biz} stay visible.`,
 ];
 
 const BUCKETS: Record<TemplateBucket, Variant[]> = {
