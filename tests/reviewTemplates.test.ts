@@ -438,6 +438,19 @@ section('Regression: sentence-case when name fallback fires');
         /[A-Z]/.test(firstChar),
         `body: ${body}`,
       );
+      // Stronger guard: the body must NEVER open with the bare
+      // word "There" — that signals a sentence-start template
+      // pulled the lowercase "there" fallback without converting
+      // to a real greeting. Real openers look like "Hi there,"
+      // or "There ..." (used as a place adverb mid-thought,
+      // which doesn't appear in any template). The test asserts
+      // any "There" at position 0 is followed by another word
+      // (greeting form), not a comma.
+      check(
+        `[${svc || 'none'}#${i}] no "There," lonely opener`,
+        !body.startsWith('There,'),
+        `body: ${body}`,
+      );
     }
   }
 }

@@ -176,6 +176,11 @@ type TemplateBucket =
 type Variant = (ctx: TplContext) => string;
 interface TplContext {
   name: string;       // "Serge" or "there"
+  salutation: string; // "Serge" or "Hi there" — use at sentence start
+                      // when no "Hi"/"Thanks" prefix precedes the name.
+                      // Keeps the opener grammatical when name is the
+                      // generic-fallback "there" (a bare "There, ..."
+                      // isn't a real greeting).
   service: string;    // "mounting and balancing" or "your service"
   city: string;       // "Aventura, FL" or "your area"
   biz: string;        // "Wheel Rush" or "our team"
@@ -207,8 +212,8 @@ const FLAT_REPAIR: Variant[] = [
 const REPLACEMENT: Variant[] = [
   ({ name, service, city, biz }) =>
     `Hi ${name}, thanks again for choosing ${biz} for ${service} in ${city}. A quick Google review helps other local drivers find reliable mobile tire service.`,
-  ({ name, service, city, biz }) =>
-    `${name}, thanks for letting ${biz} handle ${service} in ${city}. If you'd share a short review, it really helps neighbors find us.`,
+  ({ salutation, service, city, biz }) =>
+    `${salutation}, thanks for letting ${biz} handle ${service} in ${city}. If you'd share a short review, it really helps neighbors find us.`,
   ({ name, service, biz }) =>
     `Hi ${name}, hope the new setup is rolling smooth. A quick review about ${service} would help ${biz} a ton.`,
   ({ name, service, city, biz }) =>
@@ -239,10 +244,10 @@ const SPARE_INSTALL: Variant[] = [
 const WHEEL_LOCK: Variant[] = [
   ({ name, city, biz }) =>
     `Hi ${name}, glad we got that wheel lock off in ${city}. A short Google review helps ${biz} stand out for the next driver in the same spot.`,
-  ({ name, biz }) =>
-    `${name}, hope you're rolling again. If the wheel lock removal went well, a quick review really helps ${biz} reach more drivers.`,
-  ({ name, city, biz }) =>
-    `${name}, thanks for trusting ${biz} with the lock removal in ${city}. A quick review would mean a lot to our small team.`,
+  ({ salutation, biz }) =>
+    `${salutation}, hope you're rolling again. If the wheel lock removal went well, a quick review really helps ${biz} reach more drivers.`,
+  ({ salutation, city, biz }) =>
+    `${salutation}, thanks for trusting ${biz} with the lock removal in ${city}. A quick review would mean a lot to our small team.`,
 ];
 
 /**
@@ -256,8 +261,8 @@ const ROADSIDE: Variant[] = [
     `Hi ${name}, glad we could help in ${city} today. A quick Google review helps ${biz} reach more drivers when they're in a bind.`,
   ({ name, biz }) =>
     `Thanks for calling ${biz}, ${name}. If we got you sorted, a short review would help us be there for the next driver.`,
-  ({ name, city, biz }) =>
-    `${name}, hope the rest of the day goes easier. A quick Google review about today's service in ${city} really helps ${biz}.`,
+  ({ salutation, city, biz }) =>
+    `${salutation}, hope the rest of the day goes easier. A quick Google review about today's service in ${city} really helps ${biz}.`,
   ({ name, biz }) =>
     `Thanks for the trust today, ${name}. A short review would help ${biz} keep showing up for drivers who need us.`,
 ];
@@ -269,10 +274,10 @@ const ROADSIDE: Variant[] = [
  *    reliable mobile service."
  */
 const COMMERCIAL: Variant[] = [
-  ({ name, city, biz }) =>
-    `${name}, thanks for trusting ${biz} with your fleet work in ${city}. A quick Google review helps other local operators find a reliable mobile service.`,
-  ({ name, biz }) =>
-    `${name}, appreciate the partnership. A short Google review would help ${biz} reach more fleets in the area.`,
+  ({ salutation, city, biz }) =>
+    `${salutation}, thanks for trusting ${biz} with your fleet work in ${city}. A quick Google review helps other local operators find a reliable mobile service.`,
+  ({ salutation, biz }) =>
+    `${salutation}, appreciate the partnership. A short Google review would help ${biz} reach more fleets in the area.`,
   ({ name, city, biz }) =>
     `Hi ${name}, hope today's service kept your trucks moving. A quick review about ${biz} in ${city} really helps our local presence.`,
 ];
@@ -348,7 +353,14 @@ function resolveContext(opts: ReviewMessageOptions): TplContext {
 
   const biz = (opts.businessName || '').trim() || 'our team';
 
-  return { name, service, city, biz };
+  // Salutation = the form usable at the very start of a sentence.
+  // For a real name we just use it as-is ("Serge, hope you're..."),
+  // but for the "there" fallback we need a proper greeting opener
+  // ("Hi there, hope you're..."). Templates that already prefix
+  // with "Hi"/"Thanks"/"Hope" use {name} and stay unchanged.
+  const salutation = name === 'there' ? 'Hi there' : name;
+
+  return { name, salutation, service, city, biz };
 }
 
 // ─────────────────────────────────────────────────────────────────────
