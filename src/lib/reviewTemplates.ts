@@ -77,6 +77,12 @@ export interface ReviewMessageOptions {
   locationLabel?: string;
   /** Business name from brand settings. Falls back to "our team". */
   businessName?: string;
+  /** Customer's vehicle (e.g. "Toyota Camry", "Ford F-150"). When
+   *  present, vehicle-aware variants weave it into the message
+   *  ("...on your Toyota Camry"). When absent, templates fall back
+   *  gracefully — no dangling clauses, no "on your your vehicle"
+   *  awkwardness. Optional. */
+  vehicle?: string;
   /** Google review URL. If empty/missing, message returns without
    *  a link line so callers can decide what to do. */
   reviewUrl?: string;
@@ -86,6 +92,13 @@ export interface ReviewMessageOptions {
   /** Force a specific variant index (0-based). Overrides seed.
    *  Useful for tests + manual preview UIs. */
   variantIndex?: number;
+  /** When provided, the picker will avoid this index when selecting
+   *  the next variant. Powers the "no consecutive duplicates"
+   *  rotation behavior — caller persists the previously-returned
+   *  index (typically in localStorage, scoped by businessId + bucket)
+   *  and passes it on the next call. Only honored when the bucket
+   *  has more than 1 variant. */
+  lastUsedIdx?: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -110,6 +123,24 @@ const SERVICE_NATURAL: Record<string, string> = {
   'Lockout': 'the lockout service',
   'Fleet Tire Service': 'the fleet tire service',
   'Heavy-Duty Tire Service': 'the heavy-duty tire service',
+  // Specific tire services
+  'Valve Stem Replacement': 'the valve stem replacement',
+  'Tire Repair': 'the tire repair',
+  'Used Tire Installation': 'the used tire install',
+  'New Tire Installation': 'the new tire install',
+  'Tire Mount & Balance': 'the mount and balance',
+  'Roadside Tire Service': 'the roadside tire service',
+  'Emergency Highway Service': 'the emergency highway service',
+  'Commercial Truck Tire Service': 'the commercial truck tire service',
+  'RV Tire Service': 'the RV tire service',
+  // Mechanic vertical
+  'Mobile Mechanic Services': 'the mobile mechanic service',
+  'Battery Replacement': 'the battery replacement',
+  'Oil Change': 'the oil change',
+  'Brake Service': 'the brake service',
+  // Detailing vertical
+  'Car Wash': 'the car wash',
+  'Detailing': 'the detail',
 };
 
 /** Service bucket → which template set applies. Keeps the variant
@@ -119,24 +150,48 @@ function bucketFor(service: ServiceKey | undefined): TemplateBucket {
   if (!service) return 'generic';
   switch (service) {
     case 'Flat Tire Repair':
+    case 'Tire Repair':
       return 'flat_repair';
     case 'Tire Replacement':
     case 'Tire Installation':
     case 'Mounting & Balancing':
+    case 'Used Tire Installation':
+    case 'New Tire Installation':
+    case 'Tire Mount & Balance':
       return 'replacement';
     case 'Spare Tire Installation':
     case 'Spare Change':
       return 'spare_install';
     case 'Wheel Lock Removal':
       return 'wheel_lock';
+    case 'Valve Stem Replacement':
+      return 'valve_stem';
     case 'Roadside Tire Assistance':
+    case 'Roadside Tire Service':
+    case 'Emergency Highway Service':
     case 'Jump Start':
     case 'Fuel Delivery':
     case 'Lockout':
       return 'roadside';
     case 'Fleet Tire Service':
     case 'Heavy-Duty Tire Service':
+    case 'Commercial Truck Tire Service':
+    case 'RV Tire Service':
       return 'commercial';
+    // ─── Mechanic vertical ──────────────────────────────────
+    case 'Mobile Mechanic Services':
+      return 'mechanic_general';
+    case 'Battery Replacement':
+      return 'battery';
+    case 'Oil Change':
+      return 'oil_change';
+    case 'Brake Service':
+      return 'brake';
+    // ─── Detailing vertical ─────────────────────────────────
+    case 'Car Wash':
+      return 'car_wash';
+    case 'Detailing':
+      return 'detailing';
     default:
       return 'generic';
   }
@@ -147,8 +202,17 @@ type TemplateBucket =
   | 'replacement'
   | 'spare_install'
   | 'wheel_lock'
+  | 'valve_stem'
   | 'roadside'
   | 'commercial'
+  // Mechanic vertical
+  | 'mechanic_general'
+  | 'battery'
+  | 'oil_change'
+  | 'brake'
+  // Detailing vertical
+  | 'car_wash'
+  | 'detailing'
   | 'generic';
 
 // ─────────────────────────────────────────────────────────────────────
@@ -184,6 +248,15 @@ interface TplContext {
   service: string;    // "mounting and balancing" or "your service"
   city: string;       // "Aventura, FL" or "your area"
   biz: string;        // "Wheel Rush" or "our team"
+  vehicle: string;    // "your Toyota Camry" or "" — empty string when
+                      // the job didn't capture vehicle, so templates
+                      // can interpolate `${vehicle}` without producing
+                      // dangling commas. Templates that opt in should
+                      // wrap with a leading space and adapt punctuation
+                      // accordingly (see VEHICLE-aware variants).
+  vehicleClause: string; // " on your Toyota Camry" or "" — a ready-to-paste
+                      // " on {vehicle}" fragment for templates that want
+                      // a tail clause without conditional logic.
 }
 
 /**
@@ -209,6 +282,8 @@ const FLAT_REPAIR: Variant[] = [
     `Hi ${name}, just a quick ask — a Google review about your flat repair goes a long way for a small team like ${biz}.`,
   ({ name, city, biz }) =>
     `Hi ${name}, hope the rest of the day is uneventful. A quick review about ${biz} in ${city} helps neighbors find a fast flat-tire fix.`,
+  ({ name, city, biz, vehicleClause }) =>
+    `Hi ${name}, glad ${biz} could patch you up in ${city}${vehicleClause}. A quick Google review really helps other drivers find us in a jam.`,
 ];
 
 /**
@@ -234,6 +309,8 @@ const REPLACEMENT: Variant[] = [
     `Hi ${name}, glad ${biz} could handle the install today. A 30-second Google review really moves the needle for our small team.`,
   ({ salutation, service, city, biz }) =>
     `${salutation}, hope you're rolling smooth. If ${service} in ${city} hit the mark, a quick Google review would mean a lot to ${biz}.`,
+  ({ name, service, city, biz, vehicleClause }) =>
+    `Hi ${name}, thanks for choosing ${biz} for ${service} in ${city}${vehicleClause}. We appreciate the trust — a quick Google review would mean a lot.`,
 ];
 
 /**
@@ -301,6 +378,8 @@ const ROADSIDE: Variant[] = [
     `Hi ${name}, thanks for calling ${biz}. If we hit the mark, a quick Google review really helps us reach more drivers.`,
   ({ salutation, biz }) =>
     `${salutation}, glad ${biz} could get you back on the road. A 30-second review would help us be there for the next stranded driver.`,
+  ({ name, city, biz, vehicleClause }) =>
+    `Hi ${name}, glad ${biz} could help in ${city} today${vehicleClause}. A quick Google review helps more drivers find us when they're in a bind.`,
 ];
 
 /**
@@ -322,11 +401,149 @@ const COMMERCIAL: Variant[] = [
     `${salutation}, thanks for the trust on today's fleet work. A short review really helps ${biz} reach more fleets in the area.`,
   ({ name, biz }) =>
     `Hi ${name}, glad ${biz} could keep your operation moving. A 30-second Google review goes a long way for our small team.`,
+  ({ name, city, biz, vehicleClause }) =>
+    `Hi ${name}, thanks for the fleet trust in ${city}${vehicleClause}. A short Google review helps other operators find a reliable mobile service.`,
 ];
 
 /**
  * GENERIC — used when service is missing or doesn't match a bucket.
  */
+/**
+ * VALVE STEM REPLACEMENT — quick safety-focused service, often
+ * roadside or follow-up. Cheap and fast, so review tone is
+ * "small but important" rather than the bigger "thanks for the
+ * trust" framing used for replacement.
+ */
+const VALVE_STEM: Variant[] = [
+  ({ name, city, biz, vehicleClause }) =>
+    `Hi ${name}, glad ${biz} could swap the valve stem in ${city}${vehicleClause} today. A quick Google review really helps small jobs like ours stay visible.`,
+  ({ salutation, biz }) =>
+    `${salutation}, thanks for letting ${biz} handle the valve stem. A short Google review goes a long way for our small team.`,
+  ({ name, city, biz, vehicleClause }) =>
+    `Hi ${name}, valve stem swapped — should hold air rock-solid${vehicleClause}. If we earned it, a quick review helps ${biz} reach more ${city} drivers.`,
+  ({ name, biz }) =>
+    `Thanks for trusting ${biz} with the valve stem fix, ${name}. A 30-second Google review would mean a lot.`,
+  ({ salutation, city, biz }) =>
+    `${salutation}, small fix, big difference. A quick review about ${biz} helps other ${city} drivers find us for the same issue.`,
+  ({ name, biz, vehicleClause }) =>
+    `Hi ${name}, hope${vehicleClause || ' the car'} is back to holding pressure. A short Google review really helps ${biz}.`,
+];
+
+/**
+ * MECHANIC GENERAL — fallback for mobile mechanic services that
+ * don't slot into battery / oil / brake. Convenience-focused tone
+ * (mobile means we came to you).
+ */
+const MECHANIC_GENERAL: Variant[] = [
+  ({ name, city, biz, vehicleClause }) =>
+    `Hi ${name}, thanks for letting ${biz} work on${vehicleClause || ' your vehicle'} in ${city} today. A quick Google review helps other drivers find a reliable mobile mechanic.`,
+  ({ salutation, biz }) =>
+    `${salutation}, appreciate you choosing ${biz} for mobile service. A short Google review helps us reach more drivers who want service at home or work.`,
+  ({ name, city, biz }) =>
+    `Hi ${name}, hope today's service had ${city} convenient for you. A quick review really helps ${biz} keep showing up for local drivers.`,
+  ({ salutation, biz, vehicleClause }) =>
+    `${salutation}, glad we could get${vehicleClause || ' your ride'} sorted without you leaving home. A 30-second Google review goes a long way for ${biz}.`,
+  ({ name, biz }) =>
+    `Thanks for the trust today, ${name}. A short review about ${biz} would help other drivers find mobile mechanic service in the area.`,
+  ({ salutation, city, biz, vehicleClause }) =>
+    `${salutation}, hope${vehicleClause || ' the car'} is running smooth. A quick Google review about ${biz} helps more ${city} drivers find us.`,
+];
+
+/**
+ * BATTERY REPLACEMENT — emergency-adjacent. Most calls are
+ * stranded drivers. Tone leans toward "saved your day" framing.
+ */
+const BATTERY: Variant[] = [
+  ({ name, city, biz, vehicleClause }) =>
+    `Hi ${name}, glad ${biz} could get${vehicleClause || ' your car'} starting again in ${city}. A quick Google review helps other drivers know we're fast on battery calls.`,
+  ({ salutation, biz }) =>
+    `${salutation}, hope the new battery has you running smooth. A short Google review would help ${biz} reach the next driver with a dead start.`,
+  ({ name, city, biz }) =>
+    `Thanks for calling ${biz}, ${name}. If the battery replacement in ${city} went well, a quick Google review really helps us be there for the next stranded driver.`,
+  ({ salutation, biz, vehicleClause }) =>
+    `${salutation}, glad${vehicleClause || ' the car'} is back to turning over on the first try. A 30-second review really helps ${biz} stay visible for battery calls.`,
+  ({ name, biz }) =>
+    `Hi ${name}, hope you're rolling smooth on the new battery. A quick Google review about ${biz} helps other drivers find fast battery service.`,
+  ({ salutation, city, biz }) =>
+    `${salutation}, thanks for the trust on the battery swap. A short review helps ${biz} reach more drivers in ${city} when their car won't start.`,
+];
+
+/**
+ * OIL CHANGE — routine maintenance, low-emotion service. Friendly
+ * "you took care of it" tone rather than dramatic "saved your day."
+ */
+const OIL_CHANGE: Variant[] = [
+  ({ name, city, biz, vehicleClause }) =>
+    `Hi ${name}, thanks for letting ${biz} handle the oil change in ${city}${vehicleClause} today. A quick Google review helps other drivers skip the shop trip too.`,
+  ({ salutation, biz }) =>
+    `${salutation}, appreciate the routine maintenance trust. A short Google review would help ${biz} reach more drivers who want oil service at home.`,
+  ({ name, biz }) =>
+    `Thanks again, ${name}. A 30-second Google review about your oil change really helps ${biz} stay in front of other drivers due for service.`,
+  ({ salutation, city, biz, vehicleClause }) =>
+    `${salutation}, glad${vehicleClause || ' the car'} is set for the next few thousand miles. A short review helps ${biz} keep showing up in ${city}.`,
+  ({ name, city, biz }) =>
+    `Hi ${name}, hope today saved you a trip to the shop. A quick review about ${biz} really helps neighbors in ${city} find mobile oil service.`,
+  ({ salutation, biz }) =>
+    `${salutation}, thanks for choosing ${biz} for the oil change. A Google review would help more drivers know we come to them.`,
+];
+
+/**
+ * BRAKE SERVICE — safety-focused service. Tone emphasizes peace of
+ * mind + confidence rather than convenience.
+ */
+const BRAKE: Variant[] = [
+  ({ name, city, biz, vehicleClause }) =>
+    `Hi ${name}, glad ${biz} could get the brakes sorted in ${city}${vehicleClause} today. A quick Google review helps other drivers find brake service they can trust.`,
+  ({ salutation, biz }) =>
+    `${salutation}, brakes are nothing to mess around with — thanks for choosing ${biz}. A short Google review would help more drivers find safe brake service.`,
+  ({ name, biz, vehicleClause }) =>
+    `Hi ${name}, hope${vehicleClause || ' the car'} feels solid on the pedal. A 30-second review really helps ${biz} stay visible to drivers thinking about brake work.`,
+  ({ salutation, city, biz }) =>
+    `${salutation}, peace of mind on the brakes is a big deal. A short review about ${biz} helps more ${city} drivers know we handle it right.`,
+  ({ name, biz }) =>
+    `Thanks for trusting ${biz} with the brake service, ${name}. A quick Google review would help more drivers find a mobile shop that does safety work properly.`,
+  ({ salutation, city, biz }) =>
+    `${salutation}, glad the brake job is behind you. A quick review really helps ${biz} reach more drivers in ${city} due for service.`,
+];
+
+/**
+ * CAR WASH — short, friendly. The service is light + pleasant
+ * so the review ask matches.
+ */
+const CAR_WASH: Variant[] = [
+  ({ name, city, biz, vehicleClause }) =>
+    `Hi ${name}, hope${vehicleClause || ' the car'} is shining after today's wash in ${city}. A quick Google review helps ${biz} reach more drivers nearby.`,
+  ({ salutation, biz }) =>
+    `${salutation}, glad ${biz} could clean${' the ride' /* keep tone casual */} today. A short Google review would mean a lot to our small team.`,
+  ({ name, biz }) =>
+    `Thanks again, ${name}. A 30-second Google review about today's wash really helps ${biz} keep the schedule full.`,
+  ({ salutation, city, biz }) =>
+    `${salutation}, appreciate you choosing ${biz} for the wash. A quick review helps neighbors in ${city} find a mobile wash that shows up on time.`,
+  ({ name, biz, vehicleClause }) =>
+    `Hi ${name}, hope${vehicleClause || ' the car'} feels fresh. A short Google review about ${biz} really helps more local drivers find us.`,
+  ({ salutation, city, biz }) =>
+    `${salutation}, thanks for the trust today. A quick review would help ${biz} grow in ${city}.`,
+];
+
+/**
+ * DETAILING — premium service, longer-form interaction. Tone is
+ * grateful and quality-focused, matching the higher ticket size.
+ */
+const DETAILING: Variant[] = [
+  ({ name, city, biz, vehicleClause }) =>
+    `Hi ${name}, hope${vehicleClause || ' the car'} feels brand new after today's detail in ${city}. A quick Google review helps ${biz} reach more drivers who care about how their car looks.`,
+  ({ salutation, biz }) =>
+    `${salutation}, thanks for trusting ${biz} with the detail. A short Google review would help us reach the next customer looking for premium mobile detailing.`,
+  ({ name, biz, vehicleClause }) =>
+    `Hi ${name}, hope${vehicleClause || ' the ride'} is looking pristine. A 30-second Google review really helps ${biz} grow our local detailing book.`,
+  ({ salutation, city, biz }) =>
+    `${salutation}, glad ${biz} could give ${city} a proper detail today. A short review helps neighbors find quality mobile detailing.`,
+  ({ name, biz }) =>
+    `Thanks again, ${name}. If today's detail was top-notch, a quick Google review would mean a lot to ${biz}.`,
+  ({ salutation, city, biz, vehicleClause }) =>
+    `${salutation}, appreciate the trust on${vehicleClause || ' the car'}. A short Google review about ${biz} helps more ${city} drivers find premium detailing.`,
+];
+
 const GENERIC: Variant[] = [
   ({ name, city, biz }) =>
     `Hi ${name}, thanks for choosing ${biz} in ${city}. A quick Google review helps other local drivers find us.`,
@@ -347,8 +564,15 @@ const BUCKETS: Record<TemplateBucket, Variant[]> = {
   replacement: REPLACEMENT,
   spare_install: SPARE_INSTALL,
   wheel_lock: WHEEL_LOCK,
+  valve_stem: VALVE_STEM,
   roadside: ROADSIDE,
   commercial: COMMERCIAL,
+  mechanic_general: MECHANIC_GENERAL,
+  battery: BATTERY,
+  oil_change: OIL_CHANGE,
+  brake: BRAKE,
+  car_wash: CAR_WASH,
+  detailing: DETAILING,
   generic: GENERIC,
 };
 
@@ -408,7 +632,25 @@ function resolveContext(opts: ReviewMessageOptions): TplContext {
   // with "Hi"/"Thanks"/"Hope" use {name} and stay unchanged.
   const salutation = name === 'there' ? 'Hi there' : name;
 
-  return { name, salutation, service, city, biz };
+  // Vehicle resolution. When the job captured a vehicle, surface
+  // two interpolation forms:
+  //   - vehicle: "your Toyota Camry" (use mid-sentence after a
+  //     preposition: "for your Toyota Camry")
+  //   - vehicleClause: " on your Toyota Camry" (drop directly into
+  //     a sentence with no conditional logic; produces a clean
+  //     trailing clause when present, empty string when absent so
+  //     the surrounding punctuation stays correct).
+  // Reject obvious junk inputs (single chars, all-digit, etc.) so a
+  // jobs sheet row with a stray "?" doesn't become "your ?".
+  const rawVehicle = (opts.vehicle || '').trim();
+  let vehicle = '';
+  let vehicleClause = '';
+  if (rawVehicle && rawVehicle.length >= 2 && /[A-Za-z]/.test(rawVehicle)) {
+    vehicle = `your ${rawVehicle}`;
+    vehicleClause = ` on ${vehicle}`;
+  }
+
+  return { name, salutation, service, city, biz, vehicle, vehicleClause };
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -424,10 +666,21 @@ function hashSeed(seed: string): number {
   return h;
 }
 
-function pickVariantIndex(seed: string | undefined, count: number): number {
+function pickVariantIndex(
+  seed: string | undefined,
+  count: number,
+  lastUsedIdx?: number,
+): number {
   if (count <= 1) return 0;
-  if (seed) return hashSeed(seed) % count;
-  return Math.floor(Math.random() * count);
+  let idx = seed ? hashSeed(seed) % count : Math.floor(Math.random() * count);
+  // Smart rotation: bump to the next slot when the picker lands on
+  // the same variant the previous send used. Modular wrap keeps the
+  // index in range. Only runs when the bucket has > 1 variant
+  // (otherwise there's nowhere to bump to).
+  if (lastUsedIdx !== undefined && idx === lastUsedIdx) {
+    idx = (idx + 1) % count;
+  }
+  return idx;
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -453,7 +706,7 @@ export function buildReviewMessage(opts: ReviewMessageOptions): string {
   const idx =
     opts.variantIndex !== undefined && opts.variantIndex >= 0
       ? opts.variantIndex % variants.length
-      : pickVariantIndex(opts.seed, variants.length);
+      : pickVariantIndex(opts.seed, variants.length, opts.lastUsedIdx);
   const raw = variants[idx](ctx);
 
   // Sentence-case enforcement. Several templates open with
@@ -486,7 +739,7 @@ export function pickReviewVariant(opts: ReviewMessageOptions): {
   const index =
     opts.variantIndex !== undefined && opts.variantIndex >= 0
       ? opts.variantIndex % variants.length
-      : pickVariantIndex(opts.seed, variants.length);
+      : pickVariantIndex(opts.seed, variants.length, opts.lastUsedIdx);
   return { bucket, index, variantCount: variants.length };
 }
 
@@ -551,20 +804,73 @@ export function openReviewSMSFromJob(args: {
   locationLabel: string;
   state?: string;
   businessName: string;
+  /** Customer's vehicle. Threaded into vehicle-aware variants. */
+  vehicle?: string;
   jobId?: string;
   channel?: ShareChannel;
+  /**
+   * BusinessId scoping for the rotation tracker. When provided, the
+   * picker reads/writes the last-used variant index per (business,
+   * bucket) so two consecutive sends never repeat the same wording.
+   * When omitted, rotation is disabled and the seed-based picker
+   * runs unchanged (same job → same variant — preserves the
+   * preview-then-send invariant).
+   */
+  businessId?: string;
 }): string {
-  return shareReviewMessage(
-    {
-      phone: args.phone,
-      reviewUrl: args.reviewUrl,
-      customerName: args.customerName,
-      service: args.service,
-      locationLabel: args.locationLabel,
-      state: args.state,
-      businessName: args.businessName,
-      seed: args.jobId,
-    },
-    args.channel || 'sms',
-  );
+  const bucket = bucketFor(args.service);
+
+  // Smart rotation: read the last-used variant index for this
+  // (business, bucket) pair from localStorage. The picker then
+  // avoids returning that index if the hash/random selection
+  // happens to land on it. After the message is built, the new
+  // index gets persisted for the next call.
+  //
+  // Storage is best-effort — Safari private mode + some embedded
+  // webviews throw on localStorage access. We swallow + fall back
+  // to seed-only behavior in that case rather than blocking the
+  // review send.
+  let lastUsedIdx: number | undefined;
+  const storageKey = args.businessId
+    ? `msos_review_last_${args.businessId}_${bucket}`
+    : null;
+  if (storageKey) {
+    try {
+      const v = typeof localStorage !== 'undefined' ? localStorage.getItem(storageKey) : null;
+      if (v != null) {
+        const parsed = parseInt(v, 10);
+        if (Number.isFinite(parsed) && parsed >= 0) lastUsedIdx = parsed;
+      }
+    } catch {
+      // ignore — rotation degrades to seed-only
+    }
+  }
+
+  const opts: ReviewMessageOptions = {
+    customerName: args.customerName,
+    service: args.service,
+    locationLabel: args.locationLabel,
+    state: args.state,
+    businessName: args.businessName,
+    vehicle: args.vehicle,
+    reviewUrl: args.reviewUrl,
+    seed: args.jobId,
+    lastUsedIdx,
+  };
+
+  // Persist the picked index for the NEXT send before opening the
+  // sheet so the rotation advances even if the user cancels
+  // mid-share.
+  if (storageKey) {
+    try {
+      const { index } = pickReviewVariant(opts);
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(storageKey, String(index));
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return shareReviewMessage({ ...opts, phone: args.phone }, args.channel || 'sms');
 }

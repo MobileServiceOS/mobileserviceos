@@ -1196,7 +1196,16 @@ function AuthenticatedApp({ user }: { user: User }) {
       locationLabel: location,
       state: j.state,
       businessName: brand.businessName,
+      // Vehicle threading — prefer the mechanic-vertical
+      // vehicleMakeModel field (richer) over the tire-vertical
+      // vehicleType (often just "Sedan"). Either flows into a
+      // "your Toyota Camry" clause in vehicle-aware variants.
+      vehicle: j.vehicleMakeModel || j.vehicleType || undefined,
       jobId: j.id,
+      // BusinessId enables the smart-rotation tracker (avoids
+      // consecutive duplicate variants across sends for this
+      // business). Undefined → seed-only picker (same as before).
+      businessId: businessId || undefined,
       channel: 'sms',
     });
     if (!businessId) return;

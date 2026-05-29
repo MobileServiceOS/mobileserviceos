@@ -374,11 +374,21 @@ section('Regression: city/name comma collision');
 {
   const allServices = [
     undefined,
-    'Flat Tire Repair', 'Tire Replacement', 'Tire Installation',
-    'Mounting & Balancing', 'Spare Tire Installation', 'Spare Change',
-    'Tire Rotation', 'Wheel Lock Removal', 'Roadside Tire Assistance',
+    'Flat Tire Repair', 'Tire Repair', 'Tire Replacement', 'Tire Installation',
+    'Mounting & Balancing', 'Tire Mount & Balance', 'Used Tire Installation',
+    'New Tire Installation', 'Spare Tire Installation', 'Spare Change',
+    'Tire Rotation', 'Wheel Lock Removal', 'Valve Stem Replacement',
+    'Roadside Tire Assistance', 'Roadside Tire Service',
+    'Emergency Highway Service',
     'Mobile Tire Service', 'Jump Start', 'Fuel Delivery', 'Lockout',
-    'Fleet Tire Service', 'Heavy-Duty Tire Service', 'Custom Unknown',
+    'Fleet Tire Service', 'Heavy-Duty Tire Service',
+    'Commercial Truck Tire Service', 'RV Tire Service',
+    // Mechanic vertical
+    'Mobile Mechanic Services', 'Battery Replacement', 'Oil Change',
+    'Brake Service',
+    // Detailing vertical
+    'Car Wash', 'Detailing',
+    'Custom Unknown',
   ];
   for (const svc of allServices) {
     const seedFor = `seed-${svc || 'none'}`;
@@ -419,11 +429,21 @@ section('Regression: sentence-case when name fallback fires');
 {
   const allServices = [
     undefined,
-    'Flat Tire Repair', 'Tire Replacement', 'Tire Installation',
-    'Mounting & Balancing', 'Spare Tire Installation', 'Spare Change',
-    'Tire Rotation', 'Wheel Lock Removal', 'Roadside Tire Assistance',
+    'Flat Tire Repair', 'Tire Repair', 'Tire Replacement', 'Tire Installation',
+    'Mounting & Balancing', 'Tire Mount & Balance', 'Used Tire Installation',
+    'New Tire Installation', 'Spare Tire Installation', 'Spare Change',
+    'Tire Rotation', 'Wheel Lock Removal', 'Valve Stem Replacement',
+    'Roadside Tire Assistance', 'Roadside Tire Service',
+    'Emergency Highway Service',
     'Mobile Tire Service', 'Jump Start', 'Fuel Delivery', 'Lockout',
-    'Fleet Tire Service', 'Heavy-Duty Tire Service', 'Custom Unknown',
+    'Fleet Tire Service', 'Heavy-Duty Tire Service',
+    'Commercial Truck Tire Service', 'RV Tire Service',
+    // Mechanic vertical
+    'Mobile Mechanic Services', 'Battery Replacement', 'Oil Change',
+    'Brake Service',
+    // Detailing vertical
+    'Car Wash', 'Detailing',
+    'Custom Unknown',
   ];
   for (const svc of allServices) {
     for (let i = 0; i < 6; i++) {
@@ -456,6 +476,126 @@ section('Regression: sentence-case when name fallback fires');
       );
     }
   }
+}
+
+// ─── Vehicle interpolation ─────────────────────────────────────────
+// Feature added in c0f0360 follow-up: when the job captured a
+// vehicle, vehicle-aware variants weave it in ("...on your Toyota
+// Camry"). When missing, the same variant falls back cleanly with
+// no dangling "on your" or double-space artifacts.
+section('Vehicle interpolation');
+{
+  // Find at least one variant per bucket that mentions vehicle.
+  // Sweep with vehicle supplied and assert the body contains the
+  // exact vehicle string somewhere.
+  const buckets = [
+    'Tire Repair', 'Tire Replacement', 'Valve Stem Replacement',
+    'Roadside Tire Assistance', 'Fleet Tire Service',
+    'Mobile Mechanic Services', 'Battery Replacement', 'Oil Change',
+    'Brake Service', 'Car Wash', 'Detailing',
+  ];
+  for (const svc of buckets) {
+    let foundWithVehicle = false;
+    // Iterate over the full variant pool for this bucket so we
+    // don't miss vehicle-aware variants at the tail of the array.
+    const { variantCount } = pickReviewVariant({
+      customerName: 'Serge', service: svc, locationLabel: 'Aventura, FL',
+      businessName: 'Wheel Rush', seed: 'discover',
+    });
+    for (let i = 0; i < variantCount; i++) {
+      const body = buildReviewMessage({
+        customerName: 'Serge',
+        service: svc,
+        locationLabel: 'Aventura, FL',
+        businessName: 'Wheel Rush',
+        vehicle: 'Toyota Camry',
+        seed: `veh-${svc}`,
+        variantIndex: i,
+      });
+      if (body.includes('Toyota Camry')) foundWithVehicle = true;
+      // Regardless of variant, body must never contain "your your"
+      // or "on  your" (double space) — those signal a broken
+      // vehicleClause concat.
+      check(
+        `[${svc}#${i}] no double "your your" artifact`,
+        !body.includes('your your'),
+        body,
+      );
+      check(
+        `[${svc}#${i}] no double-space artifact`,
+        !/  /.test(body),
+        body,
+      );
+    }
+    check(
+      `[${svc}] at least one variant interpolates the vehicle`,
+      foundWithVehicle,
+      `no variant in ${svc} bucket mentioned "Toyota Camry"`,
+    );
+  }
+}
+
+// ─── Vehicle ABSENT — graceful fallback ────────────────────────────
+// Same sweep but with NO vehicle supplied. Body must never contain
+// "on your ." or stray "your vehicle" fragments tied to missing
+// data. The vehicleClause helper is empty string when absent so
+// nothing should leak through.
+section('Vehicle absent — graceful fallback');
+{
+  const buckets = [
+    'Tire Repair', 'Valve Stem Replacement', 'Battery Replacement',
+    'Oil Change', 'Brake Service', 'Car Wash', 'Detailing',
+  ];
+  for (const svc of buckets) {
+    for (let i = 0; i < 6; i++) {
+      const body = buildReviewMessage({
+        customerName: 'Serge',
+        service: svc,
+        locationLabel: 'Aventura, FL',
+        businessName: 'Wheel Rush',
+        // vehicle intentionally omitted
+        seed: `noveh-${svc}`,
+        variantIndex: i,
+      });
+      check(
+        `[${svc}#${i}] no dangling "on your ." when vehicle missing`,
+        !/on your \./.test(body),
+        body,
+      );
+      check(
+        `[${svc}#${i}] no "your Toyota" leakage`,
+        !body.includes('Toyota'),
+        body,
+      );
+    }
+  }
+}
+
+// ─── Smart rotation — no consecutive duplicates ────────────────────
+// lastUsedIdx prevents the picker from returning the same index
+// twice in a row even when the seed deterministically hashes there.
+section('Smart rotation — no consecutive duplicates');
+{
+  const opts: ReviewMessageOptions = {
+    customerName: 'Serge',
+    service: 'Tire Replacement',
+    locationLabel: 'Aventura, FL',
+    businessName: 'Wheel Rush',
+    seed: 'job-abc-123',
+  };
+  // First call: deterministic from seed.
+  const first = pickReviewVariant(opts);
+  // Second call: pass lastUsedIdx=first.index — must return
+  // something different.
+  const second = pickReviewVariant({ ...opts, lastUsedIdx: first.index });
+  check('rotation: 2nd pick != 1st pick when same seed', second.index !== first.index);
+  // Third call: pass lastUsedIdx=second.index — must differ
+  // from second (allowed to equal first).
+  const third = pickReviewVariant({ ...opts, lastUsedIdx: second.index });
+  check('rotation: 3rd pick != 2nd pick', third.index !== second.index);
+  // Lower-bound: bucket must have > 1 variant for the rotation
+  // to be meaningful.
+  check('rotation: bucket has > 1 variant', first.variantCount > 1);
 }
 
 // ─── Sample output (visual inspection) ─────────────────────────────
