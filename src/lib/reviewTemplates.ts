@@ -394,7 +394,19 @@ export function buildReviewMessage(opts: ReviewMessageOptions): string {
     opts.variantIndex !== undefined && opts.variantIndex >= 0
       ? opts.variantIndex % variants.length
       : pickVariantIndex(opts.seed, variants.length);
-  const body = variants[idx](ctx);
+  const raw = variants[idx](ctx);
+
+  // Sentence-case enforcement. Several templates open with
+  // "${name}, ..." which reads correctly when name is a real
+  // first name ("Serge, hope you're rolling again.") but breaks
+  // grammatically when the fallback name "there" is used —
+  // "there, hope you're rolling again." has a lowercase
+  // sentence start. Uppercasing the very first character is the
+  // minimal defensive fix; existing capitalized openers are
+  // unaffected (Hi/Thanks/Hope already start uppercase).
+  const body = raw.length > 0
+    ? raw.charAt(0).toUpperCase() + raw.slice(1)
+    : raw;
 
   const url = (opts.reviewUrl || '').trim();
   if (!url) return body;

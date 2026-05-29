@@ -403,6 +403,45 @@ section('Regression: city/name comma collision');
   }
 }
 
+// ─── Regression: sentence-case enforcement on missing name ────────
+// Field-reported. When the customer name is missing, the fallback
+// is the lowercase word "there" — fine in mid-sentence positions
+// ("Hi there, ...") but several templates open with the name
+// directly ("${name}, hope you're..."), which produced "there,
+// hope you're..." with a lowercase sentence start. The fix
+// uppercases the very first character of the body unconditionally.
+// This sweep checks every variant of every bucket with no name
+// supplied and asserts the message begins with an uppercase letter.
+section('Regression: sentence-case when name fallback fires');
+{
+  const allServices = [
+    undefined,
+    'Flat Tire Repair', 'Tire Replacement', 'Tire Installation',
+    'Mounting & Balancing', 'Spare Tire Installation', 'Spare Change',
+    'Tire Rotation', 'Wheel Lock Removal', 'Roadside Tire Assistance',
+    'Mobile Tire Service', 'Jump Start', 'Fuel Delivery', 'Lockout',
+    'Fleet Tire Service', 'Heavy-Duty Tire Service', 'Custom Unknown',
+  ];
+  for (const svc of allServices) {
+    for (let i = 0; i < 6; i++) {
+      const body = buildReviewMessage({
+        // customerName intentionally omitted → fallback "there"
+        service: svc,
+        locationLabel: 'Aventura, FL',
+        businessName: 'Wheel Rush',
+        seed: `noname-${svc || 'none'}`,
+        variantIndex: i,
+      });
+      const firstChar = body.charAt(0);
+      check(
+        `[${svc || 'none'}#${i}] body starts with uppercase letter`,
+        /[A-Z]/.test(firstChar),
+        `body: ${body}`,
+      );
+    }
+  }
+}
+
 // ─── Sample output (visual inspection) ─────────────────────────────
 section('SAMPLE OUTPUTS — for visual inspection');
 
