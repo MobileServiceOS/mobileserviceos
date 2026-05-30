@@ -144,6 +144,15 @@ export interface TireSupplierPrice {
   /** Used-tire tread depth in /32" (typically 6–10 for resale).
    *  Optional; only meaningful for used inventory. */
   treadDepth?: number;
+  /** DOT date code (e.g. "2823" for week 28 of 2023). Optional;
+   *  surfaced on quote cards for used tires so the customer knows
+   *  how recent the tire is. New tires can also carry this if the
+   *  operator tracks shelf-age. */
+  dotDate?: string;
+  /** Estimated arrival time in days. 0 = same-day in stock,
+   *  1 = next-day delivery, etc. Drives the "Same day" / "{N}
+   *  days" badge on quote result cards. Optional. */
+  etaDays?: number;
   /** Quality tier — drives Good/Better/Best assignment + premium
    *  profit target lookup. */
   category: TireCategory;
@@ -174,8 +183,17 @@ export interface TireSupplierPrice {
 // quote-build time so future supplier price changes don't retroactively
 // alter old quotes.
 
+/** Quote result tier. New tires use good/better/best (Budget /
+ *  Midrange / Premium). Used tires use a separate two-tier
+ *  taxonomy (Used Economy / Used Premium) — the spec choice is to
+ *  NOT force used inventory through the same 3-tier shape, since
+ *  used tires don't have a "midrange" concept. */
+export type QuoteOptionTier =
+  | 'good' | 'better' | 'best'
+  | 'used_economy' | 'used_premium';
+
 export interface TireQuoteOption {
-  tier: 'good' | 'better' | 'best';
+  tier: QuoteOptionTier;
   /** Reference back to tireSupplierPrices doc for traceability.
    *  May go stale if the source price is deleted; treat as best-effort. */
   supplierPriceId: string;
@@ -196,6 +214,17 @@ export interface TireQuoteOption {
   cashPrice?: number;
   /** Tax-included price when cashPriceEnabled. Optional. */
   cardPrice?: number;
+  /** Estimated arrival time in days at quote-build time.
+   *  Snapshotted from the supplier price so a future ETA change
+   *  on the supplier record doesn't retroactively rewrite the
+   *  quote the customer was given. */
+  etaDays?: number;
+  /** Snapshot of supplier notes at quote-build time. */
+  notes?: string;
+  /** DOT date snapshot for used tires. */
+  dotDate?: string;
+  /** Snapshot of available quantity at quote-build time. */
+  quantityAvailable?: number;
 }
 
 // ─── Full quote document ────────────────────────────────────────────
@@ -214,11 +243,13 @@ export interface TireQuote {
   miles?: number;
   serviceType: QuoteServiceType;
   urgency: Urgency;
-  /** Up to 3 options (good/better/best). May be shorter if a tier
-   *  has no in-stock inventory for the requested size. */
+  /** Up to 5 options across both tracks:
+   *    new track: good / better / best
+   *    used track: used_economy / used_premium
+   *  Any tier with no in-stock inventory is omitted (length 0–5). */
   quoteOptions: TireQuoteOption[];
   /** Which tier the customer picked. Undefined until selection. */
-  selectedOption?: 'good' | 'better' | 'best';
+  selectedOption?: QuoteOptionTier;
   /** Quote total at selection time. Mirrors the selected option's
    *  customerPrice for fast list-view rendering. */
   customerPrice: number;

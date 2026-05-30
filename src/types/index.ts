@@ -67,6 +67,7 @@ export type TabId =
   | 'settings'
   | 'help'
   | 'tireSuppliers'   // Tire Quote Engine Phase 2 — owner/admin only
+  | 'tireQuoteEngine' // Tire Quote Engine Phase 3 — tech-accessible
   | 'success';
 
 // ─────────────────────────────────────────────────────────────────────

@@ -5,6 +5,7 @@ import {
   computeQuotePrice,
   roundToNearest,
   selectGoodBetterBest,
+  selectUsedTireOptions,
   buildQuoteOptionsFromPrices,
 } from '@/lib/tireQuotePricing';
 import {
@@ -321,6 +322,85 @@ section('buildQuoteOptionsFromPrices — partial tier coverage');
   check('skipped tier is filtered out (no nulls)', options.every((o) => o !== null));
   check('first option is good', options[0].tier === 'good');
   check('second option is best (better is skipped)', options[1].tier === 'best');
+}
+
+// ─── selectUsedTireOptions ─────────────────────────────────────────
+section('selectUsedTireOptions — separate track from new tires');
+{
+  const usedFixtures: TireSupplierPrice[] = [
+    { id: 'u1', supplierName: 'Used Inventory', tireSize: '225/65R17', brand: 'Goodyear', model: 'Eagle', cost: 35, quantityAvailable: 6, condition: 'used', category: 'budget', runFlat: false, evRated: false, xlLoad: false, treadDepth: 7, lastUpdated: '2026-05-28', createdBy: 'u1' },
+    { id: 'u2', supplierName: 'Used Inventory', tireSize: '225/65R17', brand: 'Bridgestone', model: 'Turanza', cost: 40, quantityAvailable: 4, condition: 'used', category: 'midrange', runFlat: false, evRated: false, xlLoad: false, treadDepth: 8, lastUpdated: '2026-05-28', createdBy: 'u1' },
+    { id: 'u3', supplierName: 'Used Inventory', tireSize: '225/65R17', brand: 'Michelin', model: 'Defender', cost: 65, quantityAvailable: 2, condition: 'used', category: 'premium', runFlat: false, evRated: false, xlLoad: false, treadDepth: 9, lastUpdated: '2026-05-28', createdBy: 'u1' },
+    { id: 'u4', supplierName: 'Used Inventory', tireSize: '225/65R17', brand: 'Michelin', model: 'X-Ice', cost: 80, quantityAvailable: 0, condition: 'used', category: 'premium', runFlat: false, evRated: false, xlLoad: false, treadDepth: 10, lastUpdated: '2026-05-28', createdBy: 'u1' },
+  ];
+  const picks = selectUsedTireOptions(usedFixtures);
+  check('economy = cheapest budget-or-midrange (u1 at $35)', picks.economy?.id === 'u1');
+  check('premium = cheapest in-stock premium (u3, NOT out-of-stock u4)', picks.premium?.id === 'u3');
+}
+
+section('selectUsedTireOptions — only budget tier present');
+{
+  const noPremium: TireSupplierPrice[] = [
+    { id: 'u1', supplierName: 'X', tireSize: '225/65R17', brand: 'A', model: 'B', cost: 35, quantityAvailable: 5, condition: 'used', category: 'budget', runFlat: false, evRated: false, xlLoad: false, lastUpdated: '2026-05-28', createdBy: 'u1' },
+  ];
+  const picks = selectUsedTireOptions(noPremium);
+  check('economy populated', picks.economy?.id === 'u1');
+  check('premium = null (no premium-tagged used tire)', picks.premium === null);
+}
+
+section('selectUsedTireOptions — empty input');
+{
+  const picks = selectUsedTireOptions([]);
+  check('both null', picks.economy === null && picks.premium === null);
+}
+
+// ─── buildQuoteOptionsFromPrices — mixed new + used ──────────────
+section('buildQuoteOptionsFromPrices — Used + New tracks combined');
+{
+  const mixedFixtures: TireSupplierPrice[] = [
+    // New tires
+    { id: 'b1', supplierName: 'ATD', tireSize: '225/65R17', brand: 'Sentury', model: 'Touring', cost: 50, quantityAvailable: 5, condition: 'new', category: 'budget', runFlat: false, evRated: false, xlLoad: false, lastUpdated: '2026-05-28', createdBy: 'u1' },
+    { id: 'm1', supplierName: 'ATD', tireSize: '225/65R17', brand: 'Goodyear', model: 'Assurance', cost: 95, quantityAvailable: 4, condition: 'new', category: 'midrange', runFlat: false, evRated: false, xlLoad: false, lastUpdated: '2026-05-28', createdBy: 'u1' },
+    { id: 'p1', supplierName: 'ATD', tireSize: '225/65R17', brand: 'Michelin', model: 'Defender 2', cost: 140, quantityAvailable: 2, condition: 'new', category: 'premium', runFlat: false, evRated: false, xlLoad: false, lastUpdated: '2026-05-28', createdBy: 'u1' },
+    // Used tires
+    { id: 'u1', supplierName: 'Used Inventory', tireSize: '225/65R17', brand: 'Goodyear', model: 'Eagle', cost: 35, quantityAvailable: 6, condition: 'used', category: 'budget', runFlat: false, evRated: false, xlLoad: false, lastUpdated: '2026-05-28', createdBy: 'u1' },
+    { id: 'u3', supplierName: 'Used Inventory', tireSize: '225/65R17', brand: 'Michelin', model: 'Defender', cost: 65, quantityAvailable: 2, condition: 'used', category: 'premium', runFlat: false, evRated: false, xlLoad: false, lastUpdated: '2026-05-28', createdBy: 'u1' },
+  ];
+  const opts = buildQuoteOptionsFromPrices(mixedFixtures, 4, 'standard', 0, S_DEFAULT);
+  check('builds 5 options (3 new + 2 used)', opts.length === 5);
+  check('tier order: good first', opts[0].tier === 'good');
+  check('tier order: better second', opts[1].tier === 'better');
+  check('tier order: best third', opts[2].tier === 'best');
+  check('tier order: used_economy fourth', opts[3].tier === 'used_economy');
+  check('tier order: used_premium fifth', opts[4].tier === 'used_premium');
+  check('used_economy is condition used', opts[3].condition === 'used');
+  check('used_premium is condition used', opts[4].condition === 'used');
+}
+
+section('buildQuoteOptionsFromPrices — only used tires available');
+{
+  const usedOnly: TireSupplierPrice[] = [
+    { id: 'u1', supplierName: 'X', tireSize: '225/65R17', brand: 'A', model: 'B', cost: 35, quantityAvailable: 5, condition: 'used', category: 'budget', runFlat: false, evRated: false, xlLoad: false, lastUpdated: '2026-05-28', createdBy: 'u1' },
+  ];
+  const opts = buildQuoteOptionsFromPrices(usedOnly, 1, 'standard', 0, S_DEFAULT);
+  check('1 option (used_economy only)', opts.length === 1);
+  check('option tier is used_economy', opts[0].tier === 'used_economy');
+  check('no new-track options', !opts.some((o) => ['good', 'better', 'best'].includes(o.tier)));
+}
+
+section('buildQuoteOptionsFromPrices — etaDays + dotDate threaded through');
+{
+  const withMeta: TireSupplierPrice[] = [
+    { id: 'b1', supplierName: 'ATD', tireSize: '225/65R17', brand: 'Sentury', model: 'Touring', cost: 50, quantityAvailable: 5, condition: 'new', category: 'budget', runFlat: false, evRated: false, xlLoad: false, etaDays: 2, notes: 'In stock now', lastUpdated: '2026-05-28', createdBy: 'u1' },
+    { id: 'u1', supplierName: 'X', tireSize: '225/65R17', brand: 'A', model: 'B', cost: 35, quantityAvailable: 5, condition: 'used', category: 'budget', runFlat: false, evRated: false, xlLoad: false, dotDate: '2823', lastUpdated: '2026-05-28', createdBy: 'u1' },
+  ];
+  const opts = buildQuoteOptionsFromPrices(withMeta, 1, 'standard', 0, S_DEFAULT);
+  const newOpt = opts.find((o) => o.tier === 'good');
+  const usedOpt = opts.find((o) => o.tier === 'used_economy');
+  check('etaDays threaded onto new option', newOpt?.etaDays === 2);
+  check('notes threaded onto new option', newOpt?.notes === 'In stock now');
+  check('dotDate threaded onto used option', usedOpt?.dotDate === '2823');
+  check('quantityAvailable threaded onto option', newOpt?.quantityAvailable === 5);
 }
 
 console.log(`\n  ${passed} passed, ${failed} failed`);

@@ -60,6 +60,8 @@ function emptyDraft(): Omit<TireSupplierPrice, 'id' | 'lastUpdated' | 'createdBy
     evRated: false,
     xlLoad: false,
     treadDepth: undefined,
+    dotDate: undefined,
+    etaDays: undefined,
     speedRating: undefined,
     loadIndex: undefined,
     notes: undefined,
@@ -267,17 +269,39 @@ export function TireSupplierEditSheet({ initial, onSave, onDelete, onClose }: Pr
         </Row>
 
         {draft.condition === 'used' && (
-          <Field label="Tread depth (/32 in.)">
-            <input
-              type="number"
-              inputMode="numeric"
-              value={draft.treadDepth ?? ''}
-              onChange={(e) => update('treadDepth', Number(e.target.value) || undefined)}
-              placeholder="e.g. 8"
-              style={inputStyle}
-            />
-          </Field>
+          <Row>
+            <Field label="Tread depth (/32 in.)">
+              <input
+                type="number"
+                inputMode="numeric"
+                value={draft.treadDepth ?? ''}
+                onChange={(e) => update('treadDepth', Number(e.target.value) || undefined)}
+                placeholder="e.g. 8"
+                style={inputStyle}
+              />
+            </Field>
+            <Field label="DOT date (week+yr)">
+              <input
+                type="text"
+                value={draft.dotDate ?? ''}
+                onChange={(e) => update('dotDate', e.target.value || undefined)}
+                placeholder="2823 = wk 28 of 2023"
+                style={inputStyle}
+              />
+            </Field>
+          </Row>
         )}
+
+        <Field label="Estimated arrival (days)">
+          <input
+            type="number"
+            inputMode="numeric"
+            value={draft.etaDays ?? ''}
+            onChange={(e) => update('etaDays', e.target.value === '' ? undefined : Number(e.target.value))}
+            placeholder="0 = same day · 1 = next day · 3 = 3 days"
+            style={inputStyle}
+          />
+        </Field>
 
         {/* Tire flags — 3 toggles */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 12 }}>

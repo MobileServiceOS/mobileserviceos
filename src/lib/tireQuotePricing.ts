@@ -235,6 +235,17 @@ export interface GoodBetterBestPicks {
   best: TireSupplierPrice | null;
 }
 
+export interface UsedTirePicks {
+  /** Cheapest in-stock used tire NOT tagged premium. The everyday
+   *  "good used" option. */
+  economy: TireSupplierPrice | null;
+  /** Cheapest in-stock used tire tagged premium. The "great used"
+   *  option (high tread depth, premium brand). When no used tire
+   *  is tagged premium, returns null and the UI hides the Used
+   *  Premium card. */
+  premium: TireSupplierPrice | null;
+}
+
 /**
  * From a list of supplier prices for the same tire size, pick one
  * representative per category to form Good/Better/Best.
@@ -251,25 +262,58 @@ export interface GoodBetterBestPicks {
  * decide whether to render a partial Good/Better/Best card grid
  * or substitute another tier into the empty slot.
  */
+function pickCheapestInStock(
+  items: ReadonlyArray<TireSupplierPrice>,
+): TireSupplierPrice | null {
+  const inStock = items.filter((p) => Number(p.quantityAvailable) > 0);
+  if (inStock.length === 0) return null;
+  return inStock.reduce((min, cur) => (cur.cost < min.cost ? cur : min));
+}
+
 export function selectGoodBetterBest(
   prices: ReadonlyArray<TireSupplierPrice>,
 ): GoodBetterBestPicks {
   if (!prices || prices.length === 0) {
     return { good: null, better: null, best: null };
   }
-
-  const pickCheapestInStock = (
-    items: ReadonlyArray<TireSupplierPrice>,
-  ): TireSupplierPrice | null => {
-    const inStock = items.filter((p) => Number(p.quantityAvailable) > 0);
-    if (inStock.length === 0) return null;
-    return inStock.reduce((min, cur) => (cur.cost < min.cost ? cur : min));
-  };
-
+  // Phase 3 split: this picker handles NEW tires only. The caller
+  // is responsible for filtering by condition before passing in.
+  // Keeping the function condition-agnostic (i.e. not filtering
+  // here) preserves the Phase 1 contract — old call sites pass
+  // pre-filtered new-only arrays and still work.
   return {
     good: pickCheapestInStock(prices.filter((p) => p.category === 'budget')),
     better: pickCheapestInStock(prices.filter((p) => p.category === 'midrange')),
     best: pickCheapestInStock(prices.filter((p) => p.category === 'premium')),
+  };
+}
+
+/**
+ * Pick Used Economy + Used Premium from a list of supplier prices.
+ *
+ *   economy ← cheapest in-stock used tire NOT tagged premium
+ *             (includes budget + midrange — used tires don't have
+ *             a meaningful midrange separation)
+ *   premium ← cheapest in-stock used tire tagged premium
+ *
+ * Used tires have their own taxonomy by design: a "Used Premium"
+ * is qualitatively different from a "New Best" (it's about tread
+ * depth + brand pedigree, not retail tier). Returns nulls for
+ * tiers with no in-stock matches so the UI can hide empty cards.
+ *
+ * Caller is responsible for filtering `prices` to condition='used'
+ * before passing in. Mixing new + used here would conflate the
+ * two tracks.
+ */
+export function selectUsedTireOptions(
+  prices: ReadonlyArray<TireSupplierPrice>,
+): UsedTirePicks {
+  if (!prices || prices.length === 0) {
+    return { economy: null, premium: null };
+  }
+  return {
+    economy: pickCheapestInStock(prices.filter((p) => p.category !== 'premium')),
+    premium: pickCheapestInStock(prices.filter((p) => p.category === 'premium')),
   };
 }
 
@@ -283,6 +327,24 @@ export function selectGoodBetterBest(
  * the Phase 2 supplier database listener, settings from the
  * pricingSettings/tireQuoteEngine doc.
  */
+/**
+ * Build the full TireQuoteOption[] for both tracks (new + used).
+ *
+ * Splits the price list by condition first, then runs the
+ * appropriate picker for each side:
+ *   - New tires → selectGoodBetterBest → up to 3 options
+ *     (good / better / best)
+ *   - Used tires → selectUsedTireOptions → up to 2 options
+ *     (used_economy / used_premium)
+ *
+ * Returns 0–5 options in order: good → better → best →
+ * used_economy → used_premium. The UI groups them visually by
+ * "USED OPTIONS" / "NEW OPTIONS" sections.
+ *
+ * Pure function — no Firestore, no React. Caller passes in
+ * the full supplier list for the searched tire size; this helper
+ * does the bucketing + pricing.
+ */
 export function buildQuoteOptionsFromPrices(
   prices: ReadonlyArray<TireSupplierPrice>,
   quantity: number,
@@ -290,10 +352,14 @@ export function buildQuoteOptionsFromPrices(
   miles: number,
   settings: TireQuoteEngineSettings,
 ): TireQuoteOption[] {
-  const picks = selectGoodBetterBest(prices);
+  const newPrices = prices.filter((p) => p.condition === 'new');
+  const usedPrices = prices.filter((p) => p.condition === 'used');
+
+  const newPicks = selectGoodBetterBest(newPrices);
+  const usedPicks = selectUsedTireOptions(usedPrices);
 
   const buildOption = (
-    tier: 'good' | 'better' | 'best',
+    tier: TireQuoteOption['tier'],
     price: TireSupplierPrice | null,
   ): TireQuoteOption | null => {
     if (!price) return null;
@@ -322,15 +388,23 @@ export function buildQuoteOptionsFromPrices(
       estimatedProfit: pricing.estimatedProfit,
       cashPrice: pricing.cashPrice,
       cardPrice: pricing.cardPrice,
+      etaDays: price.etaDays,
+      notes: price.notes,
+      dotDate: price.dotDate,
+      quantityAvailable: price.quantityAvailable,
     };
   };
 
   const result: TireQuoteOption[] = [];
-  const good = buildOption('good', picks.good);
-  const better = buildOption('better', picks.better);
-  const best = buildOption('best', picks.best);
+  const good = buildOption('good', newPicks.good);
+  const better = buildOption('better', newPicks.better);
+  const best = buildOption('best', newPicks.best);
+  const usedEcon = buildOption('used_economy', usedPicks.economy);
+  const usedPrem = buildOption('used_premium', usedPicks.premium);
   if (good) result.push(good);
   if (better) result.push(better);
   if (best) result.push(best);
+  if (usedEcon) result.push(usedEcon);
+  if (usedPrem) result.push(usedPrem);
   return result;
 }
