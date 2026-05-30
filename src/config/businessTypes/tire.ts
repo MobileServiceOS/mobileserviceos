@@ -74,17 +74,6 @@ export const TIRE_CONFIG: BusinessTypeConfig = {
     { id: 'Lockout',                  label: 'Lockout',                  defaultBasePrice: 75,  defaultMinProfit: 60,  enabledByDefault: true },
     { id: 'Fleet Tire Service',       label: 'Fleet Tire Service',       defaultBasePrice: 200, defaultMinProfit: 160, enabledByDefault: false },
     { id: 'Heavy-Duty Tire Service',  label: 'Heavy-Duty Tire Service',  defaultBasePrice: 350, defaultMinProfit: 280, enabledByDefault: false },
-    // ─── Added Phase 1 of Tire Quote Engine ─────────────────────────
-    // These map to the Tire Quote Engine's QuoteServiceType values:
-    //   replacement / used_tire / new_tire / emergency_replacement.
-    // Existing 'Tire Replacement' covers the generic case; these
-    // five service entries surface in AddJob's service picker AND
-    // act as the destination when a quote converts to a job.
-    { id: 'Used Tire Replacement',    label: 'Used Tire Replacement',    defaultBasePrice: 100, defaultMinProfit: 80,  enabledByDefault: true },
-    { id: 'New Tire Replacement',    label: 'New Tire Replacement',    defaultBasePrice: 140, defaultMinProfit: 120, enabledByDefault: true },
-    { id: 'Tire Mount & Balance',     label: 'Tire Mount & Balance',     defaultBasePrice: 95,  defaultMinProfit: 75,  enabledByDefault: true },
-    { id: 'Emergency Highway Service', label: 'Emergency Highway Service', defaultBasePrice: 175, defaultMinProfit: 140, enabledByDefault: true },
-    { id: 'Valve Stem Replacement',   label: 'Valve Stem Replacement',   defaultBasePrice: 35,  defaultMinProfit: 25,  enabledByDefault: true },
   ],
 
   jobFields: [

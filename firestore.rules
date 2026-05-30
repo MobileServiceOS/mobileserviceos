@@ -511,46 +511,6 @@ service cloud.firestore {
         allow write: if isOwnerOrAdmin(businessId) ||
                         request.auth.uid == businessId;
       }
-
-      // ─────────────────────────────────────────────────────────────
-      // TIRE QUOTE ENGINE (Phase 1 of 4)
-      //
-      // Three collections, all tenant-isolated by the businesses/
-      // {businessId}/ path scope. Field-level masking of supplier
-      // costs is NOT enforced here (Firestore rules can't do field-
-      // level reads); the client UI gates cost/profit visibility on
-      // role — same pattern MSOS already uses for inventory cost.
-      //
-      // tireSupplierPrices — owner/admin manage the price catalog.
-      //   Reads: any member (techs need prices to build quotes).
-      //   Writes: owner/admin only.
-      //
-      // tireQuotes — work product, same pattern as jobs.
-      //   Reads / creates / updates: any member.
-      //   Deletes: owner/admin only (preserves audit trail).
-      //
-      // pricingSettings — single doc per business at
-      //   pricingSettings/tireQuoteEngine. Owner/admin only writes.
-      //   Reads open to all members for client-side gating logic.
-      // ─────────────────────────────────────────────────────────────
-      match /tireSupplierPrices/{docId} {
-        allow read: if isMemberOfBusiness(businessId);
-        allow create, update, delete:
-          if isOwnerOrAdmin(businessId) || request.auth.uid == businessId;
-      }
-
-      match /tireQuotes/{docId} {
-        allow read: if isMemberOfBusiness(businessId);
-        allow create, update: if isMemberOfBusiness(businessId);
-        allow delete:
-          if isOwnerOrAdmin(businessId) || request.auth.uid == businessId;
-      }
-
-      match /pricingSettings/{docId} {
-        allow read: if isMemberOfBusiness(businessId);
-        allow create, update, delete:
-          if isOwnerOrAdmin(businessId) || request.auth.uid == businessId;
-      }
     }
 
     // ─────────────────────────────────────────────────────────────────

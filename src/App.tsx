@@ -25,20 +25,6 @@ const Insights  = lazy(() => import('@/pages/Insights').then((m)  => ({ default:
 const Payouts   = lazy(() => import('@/pages/Payouts').then((m)   => ({ default: m.Payouts })));
 const Expenses  = lazy(() => import('@/pages/Expenses').then((m)  => ({ default: m.Expenses })));
 const Settings  = lazy(() => import('@/pages/Settings').then((m)  => ({ default: m.Settings })));
-// Tire Quote Engine — Phase 2 surface. Lazy-loaded; only owner/admin
-// can navigate here so most sessions never pay the bundle cost.
-const TireSupplierDatabase = lazy(() =>
-  import('@/pages/TireSupplierDatabase').then((m) => ({ default: m.TireSupplierDatabase })),
-);
-// Tire Quote Engine — Phase 3 page (tech-accessible). Lazy chunk
-// so the tire-quote bundle only loads when a user opens it.
-const TireQuoteEngine = lazy(() =>
-  import('@/pages/TireQuoteEngine').then((m) => ({ default: m.TireQuoteEngine })),
-);
-// Tire Quote History — Phase 4 page. Tech-accessible.
-const TireQuoteHistory = lazy(() =>
-  import('@/pages/TireQuoteHistory').then((m) => ({ default: m.TireQuoteHistory })),
-);
 import { Header } from '@/components/Header';
 import { ToastHost } from '@/components/ToastHost';
 import { InstallBanner } from '@/components/InstallBanner';
@@ -865,38 +851,6 @@ function AuthenticatedApp({ user }: { user: User }) {
     setTab('add');
   }, []);
 
-  // ─── Create Job from a Tire Quote ─────────────────────────────
-  // Phase 3 of the Tire Quote Engine. Mirrors handleStartJob but
-  // sources fields from a TireQuote + the customer's picked
-  // TireQuoteOption. Sets sourceQuoteId so jobs can be traced back
-  // to the originating quote (audit trail).
-  const handleCreateJobFromQuote = useCallback(async (quote: import('@/lib/tireQuoteTypes').TireQuote, option: import('@/lib/tireQuoteTypes').TireQuoteOption) => {
-    const { serviceForQuote } = await import('@/lib/tireQuoteMessage');
-    setJobDraft({
-      ...EMPTY_JOB(),
-      service: serviceForQuote(quote),
-      tireSize: option.tireSize,
-      qty: option.quantity,
-      revenue: option.customerPrice,
-      tireCost: option.costPerTire,
-      tireBrand: option.brand,
-      tireModel: option.model,
-      tireVendor: String(option.supplierName),
-      tireSource: 'Bought for this job',
-      tireCondition: option.condition === 'used' ? 'Used' : 'New',
-      customerName: quote.customerName || '',
-      customerPhone: quote.customerPhone || '',
-      area: quote.customerCity || '',
-      city: quote.customerCity || '',
-      miles: quote.miles ?? '',
-      emergency: quote.urgency === 'emergency',
-      lateNight: quote.urgency === 'after-hours',
-      sourceQuoteId: quote.id,
-    });
-    setEditingJobId(null);
-    setPrefilledFromQuote(true);
-  }, []);
-
   const saveJob = useCallback(async (resetAfter = false): Promise<Job | null> => {
     if (!businessId) { addToast('Sign in to save', 'warn'); return null; }
     const j = jobDraft;
@@ -1415,9 +1369,6 @@ function AuthenticatedApp({ user }: { user: User }) {
     if (tab === 'inventory') return <Inventory inventory={inventory} onSave={persistInventory} settings={settings} jobs={jobs} />;
     if (tab === 'settings') return <Settings settings={settings} onSave={persistSettings} />;
     if (tab === 'help') return <Help onBack={() => setTab('dashboard')} />;
-    if (tab === 'tireSuppliers') return <TireSupplierDatabase />;
-    if (tab === 'tireQuoteEngine') return <TireQuoteEngine setTab={setTab} onCreateJobFromQuote={handleCreateJobFromQuote} />;
-    if (tab === 'tireQuoteHistory') return <TireQuoteHistory setTab={setTab} onCreateJobFromQuote={handleCreateJobFromQuote} />;
     if (tab === 'success' && savedJob) {
       // Use the LIVE job from the jobs array, not the frozen
       // post-save snapshot — so an action taken on the success
@@ -1570,7 +1521,7 @@ function AuthenticatedApp({ user }: { user: User }) {
           <span className="nav-ico">🛞</span><span>Inv</span>
         </button>
         <button
-          className={'nav-btn' + ((tab === 'settings' || tab === 'payouts' || tab === 'expenses' || tab === 'customers' || tab === 'insights' || tab === 'help' || tab === 'tireSuppliers' || tab === 'tireQuoteEngine' || tab === 'tireQuoteHistory') ? ' active' : '')}
+          className={'nav-btn' + ((tab === 'settings' || tab === 'payouts' || tab === 'expenses' || tab === 'customers' || tab === 'insights' || tab === 'help') ? ' active' : '')}
           onClick={() => setMoreOpen(true)}
         >
           <span className="nav-ico">⚙</span><span>More</span>

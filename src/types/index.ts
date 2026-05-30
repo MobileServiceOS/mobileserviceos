@@ -66,9 +66,6 @@ export type TabId =
   | 'inventory'
   | 'settings'
   | 'help'
-  | 'tireSuppliers'   // Tire Quote Engine Phase 2 — owner/admin only
-  | 'tireQuoteEngine' // Tire Quote Engine Phase 3 — tech-accessible
-  | 'tireQuoteHistory' // Tire Quote Engine Phase 4 — tech-accessible
   | 'success';
 
 // ─────────────────────────────────────────────────────────────────────
@@ -769,14 +766,6 @@ export interface Job {
   /** Per-job margin snapshot. Populated only when every part line
    *  has unitCost > 0 (a single zero invalidates the whole snapshot). */
   partsMarginSnapshot?: PartsMarginSnapshot;
-
-  // ─── Tire Quote Engine (Phase 1) ─────────────────────────────────
-  /** When this job was created from a TireQuote via the Create Job
-   *  action, this points back to the quote's id. Powers the
-   *  quote → job lineage / audit trail. Bidirectional with
-   *  tireQuotes/{id}.convertedJobId. Optional — direct AddJob
-   *  saves (no quote in flight) leave this undefined. */
-  sourceQuoteId?: string;
 
   // ─── Multi-user (Phase 2.2 Sub-Project B) ────────────────────────
   /** The technician this job is assigned to. Set by owner/admin via

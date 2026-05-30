@@ -8,7 +8,6 @@ import { useActiveVertical } from '@/lib/useActiveVertical';
 import { BrandAccordion } from '@/components/settings/BrandSection';
 import { OperationsAccordion } from '@/components/settings/OperationsSection';
 import { ProfitTargetsAccordion } from '@/components/settings/ProfitTargetsSection';
-import { TireQuoteEngineAccordion } from '@/components/settings/TireQuoteEngineSection';
 import { InvoicesAccordion } from '@/components/settings/InvoicesSection';
 import { OwnersAccordion } from '@/components/settings/OwnersSection';
 import { PricingAccordion } from '@/components/settings/PricingSection';
@@ -162,18 +161,6 @@ export function Settings({ settings, onSave }: Props) {
           onSave={onSave}
           open={openSection === 'profit_targets'}
           onToggle={() => setOpenSection(openSection === 'profit_targets' ? null : 'profit_targets')}
-        />
-      )}
-
-      {/* Tire Quote Engine pricing knobs — Phase 2 of the engine.
-          Owner/admin only via canEditPricingSettings (canSeeBusinessSettings
-          already gates on that for the broader settings area). Data
-          lives in a SEPARATE Firestore doc:
-          businesses/{businessId}/pricingSettings/tireQuoteEngine */}
-      {canSeeBusinessSettings && (
-        <TireQuoteEngineAccordion
-          open={openSection === 'tire_quote_engine'}
-          onToggle={() => setOpenSection(openSection === 'tire_quote_engine' ? null : 'tire_quote_engine')}
         />
       )}
 
