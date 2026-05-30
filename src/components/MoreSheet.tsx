@@ -80,6 +80,17 @@ export function MoreSheet({ onClose, onPick }: Props) {
       visible: true,
     },
     {
+      // Tire Quote Engine — Phase 2 surface (Supplier Database CRUD).
+      // Phase 3 will add a second entry for the Quote Engine itself
+      // (visible to techs); for now this is owner/admin-only since
+      // the page exposes wholesale costs.
+      id: 'tireSuppliers',
+      label: 'Tire Suppliers',
+      icon: '🛞',
+      hint: 'Manage tire supplier prices · CSV bulk import',
+      visible: permissions.canEditPricingSettings,
+    },
+    {
       id: 'help',
       label: 'Help & FAQ',
       icon: '❓',
