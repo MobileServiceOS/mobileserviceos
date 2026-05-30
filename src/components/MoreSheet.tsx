@@ -100,6 +100,16 @@ export function MoreSheet({ onClose, onPick }: Props) {
       visible: permissions.canEditPricingSettings,
     },
     {
+      // Quote History — Phase 4. Tech-accessible. Cost/profit
+      // columns hide for techs via the same client-side mask the
+      // Quote Engine cards use (canEditPricingSettings).
+      id: 'tireQuoteHistory',
+      label: 'Quote History',
+      icon: '📜',
+      hint: 'View saved quotes · convert · mark accepted/declined',
+      visible: true,
+    },
+    {
       id: 'help',
       label: 'Help & FAQ',
       icon: '❓',

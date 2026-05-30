@@ -35,6 +35,10 @@ const TireSupplierDatabase = lazy(() =>
 const TireQuoteEngine = lazy(() =>
   import('@/pages/TireQuoteEngine').then((m) => ({ default: m.TireQuoteEngine })),
 );
+// Tire Quote History — Phase 4 page. Tech-accessible.
+const TireQuoteHistory = lazy(() =>
+  import('@/pages/TireQuoteHistory').then((m) => ({ default: m.TireQuoteHistory })),
+);
 import { Header } from '@/components/Header';
 import { ToastHost } from '@/components/ToastHost';
 import { InstallBanner } from '@/components/InstallBanner';
@@ -1413,6 +1417,7 @@ function AuthenticatedApp({ user }: { user: User }) {
     if (tab === 'help') return <Help onBack={() => setTab('dashboard')} />;
     if (tab === 'tireSuppliers') return <TireSupplierDatabase />;
     if (tab === 'tireQuoteEngine') return <TireQuoteEngine setTab={setTab} onCreateJobFromQuote={handleCreateJobFromQuote} />;
+    if (tab === 'tireQuoteHistory') return <TireQuoteHistory setTab={setTab} onCreateJobFromQuote={handleCreateJobFromQuote} />;
     if (tab === 'success' && savedJob) {
       // Use the LIVE job from the jobs array, not the frozen
       // post-save snapshot — so an action taken on the success
@@ -1565,7 +1570,7 @@ function AuthenticatedApp({ user }: { user: User }) {
           <span className="nav-ico">🛞</span><span>Inv</span>
         </button>
         <button
-          className={'nav-btn' + ((tab === 'settings' || tab === 'payouts' || tab === 'expenses' || tab === 'customers' || tab === 'insights' || tab === 'help' || tab === 'tireSuppliers' || tab === 'tireQuoteEngine') ? ' active' : '')}
+          className={'nav-btn' + ((tab === 'settings' || tab === 'payouts' || tab === 'expenses' || tab === 'customers' || tab === 'insights' || tab === 'help' || tab === 'tireSuppliers' || tab === 'tireQuoteEngine' || tab === 'tireQuoteHistory') ? ' active' : '')}
           onClick={() => setMoreOpen(true)}
         >
           <span className="nav-ico">⚙</span><span>More</span>
