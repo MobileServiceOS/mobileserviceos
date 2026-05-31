@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { Job, Settings, InventoryItem, TireSource } from '@/types';
 import {
   DEFAULT_SERVICE_PRICING, DEFAULT_VEHICLE_PRICING,
@@ -20,6 +20,7 @@ import type { BusinessTypeJobField } from '@/config/businessTypes/registry';
 import { PartsSection } from '@/components/addJob/PartsSection';
 import { AssignmentPicker } from '@/components/addJob/AssignmentPicker';
 import { ServicePicker } from '@/components/addJob/ServicePicker';
+import { MemoInput, MemoTextarea, MemoSelect } from '@/components/addJob/MemoInput';
 import { useMembership } from '@/context/MembershipContext';
 import { useBusinessMembers } from '@/lib/useBusinessMembers';
 
@@ -99,7 +100,13 @@ function DynamicJobField({
 
 interface Props {
   job: Job;
-  setJob: (next: Job) => void;
+  // Widened to accept the function-form setter from React useState.
+  // Perf P1-3 fix (2026-05-31): per-keystroke updates use the
+  // function form (`setJob((prev) => ({ ...prev, [k]: v }))`) so
+  // the update closure doesn't capture the current `job` value.
+  // That keeps the `set` helper below stable across renders, which
+  // in turn lets memoized field components actually skip re-render.
+  setJob: Dispatch<SetStateAction<Job>>;
   settings: Settings;
   inventory: InventoryItem[];
   /** Job history — drives frequency-ranked chip ordering. Pass the
@@ -197,7 +204,35 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
   // since that field was introduced (much smaller corpus).
   const rankedPaymentMethods = useMemo(() => rankByUsage(PAYMENT_METHODS, jobs, 'payment'), [jobs]);
 
-  const set = <K extends keyof Job>(k: K, v: Job[K]) => setJob({ ...job, [k]: v });
+  // Perf P1-3 fix (2026-05-31): function-form setter + useCallback so
+  // `set` is a STABLE reference across renders. Inputs that receive
+  // `set` (directly or via FormField) can be wrapped in React.memo
+  // without their onChange invalidating every keystroke. The previous
+  // shape `setJob({ ...job, [k]: v })` closed over the current `job`
+  // value, which meant `set` was reconstructed every render and any
+  // memoization downstream was useless.
+  const set = useCallback(<K extends keyof Job>(k: K, v: Job[K]): void => {
+    setJob((prev) => ({ ...prev, [k]: v }));
+  }, [setJob]);
+
+  // Stable per-field setter callbacks. Built once (set is stable) and
+  // passed into MemoInput / MemoTextarea / MemoSelect components.
+  // Each callback receives the raw string from the input event; field-
+  // specific coercion happens here so the MemoInput primitives stay
+  // type-agnostic.
+  const fieldSetters = useMemo(() => ({
+    customerName:        (v: string) => set('customerName', v),
+    customerPhonePartial:(v: string) => set('customerPhone', formatPhonePartial(v)),
+    customerPhoneBlur:   (v: string) => set('customerPhone', formatPhone(v)),
+    tireSize:            (v: string) => set('tireSize', v),
+    qty:                 (v: string) => set('qty', v),
+    tireVendor:          (v: string) => set('tireVendor', v),
+    tirePurchasePrice:   (v: string) => set('tirePurchasePrice', v),
+    tireCondition:       (v: string) => set('tireCondition', v as 'New' | 'Used' | ''),
+    tireBrand:           (v: string) => set('tireBrand', v),
+    tireNotes:           (v: string) => set('tireNotes', v),
+    materialCost:        (v: string) => set('materialCost', v),
+  }), [set]);
 
   // needsTireDetails: only relevant for verticals with
   // inventoryDeduction. Mechanic / detailing always evaluate to
@@ -216,7 +251,7 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
         laborHours: job.laborHours, partsCost: job.partsCost,
         diagnosticFee: job.diagnosticFee, vehicleSize: job.vehicleSize,
       }, settings);
-      setJob({ ...job, revenue: q.suggested });
+      setJob((prev) => ({ ...prev, revenue: q.suggested }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job.service, job.vehicleType]);
@@ -242,18 +277,38 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
   const { brand } = useBrand();
   useEffect(() => {
     if (!isEditing && !job.state && brand.state) {
-      setJob({
-        ...job,
+      setJob((prev) => ({
+        ...prev,
         state: brand.state,
-        city: job.city || brand.mainCity || '',
-        fullLocationLabel: job.fullLocationLabel ||
-          (brand.mainCity && brand.state ? `${brand.mainCity}, ${brand.state}` : (job.area || '')),
-      });
+        city: prev.city || brand.mainCity || '',
+        fullLocationLabel: prev.fullLocationLabel ||
+          (brand.mainCity && brand.state ? `${brand.mainCity}, ${brand.state}` : (prev.area || '')),
+      }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [brand.state]);
 
-  const breakdown = useMemo(() => computeBreakdownTagged(job, settings), [job, settings]);
+  // Perf P1-3 fix (2026-05-31): narrow the dep list to pricing-
+  // relevant fields only. The previous `[job, settings]` deps caused
+  // the pricing engine to recompute on every keystroke including
+  // customerName / customerPhone / city / notes — fields that don't
+  // affect price. The fields below match what liveQuote/calcQuote
+  // consumes plus the tire-specific inputs that flow into the
+  // tire pricing path. Adding a new pricing-relevant Job field
+  // requires extending this list.
+  const breakdown = useMemo(
+    () => computeBreakdownTagged(job, settings),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      job.service, job.vehicleType, job.miles,
+      job.tireCost, job.materialCost, job.qty,
+      job.emergency, job.lateNight, job.highway, job.weekend,
+      job.laborHours, job.partsCost, job.diagnosticFee, job.vehicleSize,
+      job.revenue,
+      job.tireSize, job.tireSource, job.tirePurchasePrice, job.tireCondition,
+      settings,
+    ],
+  );
 
   // Inventory plan preview (so user sees deductions before save)
   const inventoryPlan = useMemo(() => {
@@ -696,17 +751,17 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
         <div className="field-row">
           <div className="field">
             <label>Name</label>
-            <input value={job.customerName} onChange={(e) => set('customerName', e.target.value)} placeholder="John D." />
+            <MemoInput value={job.customerName} onChange={fieldSetters.customerName} placeholder="John D." />
           </div>
           <div className="field">
             <label>Phone</label>
-            <input
+            <MemoInput
               type="tel"
               inputMode="tel"
               autoComplete="tel"
               value={job.customerPhone}
-              onChange={(e) => set('customerPhone', formatPhonePartial(e.target.value))}
-              onBlur={(e) => set('customerPhone', formatPhone(e.target.value))}
+              onChange={fieldSetters.customerPhonePartial}
+              onBlur={fieldSetters.customerPhoneBlur}
               placeholder="(555) 123-4567"
             />
           </div>
@@ -723,13 +778,13 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
             onChange={(e) => {
               const c = e.target.value;
               const s = brand.state || job.state || '';
-              setJob({
-                ...job,
+              setJob((prev) => ({
+                ...prev,
                 city: c,
                 state: s,
-                area: c || job.area,
+                area: c || prev.area,
                 fullLocationLabel: c && s ? `${c}, ${s}` : c,
-              });
+              }));
               setCityOpen(true);
             }}
             onFocus={() => setCityOpen(true)}
@@ -755,13 +810,13 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
                   aria-selected={(job.city || '').toLowerCase() === c.toLowerCase()}
                   onClick={() => {
                     const s = brand.state || job.state || '';
-                    setJob({
-                      ...job,
+                    setJob((prev) => ({
+                      ...prev,
                       city: c,
                       state: s,
                       area: c,
                       fullLocationLabel: s ? `${c}, ${s}` : c,
-                    });
+                    }));
                     setCityOpen(false);
                   }}
                   style={{
@@ -782,7 +837,7 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
       {canAssign && (
         <AssignmentPicker
           value={job.assignedToUid}
-          onChange={(uid) => setJob({ ...job, assignedToUid: uid } as Job)}
+          onChange={(uid) => setJob((prev) => ({ ...prev, assignedToUid: uid }))}
           members={businessMembers}
           currentUid={currentUid}
         />
@@ -806,7 +861,7 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
                 key={field.key}
                 field={field}
                 value={(job as unknown as Record<string, unknown>)[field.key]}
-                onChange={(v) => setJob({ ...job, [field.key]: v } as Job)}
+                onChange={(v) => setJob((prev) => ({ ...prev, [field.key]: v } as Job))}
                 disabled={isSaving}
               />
             ))}
@@ -823,7 +878,7 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
           <PartsSection
             parts={job.parts ?? []}
             inventory={inventory}
-            onChange={(parts) => setJob({ ...job, parts } as Job)}
+            onChange={(parts) => setJob((prev) => ({ ...prev, parts } as Job))}
           />
         </div>
       )}
@@ -839,7 +894,7 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
           <div className="field-row">
             <div className={'field'}>
               <label>Size</label>
-              <input value={job.tireSize} onChange={(e) => set('tireSize', e.target.value)} placeholder="225/65R17" />
+              <MemoInput value={job.tireSize} onChange={fieldSetters.tireSize} placeholder="225/65R17" />
               {(() => {
                 const typed = (job.tireSize || '').trim();
                 if (!typed) return null;
@@ -877,7 +932,7 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
             </div>
             <div className={'field'}>
               <label>Qty</label>
-              <input type="number" inputMode="numeric" value={job.qty} onChange={(e) => set('qty', e.target.value)} />
+              <MemoInput type="number" inputMode="numeric" value={job.qty} onChange={fieldSetters.qty} />
             </div>
           </div>
           <div className="field">
@@ -904,25 +959,25 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
               <div className="field-row">
                 <div className="field">
                   <label>Vendor</label>
-                  <input value={job.tireVendor || ''} onChange={(e) => set('tireVendor', e.target.value)} placeholder="Discount Tire" />
+                  <MemoInput value={job.tireVendor || ''} onChange={fieldSetters.tireVendor} placeholder="Discount Tire" />
                 </div>
                 <div className="field">
                   <label>Purchase price ($)</label>
-                  <input type="number" inputMode="decimal" value={job.tirePurchasePrice || ''} onChange={(e) => set('tirePurchasePrice', e.target.value)} placeholder="0" />
+                  <MemoInput type="number" inputMode="decimal" value={job.tirePurchasePrice || ''} onChange={fieldSetters.tirePurchasePrice} placeholder="0" />
                 </div>
               </div>
               <div className="field-row">
                 <div className="field">
                   <label>Condition</label>
-                  <select value={job.tireCondition || ''} onChange={(e) => set('tireCondition', e.target.value as 'New' | 'Used' | '')}>
+                  <MemoSelect value={job.tireCondition || ''} onChange={fieldSetters.tireCondition}>
                     <option value="">Select…</option>
                     <option value="New">New</option>
                     <option value="Used">Used</option>
-                  </select>
+                  </MemoSelect>
                 </div>
                 <div className="field">
                   <label>Brand</label>
-                  <input value={job.tireBrand || ''} onChange={(e) => set('tireBrand', e.target.value)} placeholder="Michelin" />
+                  <MemoInput value={job.tireBrand || ''} onChange={fieldSetters.tireBrand} placeholder="Michelin" />
                 </div>
               </div>
               <div className="field">
@@ -958,7 +1013,7 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
               </div>
               <div className="field">
                 <label>Notes (optional)</label>
-                <textarea value={job.tireNotes || ''} onChange={(e) => set('tireNotes', e.target.value)} placeholder="Tread depth, condition notes…" />
+                <MemoTextarea value={job.tireNotes || ''} onChange={fieldSetters.tireNotes} placeholder="Tread depth, condition notes…" />
               </div>
             </div>
           )}
@@ -981,12 +1036,12 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
           {!needsTireDetails && (
             <div className={'field'}>
               <label>Quantity</label>
-              <input type="number" inputMode="numeric" value={job.qty} onChange={(e) => set('qty', e.target.value)} placeholder="1" />
+              <MemoInput type="number" inputMode="numeric" value={job.qty} onChange={fieldSetters.qty} placeholder="1" />
             </div>
           )}
           <div className="field">
             <label>Material $</label>
-            <input type="number" inputMode="decimal" value={job.materialCost} onChange={(e) => set('materialCost', e.target.value)} placeholder="0" />
+            <MemoInput type="number" inputMode="decimal" value={job.materialCost} onChange={fieldSetters.materialCost} placeholder="0" />
           </div>
         </div>
         <div className="field" style={{ marginTop: 6 }}>

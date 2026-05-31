@@ -18,7 +18,7 @@
 //  job.service path. No pricing / save / Firestore changes.
 // ═══════════════════════════════════════════════════════════════════
 
-import { useMemo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import type { BusinessTypeService } from '@/config/businessTypes/registry';
 import type { Job } from '@/types';
 import { serviceIcon } from '@/lib/utils';
@@ -42,7 +42,12 @@ interface Props {
   jobs?: ReadonlyArray<Job>;
 }
 
-export function ServicePicker({ services, enabledIds, selected, onSelect, jobs }: Props) {
+// Perf P1-3 fix (2026-05-31): React.memo so the picker doesn't
+// re-render on AddJob keystrokes that don't affect its props
+// (customer fields, miles, etc.). Selected service + the enabled
+// service list change rarely; default shallow equality is the right
+// check.
+function ServicePickerImpl({ services, enabledIds, selected, onSelect, jobs }: Props) {
   // Resolve the enabled subset, preserving config order.
   const available = useMemo(() => {
     const enabled = new Set(enabledIds);
@@ -255,6 +260,8 @@ function GroupedPicker({
     </div>
   );
 }
+
+export const ServicePicker = memo(ServicePickerImpl);
 
 function ServiceChip({
   service, selected, onSelect,
