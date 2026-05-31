@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Job, Settings, InventoryDeduction, PaymentMethod } from '@/types';
+import { useFocusTrap } from '@/lib/useFocusTrap';
 import { PAYMENT_METHOD_LABELS } from '@/types';
 import { fmtDate, jobGrossProfit, money, paymentPillClass, resolvePaymentStatus, serviceIcon } from '@/lib/utils';
 import { useActiveVertical } from '@/lib/useActiveVertical';
@@ -31,6 +32,10 @@ export function JobDetailModal({
   onGenerateInvoice, onSendInvoice, onSendReview, onMarkPaid,
   onUpdateJob,
 }: Props) {
+  // Audit a11y P1-4 (2026-05-31): keep keyboard focus inside the
+  // modal while it's open, and return focus to the card that opened
+  // it when the user closes.
+  const trapRef = useFocusTrap<HTMLDivElement>(true);
   const profit = jobGrossProfit(job, settings);
   const ps = resolvePaymentStatus(job);
   const vertical = useActiveVertical();
@@ -73,7 +78,7 @@ export function JobDetailModal({
       className="modal-overlay"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="modal-sheet" role="dialog" aria-labelledby="job-modal-title">
+      <div ref={trapRef} tabIndex={-1} className="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="job-modal-title">
         <div className="modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ fontSize: 24 }}>{serviceIcon(job.service)}</span>

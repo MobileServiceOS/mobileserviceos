@@ -45,6 +45,12 @@ export { onOwnerSubscriptionChange } from './onOwnerSubscriptionChange';
 // setup of the GCS bucket and IAM bindings — see the file header for
 // the gsutil + gcloud commands.
 export { scheduledFirestoreBackup } from './scheduledFirestoreBackup';
+
+// Weekly hard-delete of business subtrees whose owners filed a
+// deletion-request. Enforces the 30-day deletion SLA promised by the
+// Privacy Policy (src/pages/PrivacyTerms.tsx). Audit compliance P1
+// fix (2026-05-31). No operator setup required.
+export { scheduledDeletionPurge } from './scheduledDeletionPurge';
 export {
   adminApplyReferralReward,
   adminRevokeReferralReward,

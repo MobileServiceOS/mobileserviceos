@@ -6,12 +6,23 @@ export function ToastHost() {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   useEffect(() => subscribeToasts(setToasts), []);
   return (
-    <div className="toast-host">
+    // Audit a11y P1-1 (2026-05-31): announce async state changes to
+    // screen-reader users. role="region" + aria-label gives AT users
+    // a landmark to navigate to. Each individual toast then declares
+    // role={status|alert} so the message gets read out as it appears.
+    <div className="toast-host" role="region" aria-label="Notifications">
       {toasts.map((t) => (
         <div
           key={t.id}
           className={'toast ' + t.type}
           style={{ display: 'flex', alignItems: 'center', gap: 10 }}
+          // Errors and warnings interrupt the AT reading queue
+          // (role="alert" + aria-live="assertive"). Info/success
+          // toasts wait politely (role="status" + aria-live="polite")
+          // so they don't clobber a user mid-read.
+          role={t.type === 'error' || t.type === 'warn' ? 'alert' : 'status'}
+          aria-live={t.type === 'error' || t.type === 'warn' ? 'assertive' : 'polite'}
+          aria-atomic="true"
         >
           <span style={{ flex: 1 }}>{t.msg}</span>
           {t.action && (

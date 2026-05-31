@@ -1515,24 +1515,48 @@ function AuthenticatedApp({ user }: { user: User }) {
           {tabContent}
         </Suspense>
       </main>
-      <nav className="bottom-nav">
-        <button className={'nav-btn' + (tab === 'dashboard' ? ' active' : '')} onClick={() => setTab('dashboard')}>
-          <span className="nav-ico">🏠</span><span>Home</span>
+      {/* Audit a11y P1-3 (2026-05-31): bottom-nav buttons. aria-current
+          announces the active tab to screen readers; aria-hidden on the
+          emoji span stops "house emoji Home" / "single right-pointing
+          angle quotation mark" from being read out. The More button
+          uses aria-haspopup + aria-expanded so AT users know it opens
+          a popup dialog. */}
+      <nav className="bottom-nav" aria-label="Primary">
+        <button
+          className={'nav-btn' + (tab === 'dashboard' ? ' active' : '')}
+          aria-current={tab === 'dashboard' ? 'page' : undefined}
+          onClick={() => setTab('dashboard')}
+        >
+          <span className="nav-ico" aria-hidden="true">🏠</span><span>Home</span>
         </button>
-        <button className={'nav-btn' + (tab === 'history' ? ' active' : '')} onClick={() => setTab('history')}>
-          <span className="nav-ico">📋</span><span>Jobs</span>
+        <button
+          className={'nav-btn' + (tab === 'history' ? ' active' : '')}
+          aria-current={tab === 'history' ? 'page' : undefined}
+          onClick={() => setTab('history')}
+        >
+          <span className="nav-ico" aria-hidden="true">📋</span><span>Jobs</span>
         </button>
-        <button className={'nav-btn primary' + (tab === 'add' ? ' active' : '')} onClick={startNewJob}>
-          <span className="nav-ico">＋</span><span>Log</span>
+        <button
+          className={'nav-btn primary' + (tab === 'add' ? ' active' : '')}
+          aria-current={tab === 'add' ? 'page' : undefined}
+          onClick={startNewJob}
+        >
+          <span className="nav-ico" aria-hidden="true">＋</span><span>Log</span>
         </button>
-        <button className={'nav-btn' + (tab === 'inventory' ? ' active' : '')} onClick={() => setTab('inventory')}>
-          <span className="nav-ico">🛞</span><span>Inv</span>
+        <button
+          className={'nav-btn' + (tab === 'inventory' ? ' active' : '')}
+          aria-current={tab === 'inventory' ? 'page' : undefined}
+          onClick={() => setTab('inventory')}
+        >
+          <span className="nav-ico" aria-hidden="true">🛞</span><span>Inv</span>
         </button>
         <button
           className={'nav-btn' + ((tab === 'settings' || tab === 'payouts' || tab === 'expenses' || tab === 'customers' || tab === 'insights' || tab === 'help') ? ' active' : '')}
+          aria-haspopup="dialog"
+          aria-expanded={moreOpen}
           onClick={() => setMoreOpen(true)}
         >
-          <span className="nav-ico">⚙</span><span>More</span>
+          <span className="nav-ico" aria-hidden="true">⚙</span><span>More</span>
         </button>
       </nav>
       {moreOpen && (

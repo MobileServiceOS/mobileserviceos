@@ -38,11 +38,16 @@ interface MemoInputProps {
   autoComplete?: string;
   disabled?: boolean;
   className?: string;
+  // a11y P1-2 (2026-05-31): id lets parents pair this input with its
+  // visible label via htmlFor → id. AT users hear the label text
+  // (e.g. "Customer name") instead of "edit text, blank".
+  id?: string;
 }
 
-function MemoInputImpl({ value, onChange, onBlur, type, inputMode, placeholder, autoComplete, disabled, className }: MemoInputProps) {
+function MemoInputImpl({ value, onChange, onBlur, type, inputMode, placeholder, autoComplete, disabled, className, id }: MemoInputProps) {
   return (
     <input
+      id={id}
       type={type}
       inputMode={inputMode}
       value={value}
@@ -66,11 +71,13 @@ interface MemoTextareaProps {
   placeholder?: string;
   rows?: TextareaHTMLAttributes<HTMLTextAreaElement>['rows'];
   disabled?: boolean;
+  id?: string;
 }
 
-function MemoTextareaImpl({ value, onChange, placeholder, rows, disabled }: MemoTextareaProps) {
+function MemoTextareaImpl({ value, onChange, placeholder, rows, disabled, id }: MemoTextareaProps) {
   return (
     <textarea
+      id={id}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
@@ -89,11 +96,13 @@ interface MemoSelectProps {
   onChange: (value: string) => void;
   children: ReactNode;
   disabled?: boolean;
+  id?: string;
 }
 
-function MemoSelectImpl({ value, onChange, children, disabled }: MemoSelectProps) {
+function MemoSelectImpl({ value, onChange, children, disabled, id }: MemoSelectProps) {
   return (
     <select
+      id={id}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       disabled={disabled}

@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import type { TabId } from '@/types';
 import { usePermissions } from '@/context/MembershipContext';
+import { useFocusTrap } from '@/lib/useFocusTrap';
 
 // ─────────────────────────────────────────────────────────────────────
 //  MoreSheet — bottom-anchored menu opened from the "More" nav button.
@@ -35,6 +36,12 @@ interface Item {
 
 export function MoreSheet({ onClose, onPick }: Props) {
   const permissions = usePermissions();
+  // Audit a11y P1-4 (2026-05-31): trap focus inside the sheet so AT
+  // users can't Tab back into the (visually obscured) nav below. The
+  // hook also focuses the first interactive element on mount and
+  // returns focus to the "More" button on close. The sheet is always
+  // open while this component renders, so we pass `true`.
+  const trapRef = useFocusTrap<HTMLDivElement>(true);
 
   // Lock body scroll while open + close on Escape.
   useEffect(() => {
@@ -107,7 +114,10 @@ export function MoreSheet({ onClose, onPick }: Props) {
       }}
     >
       <div
+        ref={trapRef}
+        tabIndex={-1}
         className="more-sheet card-anim"
+        aria-modal="true"
         role="dialog"
         aria-label="More options"
         onClick={(e) => e.stopPropagation()}
