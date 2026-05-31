@@ -140,15 +140,26 @@ export const onSubscriptionWrite = functions
         referralId: referral.id,
       });
 
+      // Hotfix (2026-05-31, audit P1): stamp _counterIncremented:true
+      // in the SAME update that flips status → 'rewarded'. The
+      // onReferralStatusChanged trigger (firestoreTriggers.ts) reads
+      // this marker via shouldIncrementReferralCounter() and skips
+      // its defensive increment when it sees the marker. Without the
+      // marker, the trigger would increment in parallel with the
+      // increment below — every successful referral would count
+      // twice on referralCreditsMonths.
       await refDocSnap.ref.update({
         status: 'rewarded',
         rewardedAt: new Date().toISOString(),
         stripeBalanceTransactionId: balanceTransactionId,
         creditAmountUsd,
+        _counterIncremented: true,
       });
 
       // Increment the referrer's tally fields. Admin SDK bypasses
-      // rules, so the locked reward fields update cleanly.
+      // rules, so the locked reward fields update cleanly. This is
+      // the CANONICAL increment path; the trigger above is a
+      // defensive fallback for the admin-manual-reward case.
       const referrerSettingsRef = db
         .collection('businesses')
         .doc(referral.referrerBusinessId)
