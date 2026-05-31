@@ -274,11 +274,30 @@ export function Dashboard({
   // hero so the operator gets an instant "what did today actually
   // produce?" snapshot. For technicians, costs/profit are hidden;
   // only the count is shown.
-  const todayTotals = useMemo(() => weekSummary(todayJobs, settings), [todayJobs, settings]);
+  // Audit P1-4 (2026-05-31): the three useMemos below previously
+  // depended on the entire `settings` object. Any unrelated settings
+  // listener update (expenses, brand, servicePricing, etc.) would
+  // invalidate the totals — even though `weekSummary` only reads
+  // settings.freeMilesIncluded and settings.costPerMile. Narrowing
+  // the deps to those two fields stops the cascade. weekSummary's
+  // implementation is verified in src/lib/utils.ts:192-217.
+  const todayTotals = useMemo(
+    () => weekSummary(todayJobs, settings),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [todayJobs, settings.freeMilesIncluded, settings.costPerMile],
+  );
   const todayCosts = r2(Math.max(0, (todayTotals.revenue || 0) - (todayTotals.grossProfit || 0)));
 
-  const totals = useMemo(() => weekSummary(weekJobs, settings), [weekJobs, settings]);
-  const lastWeekTotals = useMemo(() => weekSummary(lastWeekJobs, settings), [lastWeekJobs, settings]);
+  const totals = useMemo(
+    () => weekSummary(weekJobs, settings),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [weekJobs, settings.freeMilesIncluded, settings.costPerMile],
+  );
+  const lastWeekTotals = useMemo(
+    () => weekSummary(lastWeekJobs, settings),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [lastWeekJobs, settings.freeMilesIncluded, settings.costPerMile],
+  );
   const avgProfit = weekJobs.length ? r2(totals.grossProfit / weekJobs.length) : 0;
   // avgRevenue is the tech-safe version of avgProfit — surfaces an
   // average that doesn't expose company-level profit math. Used in
