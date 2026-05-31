@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { _auth, _db, scopedCol, fbDelete, fbListen, fbSet, fbSetFast, initError } from '@/lib/firebase';
+import { buildJobsListenerQuery } from '@/lib/jobsQuery';
 import { BrandProvider, useBrand } from '@/context/BrandContext';
 import { MembershipProvider, usePermissions, useMembership } from '@/context/MembershipContext';
 import { BusinessSwitcherProvider } from '@/context/BusinessSwitcherContext';
@@ -482,7 +483,14 @@ function AuthenticatedApp({ user }: { user: User }) {
       addToast(humanizeFirestoreError(e), 'warn');
     };
 
-    unsubs.push(fbListen(scopedCol(businessId, 'jobs'), (docs) => {
+    // Hotfix (2026-05-31, audit P1): the jobs listener used to
+    // subscribe to the entire collection — every cold start streamed
+    // every historical job (~2 KB/doc) down the wire before the
+    // Dashboard could render. buildJobsListenerQuery bounds the
+    // listener to the most-recent JOBS_LISTENER_PAGE_SIZE (200)
+    // jobs by `date` desc. See src/lib/jobsQuery.ts.
+    const jobsCol = scopedCol(businessId, 'jobs');
+    unsubs.push(fbListen(jobsCol ? buildJobsListenerQuery(jobsCol) : null, (docs) => {
       setJobs(docs.map(deserializeJob));
       markReady('jobs');
     }, handleErr('jobs')));

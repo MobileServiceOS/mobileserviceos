@@ -5,6 +5,7 @@ import {
   onDocumentDeleted,
 } from 'firebase-functions/v2/firestore';
 import type { ReferralDoc, ReferralStatus } from './types';
+import { shouldIncrementReferralCounter } from './lib/referralCounter';
 
 // ─────────────────────────────────────────────────────────────────────
 //  firestoreTriggers.ts — supplementary Firestore triggers
@@ -116,29 +117,33 @@ export const onReferralStatusChanged = onDocumentUpdated(
     // bump the settings counter. With it, we're idempotent: if both
     // ran, the increment math still works because we check the
     // marker before incrementing.
-    if (nextStatus === 'rewarded' && prevStatus !== 'rewarded') {
-      // Marker check: if the doc has been re-saved by us before with
-      // a counter-incremented flag, skip.
-      const counterFlag = (after as ReferralDoc & { _counterIncremented?: boolean })._counterIncremented;
-      if (!counterFlag) {
-        await referrerSettingsRef.set({
-          referralCreditsMonths: admin.firestore.FieldValue.increment(1),
-          totalSuccessfulReferrals: admin.firestore.FieldValue.increment(1),
-        }, { merge: true });
+    // The decision is delegated to the pure helper so it can be unit
+    // tested independently of the Functions emulator. See
+    // functions/src/lib/referralCounter.ts and
+    // tests/referralCounter.test.ts for the regression contract.
+    const counterFlag = (after as ReferralDoc & { _counterIncremented?: boolean })._counterIncremented;
+    if (shouldIncrementReferralCounter({
+      prevStatus,
+      nextStatus,
+      markerSet: counterFlag === true,
+    })) {
+      await referrerSettingsRef.set({
+        referralCreditsMonths: admin.firestore.FieldValue.increment(1),
+        totalSuccessfulReferrals: admin.firestore.FieldValue.increment(1),
+      }, { merge: true });
 
-        // Stamp the marker so future re-runs of this trigger don't
-        // double-count. This write also fires the trigger again, but
-        // the status doesn't change so the trigger early-returns.
-        await event.data.after.ref.update({
-          _counterIncremented: true,
-        });
+      // Stamp the marker so future re-runs of this trigger don't
+      // double-count. This write also fires the trigger again, but
+      // the status doesn't change so the trigger early-returns.
+      await event.data.after.ref.update({
+        _counterIncremented: true,
+      });
 
-        // eslint-disable-next-line no-console
-        console.info('[referrals] reward counters synced', {
-          referralId: event.params.referralId,
-          referrerBusinessId: after.referrerBusinessId,
-        });
-      }
+      // eslint-disable-next-line no-console
+      console.info('[referrals] reward counters synced', {
+        referralId: event.params.referralId,
+        referrerBusinessId: after.referrerBusinessId,
+      });
     }
   },
 );

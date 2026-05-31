@@ -3,6 +3,7 @@ import { doc, onSnapshot, type Unsubscribe } from 'firebase/firestore';
 import { _db, _auth } from '@/lib/firebase';
 import type { MemberDoc, Permissions, Role, Settings } from '@/types';
 import { getPermissions } from '@/lib/permissions';
+import { resolveMemberRole } from '@/lib/resolveMemberRole';
 import { useBrand } from '@/context/BrandContext';
 import { isBillingExempt } from '@/lib/planAccess';
 
@@ -183,12 +184,17 @@ export function MembershipProvider({ settings, children }: ProviderProps) {
           // Real member doc — coerce to our type, falling back to safe
           // defaults if any required field is missing (older docs from
           // pre-batch-2 may lack `status` or `assignedBusinessId`).
+          //
+          // Hotfix (2026-05-31, audit P1): the role default was 'owner',
+          // which silently granted full privileges to any member doc
+          // with a missing role field. Now resolves via the typed
+          // helper that defaults to 'technician' (least privilege).
           const data = snap.data() as Partial<MemberDoc>;
           const m: MemberDoc = {
             uid: data.uid || uid,
             email: data.email || email,
             displayName: data.displayName,
-            role: (data.role || 'owner') as Role,
+            role: resolveMemberRole(data.role),
             status: (data.status || 'active') as MemberDoc['status'],
             invitedBy: data.invitedBy,
             invitedAt: data.invitedAt,

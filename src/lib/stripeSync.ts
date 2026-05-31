@@ -53,7 +53,7 @@ import { qualifiesForFounderDiscount } from '@/lib/founderDiscount';
  *
  * See: https://github.com/invertase/firestore-stripe-payments
  */
-interface StripeSubscriptionDoc {
+export interface StripeSubscriptionDoc {
   /** Stripe subscription status. We map this onto our internal
    *  SubscriptionStatus union via the table in mapStripeStatus(). */
   status?: string;
@@ -85,7 +85,7 @@ interface StripeSubscriptionDoc {
  * Stripe statuses: incomplete, incomplete_expired, trialing, active,
  * past_due, canceled, unpaid, paused.
  */
-function mapStripeStatus(raw: string | undefined): SubscriptionStatus {
+export function mapStripeStatus(raw: string | undefined): SubscriptionStatus {
   switch (raw) {
     case 'trialing': return 'trialing';
     case 'active':   return 'active';
@@ -110,7 +110,7 @@ function mapStripeStatus(raw: string | undefined): SubscriptionStatus {
  * Defaults to 'pro' when missing — every product we sell is Pro
  * for now, so a missing metadata field reasonably falls through.
  */
-function extractPlan(d: StripeSubscriptionDoc): Plan {
+export function extractPlan(d: StripeSubscriptionDoc): Plan {
   const raw = d.price?.product?.metadata?.msos_plan;
   if (raw === 'core' || raw === 'pro') return raw;
   return 'pro';
@@ -131,7 +131,7 @@ function extractPlan(d: StripeSubscriptionDoc): Plan {
  * Within the same priority bucket, the one with the most recent
  * current_period_end wins (most-recent subscription).
  */
-function pickPrimary<T extends StripeSubscriptionDoc>(docs: T[]): T | null {
+export function pickPrimary<T extends StripeSubscriptionDoc>(docs: T[]): T | null {
   if (!docs.length) return null;
   const rank: Record<string, number> = {
     active:                 1,

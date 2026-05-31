@@ -113,8 +113,18 @@ service cloud.firestore {
       // CREATE — only by owner/admin of the target business.
       // We validate against the requesting user's businessId from
       // their /users/{uid} doc. Role limited to admin|technician.
+      //
+      // Hotfix (2026-05-31, audit P1): previous rule only checked
+      // that the invite's businessId matched the inviter's user-doc
+      // businessId. A technician (whose users/{uid}.businessId
+      // legitimately points at their team's business) could create
+      // an invite with role:'admin' for an email they control,
+      // accept it from a second tab, and self-promote to admin.
+      // Added the isOwnerOrAdmin(userBusinessId()) guard to close
+      // the path.
       allow create: if isSignedIn()
         && request.resource.data.businessId == userBusinessId()
+        && isOwnerOrAdmin(userBusinessId())
         && request.resource.data.invitedBy == request.auth.uid
         && request.resource.data.status == 'pending'
         && (request.resource.data.role == 'admin' || request.resource.data.role == 'technician')
