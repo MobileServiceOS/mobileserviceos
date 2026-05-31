@@ -622,41 +622,6 @@ export async function generateInvoicePDF(
   }
 
   // ═════════════════════════════════════════════════════════════════
-  //  CUSTOMER SIGNATURE (Phase 4) — embedded as an image when
-  //  captured via the JobDetailModal SignaturePad. The data URL is
-  //  stored on job.signatureDataUrl as PNG; jsPDF accepts data URLs
-  //  directly via addImage. Box sized to 70mm wide × 22mm tall —
-  //  enough room for a finger signature without dominating the
-  //  invoice. Signed-at timestamp printed underneath in small text.
-  // ═════════════════════════════════════════════════════════════════
-  if (job.signatureDataUrl && typeof job.signatureDataUrl === 'string' && job.signatureDataUrl.startsWith('data:image/')) {
-    const sigBoxW = 70;
-    const sigBoxH = 22;
-    y += 2;
-    doc.setDrawColor(...LIGHT_GRAY);
-    doc.setLineWidth(0.2);
-    doc.roundedRect(M, y, sigBoxW, sigBoxH, 1.5, 1.5, 'S');
-    try {
-      doc.addImage(job.signatureDataUrl, 'PNG', M + 2, y + 2, sigBoxW - 4, sigBoxH - 4);
-    } catch (e) {
-      // Defensive — corrupt data URL shouldn't break the invoice.
-      // eslint-disable-next-line no-console
-      console.warn('[invoice] signature embed failed (non-fatal):', e);
-    }
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7);
-    doc.setTextColor(...GRAY);
-    doc.text('Customer signature', M, y + sigBoxH + 3);
-    if (job.signatureCapturedAt) {
-      try {
-        const signedAt = new Date(job.signatureCapturedAt).toLocaleString();
-        doc.text(signedAt, M + sigBoxW, y + sigBoxH + 3, { align: 'right' });
-      } catch { /* malformed timestamp - skip */ }
-    }
-    y += sigBoxH + 8;
-  }
-
-  // ═════════════════════════════════════════════════════════════════
   //  WARRANTY (#13) — per-business toggle (Pro feature — warranty
   //  branding is a Pro tier perk along with logo and brand color)
   // ═════════════════════════════════════════════════════════════════

@@ -8,7 +8,6 @@ import { useBrand } from '@/context/BrandContext';
 import { useMembersDirectory } from '@/lib/useMembersDirectory';
 import { JobTimer } from '@/components/JobDetailModal/JobTimer';
 import { JobPhotoCapture } from '@/components/JobPhotoCapture';
-import { SignaturePad } from '@/components/SignaturePad';
 
 interface Props {
   job: Job;
@@ -172,24 +171,6 @@ export function JobDetailModal({
                 onChange={(next) => { void onUpdateJob({ photos: next }); }}
               />
             </div>
-          )}
-
-          {/* Phase 4 — Customer signature. Captures a PNG data URL
-              persisted on the job for the invoice PDF to embed.
-              Renders a tap-to-open sheet so the pad doesn't eat
-              vertical space when no signature is needed. */}
-          {onUpdateJob && (
-            <SignatureSection
-              job={job}
-              onCapture={(dataUrl) => onUpdateJob({
-                signatureDataUrl: dataUrl,
-                signatureCapturedAt: new Date().toISOString(),
-              })}
-              onClear={() => onUpdateJob({
-                signatureDataUrl: undefined,
-                signatureCapturedAt: undefined,
-              })}
-            />
           )}
 
           {/* Mechanic-specific service details. Only renders when the
@@ -477,74 +458,3 @@ function LocationRow({ label }: { label: string }) {
   );
 }
 
-// ─── Customer signature section ────────────────────────────────────
-// Captured value persists on the job for the invoice PDF to embed.
-// Renders three states:
-//   • not captured → "Capture signature" button
-//   • captured     → thumbnail + "Recapture" / "Clear" actions
-//   • capturing    → inline SignaturePad
-function SignatureSection({
-  job, onCapture, onClear,
-}: { job: Job; onCapture: (dataUrl: string) => void; onClear: () => void }) {
-  const [capturing, setCapturing] = useState(false);
-  const hasSignature = !!job.signatureDataUrl;
-
-  return (
-    <div className="form-group" style={{ marginBottom: 12 }}>
-      <div className="form-group-title">Signature</div>
-      {capturing ? (
-        <SignaturePad
-          initial={job.signatureDataUrl}
-          onCapture={(dataUrl) => { onCapture(dataUrl); setCapturing(false); }}
-          onCancel={() => setCapturing(false)}
-        />
-      ) : hasSignature ? (
-        <>
-          <img
-            src={job.signatureDataUrl}
-            alt="Customer signature"
-            style={{
-              display: 'block', width: '100%',
-              maxHeight: 140, objectFit: 'contain',
-              background: 'var(--s2)',
-              border: '1px solid var(--border)',
-              borderRadius: 10, padding: 8,
-            }}
-          />
-          {job.signatureCapturedAt && (
-            <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 6 }}>
-              Signed {new Date(job.signatureCapturedAt).toLocaleString()}
-            </div>
-          )}
-          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-            <button
-              type="button"
-              className="btn sm secondary"
-              onClick={() => setCapturing(true)}
-              style={{ flex: 1 }}
-            >
-              Recapture
-            </button>
-            <button
-              type="button"
-              className="btn sm ghost"
-              onClick={() => { if (window.confirm('Remove signature?')) onClear(); }}
-              style={{ flex: 1, color: '#ef4444' }}
-            >
-              Clear
-            </button>
-          </div>
-        </>
-      ) : (
-        <button
-          type="button"
-          className="btn sm secondary"
-          onClick={() => setCapturing(true)}
-          style={{ width: '100%' }}
-        >
-          ✍ Capture customer signature
-        </button>
-      )}
-    </div>
-  );
-}

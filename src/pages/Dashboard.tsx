@@ -53,7 +53,6 @@ interface Props {
    *  Use this for every "log a new job" CTA; setTab('add') alone
    *  preloads the last-saved job into the form. */
   onNewJob: () => void;
-  onStartJob: (form: QuoteForm) => void;
   onViewJob: (j: Job) => void;
   onGenerateInvoice: (j: Job) => void;
   /** Optional invoice-send handler. Reserved for future per-job
@@ -166,7 +165,7 @@ function SubKpi({ label, value, tone }: { label: string; value: string; tone: 'n
 export function Dashboard({
   jobs: rawJobs, settings, inventory, setTab, onNewJob,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  onStartJob, onViewJob, onGenerateInvoice, onSendInvoice, onSendReview, onMarkPaid, onEditJob,
+  onViewJob, onGenerateInvoice, onSendInvoice, onSendReview, onMarkPaid, onEditJob,
   onLogExpense,
 }: Props) {
   const [quickExpenseOpen, setQuickExpenseOpen] = useState(false);
@@ -465,10 +464,6 @@ export function Dashboard({
       : qqMode === 'premium'
         ? quote.premium
         : quote.suggested;
-
-  const handleStartJob = () => {
-    onStartJob({ ...qqForm, revenue: qqRevenue });
-  };
 
   // Development-only role-resolution log (spec: defensive check).
   useEffect(() => {
@@ -1004,9 +999,6 @@ export function Dashboard({
         {qqDetailsOpen && (
           <div className="qq-meta">Direct cost {money(quote.directCosts)} · target profit {money(quote.targetProfit)}</div>
         )}
-        <button className="cta-btn press-scale qq-cta" onClick={handleStartJob}>
-          Start Job at {money(qqRevenue)} →
-        </button>
       </div>
 
       {/* ─── 7. Lead Sources — owner/admin only ──────────────────── */}

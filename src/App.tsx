@@ -839,26 +839,6 @@ function AuthenticatedApp({ user }: { user: User }) {
     setTab('add');
   }, []);
 
-  const handleStartJob = useCallback((form: QuoteForm) => {
-    setJobDraft({
-      ...EMPTY_JOB(),
-      service: form.service,
-      vehicleType: form.vehicleType,
-      miles: form.miles ?? '',
-      tireCost: form.tireCost ?? '',
-      materialCost: form.materialCost ?? '',
-      qty: form.qty ?? 1,
-      revenue: form.revenue ?? '',
-      emergency: !!form.emergency,
-      lateNight: !!form.lateNight,
-      highway: !!form.highway,
-      weekend: !!form.weekend,
-    });
-    setEditingJobId(null);
-    setPrefilledFromQuote(true);
-    setTab('add');
-  }, []);
-
   const saveJob = useCallback(async (resetAfter = false): Promise<Job | null> => {
     if (!businessId) { addToast('Sign in to save', 'warn'); return null; }
     const j = jobDraft;
@@ -1352,7 +1332,6 @@ function AuthenticatedApp({ user }: { user: User }) {
           inventory={inventory}
           setTab={setTab}
           onNewJob={startNewJob}
-          onStartJob={handleStartJob}
           onViewJob={handleViewJob}
           onGenerateInvoice={handleGenerateInvoice}
           onSendInvoice={handleSendInvoice}
@@ -1421,7 +1400,7 @@ function AuthenticatedApp({ user }: { user: User }) {
     }
     return null;
   }, [tab, jobs, settings, inventory, jobDraft, editingJobId, prefilledFromQuote, savedJob, brand,
-      handleStartJob, handleViewJob, handleGenerateInvoice, handleSendReview, handleMarkPaid,
+      handleViewJob, handleGenerateInvoice, handleSendReview, handleMarkPaid,
       handleEditJob, handleDuplicate, saveJob, startNewJob, persistExpenses, persistInventory, persistSettings]);
 
   if (brandLoading) {
