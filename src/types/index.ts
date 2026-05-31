@@ -707,14 +707,6 @@ export interface Job {
    *  compressed to ~200-500KB JPEGs before upload to keep field
    *  bandwidth usage low. Up to 12 photos per job. */
   photos?: string[];
-  /** Customer signature captured on completion. Stored as a base64
-   *  data URL (small enough — typically 5-20 KB after the canvas
-   *  PNG export) so the invoice PDF can embed it inline without a
-   *  separate Storage roundtrip at render time. */
-  signatureDataUrl?: string;
-  /** ISO timestamp the signature was captured. Surfaced on the
-   *  invoice PDF beside the signature box. */
-  signatureCapturedAt?: string;
   inventoryDeductions?: InventoryDeduction[] | string | null;
   inventoryUsed?: unknown;
   paymentStatus: PaymentStatus;
