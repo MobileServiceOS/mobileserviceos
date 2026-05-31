@@ -60,30 +60,6 @@ export {
   onReferralCodeDeleted,
 } from './firestoreTriggers';
 
-// Wheel Rush-only private callable: searches ATD / Advance Tire /
-// U.S. AutoForce for live supplier pricing. Phase 1 returns mock
-// catalog data; Phase 2 swaps the connector bodies for real portal
-// calls without touching this entry point.
-//
-// Access enforced inside the function: auth → Wheel Rush businessId
-// (sourced from secret) → owner/admin role → token-bucket rate limit.
-// Required secrets (set via `firebase functions:secrets:set`):
-//   WHEEL_RUSH_COMPANY_ID, ATD_USERNAME, ATD_PASSWORD,
-//   ADVANCE_TIRE_USERNAME, ADVANCE_TIRE_PASSWORD,
-//   USAUTOFORCE_USERNAME, USAUTOFORCE_PASSWORD
-export { searchWheelRushSupplierPricing } from './searchWheelRushSupplierPricing';
-
-// Phase 2a (Manual Login Session Reuse). Owner submits a cURL string
-// copied from their browser DevTools after a manual U.S. AutoForce
-// login; we extract the Cookie header and write a new version of
-// WHEELRUSH_USAUTOFORCE_SESSION in Secret Manager. The connector
-// reads the latest version on every search. See
-// setWheelRushSupplierSession.ts for the gate + parsing details.
-export {
-  setWheelRushSupplierSession,
-  verifyWheelRushSupplierSession,
-} from './setWheelRushSupplierSession';
-
 // Standalone Stripe webhook — kept as source for future migration
 // flexibility but NOT exported here. Production uses the Firebase
 // Stripe Extension's webhook (ext-firestore-stripe-payments-

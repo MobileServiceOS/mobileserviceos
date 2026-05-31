@@ -25,7 +25,6 @@ const Insights  = lazy(() => import('@/pages/Insights').then((m)  => ({ default:
 const Payouts   = lazy(() => import('@/pages/Payouts').then((m)   => ({ default: m.Payouts })));
 const Expenses  = lazy(() => import('@/pages/Expenses').then((m)  => ({ default: m.Expenses })));
 const Settings  = lazy(() => import('@/pages/Settings').then((m)  => ({ default: m.Settings })));
-const SupplierSessionManager = lazy(() => import('@/pages/SupplierSessionManager').then((m) => ({ default: m.SupplierSessionManager })));
 import { Header } from '@/components/Header';
 import { ToastHost } from '@/components/ToastHost';
 import { InstallBanner } from '@/components/InstallBanner';
@@ -1370,9 +1369,6 @@ function AuthenticatedApp({ user }: { user: User }) {
     if (tab === 'inventory') return <Inventory inventory={inventory} onSave={persistInventory} settings={settings} jobs={jobs} />;
     if (tab === 'settings') return <Settings settings={settings} onSave={persistSettings} />;
     if (tab === 'help') return <Help onBack={() => setTab('dashboard')} />;
-    if (tab === 'supplierSession') {
-      return <SupplierSessionManager settings={settings} onBack={() => setTab('dashboard')} />;
-    }
     if (tab === 'success' && savedJob) {
       // Use the LIVE job from the jobs array, not the frozen
       // post-save snapshot — so an action taken on the success
@@ -1533,7 +1529,6 @@ function AuthenticatedApp({ user }: { user: User }) {
       </nav>
       {moreOpen && (
         <MoreSheet
-          settings={settings}
           onClose={() => setMoreOpen(false)}
           onPick={(t) => { setTab(t); setMoreOpen(false); }}
         />
