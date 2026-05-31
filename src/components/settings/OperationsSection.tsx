@@ -55,12 +55,12 @@ function OperationsForm({ settings, onSave }: Props) {
     <>
       <div className="field-row">
         <div className="field">
-          <label>Weekly revenue goal ($)</label>
-          <NumberField value={draft.weeklyGoal} onChange={(n) => set('weeklyGoal', n)} placeholder="1500" />
+          <label htmlFor="settings-weekly-goal">Weekly revenue goal ($)</label>
+          <NumberField id="settings-weekly-goal" value={draft.weeklyGoal} onChange={(n) => set('weeklyGoal', n)} placeholder="1500" />
         </div>
         <div className="field">
-          <label>Tax reserve (%)</label>
-          <NumberField value={draft.taxRate} onChange={(n) => set('taxRate', n)} placeholder="25" />
+          <label htmlFor="settings-tax-reserve">Tax reserve (%)</label>
+          <NumberField id="settings-tax-reserve" value={draft.taxRate} onChange={(n) => set('taxRate', n)} placeholder="25" />
           <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 4, lineHeight: 1.4 }}>
             How much of net revenue to set aside for income/self-employment tax. Shows on Payouts. <em>This is NOT sales tax</em> — set customer-facing sales tax under Settings → Invoices.
           </div>
@@ -74,8 +74,9 @@ function OperationsForm({ settings, onSave }: Props) {
           their actual operational week. */}
       <div className="field-row">
         <div className="field">
-          <label>Work week starts on</label>
+          <label htmlFor="settings-work-week-start">Work week starts on</label>
           <select
+            id="settings-work-week-start"
             value={typeof draft.workWeekStartDay === 'number' ? draft.workWeekStartDay : 1}
             onChange={(e) => set('workWeekStartDay', Number(e.target.value) as 0 | 1 | 2 | 3 | 4 | 5 | 6)}
           >
@@ -89,8 +90,9 @@ function OperationsForm({ settings, onSave }: Props) {
           </select>
         </div>
         <div className="field">
-          <label>Technician weekly jobs goal</label>
+          <label htmlFor="settings-tech-weekly-goal">Technician weekly jobs goal</label>
           <NumberField
+            id="settings-tech-weekly-goal"
             value={draft.technicianWeeklyJobsGoal ?? 5}
             onChange={(n) => set('technicianWeeklyJobsGoal', n)}
             decimals={false}
@@ -101,12 +103,13 @@ function OperationsForm({ settings, onSave }: Props) {
 
       <div className="field-row">
         <div className="field">
-          <label>Cost per mile ($)</label>
-          <NumberField value={draft.costPerMile} onChange={(n) => set('costPerMile', n)} placeholder="0" />
+          <label htmlFor="settings-cost-per-mile">Cost per mile ($)</label>
+          <NumberField id="settings-cost-per-mile" value={draft.costPerMile} onChange={(n) => set('costPerMile', n)} placeholder="0" />
         </div>
         <div className="field">
-          <label>Free miles included</label>
+          <label htmlFor="settings-free-miles">Free miles included</label>
           <NumberField
+            id="settings-free-miles"
             value={draft.freeMilesIncluded || 0}
             onChange={(n) => set('freeMilesIncluded', n)}
             decimals={false}

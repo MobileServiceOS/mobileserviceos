@@ -71,16 +71,18 @@ function ProfitTargetsForm({ settings, onSave }: Props) {
       {vertical.key === 'tire' && (
         <div className="field-row">
           <div className="field">
-            <label>Flat repair target profit ($)</label>
+            <label htmlFor="settings-tire-repair-profit">Flat repair target profit ($)</label>
             <NumberField
+              id="settings-tire-repair-profit"
               value={draft.tireRepairTargetProfit || 0}
               onChange={(n) => set('tireRepairTargetProfit', n)}
               placeholder="0"
             />
           </div>
           <div className="field">
-            <label>Replacement target profit ($)</label>
+            <label htmlFor="settings-tire-replace-profit">Replacement target profit ($)</label>
             <NumberField
+              id="settings-tire-replace-profit"
               value={draft.tireReplacementTargetProfit || 0}
               onChange={(n) => set('tireReplacementTargetProfit', n)}
               placeholder="0"
@@ -93,16 +95,18 @@ function ProfitTargetsForm({ settings, onSave }: Props) {
         <>
           <div className="field-row">
             <div className="field">
-              <label>Labor rate ($/hr)</label>
+              <label htmlFor="settings-labor-rate">Labor rate ($/hr)</label>
               <NumberField
+                id="settings-labor-rate"
                 value={draft.laborRate ?? 95}
                 onChange={(n) => set('laborRate', n)}
                 placeholder="95"
               />
             </div>
             <div className="field">
-              <label>Parts markup default (×)</label>
+              <label htmlFor="settings-parts-markup">Parts markup default (×)</label>
               <NumberField
+                id="settings-parts-markup"
                 value={draft.partsMarkupDefault ?? 1.5}
                 onChange={(n) => set('partsMarkupDefault', n)}
                 placeholder="1.5"
@@ -111,8 +115,9 @@ function ProfitTargetsForm({ settings, onSave }: Props) {
           </div>
           <div className="field-row">
             <div className="field">
-              <label>Low-stock threshold</label>
+              <label htmlFor="settings-low-stock-threshold">Low-stock threshold</label>
               <NumberField
+                id="settings-low-stock-threshold"
                 value={draft.lowStockThreshold ?? 2}
                 onChange={(n) => set('lowStockThreshold', n)}
                 decimals={false}

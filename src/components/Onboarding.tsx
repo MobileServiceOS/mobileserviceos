@@ -453,17 +453,17 @@ export function Onboarding({ settings, onComplete }: Props) {
                 </div>
               </div>
               <div className="field">
-                <label>Business name *</label>
-                <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} placeholder="Your business name" />
+                <label htmlFor="onb-business-name">Business name *</label>
+                <input id="onb-business-name" value={businessName} onChange={(e) => setBusinessName(e.target.value)} placeholder="Your business name" />
               </div>
               <div className="field-row">
                 <div className="field">
-                  <label>Phone</label>
-                  <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(555) 123-4567" />
+                  <label htmlFor="onb-phone">Phone</label>
+                  <input id="onb-phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(555) 123-4567" />
                 </div>
                 <div className="field">
-                  <label>Email</label>
-                  <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
+                  <label htmlFor="onb-email">Email</label>
+                  <input id="onb-email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
                 </div>
               </div>
               <div className="field">
@@ -503,13 +503,13 @@ export function Onboarding({ settings, onComplete }: Props) {
                 cityPlaceholder="Start typing your city" required
               />
               <div className="field" style={{ marginTop: 14 }}>
-                <label>Other service cities (optional)</label>
-                <input value={serviceCitiesText} onChange={(e) => setServiceCitiesText(e.target.value)} placeholder="Hollywood, Hialeah, Miramar" />
+                <label htmlFor="onb-service-cities">Other service cities (optional)</label>
+                <input id="onb-service-cities" value={serviceCitiesText} onChange={(e) => setServiceCitiesText(e.target.value)} placeholder="Hollywood, Hialeah, Miramar" />
                 <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 4 }}>Comma-separated. Used in invoices and review requests.</div>
               </div>
               <div className="field">
-                <label>Service radius (miles)</label>
-                <input type="number" inputMode="numeric" value={serviceRadius} onChange={(e) => setServiceRadius(Number(e.target.value))} placeholder="25" />
+                <label htmlFor="onb-service-radius">Service radius (miles)</label>
+                <input id="onb-service-radius" type="number" inputMode="numeric" value={serviceRadius} onChange={(e) => setServiceRadius(Number(e.target.value))} placeholder="25" />
               </div>
             </div>
           )}
@@ -519,22 +519,22 @@ export function Onboarding({ settings, onComplete }: Props) {
               <div className="onboarding-step-title">Profit targets</div>
               <div className="onboarding-step-sub">Used to suggest pricing on every quote.</div>
               <div className="field">
-                <label>Weekly revenue goal ($)</label>
-                <input type="number" inputMode="decimal" value={weeklyGoal} onChange={(e) => setWeeklyGoal(Number(e.target.value))} />
+                <label htmlFor="onb-weekly-goal-tire">Weekly revenue goal ($)</label>
+                <input id="onb-weekly-goal-tire" type="number" inputMode="decimal" value={weeklyGoal} onChange={(e) => setWeeklyGoal(Number(e.target.value))} />
               </div>
               <div className="field-row">
                 <div className="field">
-                  <label>Flat repair profit ($)</label>
-                  <input type="number" inputMode="decimal" value={tireRepairProfit} onChange={(e) => setTireRepairProfit(Number(e.target.value))} />
+                  <label htmlFor="onb-tire-repair-profit">Flat repair profit ($)</label>
+                  <input id="onb-tire-repair-profit" type="number" inputMode="decimal" value={tireRepairProfit} onChange={(e) => setTireRepairProfit(Number(e.target.value))} />
                 </div>
                 <div className="field">
-                  <label>Replacement profit ($)</label>
-                  <input type="number" inputMode="decimal" value={tireReplaceProfit} onChange={(e) => setTireReplaceProfit(Number(e.target.value))} />
+                  <label htmlFor="onb-tire-replace-profit">Replacement profit ($)</label>
+                  <input id="onb-tire-replace-profit" type="number" inputMode="decimal" value={tireReplaceProfit} onChange={(e) => setTireReplaceProfit(Number(e.target.value))} />
                 </div>
               </div>
               <div className="field">
-                <label>Installation profit ($)</label>
-                <input type="number" inputMode="decimal" value={installationProfit} onChange={(e) => setInstallationProfit(Number(e.target.value))} />
+                <label htmlFor="onb-installation-profit">Installation profit ($)</label>
+                <input id="onb-installation-profit" type="number" inputMode="decimal" value={installationProfit} onChange={(e) => setInstallationProfit(Number(e.target.value))} />
               </div>
             </div>
           )}
@@ -546,8 +546,8 @@ export function Onboarding({ settings, onComplete }: Props) {
                 These power the suggested price on every job. You can fine-tune each value in Settings later.
               </div>
               <div className="field">
-                <label>Weekly revenue goal ($)</label>
-                <input type="number" inputMode="decimal" value={weeklyGoal} onChange={(e) => setWeeklyGoal(Number(e.target.value))} />
+                <label htmlFor="onb-weekly-goal-mech">Weekly revenue goal ($)</label>
+                <input id="onb-weekly-goal-mech" type="number" inputMode="decimal" value={weeklyGoal} onChange={(e) => setWeeklyGoal(Number(e.target.value))} />
               </div>
               <div className="onboarding-summary" style={{ marginTop: 14 }}>
                 <div className="onboarding-summary-row"><span>Labor rate</span><strong>{money(vertical.pricingModel.defaultLaborRate)} / hour</strong></div>
@@ -571,8 +571,8 @@ export function Onboarding({ settings, onComplete }: Props) {
                 Package prices scale by vehicle size. You can edit these in Settings after onboarding.
               </div>
               <div className="field">
-                <label>Weekly revenue goal ($)</label>
-                <input type="number" inputMode="decimal" value={weeklyGoal} onChange={(e) => setWeeklyGoal(Number(e.target.value))} />
+                <label htmlFor="onb-weekly-goal-det">Weekly revenue goal ($)</label>
+                <input id="onb-weekly-goal-det" type="number" inputMode="decimal" value={weeklyGoal} onChange={(e) => setWeeklyGoal(Number(e.target.value))} />
               </div>
               <div className="onboarding-summary" style={{ marginTop: 14 }}>
                 {Object.entries(vertical.pricingModel.vehicleSizeMultipliers).map(([size, mult]) => (
@@ -596,12 +596,12 @@ export function Onboarding({ settings, onComplete }: Props) {
               <div className="onboarding-step-sub">How travel costs are calculated.</div>
               <div className="field-row">
                 <div className="field">
-                  <label>Cost per mile ($)</label>
-                  <input type="number" inputMode="decimal" step="0.05" value={costPerMile} onChange={(e) => setCostPerMile(Number(e.target.value))} />
+                  <label htmlFor="onb-cost-per-mile">Cost per mile ($)</label>
+                  <input id="onb-cost-per-mile" type="number" inputMode="decimal" step="0.05" value={costPerMile} onChange={(e) => setCostPerMile(Number(e.target.value))} />
                 </div>
                 <div className="field">
-                  <label>Free miles included</label>
-                  <input type="number" inputMode="numeric" value={freeMiles} onChange={(e) => setFreeMiles(Number(e.target.value))} />
+                  <label htmlFor="onb-free-miles">Free miles included</label>
+                  <input id="onb-free-miles" type="number" inputMode="numeric" value={freeMiles} onChange={(e) => setFreeMiles(Number(e.target.value))} />
                 </div>
               </div>
               <div className="onboarding-summary">

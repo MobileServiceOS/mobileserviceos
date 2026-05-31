@@ -90,8 +90,9 @@ function InvoicesForm({ settings, onSave }: Props) {
     <>
       {/* Tax line — the single most important field, surfaces first. */}
       <div className="field">
-        <label>Sales tax rate on invoices (%)</label>
+        <label htmlFor="settings-invoice-tax-rate">Sales tax rate on invoices (%)</label>
         <NumberField
+          id="settings-invoice-tax-rate"
           value={sDraft.draft.invoiceTaxRate}
           onChange={(n) => sDraft.set('invoiceTaxRate', n)}
           placeholder="0"
@@ -107,8 +108,9 @@ function InvoicesForm({ settings, onSave }: Props) {
           available to every vertical (tire shops + detailers also
           offer warranties). */}
       <div className="field">
-        <label>Warranty / policy footer</label>
+        <label htmlFor="settings-warranty-policy">Warranty / policy footer</label>
         <textarea
+          id="settings-warranty-policy"
           value={sDraft.draft.warrantyPolicy ?? ''}
           onChange={(e) => sDraft.set('warrantyPolicy', e.target.value)}
           rows={2}
@@ -147,8 +149,9 @@ function InvoicesForm({ settings, onSave }: Props) {
       {/* Custom footer — white-label slot for branding / contact
           repeats / pay-by links. */}
       <div className="field">
-        <label>Custom invoice footer (optional)</label>
+        <label htmlFor="settings-invoice-footer">Custom invoice footer (optional)</label>
         <textarea
+          id="settings-invoice-footer"
           value={bDraft.draft.invoiceFooter ?? ''}
           onChange={(e) => bDraft.set('invoiceFooter', e.target.value)}
           rows={2}
