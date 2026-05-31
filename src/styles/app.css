@@ -566,7 +566,13 @@ a { color: var(--brand-primary); text-decoration: none; }
 
 /* ── Forms ──────────────────────────────────────────────── */
 .field { margin-bottom: 12px; }
-.field label { font-size: 11px; color: var(--t3); font-weight: 700; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 4px; }
+/* Audit a11y P1-6 (2026-05-31): --t3 (#71717a) on --s1 (#111315)
+   computes to ~3.7:1 contrast — fails WCAG 2.1 AA for 11px text
+   (needs ≥4.5:1). Form labels appear on every input across AddJob +
+   every settings section (50+ instances), so this one rule closes
+   the largest single-source contrast violation. --t2 (#a1a1aa) on
+   --s1 computes to ~7.4:1 — comfortably above AA threshold. */
+.field label { font-size: 11px; color: var(--t2); font-weight: 700; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 4px; }
 .field input, .field select, .field textarea {
   width: 100%;
   max-width: 100%;

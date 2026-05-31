@@ -7,6 +7,7 @@ import { addToast } from '@/lib/toast';
 import { enqueueLogoUpload } from '@/lib/uploadQueue';
 import { APP_LOGO } from '@/lib/defaults';
 import { normalizeHex } from '@/lib/utils';
+import { contrastRatio, WCAG_AA_NORMAL, APP_DARK_BG_HEX } from '@/lib/colorContrast';
 import { useDirtyDraft } from '@/lib/useDirtyDraft';
 import { AccordionShell } from '@/components/settings/AccordionShell';
 import { BrandPreview } from '@/components/settings/BrandPreview';
@@ -114,6 +115,31 @@ function BrandForm() {
         primaryColor: normalizeHex(draft.primaryColor, '#f4b400'),
         accentColor: normalizeHex(draft.accentColor, '#f7ca4d'),
       };
+      // Audit a11y P1-5 (2026-05-31): reject brand colors that render
+      // illegibly on the dark app surface. The brand primary is used
+      // as text colour on `--s1` backgrounds (banner copy, KPI hints,
+      // suggested-price labels) — if its contrast is below WCAG AA
+      // (4.5:1) the entire branded UI becomes invisible. Operators
+      // who pick a near-black slate from the preset palette were
+      // silently producing this state.
+      const primaryContrast = contrastRatio(cleanDraft.primaryColor, APP_DARK_BG_HEX);
+      if (primaryContrast < WCAG_AA_NORMAL) {
+        addToast(
+          `Primary color contrast too low (${primaryContrast.toFixed(1)}:1) — pick a lighter or more saturated shade for legible branded text.`,
+          'error',
+        );
+        setBusy(false);
+        return;
+      }
+      const accentContrast = contrastRatio(cleanDraft.accentColor, APP_DARK_BG_HEX);
+      if (accentContrast < WCAG_AA_NORMAL) {
+        addToast(
+          `Accent color contrast too low (${accentContrast.toFixed(1)}:1) — pick a lighter shade for legible accents.`,
+          'error',
+        );
+        setBusy(false);
+        return;
+      }
       await updateBrand(cleanDraft);
       // replace(_, false) — both updates the local draft to the
       // canonicalized values AND marks clean in one call. Matches

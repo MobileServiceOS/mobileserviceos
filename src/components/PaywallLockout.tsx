@@ -1,6 +1,7 @@
 import type { Settings } from '@/types';
 import { SubscribeButton } from '@/components/SubscribeButton';
 import { PRO_PRICE, CORE_PRICE } from '@/lib/pricing-display';
+import { useFocusTrap } from '@/lib/useFocusTrap';
 
 // ─────────────────────────────────────────────────────────────────────
 //  PaywallLockout — full-screen "choose a plan" gate
@@ -45,6 +46,10 @@ interface Props {
 }
 
 export function PaywallLockout({ settings, onSignOut }: Props) {
+  // Audit a11y P1-4 (2026-05-31): the paywall is a full-screen
+  // blocking dialog. Trap keyboard focus inside so AT users can't
+  // accidentally tab back into the (visually obscured) app shell.
+  const trapRef = useFocusTrap<HTMLDivElement>(true);
   // Detect arrival source for the headline copy.
   const wasTrialing = settings.subscriptionStatus === 'trialing';
   const wasCanceled = settings.subscriptionStatus === 'canceled';
@@ -65,17 +70,24 @@ export function PaywallLockout({ settings, onSignOut }: Props) {
       : 'Every plan unlocks the full feature set for your tier. Cancel anytime.';
 
   return (
-    <div style={{
-      position: 'fixed',
-      inset: 0,
-      background: 'var(--bg)',
-      zIndex: 10000,
-      overflowY: 'auto',
-      padding: '24px 18px 80px',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-    }}>
+    <div
+      ref={trapRef}
+      tabIndex={-1}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Subscription required"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'var(--bg)',
+        zIndex: 10000,
+        overflowY: 'auto',
+        padding: '24px 18px 80px',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+      }}
+    >
       <div style={{ width: '100%', maxWidth: 720, marginTop: 24 }}>
         {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: 28 }}>
