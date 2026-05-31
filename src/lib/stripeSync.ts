@@ -180,6 +180,24 @@ export function attachStripeSync(uid: string, businessId: string): Unsubscribe {
     console.warn('[stripeSync] attachStripeSync skipped — missing uid or businessId', { uid, businessId });
     return () => {};
   }
+  // P3 audit finding (2026-05-31): the businessId === ownerUid
+  // convention means uid === businessId is equivalent to "I am the
+  // owner of this business." For any other user (admin, technician)
+  // who happens to also have their own MSOS subscription, the
+  // listener fires on THEIR customers/{uid}/subscriptions and would
+  // mirror state into the owner's businesses/{bid}/settings — a
+  // privilege escalation of "tech's own past-due Stripe sub demotes
+  // owner's business." We refuse to attach the listener for non-
+  // owners so the owner's business mirror is only ever written by
+  // the owner's client. The server-side onOwnerSubscriptionChange
+  // function remains the authoritative path; once Phase 3 of the
+  // Stripe per-business rework removes attachStripeSync entirely,
+  // this gate becomes moot.
+  if (uid !== businessId) {
+    // eslint-disable-next-line no-console
+    console.info('[stripeSync] attachStripeSync skipped — caller is not the owner of this business', { uid, businessId });
+    return () => {};
+  }
   // The extension creates subscription docs only for "valid" Stripe
   // statuses; canceled/past_due are still written so the listener
   // captures the downgrade. We listen to ALL docs and let pickPrimary

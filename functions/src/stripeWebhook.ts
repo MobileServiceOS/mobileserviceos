@@ -164,9 +164,16 @@ export const stripeWebhook = onRequest(
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error('[stripeWebhook] idempotency check failed:', (err as Error).message);
-      // Continue anyway — better to risk a duplicate than to ack-and-
-      // drop the event. Stripe will retry on a 5xx response, but we
-      // want to attempt processing before giving up.
+      // P2 audit finding (2026-05-31): the previous behavior was to
+      // continue anyway "better to risk a duplicate than to ack-and-
+      // drop." Wrong tradeoff for financial events — a duplicate
+      // applyReferralReward bumps `referralCreditsMonths` without an
+      // idempotency key, so the on-disk counter drifts even though
+      // the Stripe balance transaction is protected.
+      // New behavior: return 503 so Stripe retries with exponential
+      // backoff. We never process events we can't dedupe.
+      res.status(503).send('Idempotency check unavailable — retry later');
+      return;
     }
 
     // ─── 4. Dispatch ───────────────────────────────────────────
