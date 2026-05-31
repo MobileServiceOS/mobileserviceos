@@ -6,7 +6,7 @@
 //  auto-assigned to themselves in saveJob.
 // ═══════════════════════════════════════════════════════════════════
 
-import { useMemo } from 'react';
+import { memo, useMemo } from 'react';
 import type { MemberDoc } from '@/types';
 import { assignableMembers, UNASSIGNED } from '@/lib/jobPermissions';
 
@@ -17,7 +17,9 @@ interface Props {
   currentUid: string;
 }
 
-export function AssignmentPicker({ value, onChange, members, currentUid }: Props) {
+// Perf P1-3 fix (2026-05-31): React.memo so the picker doesn't
+// re-render on AddJob keystrokes that don't affect its props.
+function AssignmentPickerImpl({ value, onChange, members, currentUid }: Props) {
   const options = useMemo(
     () => assignableMembers(members, currentUid),
     [members, currentUid],
@@ -58,3 +60,5 @@ export function AssignmentPicker({ value, onChange, members, currentUid }: Props
     </div>
   );
 }
+
+export const AssignmentPicker = memo(AssignmentPickerImpl);

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { Job, Settings, InventoryItem, TireSource } from '@/types';
 import {
   DEFAULT_SERVICE_PRICING, DEFAULT_VEHICLE_PRICING,
@@ -99,7 +99,13 @@ function DynamicJobField({
 
 interface Props {
   job: Job;
-  setJob: (next: Job) => void;
+  // Widened to accept the function-form setter from React useState.
+  // Perf P1-3 fix (2026-05-31): per-keystroke updates use the
+  // function form (`setJob((prev) => ({ ...prev, [k]: v }))`) so
+  // the update closure doesn't capture the current `job` value.
+  // That keeps the `set` helper below stable across renders, which
+  // in turn lets memoized field components actually skip re-render.
+  setJob: Dispatch<SetStateAction<Job>>;
   settings: Settings;
   inventory: InventoryItem[];
   /** Job history — drives frequency-ranked chip ordering. Pass the
@@ -197,7 +203,16 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
   // since that field was introduced (much smaller corpus).
   const rankedPaymentMethods = useMemo(() => rankByUsage(PAYMENT_METHODS, jobs, 'payment'), [jobs]);
 
-  const set = <K extends keyof Job>(k: K, v: Job[K]) => setJob({ ...job, [k]: v });
+  // Perf P1-3 fix (2026-05-31): function-form setter + useCallback so
+  // `set` is a STABLE reference across renders. Inputs that receive
+  // `set` (directly or via FormField) can be wrapped in React.memo
+  // without their onChange invalidating every keystroke. The previous
+  // shape `setJob({ ...job, [k]: v })` closed over the current `job`
+  // value, which meant `set` was reconstructed every render and any
+  // memoization downstream was useless.
+  const set = useCallback(<K extends keyof Job>(k: K, v: Job[K]): void => {
+    setJob((prev) => ({ ...prev, [k]: v }));
+  }, [setJob]);
 
   // needsTireDetails: only relevant for verticals with
   // inventoryDeduction. Mechanic / detailing always evaluate to
@@ -216,7 +231,7 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
         laborHours: job.laborHours, partsCost: job.partsCost,
         diagnosticFee: job.diagnosticFee, vehicleSize: job.vehicleSize,
       }, settings);
-      setJob({ ...job, revenue: q.suggested });
+      setJob((prev) => ({ ...prev, revenue: q.suggested }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job.service, job.vehicleType]);
@@ -242,18 +257,38 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
   const { brand } = useBrand();
   useEffect(() => {
     if (!isEditing && !job.state && brand.state) {
-      setJob({
-        ...job,
+      setJob((prev) => ({
+        ...prev,
         state: brand.state,
-        city: job.city || brand.mainCity || '',
-        fullLocationLabel: job.fullLocationLabel ||
-          (brand.mainCity && brand.state ? `${brand.mainCity}, ${brand.state}` : (job.area || '')),
-      });
+        city: prev.city || brand.mainCity || '',
+        fullLocationLabel: prev.fullLocationLabel ||
+          (brand.mainCity && brand.state ? `${brand.mainCity}, ${brand.state}` : (prev.area || '')),
+      }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [brand.state]);
 
-  const breakdown = useMemo(() => computeBreakdownTagged(job, settings), [job, settings]);
+  // Perf P1-3 fix (2026-05-31): narrow the dep list to pricing-
+  // relevant fields only. The previous `[job, settings]` deps caused
+  // the pricing engine to recompute on every keystroke including
+  // customerName / customerPhone / city / notes — fields that don't
+  // affect price. The fields below match what liveQuote/calcQuote
+  // consumes plus the tire-specific inputs that flow into the
+  // tire pricing path. Adding a new pricing-relevant Job field
+  // requires extending this list.
+  const breakdown = useMemo(
+    () => computeBreakdownTagged(job, settings),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      job.service, job.vehicleType, job.miles,
+      job.tireCost, job.materialCost, job.qty,
+      job.emergency, job.lateNight, job.highway, job.weekend,
+      job.laborHours, job.partsCost, job.diagnosticFee, job.vehicleSize,
+      job.revenue,
+      job.tireSize, job.tireSource, job.tirePurchasePrice, job.tireCondition,
+      settings,
+    ],
+  );
 
   // Inventory plan preview (so user sees deductions before save)
   const inventoryPlan = useMemo(() => {
@@ -723,13 +758,13 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
             onChange={(e) => {
               const c = e.target.value;
               const s = brand.state || job.state || '';
-              setJob({
-                ...job,
+              setJob((prev) => ({
+                ...prev,
                 city: c,
                 state: s,
-                area: c || job.area,
+                area: c || prev.area,
                 fullLocationLabel: c && s ? `${c}, ${s}` : c,
-              });
+              }));
               setCityOpen(true);
             }}
             onFocus={() => setCityOpen(true)}
@@ -755,13 +790,13 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
                   aria-selected={(job.city || '').toLowerCase() === c.toLowerCase()}
                   onClick={() => {
                     const s = brand.state || job.state || '';
-                    setJob({
-                      ...job,
+                    setJob((prev) => ({
+                      ...prev,
                       city: c,
                       state: s,
                       area: c,
                       fullLocationLabel: s ? `${c}, ${s}` : c,
-                    });
+                    }));
                     setCityOpen(false);
                   }}
                   style={{
@@ -782,7 +817,7 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
       {canAssign && (
         <AssignmentPicker
           value={job.assignedToUid}
-          onChange={(uid) => setJob({ ...job, assignedToUid: uid } as Job)}
+          onChange={(uid) => setJob((prev) => ({ ...prev, assignedToUid: uid }))}
           members={businessMembers}
           currentUid={currentUid}
         />
@@ -806,7 +841,7 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
                 key={field.key}
                 field={field}
                 value={(job as unknown as Record<string, unknown>)[field.key]}
-                onChange={(v) => setJob({ ...job, [field.key]: v } as Job)}
+                onChange={(v) => setJob((prev) => ({ ...prev, [field.key]: v } as Job))}
                 disabled={isSaving}
               />
             ))}
@@ -823,7 +858,7 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
           <PartsSection
             parts={job.parts ?? []}
             inventory={inventory}
-            onChange={(parts) => setJob({ ...job, parts } as Job)}
+            onChange={(parts) => setJob((prev) => ({ ...prev, parts } as Job))}
           />
         </div>
       )}

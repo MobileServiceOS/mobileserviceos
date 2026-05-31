@@ -6,7 +6,7 @@
 //  unitCost / source / inventoryItemId from the catalog item.
 // ═══════════════════════════════════════════════════════════════════
 
-import { useMemo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import type { JobPartLine, InventoryItem } from '@/types';
 
 interface Props {
@@ -15,7 +15,9 @@ interface Props {
   onChange: (next: ReadonlyArray<JobPartLine>) => void;
 }
 
-export function PartsSection({ parts, inventory, onChange }: Props) {
+// Perf P1-3 fix (2026-05-31): React.memo so the section doesn't
+// re-render on AddJob keystrokes that don't affect parts/inventory.
+function PartsSectionImpl({ parts, inventory, onChange }: Props) {
   const [adding, setAdding] = useState(false);
 
   const update = (idx: number, patch: Partial<JobPartLine>): void => {
@@ -68,6 +70,8 @@ export function PartsSection({ parts, inventory, onChange }: Props) {
     </div>
   );
 }
+
+export const PartsSection = memo(PartsSectionImpl);
 
 interface RowProps {
   part: JobPartLine;
