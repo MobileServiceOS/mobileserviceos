@@ -172,12 +172,13 @@ function BrandForm() {
         )}
       </div>
       <div className="field">
-        <label>Business name</label>
-        <input value={draft.businessName} onChange={(e) => set('businessName', e.target.value)} />
+        <label htmlFor="settings-business-name">Business name</label>
+        <input id="settings-business-name" value={draft.businessName} onChange={(e) => set('businessName', e.target.value)} />
       </div>
       <div className="field">
-        <label>Tagline</label>
+        <label htmlFor="settings-tagline">Tagline</label>
         <input
+          id="settings-tagline"
           value={draft.tagline}
           onChange={(e) => set('tagline', e.target.value)}
           placeholder="e.g. Roadside tire help, fast"
@@ -196,12 +197,12 @@ function BrandForm() {
 
       <div className="field-row">
         <div className="field">
-          <label>Phone</label>
-          <input type="tel" value={draft.phone} onChange={(e) => set('phone', e.target.value)} />
+          <label htmlFor="settings-brand-phone">Phone</label>
+          <input id="settings-brand-phone" type="tel" value={draft.phone} onChange={(e) => set('phone', e.target.value)} />
         </div>
         <div className="field">
-          <label>Email</label>
-          <input type="email" value={draft.email} onChange={(e) => set('email', e.target.value)} />
+          <label htmlFor="settings-brand-email">Email</label>
+          <input id="settings-brand-email" type="email" value={draft.email} onChange={(e) => set('email', e.target.value)} />
         </div>
       </div>
       <CityStateSelect
@@ -213,16 +214,18 @@ function BrandForm() {
         cityLabel="Main city" stateLabel="State"
       />
       <div className="field" style={{ marginTop: 14 }}>
-        <label>Service cities (comma-separated)</label>
+        <label htmlFor="settings-service-cities">Service cities (comma-separated)</label>
         <input
+          id="settings-service-cities"
           value={(draft.serviceCities || []).join(', ')}
           onChange={(e) => set('serviceCities', e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean))}
         />
       </div>
       <div className="field-row">
         <div className="field">
-          <label>Service radius (mi)</label>
+          <label htmlFor="settings-service-radius">Service radius (mi)</label>
           <NumberField
+            id="settings-service-radius"
             value={draft.serviceRadius || 25}
             onChange={(n) => set('serviceRadius', n)}
             decimals={false}
@@ -230,8 +233,8 @@ function BrandForm() {
           />
         </div>
         <div className="field">
-          <label>Review URL</label>
-          <input value={draft.reviewUrl} onChange={(e) => set('reviewUrl', e.target.value)} placeholder="https://g.page/r/…" />
+          <label htmlFor="settings-review-url">Review URL</label>
+          <input id="settings-review-url" value={draft.reviewUrl} onChange={(e) => set('reviewUrl', e.target.value)} placeholder="https://g.page/r/…" />
         </div>
       </div>
       {/* Review automation toggle. undefined is treated as ON, so an

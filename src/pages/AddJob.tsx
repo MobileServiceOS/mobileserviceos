@@ -515,8 +515,9 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
         <div className="form-group-title">Revenue</div>
         <div className="field-row">
           <div className="field">
-            <label>Miles to job</label>
+            <label htmlFor="addjob-miles">Miles to job</label>
             <input
+              id="addjob-miles"
               type="number"
               inputMode="decimal"
               value={job.miles}
@@ -531,8 +532,9 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
               tire cost and shouldn't show this field. */}
           {needsTireDetails && (
             <div className="field">
-              <label>Tire cost ($)</label>
+              <label htmlFor="addjob-tire-cost">Tire cost ($)</label>
               <input
+                id="addjob-tire-cost"
                 type="number"
                 inputMode="decimal"
                 value={job.tireCost}
@@ -549,7 +551,7 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
           )}
         </div>
         <div className={'field'}>
-          <label>
+          <label htmlFor="addjob-revenue">
             Revenue charged ($)
             {revenueLocked && (
               <span style={{
@@ -561,6 +563,7 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
             )}
           </label>
           <input
+            id="addjob-revenue"
             type="number"
             inputMode="decimal"
             value={job.revenue}
@@ -750,12 +753,13 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
         <div className="form-group-title">Customer</div>
         <div className="field-row">
           <div className="field">
-            <label>Name</label>
-            <MemoInput value={job.customerName} onChange={fieldSetters.customerName} placeholder="John D." />
+            <label htmlFor="addjob-customer-name">Name</label>
+            <MemoInput id="addjob-customer-name" value={job.customerName} onChange={fieldSetters.customerName} placeholder="John D." />
           </div>
           <div className="field">
-            <label>Phone</label>
+            <label htmlFor="addjob-customer-phone">Phone</label>
             <MemoInput
+              id="addjob-customer-phone"
               type="tel"
               inputMode="tel"
               autoComplete="tel"
@@ -772,8 +776,9 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
             searchCities() so common cities can be tapped instead of
             typed every single job. */}
         <div className={'field'} ref={cityWrapRef} style={{ position: 'relative' }}>
-          <label>City</label>
+          <label htmlFor="addjob-city">City</label>
           <input
+            id="addjob-city"
             value={job.city || ''}
             onChange={(e) => {
               const c = e.target.value;
@@ -893,8 +898,8 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
           <div className="form-group-title">Tire Details</div>
           <div className="field-row">
             <div className={'field'}>
-              <label>Size</label>
-              <MemoInput value={job.tireSize} onChange={fieldSetters.tireSize} placeholder="225/65R17" />
+              <label htmlFor="addjob-tire-size">Size</label>
+              <MemoInput id="addjob-tire-size" value={job.tireSize} onChange={fieldSetters.tireSize} placeholder="225/65R17" />
               {(() => {
                 const typed = (job.tireSize || '').trim();
                 if (!typed) return null;
@@ -931,8 +936,8 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
               })()}
             </div>
             <div className={'field'}>
-              <label>Qty</label>
-              <MemoInput type="number" inputMode="numeric" value={job.qty} onChange={fieldSetters.qty} />
+              <label htmlFor="addjob-qty">Qty</label>
+              <MemoInput id="addjob-qty" type="number" inputMode="numeric" value={job.qty} onChange={fieldSetters.qty} />
             </div>
           </div>
           <div className="field">
@@ -958,26 +963,26 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
               <div className="form-group-title" style={{ color: 'var(--brand-primary)' }}>Purchase Details</div>
               <div className="field-row">
                 <div className="field">
-                  <label>Vendor</label>
-                  <MemoInput value={job.tireVendor || ''} onChange={fieldSetters.tireVendor} placeholder="Discount Tire" />
+                  <label htmlFor="addjob-tire-vendor">Vendor</label>
+                  <MemoInput id="addjob-tire-vendor" value={job.tireVendor || ''} onChange={fieldSetters.tireVendor} placeholder="Discount Tire" />
                 </div>
                 <div className="field">
-                  <label>Purchase price ($)</label>
-                  <MemoInput type="number" inputMode="decimal" value={job.tirePurchasePrice || ''} onChange={fieldSetters.tirePurchasePrice} placeholder="0" />
+                  <label htmlFor="addjob-tire-purchase-price">Purchase price ($)</label>
+                  <MemoInput id="addjob-tire-purchase-price" type="number" inputMode="decimal" value={job.tirePurchasePrice || ''} onChange={fieldSetters.tirePurchasePrice} placeholder="0" />
                 </div>
               </div>
               <div className="field-row">
                 <div className="field">
-                  <label>Condition</label>
-                  <MemoSelect value={job.tireCondition || ''} onChange={fieldSetters.tireCondition}>
+                  <label htmlFor="addjob-tire-condition">Condition</label>
+                  <MemoSelect id="addjob-tire-condition" value={job.tireCondition || ''} onChange={fieldSetters.tireCondition}>
                     <option value="">Select…</option>
                     <option value="New">New</option>
                     <option value="Used">Used</option>
                   </MemoSelect>
                 </div>
                 <div className="field">
-                  <label>Brand</label>
-                  <MemoInput value={job.tireBrand || ''} onChange={fieldSetters.tireBrand} placeholder="Michelin" />
+                  <label htmlFor="addjob-tire-brand">Brand</label>
+                  <MemoInput id="addjob-tire-brand" value={job.tireBrand || ''} onChange={fieldSetters.tireBrand} placeholder="Michelin" />
                 </div>
               </div>
               <div className="field">
@@ -1012,8 +1017,8 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
                 </div>
               </div>
               <div className="field">
-                <label>Notes (optional)</label>
-                <MemoTextarea value={job.tireNotes || ''} onChange={fieldSetters.tireNotes} placeholder="Tread depth, condition notes…" />
+                <label htmlFor="addjob-tire-notes">Notes (optional)</label>
+                <MemoTextarea id="addjob-tire-notes" value={job.tireNotes || ''} onChange={fieldSetters.tireNotes} placeholder="Tread depth, condition notes…" />
               </div>
             </div>
           )}
@@ -1035,13 +1040,13 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
               the two inputs drift out of sync. */}
           {!needsTireDetails && (
             <div className={'field'}>
-              <label>Quantity</label>
-              <MemoInput type="number" inputMode="numeric" value={job.qty} onChange={fieldSetters.qty} placeholder="1" />
+              <label htmlFor="addjob-qty-mech">Quantity</label>
+              <MemoInput id="addjob-qty-mech" type="number" inputMode="numeric" value={job.qty} onChange={fieldSetters.qty} placeholder="1" />
             </div>
           )}
           <div className="field">
-            <label>Material $</label>
-            <MemoInput type="number" inputMode="decimal" value={job.materialCost} onChange={fieldSetters.materialCost} placeholder="0" />
+            <label htmlFor="addjob-material-cost">Material $</label>
+            <MemoInput id="addjob-material-cost" type="number" inputMode="decimal" value={job.materialCost} onChange={fieldSetters.materialCost} placeholder="0" />
           </div>
         </div>
         <div className="field" style={{ marginTop: 6 }}>

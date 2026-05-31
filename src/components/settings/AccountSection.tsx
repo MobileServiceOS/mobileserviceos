@@ -210,8 +210,8 @@ function AccountForm() {
   return (
     <>
       <div className="field">
-        <label>Email</label>
-        <input value={_auth?.currentUser?.email || ''} disabled />
+        <label htmlFor="settings-account-email">Email</label>
+        <input id="settings-account-email" value={_auth?.currentUser?.email || ''} disabled />
       </div>
       {showVerifyRow && (
         <div style={{
@@ -244,8 +244,8 @@ function AccountForm() {
         </div>
       )}
       <div className="field">
-        <label>New password</label>
-        <input type="password" value={newPass} onChange={(e) => setNewPass(e.target.value)} placeholder="At least 6 characters" />
+        <label htmlFor="settings-account-new-password">New password</label>
+        <input id="settings-account-new-password" type="password" value={newPass} onChange={(e) => setNewPass(e.target.value)} placeholder="At least 6 characters" />
       </div>
       <div style={{ display: 'flex', gap: 8 }}>
         <button className="btn secondary" onClick={changePass} disabled={busy || !newPass} style={{ flex: 1 }}>

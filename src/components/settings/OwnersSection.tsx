@@ -48,12 +48,13 @@ function OwnersForm({ settings, onSave }: Props) {
       <div className="form-group-title" style={{ fontSize: 12 }}>Owners</div>
       <div className="field-row">
         <div className="field">
-          <label>Owner 1 name</label>
-          <input value={draft.owner1Name} onChange={(e) => set('owner1Name', e.target.value)} />
+          <label htmlFor="settings-owner1-name">Owner 1 name</label>
+          <input id="settings-owner1-name" value={draft.owner1Name} onChange={(e) => set('owner1Name', e.target.value)} />
         </div>
         <div className="field">
-          <label>Split %</label>
+          <label htmlFor="settings-owner1-split">Split %</label>
           <NumberField
+            id="settings-owner1-split"
             value={draft.profitSplit1}
             onChange={(n) => set('profitSplit1', n)}
             decimals={false}
@@ -66,12 +67,13 @@ function OwnersForm({ settings, onSave }: Props) {
       </label>
       <div className="field-row">
         <div className="field">
-          <label>Owner 2 name</label>
-          <input value={draft.owner2Name} onChange={(e) => set('owner2Name', e.target.value)} />
+          <label htmlFor="settings-owner2-name">Owner 2 name</label>
+          <input id="settings-owner2-name" value={draft.owner2Name} onChange={(e) => set('owner2Name', e.target.value)} />
         </div>
         <div className="field">
-          <label>Split %</label>
+          <label htmlFor="settings-owner2-split">Split %</label>
           <NumberField
+            id="settings-owner2-split"
             value={draft.profitSplit2}
             onChange={(n) => set('profitSplit2', n)}
             decimals={false}
