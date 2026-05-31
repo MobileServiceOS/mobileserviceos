@@ -20,6 +20,7 @@ import type { BusinessTypeJobField } from '@/config/businessTypes/registry';
 import { PartsSection } from '@/components/addJob/PartsSection';
 import { AssignmentPicker } from '@/components/addJob/AssignmentPicker';
 import { ServicePicker } from '@/components/addJob/ServicePicker';
+import { MemoInput, MemoTextarea, MemoSelect } from '@/components/addJob/MemoInput';
 import { useMembership } from '@/context/MembershipContext';
 import { useBusinessMembers } from '@/lib/useBusinessMembers';
 
@@ -213,6 +214,25 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
   const set = useCallback(<K extends keyof Job>(k: K, v: Job[K]): void => {
     setJob((prev) => ({ ...prev, [k]: v }));
   }, [setJob]);
+
+  // Stable per-field setter callbacks. Built once (set is stable) and
+  // passed into MemoInput / MemoTextarea / MemoSelect components.
+  // Each callback receives the raw string from the input event; field-
+  // specific coercion happens here so the MemoInput primitives stay
+  // type-agnostic.
+  const fieldSetters = useMemo(() => ({
+    customerName:        (v: string) => set('customerName', v),
+    customerPhonePartial:(v: string) => set('customerPhone', formatPhonePartial(v)),
+    customerPhoneBlur:   (v: string) => set('customerPhone', formatPhone(v)),
+    tireSize:            (v: string) => set('tireSize', v),
+    qty:                 (v: string) => set('qty', v),
+    tireVendor:          (v: string) => set('tireVendor', v),
+    tirePurchasePrice:   (v: string) => set('tirePurchasePrice', v),
+    tireCondition:       (v: string) => set('tireCondition', v as 'New' | 'Used' | ''),
+    tireBrand:           (v: string) => set('tireBrand', v),
+    tireNotes:           (v: string) => set('tireNotes', v),
+    materialCost:        (v: string) => set('materialCost', v),
+  }), [set]);
 
   // needsTireDetails: only relevant for verticals with
   // inventoryDeduction. Mechanic / detailing always evaluate to
@@ -731,17 +751,17 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
         <div className="field-row">
           <div className="field">
             <label>Name</label>
-            <input value={job.customerName} onChange={(e) => set('customerName', e.target.value)} placeholder="John D." />
+            <MemoInput value={job.customerName} onChange={fieldSetters.customerName} placeholder="John D." />
           </div>
           <div className="field">
             <label>Phone</label>
-            <input
+            <MemoInput
               type="tel"
               inputMode="tel"
               autoComplete="tel"
               value={job.customerPhone}
-              onChange={(e) => set('customerPhone', formatPhonePartial(e.target.value))}
-              onBlur={(e) => set('customerPhone', formatPhone(e.target.value))}
+              onChange={fieldSetters.customerPhonePartial}
+              onBlur={fieldSetters.customerPhoneBlur}
               placeholder="(555) 123-4567"
             />
           </div>
@@ -874,7 +894,7 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
           <div className="field-row">
             <div className={'field'}>
               <label>Size</label>
-              <input value={job.tireSize} onChange={(e) => set('tireSize', e.target.value)} placeholder="225/65R17" />
+              <MemoInput value={job.tireSize} onChange={fieldSetters.tireSize} placeholder="225/65R17" />
               {(() => {
                 const typed = (job.tireSize || '').trim();
                 if (!typed) return null;
@@ -912,7 +932,7 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
             </div>
             <div className={'field'}>
               <label>Qty</label>
-              <input type="number" inputMode="numeric" value={job.qty} onChange={(e) => set('qty', e.target.value)} />
+              <MemoInput type="number" inputMode="numeric" value={job.qty} onChange={fieldSetters.qty} />
             </div>
           </div>
           <div className="field">
@@ -939,25 +959,25 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
               <div className="field-row">
                 <div className="field">
                   <label>Vendor</label>
-                  <input value={job.tireVendor || ''} onChange={(e) => set('tireVendor', e.target.value)} placeholder="Discount Tire" />
+                  <MemoInput value={job.tireVendor || ''} onChange={fieldSetters.tireVendor} placeholder="Discount Tire" />
                 </div>
                 <div className="field">
                   <label>Purchase price ($)</label>
-                  <input type="number" inputMode="decimal" value={job.tirePurchasePrice || ''} onChange={(e) => set('tirePurchasePrice', e.target.value)} placeholder="0" />
+                  <MemoInput type="number" inputMode="decimal" value={job.tirePurchasePrice || ''} onChange={fieldSetters.tirePurchasePrice} placeholder="0" />
                 </div>
               </div>
               <div className="field-row">
                 <div className="field">
                   <label>Condition</label>
-                  <select value={job.tireCondition || ''} onChange={(e) => set('tireCondition', e.target.value as 'New' | 'Used' | '')}>
+                  <MemoSelect value={job.tireCondition || ''} onChange={fieldSetters.tireCondition}>
                     <option value="">Select…</option>
                     <option value="New">New</option>
                     <option value="Used">Used</option>
-                  </select>
+                  </MemoSelect>
                 </div>
                 <div className="field">
                   <label>Brand</label>
-                  <input value={job.tireBrand || ''} onChange={(e) => set('tireBrand', e.target.value)} placeholder="Michelin" />
+                  <MemoInput value={job.tireBrand || ''} onChange={fieldSetters.tireBrand} placeholder="Michelin" />
                 </div>
               </div>
               <div className="field">
@@ -993,7 +1013,7 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
               </div>
               <div className="field">
                 <label>Notes (optional)</label>
-                <textarea value={job.tireNotes || ''} onChange={(e) => set('tireNotes', e.target.value)} placeholder="Tread depth, condition notes…" />
+                <MemoTextarea value={job.tireNotes || ''} onChange={fieldSetters.tireNotes} placeholder="Tread depth, condition notes…" />
               </div>
             </div>
           )}
@@ -1016,12 +1036,12 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
           {!needsTireDetails && (
             <div className={'field'}>
               <label>Quantity</label>
-              <input type="number" inputMode="numeric" value={job.qty} onChange={(e) => set('qty', e.target.value)} placeholder="1" />
+              <MemoInput type="number" inputMode="numeric" value={job.qty} onChange={fieldSetters.qty} placeholder="1" />
             </div>
           )}
           <div className="field">
             <label>Material $</label>
-            <input type="number" inputMode="decimal" value={job.materialCost} onChange={(e) => set('materialCost', e.target.value)} placeholder="0" />
+            <MemoInput type="number" inputMode="decimal" value={job.materialCost} onChange={fieldSetters.materialCost} placeholder="0" />
           </div>
         </div>
         <div className="field" style={{ marginTop: 6 }}>
