@@ -73,6 +73,17 @@ export {
 //   USAUTOFORCE_USERNAME, USAUTOFORCE_PASSWORD
 export { searchWheelRushSupplierPricing } from './searchWheelRushSupplierPricing';
 
+// Phase 2a (Manual Login Session Reuse). Owner submits a cURL string
+// copied from their browser DevTools after a manual U.S. AutoForce
+// login; we extract the Cookie header and write a new version of
+// WHEELRUSH_USAUTOFORCE_SESSION in Secret Manager. The connector
+// reads the latest version on every search. See
+// setWheelRushSupplierSession.ts for the gate + parsing details.
+export {
+  setWheelRushSupplierSession,
+  verifyWheelRushSupplierSession,
+} from './setWheelRushSupplierSession';
+
 // Standalone Stripe webhook — kept as source for future migration
 // flexibility but NOT exported here. Production uses the Firebase
 // Stripe Extension's webhook (ext-firestore-stripe-payments-

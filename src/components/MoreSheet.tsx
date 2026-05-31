@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import type { TabId } from '@/types';
+import type { TabId, Settings } from '@/types';
 import { usePermissions } from '@/context/MembershipContext';
 
 // ─────────────────────────────────────────────────────────────────────
@@ -23,6 +23,7 @@ import { usePermissions } from '@/context/MembershipContext';
 interface Props {
   onClose: () => void;
   onPick: (t: TabId) => void;
+  settings: Settings;
 }
 
 interface Item {
@@ -33,8 +34,9 @@ interface Item {
   visible: boolean;
 }
 
-export function MoreSheet({ onClose, onPick }: Props) {
+export function MoreSheet({ onClose, onPick, settings }: Props) {
   const permissions = usePermissions();
+  const isBillingExempt = settings.billingExempt === true;
 
   // Lock body scroll while open + close on Escape.
   useEffect(() => {
@@ -78,6 +80,17 @@ export function MoreSheet({ onClose, onPick }: Props) {
       icon: '👥',
       hint: 'Customer list · repeat-customer count',
       visible: true,
+    },
+    {
+      // Wheel Rush–only private feature (Phase 2a — Manual Login
+      // Session Reuse for U.S. AutoForce). Gated on the existing
+      // billing-exempt internal-account marker AND owner/admin role.
+      // No other MSOS business sees this entry.
+      id: 'supplierSession',
+      label: 'Supplier Session',
+      icon: '🔌',
+      hint: 'Connect / reconnect supplier portal session',
+      visible: isBillingExempt && permissions.canEditPricingSettings,
     },
     {
       id: 'help',

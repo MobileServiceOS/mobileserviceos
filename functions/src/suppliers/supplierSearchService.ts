@@ -59,7 +59,20 @@ export async function searchSuppliers(opts: SearchOptions): Promise<SearchRespon
         });
       }
     } else {
-      warnings.push(`${connector.name} unavailable`);
+      // Map known session error types to specific warnings; everything
+      // else stays generic. The frontend keys off the exact strings to
+      // decide whether to show "Reconnect" CTA, "Calibration pending"
+      // notice, or just a soft unavailable banner.
+      const errName = (outcome.reason as { name?: string } | undefined)?.name;
+      if (errName === 'SessionMissingError') {
+        warnings.push(`${connector.name} not connected — set up session`);
+      } else if (errName === 'SessionExpiredError') {
+        warnings.push(`${connector.name} session expired — reconnect required`);
+      } else if (errName === 'ParserNotCalibratedError') {
+        warnings.push(`${connector.name} search calibration pending`);
+      } else {
+        warnings.push(`${connector.name} unavailable`);
+      }
     }
   });
 

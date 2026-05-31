@@ -1,72 +1,121 @@
 import { SupplierConnector, SupplierTireResult } from './supplierTypes';
+import { readLatestSession, SUPPLIER_SECRET_NAMES } from './sessionStore';
+import { serializeCookieHeader } from './cookieParsers';
+import {
+  SessionExpiredError,
+  SessionMissingError,
+  ParserNotCalibratedError,
+  scrubError,
+} from './sessionErrors';
 
-// U.S. AutoForce connector — Phase 1 mock.
+// U.S. AutoForce connector — Phase 2a (real session-based).
 //
-// Catalog is broad and competitive across tiers — mirrors U.S.
-// AutoForce's strong national brand catalog.
+// The flow:
+//   1. Read the latest session envelope from Secret Manager
+//   2. Serialize cookies into a request header
+//   3. Hit shop.usautoforce.com root with the session
+//   4. Detect expiry via redirect URL / body markers / status code
+//   5. Throw a typed error that supplierSearchService maps to a
+//      specific user-facing warning
 //
-// Phase 2 (TODO): replace with real U.S. AutoForce portal calls.
-//   - Auth: their B2B portal API requires an integration agreement.
-//     Talk to your assigned regional rep, NOT the website. Same partner
-//     gate as ATD/Advance Tire.
-//   - Secrets: USAUTOFORCE_USERNAME, USAUTOFORCE_PASSWORD.
-//   - Throw on any upstream error — orchestrator surfaces sanitized
-//     "U.S. AutoForce unavailable" warning.
+// Phase 2a does NOT include the catalog parser. The search endpoint
+// + response shape need to be calibrated against a real authenticated
+// session — the public web has no clues. Once the owner connects, we
+// run one real search, capture the URL + response, and add the parser
+// in Phase 2b. Until then, this connector throws
+// ParserNotCalibratedError after verifying the session is valid.
+//
+// SECURITY:
+//   - Cookies are read from Secret Manager on every call (no caching
+//     of the raw payload outside the request scope)
+//   - Errors are scrubbed before being thrown — see sessionErrors.ts
+//   - No console.log of cookie payloads anywhere in this file
 
-const USAF_CATALOG: SupplierTireResult[] = [
-  // 225/45R17
-  { supplier: 'U.S. AutoForce', size: '225/45R17', brand: 'Milestar', model: 'MS932 Sport',
-    cost: 76, quantityAvailable: 12, eta: 'Today', xlLoad: true, speedRating: 'W' },
-  { supplier: 'U.S. AutoForce', size: '225/45R17', brand: 'Sumitomo', model: 'HTR A/S P03',
-    cost: 122, quantityAvailable: 6, eta: 'Today', xlLoad: true, speedRating: 'W' },
-  { supplier: 'U.S. AutoForce', size: '225/45R17', brand: 'General', model: 'G-MAX AS-07',
-    cost: 138, quantityAvailable: 4, eta: 'Today', speedRating: 'W' },
-  { supplier: 'U.S. AutoForce', size: '225/45R17', brand: 'Continental', model: 'ProContact RX',
-    cost: 178, quantityAvailable: 3, eta: 'Tomorrow', xlLoad: true, speedRating: 'V',
-    notes: 'OE replacement' },
-  { supplier: 'U.S. AutoForce', size: '225/45R17', brand: 'Michelin', model: 'Pilot Sport All Season 4',
-    cost: 196, quantityAvailable: 2, eta: 'Today', xlLoad: true, speedRating: 'Y' },
+const BASE_URL = 'https://shop.usautoforce.com';
+const SECRET_NAME = SUPPLIER_SECRET_NAMES['U.S. AutoForce'];
 
-  // 225/65R17
-  { supplier: 'U.S. AutoForce', size: '225/65R17', brand: 'Milestar', model: 'Patagonia AT R',
-    cost: 85, quantityAvailable: 10, eta: 'Today', speedRating: 'T' },
-  { supplier: 'U.S. AutoForce', size: '225/65R17', brand: 'Cooper', model: 'Discoverer SRX',
-    cost: 138, quantityAvailable: 4, eta: 'Today', speedRating: 'H' },
-  { supplier: 'U.S. AutoForce', size: '225/65R17', brand: 'General', model: 'Altimax RT45',
-    cost: 145, quantityAvailable: 6, eta: 'Today', speedRating: 'H',
-    notes: '75k warranty' },
-  { supplier: 'U.S. AutoForce', size: '225/65R17', brand: 'Continental', model: 'TrueContact Tour',
-    cost: 178, quantityAvailable: 3, eta: 'Today', speedRating: 'H' },
-  { supplier: 'U.S. AutoForce', size: '225/65R17', brand: 'Michelin', model: 'CrossClimate2',
-    cost: 215, quantityAvailable: 2, eta: 'Tomorrow', speedRating: 'V' },
+// Stealth-friendly UA. Real browsers in the field. NOT a "headless"
+// signature.
+const USER_AGENT =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
+  '(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
 
-  // 235/55R18
-  { supplier: 'U.S. AutoForce', size: '235/55R18', brand: 'Milestar', model: 'MS932 Sport',
-    cost: 98, quantityAvailable: 8, eta: 'Today', xlLoad: true, speedRating: 'V' },
-  { supplier: 'U.S. AutoForce', size: '235/55R18', brand: 'Sumitomo', model: 'HTR Enhance LX2',
-    cost: 142, quantityAvailable: 4, eta: 'Today', speedRating: 'V' },
-  { supplier: 'U.S. AutoForce', size: '235/55R18', brand: 'General', model: 'G-MAX AS-07',
-    cost: 158, quantityAvailable: 4, eta: 'Today', speedRating: 'W' },
-  { supplier: 'U.S. AutoForce', size: '235/55R18', brand: 'Continental', model: 'CrossContact LX25',
-    cost: 192, quantityAvailable: 3, eta: 'Tomorrow', speedRating: 'H' },
+// Verify the stored session is still valid by hitting the portal root.
+// Returns 'valid' | 'expired' | 'missing' — never throws on the happy
+// paths. Reserved for the verify callable; the search path uses the
+// thrown-error path for cleaner orchestrator integration.
+export async function verifyUsAutoForceSession(): Promise<
+  'valid' | 'expired' | 'missing'
+> {
+  const session = await readLatestSession(SECRET_NAME);
+  if (!session || session.envelope.cookies.length === 0) return 'missing';
 
-  // 245/40R18
-  { supplier: 'U.S. AutoForce', size: '245/40R18', brand: 'Milestar', model: 'MS932 Sport',
-    cost: 95, quantityAvailable: 10, eta: 'Today', xlLoad: true, speedRating: 'W' },
-  { supplier: 'U.S. AutoForce', size: '245/40R18', brand: 'Sumitomo', model: 'HTR Z5',
-    cost: 152, quantityAvailable: 4, eta: 'Today', xlLoad: true, speedRating: 'Y' },
-  { supplier: 'U.S. AutoForce', size: '245/40R18', brand: 'Toyo', model: 'Proxes Sport A/S',
-    cost: 184, quantityAvailable: 3, eta: 'Today', xlLoad: true, speedRating: 'Y' },
-  { supplier: 'U.S. AutoForce', size: '245/40R18', brand: 'Continental', model: 'ExtremeContact DWS06+',
-    cost: 218, quantityAvailable: 2, eta: 'Tomorrow', xlLoad: true, speedRating: 'Y' },
-];
+  const cookieHeader = serializeCookieHeader(session.envelope.cookies);
+  let resp: Response;
+  try {
+    resp = await fetch(`${BASE_URL}/`, {
+      method: 'GET',
+      headers: {
+        cookie: cookieHeader,
+        'user-agent': USER_AGENT,
+        accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'accept-language': 'en-US,en;q=0.9',
+      },
+      redirect: 'follow',
+    });
+  } catch (err) {
+    // Network-level failure isn't an expiry signal — surface as expired
+    // so the UI prompts a reconnect (worst-case false positive).
+    console.log(JSON.stringify({
+      fn: 'verifyUsAutoForceSession',
+      event: 'network-error',
+      err: scrubError(err),
+    }));
+    return 'expired';
+  }
+
+  return interpretSessionResponse(resp);
+}
+
+// Shared expiry-detection logic. Three independent signals; any one
+// trips. Returns 'valid' if all three look authenticated.
+async function interpretSessionResponse(
+  resp: Response
+): Promise<'valid' | 'expired'> {
+  if (resp.status === 401 || resp.status === 403) return 'expired';
+  if (resp.url.includes('/Account/Login') || resp.url.includes('/login')) {
+    return 'expired';
+  }
+  let body = '';
+  try {
+    body = await resp.text();
+  } catch {
+    return 'expired';
+  }
+  if (
+    body.includes('name="Input.UserName"') ||
+    body.includes('id="frmLogin"') ||
+    body.includes('id="userName"')
+  ) {
+    return 'expired';
+  }
+  return 'valid';
+}
 
 async function searchByTireSize(
-  normalizedSize: string,
+  _normalizedSize: string,
   _quantity: number
 ): Promise<SupplierTireResult[]> {
-  await new Promise((r) => setTimeout(r, 70));
-  return USAF_CATALOG.filter((sku) => sku.size === normalizedSize);
+  const status = await verifyUsAutoForceSession();
+  if (status === 'missing') throw new SessionMissingError('U.S. AutoForce');
+  if (status === 'expired') throw new SessionExpiredError('U.S. AutoForce');
+
+  // Session is valid. Phase 2a stops here — the catalog parser
+  // (search URL + response shape) requires a one-time calibration
+  // against a live authenticated session. The orchestrator surfaces
+  // this as a distinct warning so the UI can prompt "calibration
+  // pending" instead of "supplier unavailable".
+  throw new ParserNotCalibratedError('U.S. AutoForce');
 }
 
 export const usAutoForceConnector: SupplierConnector = {

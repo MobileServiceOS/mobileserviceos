@@ -66,6 +66,7 @@ export type TabId =
   | 'inventory'
   | 'settings'
   | 'help'
+  | 'supplierSession'
   | 'success';
 
 // ─────────────────────────────────────────────────────────────────────
