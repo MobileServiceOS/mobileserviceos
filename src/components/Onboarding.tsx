@@ -420,8 +420,8 @@ export function Onboarding({ settings, onComplete }: Props) {
               <div className="onboarding-step-title">Brand</div>
               <div className="onboarding-step-sub">Pick your service type — it shapes services, pricing, and inventory.</div>
               <div className="field">
-                <label>Business type *</label>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <label id="onb-business-type-label">Business type *</label>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }} role="group" aria-labelledby="onb-business-type-label">
                   {([
                     { key: 'tire' as VerticalKey, label: '🛞 Tire & Roadside' },
                     { key: 'mechanic' as VerticalKey, label: '🔧 Mobile Mechanic' },

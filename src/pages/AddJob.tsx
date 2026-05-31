@@ -941,10 +941,11 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
             </div>
           </div>
           <div className="field">
-            <label>Tire source</label>
-            <div className="chip-grid">
+            <label id="addjob-tire-source-label">Tire source</label>
+            <div className="chip-grid" role="group" aria-labelledby="addjob-tire-source-label">
               {rankedTireSources.map((s) => (
                 <button key={s} className={'chip' + (tireSource === s ? ' active' : '')}
+                  aria-pressed={tireSource === s}
                   onClick={() => set('tireSource', s as TireSource)} type="button">{s}</button>
               ))}
             </div>
@@ -1050,8 +1051,8 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
           </div>
         </div>
         <div className="field" style={{ marginTop: 6 }}>
-          <label>Conditions <span style={{ fontWeight: 400, color: 'var(--t3)', fontSize: 11 }}>(tap any that apply)</span></label>
-          <div className="chip-grid">
+          <label id="addjob-conditions-label">Conditions <span style={{ fontWeight: 400, color: 'var(--t3)', fontSize: 11 }}>(tap any that apply)</span></label>
+          <div className="chip-grid" role="group" aria-labelledby="addjob-conditions-label">
             {/* Conditions are vertical-aware. Detailing omits 'highway'
                 — no one washes cars on the highway. Configs that
                 don't declare `conditions` fall back to all 4 for
@@ -1062,7 +1063,7 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
               { key: 'highway' as const,   label: '🛣 Highway' },
               { key: 'weekend' as const,   label: '📅 Weekend' },
             ]).map(({ key: k, label: l }) => (
-              <button key={k} type="button" className={'chip' + (job[k] ? ' active' : '')} onClick={() => set(k, !job[k])}>{l}</button>
+              <button key={k} type="button" className={'chip' + (job[k] ? ' active' : '')} aria-pressed={!!job[k]} onClick={() => set(k, !job[k])}>{l}</button>
             ))}
           </div>
         </div>
@@ -1071,29 +1072,30 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
       <div className="form-group card-anim">
         <div className="form-group-title">Lead & Payment</div>
         <div className="field">
-          <label>Lead source</label>
-          <div className="chip-grid">
+          <label id="addjob-lead-source-label">Lead source</label>
+          <div className="chip-grid" role="group" aria-labelledby="addjob-lead-source-label">
             {rankedSources.map((s) => (
-              <button key={s} type="button" className={'chip' + (job.source === s ? ' active' : '')} onClick={() => set('source', s)}>{s}</button>
+              <button key={s} type="button" className={'chip' + (job.source === s ? ' active' : '')} aria-pressed={job.source === s} onClick={() => set('source', s)}>{s}</button>
             ))}
           </div>
         </div>
         <div className={'field'}>
-          <label>Payment method</label>
-          <div className="chip-grid">
+          <label id="addjob-payment-method-label">Payment method</label>
+          <div className="chip-grid" role="group" aria-labelledby="addjob-payment-method-label">
             {rankedPaymentMethods.map((p) => (
-              <button key={p} type="button" className={'chip' + (job.payment === p ? ' active' : '')} onClick={() => set('payment', p)}>{p}</button>
+              <button key={p} type="button" className={'chip' + (job.payment === p ? ' active' : '')} aria-pressed={job.payment === p} onClick={() => set('payment', p)}>{p}</button>
             ))}
           </div>
         </div>
         <div className="field">
-          <label>Job status</label>
-          <div className="chip-grid">
+          <label id="addjob-job-status-label">Job status</label>
+          <div className="chip-grid" role="group" aria-labelledby="addjob-job-status-label">
             {JOB_STATUSES.map((s) => (
               <button
                 key={s}
                 type="button"
                 className={'chip' + (job.status === s ? ' active' : '')}
+                aria-pressed={job.status === s}
                 onClick={() => set('status', s)}
               >
                 {s}
@@ -1102,13 +1104,14 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
           </div>
         </div>
         <div className="field">
-          <label>Payment status</label>
-          <div className="chip-grid">
+          <label id="addjob-payment-status-label">Payment status</label>
+          <div className="chip-grid" role="group" aria-labelledby="addjob-payment-status-label">
             {PAYMENT_STATUSES.map((p) => (
               <button
                 key={p}
                 type="button"
                 className={'chip' + (job.paymentStatus === p ? ' active' : '')}
+                aria-pressed={job.paymentStatus === p}
                 onClick={() => set('paymentStatus', p)}
               >
                 {p}
