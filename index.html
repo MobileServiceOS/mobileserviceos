@@ -165,7 +165,24 @@
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <!-- Audit P1 (2026-05-31): the stylesheet href was a synchronous
+       render-blocking <link rel="stylesheet">. On LTE that added one
+       extra round-trip to fonts.googleapis.com plus a chained
+       round-trip to fonts.gstatic.com before the browser's CSSOM
+       finished, pushing LCP back 400-900ms on cellular cold start.
+       The preload+onload pattern fetches the stylesheet asynchronously
+       and applies it once available, while keeping a <noscript>
+       fallback for the rare JS-disabled visit. The display=swap query
+       parameter still applies, so fallback fonts paint instantly. -->
+  <link
+    rel="preload"
+    as="style"
+    href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+    onload="this.onload=null;this.rel='stylesheet'"
+  />
+  <noscript>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" />
+  </noscript>
 </head>
 <body>
   <div id="boot-splash">

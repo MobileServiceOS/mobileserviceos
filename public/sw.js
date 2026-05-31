@@ -223,20 +223,50 @@ self.addEventListener('fetch', (event) => {
   }
 
   // ── Same-origin hashed JS / CSS ──────────────────────────────────
-  // NETWORK-FIRST. The content hash in the filename is the version;
-  // a fresh deploy always requests a new filename. Cache is written
-  // only as an offline fallback, never served when the network works.
+  // CACHE-FIRST. The content hash in the filename IS the version —
+  // a fresh deploy always requests a different filename. Once we've
+  // cached a hashed asset, its bytes are immutable, so the network
+  // could only return identical content. Serving from cache when
+  // present saves a network round-trip on warm launches; cellular-
+  // field operators see the cached app boot like a native app
+  // instead of waiting on the TCP handshake to complete before the
+  // SW falls back. Audit P1 (2026-05-31).
+  //
+  // Deploy-freshness is handled by index.html's network-first path —
+  // a new deploy publishes a new index.html with new hashed asset
+  // references, which then get fetched + cached on first request.
+  // We background-refresh as a defensive belt-and-suspenders so a
+  // partially-cached asset eventually gets the canonical bytes.
   if (url.origin === self.location.origin && isHashedAsset(url)) {
     event.respondWith(
-      fetch(req)
-        .then((res) => {
-          if (res && res.status === 200) {
-            const clone = res.clone();
-            caches.open(RUNTIME_CACHE).then((cache) => cache.put(req, clone));
-          }
-          return res;
-        })
-        .catch(() => safeCacheMatch(req))
+      caches.match(req).then((cached) => {
+        if (cached) {
+          // Background refresh: best-effort, never blocks the response.
+          // Failure here is fine — the cached copy is byte-identical
+          // to what the network would have returned (immutable hash).
+          fetch(req)
+            .then((res) => {
+              if (res && res.status === 200) {
+                caches.open(RUNTIME_CACHE).then((cache) => cache.put(req, res.clone()));
+              }
+            })
+            .catch(() => {});
+          return cached;
+        }
+        // First request for this hashed filename — go to the network
+        // and populate the cache. Falls back to a synthetic 503 only
+        // if the network is completely offline AND we've never seen
+        // this asset before (impossible on a warm launch).
+        return fetch(req)
+          .then((res) => {
+            if (res && res.status === 200) {
+              const clone = res.clone();
+              caches.open(RUNTIME_CACHE).then((cache) => cache.put(req, clone));
+            }
+            return res;
+          })
+          .catch(() => safeCacheMatch(req));
+      })
     );
     return;
   }
