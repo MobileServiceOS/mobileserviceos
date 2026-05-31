@@ -972,10 +972,23 @@ function AuthenticatedApp({ user }: { user: User }) {
         const invWrites: Promise<void>[] = [];
         for (const d of plan.deductions) {
           const idx = workingInv.findIndex((i) => i.id === d.id);
-          if (idx >= 0) workingInv[idx] = { ...workingInv[idx], qty: Math.max(0, Number(workingInv[idx].qty || 0) - Number(d.qty || 0)) };
-          const docId = workingInv[idx >= 0 ? idx : 0]?.id || d.id;
-          const docData = workingInv[idx >= 0 ? idx : 0] || {};
-          invWrites.push(fbSetFast(invCol, docId, docData));
+          if (idx < 0) {
+            // Audit P1 (2026-05-31): a deduction's target id can be
+            // absent from the working inventory snapshot when there's
+            // a race with a concurrent edit/delete on another tab.
+            // The previous code fell back to workingInv[0] — writing
+            // the FIRST inventory item's data into the doc at d.id,
+            // silently corrupting an unrelated tire entry. Now we
+            // skip the deduction (with a warn) instead of writing.
+            // The job save itself continues — the unwritten quantity
+            // surfaces as a stock discrepancy the operator can
+            // reconcile rather than a phantom data-loss event.
+            // eslint-disable-next-line no-console
+            console.warn('[saveJob] inventory item not in working snapshot — skipping deduction', { itemId: d.id, size: d.size, qty: d.qty });
+            continue;
+          }
+          workingInv[idx] = { ...workingInv[idx], qty: Math.max(0, Number(workingInv[idx].qty || 0) - Number(d.qty || 0)) };
+          invWrites.push(fbSetFast(invCol, workingInv[idx].id, workingInv[idx]));
         }
         // Fire all inventory writes concurrently. We also kick off
         // the local-state update immediately so the UI reflects the
@@ -1001,7 +1014,15 @@ function AuthenticatedApp({ user }: { user: User }) {
       let mechanicPartsCost = 0;
       let mechanicMarginSnapshot: ReturnType<typeof derivePartsMarginSnapshot> = undefined;
 
-      const verticalConfig = getBusinessTypeConfig(settings.businessType);
+      // Audit P1 (2026-05-31): read businessType through settingsRef
+      // instead of the closed-over `settings`. The useCallback dep
+      // list excludes `settings` to keep saveJob stable, which means
+      // the closure could otherwise dispatch against a stale vertical
+      // (e.g. running the mechanic parts-deduction branch on a tire
+      // job after the operator switched business type mid-edit).
+      // Same pattern persistExpenses uses (see settingsRef block at
+      // line 427).
+      const verticalConfig = getBusinessTypeConfig(settingsRef.current.businessType);
       if (!isCanceling && verticalConfig.key === 'mechanic' && Array.isArray(j.parts) && j.parts.length > 0) {
         // Soft-warn at save-time for any line that would push qty
         // negative. Single confirm() per offending line; tech can
