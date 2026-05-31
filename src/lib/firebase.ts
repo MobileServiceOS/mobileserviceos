@@ -31,7 +31,13 @@ import {
 } from 'firebase/storage';
 import { noteWriteIssued, noteWriteAcked, noteWriteFailed } from '@/lib/syncState';
 
-const env = (import.meta as ImportMeta & { env: Record<string, string | undefined> }).env;
+// `import.meta.env` is injected by Vite. In a tsx test runner (Node)
+// there's no Vite, so the property is undefined — without a fallback,
+// any test that transitively imports this module crashes on the first
+// property read below. Default to {} so the HARDCODED_CFG path is
+// used as the fallback (which is correct for tests — they don't need
+// real Firebase auth).
+const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env ?? {};
 
 const HARDCODED_CFG = {
   apiKey: 'AIzaSyDpe9pVejH1EFZmQYv04sgtZBoLxqM6lW0',
