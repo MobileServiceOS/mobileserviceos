@@ -9,7 +9,12 @@ import {
   StoredSessionEnvelope,
 } from './suppliers/cookieParsers';
 import { writeNewSession, SUPPLIER_FIELD_KEYS } from './suppliers/sessionStore';
-import { verifyUsAutoForceSession } from './suppliers/usAutoForceConnector';
+import {
+  loadUsAutoForceSessionMeta,
+  fetchUsAutoForceSessionStatus,
+} from './suppliers/usAutoForceConnector';
+import { lookupVerifyCache, storeVerifyCache } from './suppliers/verifyCache';
+import { consumeRateLimitToken } from './suppliers/rateLimit';
 
 // ─────────────────────────────────────────────────────────────────────
 //  setWheelRushSupplierSession — owner submits a cURL string copied
@@ -205,6 +210,11 @@ export const verifyWheelRushSupplierSession = onCall<VerifyRequest, Promise<Veri
     region: 'us-central1',
     timeoutSeconds: 20,
     memory: '256MiB',
+    // Pinned to a single instance so the verifyCache and the
+    // rateLimit module both actually enforce their budgets globally
+    // (both are per-process state). See sessionStore.ts and
+    // verifyCache.ts comments for the upgrade path.
+    maxInstances: 1,
   },
   async (request) => {
     const FN = 'verifyWheelRushSupplierSession';
@@ -215,9 +225,34 @@ export const verifyWheelRushSupplierSession = onCall<VerifyRequest, Promise<Veri
       throw new HttpsError('invalid-argument', 'Unsupported supplier');
     }
 
+    // P1 audit finding (2026-05-31): verify was previously unbounded
+    // and auto-fires from the UI on mount + after save. Apply the
+    // shared rate limit so a buggy or hostile client can't hammer the
+    // supplier portal through this endpoint.
+    if (!consumeRateLimitToken(uid)) {
+      logSafe(FN, 'reject-rate-limit', { uid });
+      throw new HttpsError('resource-exhausted', 'Too many checks. Wait a minute.');
+    }
+
     let status: 'valid' | 'expired' | 'missing';
     try {
-      status = await verifyUsAutoForceSession();
+      // Step 1: load stored session meta (cheap Firestore read).
+      const meta = await loadUsAutoForceSessionMeta();
+      if (!meta) {
+        status = 'missing';
+      } else {
+        // Step 2: cache lookup keyed on uid + savedAt. Hit returns
+        // the previously verified status without re-hitting USAF.
+        // Miss falls through to a fresh fetch.
+        const cached = lookupVerifyCache(uid, meta.savedAt);
+        if (cached.hit && cached.status) {
+          status = cached.status;
+          logSafe(FN, 'cache-hit', { uid, supplier, status });
+        } else {
+          status = await fetchUsAutoForceSessionStatus(meta.cookies);
+          storeVerifyCache(uid, meta.savedAt, status);
+        }
+      }
     } catch (err) {
       logSafe(FN, 'verify-error', { uid });
       throw new HttpsError('internal', 'Verification failed');

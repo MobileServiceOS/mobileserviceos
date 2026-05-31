@@ -74,7 +74,20 @@ service cloud.firestore {
     // other businesses' error data.
     // ─────────────────────────────────────────────────────────────────
     match /errorLogs/{logId} {
-      allow create: if request.auth != null;
+      // Schema + size cap. P1 audit finding (2026-05-31): without
+      // these guards, a compromised session could flood the collection
+      // with multi-MB docs at write QPS — uncapped cost amplification.
+      // Mirrors the shape written by src/lib/errorMonitor.ts.
+      // 8 KiB cap leaves room for message (1KB) + stack (4KB) + the
+      // usual ~3KB of context/headers/metadata.
+      allow create: if request.auth != null
+        && request.resource.size() < 8192
+        && request.resource.data.keys().hasAll(['ts', 'level', 'message', 'appVersion'])
+        && request.resource.data.level in ['error', 'warning', 'info']
+        && request.resource.data.message is string
+        && request.resource.data.message.size() <= 1000
+        && request.resource.data.ts is string
+        && request.resource.data.appVersion is string;
       allow read, update, delete: if false;
     }
 

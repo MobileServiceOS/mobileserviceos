@@ -67,6 +67,15 @@ export const searchWheelRushSupplierPricing = onCall<SearchRequest, Promise<Sear
     region: 'us-central1',
     timeoutSeconds: 30,
     memory: '256MiB',
+    // P1 audit finding (2026-05-31): the in-memory rate limit in
+    // rateLimit.ts is per-instance. With horizontal scaling, a caller
+    // could spread requests across instances and effectively get
+    // (limit × instance-count) requests/minute — which now hits the
+    // real U.S. AutoForce portal in Phase 2a+. maxInstances:1 pins
+    // all traffic to a single instance so the bucket actually
+    // enforces the configured limit. Phase 2b+ should migrate the
+    // bucket to a Firestore-backed counter and relax this.
+    maxInstances: 1,
   },
   async (request: CallableRequest<SearchRequest>): Promise<SearchResponse> => {
     // 1. Authenticated

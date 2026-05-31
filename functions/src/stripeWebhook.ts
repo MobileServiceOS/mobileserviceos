@@ -80,6 +80,22 @@ export const stripeWebhook = onRequest(
     invoker: 'public',
   },
   async (req: Request, res: Response) => {
+    // ─── 0. Kill-switch ────────────────────────────────────────
+    // P1 audit finding (2026-05-31): production uses the Firebase
+    // Stripe Extension's webhook, NOT this one. Even though index.ts
+    // doesn't export `stripeWebhook`, the function definition still
+    // ships — if someone re-enables the export accidentally and
+    // points Stripe at both endpoints, every invoice.paid event
+    // applies the referral reward twice. The env-var guard makes
+    // re-export safe-by-default: nothing happens until an operator
+    // explicitly sets STRIPE_WEBHOOK_ENABLED=true on the deployed
+    // function. The 404 response (vs 200) ensures Stripe retries
+    // are not silently ack'd while the function is "off".
+    if (process.env.STRIPE_WEBHOOK_ENABLED !== 'true') {
+      res.status(404).send('Not enabled');
+      return;
+    }
+
     // ─── 1. Verify HTTP method ─────────────────────────────────
     if (req.method !== 'POST') {
       res.status(405).send('Method not allowed');

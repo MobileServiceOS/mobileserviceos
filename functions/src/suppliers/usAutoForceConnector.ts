@@ -1,6 +1,6 @@
 import { SupplierConnector, SupplierTireResult } from './supplierTypes';
 import { readLatestSession, SUPPLIER_FIELD_KEYS } from './sessionStore';
-import { serializeCookieHeader } from './cookieParsers';
+import { serializeCookieHeader, ParsedCookie } from './cookieParsers';
 import {
   SessionExpiredError,
   SessionMissingError,
@@ -40,17 +40,27 @@ const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
   '(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
 
-// Verify the stored session is still valid by hitting the portal root.
-// Returns 'valid' | 'expired' | 'missing' — never throws on the happy
-// paths. Reserved for the verify callable; the search path uses the
-// thrown-error path for cleaner orchestrator integration.
-export async function verifyUsAutoForceSession(): Promise<
-  'valid' | 'expired' | 'missing'
+// Stored-session lookup helper exposed for the verify callable's
+// cache layer (cache key includes savedAt → callable needs the stored
+// timestamp). Returns null when no session exists yet.
+export async function loadUsAutoForceSessionMeta(): Promise<
+  { cookies: ParsedCookie[]; savedAt: string } | null
 > {
   const session = await readLatestSession(FIELD_KEY);
-  if (!session || session.envelope.cookies.length === 0) return 'missing';
+  if (!session || session.envelope.cookies.length === 0) return null;
+  return {
+    cookies: session.envelope.cookies,
+    savedAt: session.envelope.savedAt,
+  };
+}
 
-  const cookieHeader = serializeCookieHeader(session.envelope.cookies);
+// Issue the real authenticated request to the portal and interpret
+// the response. Exposed so the verify callable can call this directly
+// (with its own cache layer) without re-reading the session doc.
+export async function fetchUsAutoForceSessionStatus(
+  cookies: ParsedCookie[]
+): Promise<'valid' | 'expired'> {
+  const cookieHeader = serializeCookieHeader(cookies);
   let resp: Response;
   try {
     resp = await fetch(`${BASE_URL}/`, {
@@ -67,14 +77,27 @@ export async function verifyUsAutoForceSession(): Promise<
     // Network-level failure isn't an expiry signal — surface as expired
     // so the UI prompts a reconnect (worst-case false positive).
     console.log(JSON.stringify({
-      fn: 'verifyUsAutoForceSession',
+      fn: 'fetchUsAutoForceSessionStatus',
       event: 'network-error',
       err: scrubError(err),
     }));
     return 'expired';
   }
-
   return interpretSessionResponse(resp);
+}
+
+// Verify the stored session is still valid by hitting the portal root.
+// Returns 'valid' | 'expired' | 'missing' — never throws on the happy
+// paths. Used by the search path via the connector; the verify
+// callable composes loadUsAutoForceSessionMeta + cache lookup +
+// fetchUsAutoForceSessionStatus directly so it can short-circuit on
+// cache hits.
+export async function verifyUsAutoForceSession(): Promise<
+  'valid' | 'expired' | 'missing'
+> {
+  const meta = await loadUsAutoForceSessionMeta();
+  if (!meta) return 'missing';
+  return fetchUsAutoForceSessionStatus(meta.cookies);
 }
 
 // Shared expiry-detection logic. Three independent signals; any one
