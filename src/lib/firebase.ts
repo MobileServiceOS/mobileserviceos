@@ -19,6 +19,7 @@ import {
   type Firestore,
   type CollectionReference,
   type DocumentData,
+  type Query,
   type QuerySnapshot,
   type QueryDocumentSnapshot,
 } from 'firebase/firestore';
@@ -217,17 +218,21 @@ export async function fbDelete(col: CollectionReference<DocumentData> | null, id
 }
 
 export function fbListen(
-  col: CollectionReference<DocumentData> | null,
+  target: CollectionReference<DocumentData> | Query<DocumentData> | null,
   cb: (docs: Array<Record<string, unknown> & { id: string }>) => void,
   onError?: (e: Error) => void
 ): () => void {
-  if (!col) { cb([]); return () => {}; }
+  if (!target) { cb([]); return () => {}; }
+  // CollectionReference exposes .path; Query (e.g. a bounded
+  // orderBy+limit) does not. Log the path opportunistically — for
+  // bounded queries the path is implicit in the caller's stack.
+  const pathForLog = (target as { path?: string }).path ?? '(query)';
   return onSnapshot(
-    col,
+    target,
     (s: QuerySnapshot<DocumentData>) =>
       cb(s.docs.map((d: QueryDocumentSnapshot<DocumentData>) => ({ ...d.data(), id: d.id }))),
     (e: Error) => {
-      console.error('[firebase] fbListen error on', col.path, ':', e);
+      console.error('[firebase] fbListen error on', pathForLog, ':', e);
       if (onError) onError(e);
     }
   );
