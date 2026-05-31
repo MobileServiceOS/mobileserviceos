@@ -8,7 +8,7 @@ import {
   isLikelyAuthenticatedUsAutoForce,
   StoredSessionEnvelope,
 } from './suppliers/cookieParsers';
-import { writeNewSession, SUPPLIER_SECRET_NAMES } from './suppliers/sessionStore';
+import { writeNewSession, SUPPLIER_FIELD_KEYS } from './suppliers/sessionStore';
 import { verifyUsAutoForceSession } from './suppliers/usAutoForceConnector';
 
 // ─────────────────────────────────────────────────────────────────────
@@ -41,7 +41,6 @@ interface SetSessionRequest {
 
 interface SetSessionResponse {
   ok: true;
-  versionId: string;
   cookieCount: number;
   savedAt: string;
 }
@@ -175,28 +174,24 @@ export const setWheelRushSupplierSession = onCall<SetSessionRequest, Promise<Set
       savedBy: uid,
     };
 
-    let versionId: string;
     try {
-      const result = await writeNewSession(
-        SUPPLIER_SECRET_NAMES['U.S. AutoForce'],
+      await writeNewSession(
+        SUPPLIER_FIELD_KEYS['U.S. AutoForce'],
         envelope
       );
-      versionId = result.versionId;
     } catch (err) {
-      logSafe(FN, 'secret-write-error', { uid });
+      logSafe(FN, 'session-write-error', { uid });
       throw new HttpsError('internal', 'Could not save session');
     }
 
     logSafe(FN, 'session-saved', {
       uid,
       supplier,
-      versionId,
       cookieCount: cookies.length,
     });
 
     return {
       ok: true,
-      versionId,
       cookieCount: cookies.length,
       savedAt: envelope.savedAt,
     };

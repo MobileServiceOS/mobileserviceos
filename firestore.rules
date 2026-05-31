@@ -52,6 +52,20 @@ service cloud.firestore {
     }
 
     // ─────────────────────────────────────────────────────────────────
+    // backend — admin-SDK-only storage. Anything under here is reserved
+    // for Cloud Functions code that needs to persist server-side state
+    // without exposing it to ANY client. Currently used by Phase 2a
+    // (Wheel Rush supplier session reuse) at
+    // `backend/wheelRushSupplierSessions`. Adding new admin-only data?
+    // Put it here.
+    // Defense in depth: even with this rule denying all client access,
+    // the admin SDK in Cloud Functions still has unconditional access.
+    // ─────────────────────────────────────────────────────────────────
+    match /backend/{document=**} {
+      allow read, write: if false;
+    }
+
+    // ─────────────────────────────────────────────────────────────────
     // errorLogs — top-level, append-only client error monitoring sink
     // (src/lib/errorMonitor.ts). Any authenticated user may CREATE a
     // log entry; nobody reads, updates, or deletes from the client

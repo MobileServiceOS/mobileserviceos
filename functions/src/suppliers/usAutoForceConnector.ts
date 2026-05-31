@@ -1,5 +1,5 @@
 import { SupplierConnector, SupplierTireResult } from './supplierTypes';
-import { readLatestSession, SUPPLIER_SECRET_NAMES } from './sessionStore';
+import { readLatestSession, SUPPLIER_FIELD_KEYS } from './sessionStore';
 import { serializeCookieHeader } from './cookieParsers';
 import {
   SessionExpiredError,
@@ -32,7 +32,7 @@ import {
 //   - No console.log of cookie payloads anywhere in this file
 
 const BASE_URL = 'https://shop.usautoforce.com';
-const SECRET_NAME = SUPPLIER_SECRET_NAMES['U.S. AutoForce'];
+const FIELD_KEY = SUPPLIER_FIELD_KEYS['U.S. AutoForce'];
 
 // Stealth-friendly UA. Real browsers in the field. NOT a "headless"
 // signature.
@@ -47,7 +47,7 @@ const USER_AGENT =
 export async function verifyUsAutoForceSession(): Promise<
   'valid' | 'expired' | 'missing'
 > {
-  const session = await readLatestSession(SECRET_NAME);
+  const session = await readLatestSession(FIELD_KEY);
   if (!session || session.envelope.cookies.length === 0) return 'missing';
 
   const cookieHeader = serializeCookieHeader(session.envelope.cookies);

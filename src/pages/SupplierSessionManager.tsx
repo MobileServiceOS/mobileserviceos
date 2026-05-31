@@ -51,7 +51,6 @@ interface VerifyResponse {
 
 interface SetSessionResponse {
   ok: true;
-  versionId: string;
   cookieCount: number;
   savedAt: string;
 }
@@ -167,7 +166,7 @@ export function SupplierSessionManager({ settings, onBack }: Props) {
         )}
         {lastSaved && (
           <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 4 }}>
-            Last saved: {new Date(lastSaved.savedAt).toLocaleString()} · v{lastSaved.versionId} · {lastSaved.cookieCount} cookies
+            Last saved: {new Date(lastSaved.savedAt).toLocaleString()} · {lastSaved.cookieCount} cookies
           </div>
         )}
         <button
