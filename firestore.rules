@@ -169,10 +169,20 @@ service cloud.firestore {
         ||
         // (b) Revoke: owner/admin of the inviting business flips
         //     pending → revoked.
+        //
+        // P1 audit fix (2026-06-03): previously this clause only
+        // checked `resource.data.businessId == userBusinessId()`,
+        // which trusts a client-writable field on the user doc. A
+        // malicious user could self-set their users/{uid}.businessId
+        // to a victim's businessId, then "revoke" pending invites,
+        // DoS'ing legitimate onboarding flows. Replaced the spoofable
+        // userBusinessId() check with isOwnerOrAdmin against the
+        // INVITE's businessId — server-authoritative via the members
+        // doc which is unforgeable from the client.
         (
           resource.data.status == 'pending'
           && request.resource.data.status == 'revoked'
-          && resource.data.businessId == userBusinessId()
+          && isOwnerOrAdmin(resource.data.businessId)
         )
         ||
         // (c) Expire: lazy expiry transition. Anyone signed in can
@@ -399,15 +409,28 @@ service cloud.firestore {
             && memberRole(businessId) == 'owner'
           )
           // ── Admin: bounded transitions only. Cannot touch owner
-          //    docs, cannot promote to owner. ──
+          //    docs, cannot promote to owner, cannot write the
+          //    per-member `permissions` override field.
+          //
+          //    P0 audit fix (2026-06-03): previously admins could
+          //    write `permissions: {canManageOwners: true, ...}` on
+          //    another member's doc. usePermissions() then trusted
+          //    those booleans, granting effective owner powers
+          //    without changing `role`. Block the field outright —
+          //    role-based defaults from src/lib/permissions.ts are
+          //    the canonical authority. Owners can still write the
+          //    field via the owner branch above; their power is
+          //    already unconstrained on this collection.
           || (
             memberDocExists(businessId)
             && memberRole(businessId) == 'admin'
             && (resource == null || resource.data.role != 'owner')
             && (
               request.method == 'delete'
-              || request.resource.data.role == 'admin'
-              || request.resource.data.role == 'technician'
+              || (
+                (request.resource.data.role == 'admin' || request.resource.data.role == 'technician')
+                && !('permissions' in request.resource.data)
+              )
             )
           )
           // ── Invite-based self-enroll. A signed-in user may CREATE
@@ -438,16 +461,39 @@ service cloud.firestore {
             && getAfter(/databases/$(database)/documents/invites/$(request.resource.data.inviteToken)).data.acceptedByUid == request.auth.uid
             && request.resource.data.role == getAfter(/databases/$(database)/documents/invites/$(request.resource.data.inviteToken)).data.role
             && (request.resource.data.role == 'admin' || request.resource.data.role == 'technician')
+            // P0 audit fix (2026-06-03): same `permissions` field
+            // block as the admin branch above — a new joiner cannot
+            // self-grant a custom permission map at acceptance time.
+            && !('permissions' in request.resource.data)
           )
         );
       }
 
       // Meta collection — deletion requests and other admin signals.
-      // Any signed-in member can write their own deletion request.
-      // Owner/admin can also write meta docs for purge tracking.
+      //
+      // P0 audit fix (2026-06-03): the `deletion-request` doc triggers
+      // a weekly scheduled Cloud Function (scheduledDeletionPurge) that
+      // recursive-deletes the entire business subtree. Previously ANY
+      // member of the business (including a technician) could write
+      // this doc, enabling an insider-driven data-destruction primitive:
+      // disgruntled tech writes the marker → 25 days later, the cron
+      // hard-deletes the business's jobs, customers, inventory, etc.
+      //
+      // Two-layer fix:
+      //   (a) Restrict write to owner/admin only.
+      //   (b) For `deletion-request` specifically, require that
+      //       `requestedBy` is the writing user — prevents an admin
+      //       from spoofing the marker as the owner.
+      // The Cloud Function adds a third check: re-verifies that the
+      // marker's `requestedBy` matches the business's ownerUid before
+      // calling recursiveDelete. See functions/src/scheduledDeletionPurge.ts.
       match /meta/{docId} {
         allow read: if isMemberOfBusiness(businessId);
-        allow write: if isMemberOfBusiness(businessId);
+        allow write: if isOwnerOrAdmin(businessId)
+          && (
+            docId != 'deletion-request'
+            || request.resource.data.requestedBy == request.auth.uid
+          );
       }
 
       // Presence collection — technician work status (Available /
@@ -625,10 +671,16 @@ service cloud.firestore {
       allow read: if isSignedIn();
       // CREATE: signed-in user can claim a code if it doesn't already
       // exist (Firestore's create-only check) AND the businessId
-      // matches their own. Prevents a malicious user from claiming a
-      // code for a different business.
+      // matches their own.
+      //
+      // P1 audit fix (2026-06-03): added format enforcement. The
+      // previous rule let users claim arbitrary strings as referral
+      // codes — `/admin`, `/google`, profanity, dictionary squats.
+      // Constrain to 6-12 uppercase alphanumerics, matching the
+      // generator's output in src/lib/inviteUtils.ts.
       allow create: if isSignedIn()
-        && request.resource.data.businessId == request.auth.uid;
+        && request.resource.data.businessId == request.auth.uid
+        && code.matches('^[A-Z0-9]{6,12}$');
       // No updates or deletes from clients. Codes are immutable once
       // claimed. Admin SDK handles edge cases (e.g. revocation).
       allow update, delete: if false;
