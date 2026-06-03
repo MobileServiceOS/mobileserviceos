@@ -119,6 +119,45 @@ export const scheduledDeletionPurge = functions
       const businessId = businessRef.id;
       const data = docSnap.data();
 
+      // P0 audit fix (2026-06-03): re-verify server-side that the
+      // marker's `requestedBy` matches the business's `ownerUid`
+      // before purging. The Firestore rule (allow write on meta) now
+      // requires owner/admin AND requestedBy == request.auth.uid,
+      // but an admin acting as a malicious insider could spoof the
+      // marker as the owner before being demoted. This check is the
+      // backstop: only the owner's UID may trigger the purge. If
+      // ownerUid is missing or differs, skip and log loudly.
+      let ownerUid: string | undefined;
+      try {
+        const settingsSnap = await db
+          .doc(`businesses/${businessId}/settings/main`)
+          .get();
+        ownerUid = settingsSnap.data()?.ownerUid as string | undefined;
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error('[deletionPurge] settings read failed', {
+          businessId,
+          error: (err as Error).message,
+        });
+        failed += 1;
+        continue;
+      }
+      if (!ownerUid) {
+        // eslint-disable-next-line no-console
+        console.warn('[deletionPurge] no ownerUid on settings/main, skipping', { businessId });
+        continue;
+      }
+      if (data.requestedBy !== ownerUid) {
+        // eslint-disable-next-line no-console
+        console.error('[deletionPurge] requestedBy mismatch, refusing to purge', {
+          businessId,
+          requestedBy: data.requestedBy,
+          ownerUid,
+        });
+        failed += 1;
+        continue;
+      }
+
       try {
         // Recursive delete everything under businesses/{bid}/**.
         // The admin SDK's recursiveDelete handles batching, rate
