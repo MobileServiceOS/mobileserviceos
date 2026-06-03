@@ -83,8 +83,18 @@ export const scheduledDeletionPurge = functions
     const db = admin.firestore();
     // collectionGroup('meta') finds every `meta` subcollection across
     // all businesses. We then filter by document id and timestamp.
+    // P2 audit fix (2026-06-03): added the `marker == 'deletion-request'`
+    // filter to the query. The previous query selected on `scope` +
+    // `requestedAt` only and filtered by document id in JS after
+    // fetching, which meant an admin who wrote unrelated meta docs
+    // matching `scope: 'business'` with an old timestamp could inflate
+    // the query result count up to MAX_PURGES_PER_RUN and starve
+    // legitimate deletion requests from being processed that week.
+    // The marker field is written by AccountSection.tsx's deletion
+    // flow and is the canonical signal — no other meta doc carries it.
     const snap = await db
       .collectionGroup('meta')
+      .where('marker', '==', 'deletion-request')
       .where('scope', '==', 'business')
       .where('requestedAt', '<=', cutoffIso)
       .limit(MAX_PURGES_PER_RUN)
