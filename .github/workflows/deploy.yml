@@ -103,6 +103,16 @@ jobs:
             echo "VITE_STRIPE_CORE_PRICE_ID=${{ secrets.VITE_STRIPE_CORE_PRICE_ID }}" >> .env.production.local
             echo "Core price ID injected."
           fi
+          # Firebase App Check reCAPTCHA v3 public site key (P1-1 fix,
+          # 2026-06-03). When present, src/lib/firebase.ts initializes
+          # App Check and requests are attested to the project. When
+          # absent, App Check init is silently skipped — the app
+          # still works as long as enforcement isn't on in the
+          # Console.
+          if [ -n "${{ secrets.VITE_FIREBASE_APPCHECK_SITE_KEY }}" ]; then
+            echo "VITE_FIREBASE_APPCHECK_SITE_KEY=${{ secrets.VITE_FIREBASE_APPCHECK_SITE_KEY }}" >> .env.production.local
+            echo "App Check site key injected."
+          fi
           npm run build
 
       # GitHub Pages disables Jekyll only when .nojekyll is at the published root.

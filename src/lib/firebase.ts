@@ -74,6 +74,52 @@ export let initError: Error | null = null;
 
 try {
   app = initializeApp(FB_CFG);
+
+  // ─── App Check (P1-1 audit fix, 2026-06-03) ─────────────────────
+  // Server-side attestation that the request comes from this app +
+  // a real browser. When App Check is enforced on the project (via
+  // Firebase Console → App Check → APIs → Enforce), Firestore /
+  // Functions / Storage reject any request whose token isn't signed
+  // by a registered attestation provider. This closes the errorLogs
+  // flood attack path completely — even a signed-in attacker writing
+  // via the raw Web SDK can't bypass App Check from a headless
+  // environment, because reCAPTCHA v3 silently fails the bot fight.
+  //
+  // The init is gated on VITE_FIREBASE_APPCHECK_SITE_KEY being set
+  // at build time. When the secret is absent (local dev, branches
+  // without the secret wired), App Check is silently skipped — the
+  // app still works as long as enforcement isn't turned on in the
+  // Console. Once the operator (a) sets the GitHub repo secret AND
+  // (b) flips enforcement on in the Console, the request path is
+  // gated end-to-end.
+  //
+  // Setup order matters: ALWAYS deploy the client SDK with the key
+  // first, wait for the GH Pages workflow to ship, then enforce on
+  // the backend. Reversing the order locks out every active session
+  // until they hard-refresh.
+  const appCheckKey = (env.VITE_FIREBASE_APPCHECK_SITE_KEY ?? '').trim();
+  if (appCheckKey && typeof window !== 'undefined') {
+    try {
+      // Dynamic import keeps the App Check SDK out of the critical-
+      // path bundle when the key isn't set. ~15 KB gzip stays in a
+      // separate chunk fetched only when this code path runs.
+      void import('firebase/app-check').then(({ initializeAppCheck, ReCaptchaV3Provider }) => {
+        try {
+          initializeAppCheck(app!, {
+            provider: new ReCaptchaV3Provider(appCheckKey),
+            isTokenAutoRefreshEnabled: true,
+          });
+          console.info('[firebase] App Check initialized');
+        } catch (err) {
+          console.warn('[firebase] App Check init failed:', err);
+        }
+      }).catch((err) => {
+        console.warn('[firebase] App Check module load failed:', err);
+      });
+    } catch (err) {
+      console.warn('[firebase] App Check setup threw:', err);
+    }
+  }
   try {
     _db = initializeFirestore(app, {
       localCache: persistentLocalCache({
