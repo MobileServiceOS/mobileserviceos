@@ -467,7 +467,7 @@ export function Onboarding({ settings, onComplete }: Props) {
                 </div>
               </div>
               <div className="field">
-                <label>Logo (optional)</label>
+                <label htmlFor="onb-logo-upload">Logo (optional)</label>
                 {logoUrl ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <img src={logoUrl} alt="Logo" style={{ width: 56, height: 56, borderRadius: 10, border: '1px solid var(--border)', objectFit: 'contain', background: 'var(--s3)' }} />
@@ -475,6 +475,7 @@ export function Onboarding({ settings, onComplete }: Props) {
                   </div>
                 ) : (
                   <input
+                    id="onb-logo-upload"
                     type="file"
                     accept="image/png,image/jpeg,image/jpg,image/webp"
                     onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleLogo(f); }}

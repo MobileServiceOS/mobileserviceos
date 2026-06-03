@@ -155,10 +155,10 @@ function BrandForm() {
   return (
     <>
       <div className="field">
-        <label>Logo</label>
+        <label htmlFor="settings-logo-upload">Logo</label>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <img src={draft.logoUrl || APP_LOGO} alt="" style={{ width: 56, height: 56, borderRadius: 12, objectFit: 'contain', background: 'var(--s3)' }} />
-          <input ref={logoInputRef} type="file" accept="image/*" style={{ display: 'none' }}
+          <input id="settings-logo-upload" ref={logoInputRef} type="file" accept="image/*" style={{ display: 'none' }}
             onChange={(e) => { const f = e.target.files?.[0]; if (f) handleLogo(f); if (logoInputRef.current) logoInputRef.current.value = ''; }} />
           <button className="btn sm secondary" onClick={() => logoInputRef.current?.click()} disabled={logoUploading}>
             {logoUploading ? 'Uploading…' : 'Upload logo'}
@@ -258,19 +258,21 @@ function BrandForm() {
       </div>
       <div className="field-row">
         <div className="field">
-          <label>Primary color</label>
+          <label id="settings-primary-color-label">Primary color</label>
           <ColorPicker
             value={draft.primaryColor}
             onChange={(v) => set('primaryColor', v)}
             fallback="#f4b400"
+            ariaLabelledBy="settings-primary-color-label"
           />
         </div>
         <div className="field">
-          <label>Accent color</label>
+          <label id="settings-accent-color-label">Accent color</label>
           <ColorPicker
             value={draft.accentColor}
             onChange={(v) => set('accentColor', v)}
             fallback="#f7ca4d"
+            ariaLabelledBy="settings-accent-color-label"
           />
         </div>
       </div>
@@ -307,11 +309,18 @@ const PRESET_COLORS = [
 ];
 
 function ColorPicker({
-  value, onChange, fallback,
-}: { value: string; onChange: (v: string) => void; fallback: string }) {
+  value, onChange, fallback, ariaLabelledBy,
+}: { value: string; onChange: (v: string) => void; fallback: string; ariaLabelledBy?: string }) {
   const hex = normalizeHex(value, fallback);
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    // a11y: when the parent provides a label id via ariaLabelledBy,
+    // expose the picker as a labeled group. AT users hear the visible
+    // "Primary color" / "Accent color" label as the picker's name.
+    <div
+      style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+      role={ariaLabelledBy ? 'group' : undefined}
+      aria-labelledby={ariaLabelledBy}
+    >
       <div style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(6, 1fr)',

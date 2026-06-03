@@ -987,8 +987,8 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
                 </div>
               </div>
               <div className="field">
-                <label>Receipt</label>
-                <input ref={receiptInputRef} type="file" accept="image/*" style={{ display: 'none' }}
+                <label htmlFor="addjob-receipt-upload">Receipt</label>
+                <input id="addjob-receipt-upload" ref={receiptInputRef} type="file" accept="image/*" style={{ display: 'none' }}
                   onChange={(e) => { const f = e.target.files?.[0]; if (f) handleReceipt(f); if (receiptInputRef.current) receiptInputRef.current.value = ''; }} />
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                   <button type="button" className="btn sm secondary" onClick={() => receiptInputRef.current?.click()} disabled={receiptUploading}>

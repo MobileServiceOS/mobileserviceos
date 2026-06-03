@@ -52,29 +52,60 @@ service cloud.firestore {
     }
 
     // ─────────────────────────────────────────────────────────────────
-    // errorLogs — top-level, append-only client error monitoring sink
-    // (src/lib/errorMonitor.ts). Any authenticated user may CREATE a
-    // log entry; nobody reads, updates, or deletes from the client
-    // (you inspect via the Firebase console / an admin tool). Keeping
-    // it write-only client-side means a compromised client can't mine
-    // other businesses' error data.
+    // errorLogs — per-user append-only error monitoring sink
+    // (src/lib/errorMonitor.ts).
+    //
+    // Path: errorLogs/{uid}/entries/{entryId}
+    //
+    // P1 audit follow-up (2026-06-03): writes now go to a per-uid
+    // subcollection rather than the flat top-level collection. Three
+    // wins:
+    //   1. Attribution — every entry is namespaced under its writer's
+    //      uid, so any abuse pattern is traceable to a specific user
+    //      without an extra `uid` field on the entry.
+    //   2. Tractable cleanup — a Cloud Function can purge a single
+    //      user's entries by deleting their parent doc; the prior
+    //      flat collection forced a collectionGroup scan + filter.
+    //   3. Self-write only — the rule below enforces `auth.uid == uid`
+    //      so one compromised session cannot pollute another user's
+    //      bucket. The prior flat rule let any signed-in user write
+    //      anywhere in the collection.
+    //
+    // Legacy top-level errorLogs/{logId} writes are no longer
+    // permitted (allow create: if false on the legacy path below).
+    // Existing pre-restructure docs remain readable from the Firebase
+    // Console / admin tools; no migration needed (they're not
+    // referenced by any client code, only triaged manually).
     // ─────────────────────────────────────────────────────────────────
+    match /errorLogs/{uid} {
+      // The parent doc is never written from the client — only the
+      // subcollection is. Reads stay blocked so a compromised client
+      // can't enumerate users by checking which uid buckets exist.
+      allow read, write: if false;
+
+      match /entries/{entryId} {
+        // Schema + size cap on each entry.
+        // 8 KiB total leaves room for message (1KB) + stack (4KB) +
+        // the usual ~3KB of context / headers / metadata.
+        allow create: if request.auth != null
+          && request.auth.uid == uid
+          && request.resource.size() < 8192
+          && request.resource.data.keys().hasAll(['ts', 'level', 'message', 'appVersion'])
+          && request.resource.data.level in ['error', 'warning', 'info']
+          && request.resource.data.message is string
+          && request.resource.data.message.size() <= 1000
+          && request.resource.data.ts is string
+          && request.resource.data.appVersion is string;
+        allow read, update, delete: if false;
+      }
+    }
+
+    // Legacy top-level errorLogs/{logId} path — closed for writes
+    // post-restructure. Pre-existing docs remain readable from the
+    // Firebase Console (admin SDK bypasses rules); only client writes
+    // are blocked.
     match /errorLogs/{logId} {
-      // Schema + size cap. P1 audit finding (2026-05-31): without
-      // these guards, a compromised session could flood the collection
-      // with multi-MB docs at write QPS — uncapped cost amplification.
-      // Mirrors the shape written by src/lib/errorMonitor.ts.
-      // 8 KiB cap leaves room for message (1KB) + stack (4KB) + the
-      // usual ~3KB of context/headers/metadata.
-      allow create: if request.auth != null
-        && request.resource.size() < 8192
-        && request.resource.data.keys().hasAll(['ts', 'level', 'message', 'appVersion'])
-        && request.resource.data.level in ['error', 'warning', 'info']
-        && request.resource.data.message is string
-        && request.resource.data.message.size() <= 1000
-        && request.resource.data.ts is string
-        && request.resource.data.appVersion is string;
-      allow read, update, delete: if false;
+      allow create, read, update, delete: if false;
     }
 
     // ─────────────────────────────────────────────────────────────────
