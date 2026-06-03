@@ -1,7 +1,7 @@
 # Twilio Integration + Customer Intelligence System — Design
 
 **Date:** 2026-06-03
-**Status:** v3.1 — Twilio-deferred priority lock + dormant-popup contract, pending user approval
+**Status:** v3.2 — final pre-SP1 refinements: Customer Hub nav, Quick Notes, Fleet kind, photos aggregation, System of Record callout, pending user approval
 
 > ### Priority lock (v3.1 — user-confirmed 2026-06-03)
 >
@@ -10,6 +10,36 @@
 > - **SP4 (Twilio webhooks) and SP4-outbound (sendSMS) ship as fully dormant infrastructure.** Cloud Functions deploy disabled by default via `TWILIO_WEBHOOK_ENABLED=false`. No environment variable is required to ship SP4 code.
 > - **SP6 (Incoming Call Popup) decouples from SP4** — see SP6 below. The popup UI ships as part of the customer-intelligence work and is testable via a dev/admin Test Incoming Call action without any Twilio configuration. When SP4 webhooks are later activated, the popup pipeline begins firing automatically with no code change.
 > - **Twilio activation is a configuration-only operation** performed entirely through Settings → Communications. No code redeploy required.
+
+> ### System of Record (v3.2 — user-confirmed 2026-06-03)
+>
+> **Refinement #9 (verbatim):** *"Customer Directory is core — this is a primary system of record, not an add-on. Schema designs must be future-proof, indexes must support scalability, RBAC must be production-grade. Spec should call this out explicitly so future contributors don't deprioritize it."*
+>
+> **Implication for every contributor downstream of v3.2:**
+> - **Customer Directory is a PRIMARY SYSTEM OF RECORD for MSOS.** It is not an add-on, not a side-car, not a derived projection. Customer + Vehicle + Service History are top-shelf entities, peer to Jobs in operational importance.
+> - **Schemas must be future-proof.** Every new field added downstream of v3.2 must be designed with the assumption it will outlive the SP it lands in. Default-on indexing is the rule, not the exception; deprecating a field requires a written migration plan, not a hot-patch.
+> - **Indexes must support scalability.** Customer / Vehicle collections will outgrow Wheel Rush within 12 months. Composite indexes for global search, list filtering, and Insights rollups are deployed at SP1 time (not "added later when performance degrades"). The scale-tier table in *Global Customer Search* is the canonical contract.
+> - **RBAC must be production-grade.** Every read path enforces the existing `scopeJobsByRole` / `canViewFinancials` discipline. No new permission flag is invented without a corresponding rules-layer enforcement (see *RBAC — Technician vs Admin*). Financial rollups remain derived-and-scoped, never persisted at owner-level visibility.
+> - **Future contributors must not deprioritize.** This callout exists so a hypothetical "let's defer the Customers tab until SP5" decision triggers the System of Record gate: any deferral of Customer Directory scope requires explicit user re-approval, not engineering judgment alone.
+
+> ### Top-level Navigation (v3.2 — user-confirmed 2026-06-03)
+>
+> **Refinement #1 (paraphrased):** Customer Hub must be a top-level navigation item, peer to Dashboard, Jobs, Inventory, Analytics, Settings. Customers must NOT be buried inside Jobs or Settings.
+>
+> **Canonical navigation order:**
+> 1. **Dashboard**
+> 2. **Jobs**
+> 3. **Customers (NEW — Customer Hub)**
+> 4. **Inventory**
+> 5. **Analytics**
+> 6. **Settings**
+>
+> The "Customers" tab is the entry point to the Customer Directory module. **Path:** `/customers`. **Component file:** `src/pages/CustomerHub.tsx` (or repurpose the existing `src/pages/Customers.tsx` — agent should grep at SP1 time to confirm which file actually exists in the codebase; today the file is `src/pages/Customers.tsx` and the v3.2 plan is to evolve it in-place rather than fork a new component, preserving the existing route).
+>
+> **Mobile-first bottom-nav placement.** The existing main nav adds this tab; any existing settings-buried customer affordances (if any are discovered at SP1 grep time) are removed or redirected to the new top-level tab. The Customer Directory has no other entry point — search and Insights drill in from this tab.
+>
+> **UX viability flag — six-tab bottom nav.** This refinement makes Customers the **fifth tab on a six-tab bottom nav**. Six tabs at mobile widths approaches a known UX limit (icon legibility + thumb-reach + label truncation at 360px viewport). SP1 implementation MUST confirm viability with a screenshot review at 360px, 390px (iPhone 14 Pro), and 414px viewports. If any tab label truncates or any icon overlaps a thumb-reach safe zone, **recommend overflow:** push Analytics OR Settings into a MoreSheet ("...") sixth tab, keeping Dashboard / Jobs / Customers / Inventory / [MoreSheet] as the visible five. The MoreSheet pattern already exists in MSOS (used today for the Leads tab landing in SP5) — reusing it for overflow is zero-net-new-component cost. The user-confirmed canonical order above is the ASPIRATIONAL contract; the overflow recommendation is the IMPLEMENTATION SAFETY NET.
+
 **Scope:** Full architecture for user phases 1-18. This spec defines the data model, integration points, security model, and sub-project shipping order. Each sub-project will get its own dedicated implementation plan after the user signs off on this architecture.
 
 **v3 framing:** Twilio is the primary (and only active) communications provider. The architecture introduces a thin **Provider Abstraction Layer** so future providers could be added without rewriting business logic — but Twilio is the only implementation that exists. Quo/OpenPhone references throughout v2 have been replaced. See *v3 Update Log* at the bottom for the full pivot diff.
@@ -88,6 +118,25 @@ The scope is broadened in three architectural directions without changing the he
 ---
 
 ## Architecture Overview
+
+### High-level navigation (v3.2 — refinement #1)
+
+```
++-----------+-----------+-----------+-----------+-----------+-----------+
+| Dashboard |   Jobs    | Customers | Inventory | Analytics | Settings  |
+|           |           | (NEW)     |           |           |           |
++-----------+-----------+-----------+-----------+-----------+-----------+
+                              |
+                              v
+                +-----------------------------+
+                |  Customer Hub  (/customers) |
+                |  - Customer Directory list  |
+                |  - Global Search entry      |
+                |  - Tap row -> CustomerProfile (SP3)
+                +-----------------------------+
+```
+
+**Customer Hub is a top-level navigation peer** to Dashboard, Jobs, Inventory, Analytics, and Settings (v3.2 — refinement #1). The Hub is the canonical entry point to every Customer Directory surface: list view, global search launcher, drill-in to CustomerProfile. Component file: today the file is `src/pages/Customers.tsx`; v3.2 evolves it in place (no fork) and adds the new top-level nav tab. See *Top-level Navigation (v3.2 — user-confirmed)* callout above for the full canonical order and the six-tab overflow viability flag.
 
 ### End-to-end incoming-call flow (headline scenario) — Twilio
 
@@ -182,7 +231,8 @@ Doc ID is the existing `customerKey()` output (`p_<digits>` or `n_<slug>`) — p
 | `id` | string | Doc ID. |
 | `name` | string | Migrated from `Job.customerName` on first upsert. |
 | `nameLower` | string? | **v2 NEW.** `name.trim().toLowerCase()` for global-search prefix queries. Written by `upsertCustomerFromJob`. |
-| `companyName` | string? | **v2 NEW.** For fleet customers. Optional; UI surfaces a "Company" field in AddJob and CustomerProfile edit. |
+| `kind` | `'individual' \| 'fleet'` | **v3.2 NEW (refinement #6).** Default `'individual'`. **DATA MODEL ONLY — no fleet workflow UI in v1.** This field exists so future fleet features (multi-vehicle batch invoicing, fleet pricing tiers, fleet contact roles) can plug in without rewriting the entity shape. When `kind === 'fleet'`, `companyName` is required (see below); when `kind === 'individual'`, `companyName` is informational. Settings UI / fleet workflow features land in a future SP (not SP1-SP3). Writes default to `'individual'` from `upsertCustomerFromJob` and from the AddJob form; promotion to `'fleet'` is a manual operator action on CustomerProfile edit (owner/admin only). |
+| `companyName` | string? | **v2 NEW (v3.2 amended).** For fleet or business customers. **Informational when `kind === 'individual'`; required when `kind === 'fleet'`.** Optional in v1 input flows; UI surfaces a "Company" field in AddJob and CustomerProfile edit. Validation contract for the `kind === 'fleet'` required-state lands when fleet workflow UI lands (post-v1). |
 | `companyLower` | string? | **v2 NEW.** Lowercased copy for search. |
 | `phoneE164` | string | Normalized phone, e.g. `+13058977030`. |
 | `phoneKey` | string | Digits-only, e.g. `13058977030`. **Indexed.** Primary webhook lookup field. |
@@ -194,6 +244,14 @@ Doc ID is the existing `customerKey()` output (`p_<digits>` or `n_<slug>`) — p
 | `zipCode` | string? | **v2 NEW.** 5-digit US zip (optional). Captured by `AddressAutofillInput`. Indexed for exact-match search. |
 | `note` | string? | **EXISTING** field on CustomerMeta. Preserved verbatim. |
 | `tags` | string[]? | **EXISTING** field on CustomerMeta. Preserved verbatim. |
+| `gateCode` | string? | **v3.2 NEW Quick Note (refinement #2).** Gated-community / parking-gate access code. Auto-attached to AddJob context when this customer is selected. Free-text, short. No index. |
+| `apartmentNumber` | string? | **v3.2 NEW Quick Note (refinement #2).** Apartment / suite / unit number. Auto-attached to AddJob context. Free-text. No index. |
+| `wheelLockKeyLocation` | string? | **v3.2 NEW Quick Note (refinement #2).** Tire-vertical helper: where the operator can find the wheel-lock key in the vehicle (e.g. "glovebox", "spare-tire well", "with paperwork in console"). Auto-attached to AddJob context. Free-text. No index. Distinct from the existing Vehicle-level `wheelLockNotes` (a per-vehicle TPMS/lock annotation set at job time); this Customer-level field captures the customer's repeatable habit. |
+| `tpmsNotes` | string? | **v3.2 cross-reference Quick Note (refinement #2).** Tire-vertical helper: customer-level TPMS guidance ("uses aftermarket sensors", "no relearn tool needed", "reset button in glovebox"). **Cross-references the existing Vehicle-level `tpmsNotes` field** — this Customer-level note captures the customer's standing instruction across all their vehicles; the Vehicle-level note captures the specific vehicle's quirks at job time. The two fields are surfaced together in the AddJob auto-attach card. Free-text. No index. |
+| `preferredPaymentMethod` | string? | **v3.2 NEW Quick Note (refinement #2).** Customer's preferred payment method ("Zelle to 305-...", "Always pays cash", "Square invoice"). Auto-attached to AddJob context. Free-text. No index. Does NOT replace the Job-level `payment` field; this is an advisory note for the technician. |
+| `parkingInstructions` | string? | **v3.2 NEW Quick Note (refinement #2).** Where to park on arrival ("behind garage", "in the alley", "park at gate, walk in"). Auto-attached to AddJob context. Free-text. No index. |
+| `preferredContactMethod` | `'phone' \| 'sms' \| 'email'` | **v3.2 NEW Quick Note (refinement #2).** How this customer prefers to be contacted. Default unset. Auto-attached to AddJob context. When set, drives subtle UI nudges (the CustomerProfile Call/Text buttons render the preferred one as the primary CTA). No index in v1 (filterability deferred to SP7 if retention campaigns need it). |
+| `generalNotes` | string? | **v3.2 NEW Quick Note (refinement #2).** Free-text catch-all for customer-level standing instructions ("dog in yard", "call before arriving", "deaf — text only"). Auto-attached to AddJob context. Distinct from the existing `note` field which is the operator's freeform CustomerProfile note; `generalNotes` is specifically the **job-context-surfacing** note that the technician sees inline in AddJob. (The operator may choose to keep both, or treat `generalNotes` as the primary; spec leaves both fields available to avoid a destructive merge at SP1 time.) |
 | `firstJobAt` | Timestamp? | Set on first upsert; never overwritten. |
 | `lastJobAt` | Timestamp? | Updated on every upsert. |
 | `lastJobId` | string? | Most recent job. Drives "Repeat Last Service" action. |
@@ -225,16 +283,21 @@ Doc ID is the existing `customerKey()` output (`p_<digits>` or `n_<slug>`) — p
 ```
 match /businesses/{bid}/customers/{customerId} {
   allow read: if isMemberOfBusiness(bid);
-  // Meta-only writes (note, tags) remain owner/admin
+  // Meta-only writes (note, tags, quick notes, kind) remain owner/admin
+  // (v3.2: Quick Notes + kind are operator-edited and need the same write gating as note/tags —
+  // a tech can't promote a customer to fleet or rewrite the gate code, only owner/admin can.)
   allow update: if isOwnerOrAdmin(bid)
               && request.resource.data.diff(resource.data).affectedKeys()
-                 .hasOnly(['note','tags','updatedAt','lastEditedByUid','lastEditedAt']);
+                 .hasOnly(['note','tags','kind',
+                          'gateCode','apartmentNumber','wheelLockKeyLocation','tpmsNotes',
+                          'preferredPaymentMethod','parkingInstructions','preferredContactMethod','generalNotes',
+                          'updatedAt','lastEditedByUid','lastEditedAt']);
   // Identity upserts (from saveJob) allowed for any active member.
   // canCreateJobs is true for owner/admin/technician today; the existing role check covers it.
   allow create, update: if isMemberOfBusiness(bid)
               && memberRole(bid) in ['owner','admin','technician']
               && request.resource.data.diff(resource.data).affectedKeys()
-                 .hasOnly(['name','nameLower','companyName','companyLower',
+                 .hasOnly(['name','nameLower','kind','companyName','companyLower',
                           'phoneE164','phoneKey','email','addressLine',
                           'city','cityLower','state','zipCode',
                           'firstJobAt','lastJobAt','lastJobId',
@@ -249,6 +312,56 @@ match /businesses/{bid}/customers/{customerId} {
 The dual `allow update` rules (owner/admin-only for meta vs any-active-member for identity) are intentionally separate — Firestore rules OR them at evaluation time, which is the desired semantic.
 
 **Financial rollup fields (`lifetimeRevenue`, `lifetimeProfit`, `expensesTotal`) are deliberately NOT stored.** Today these are derived live from `jobs` via `scopeJobsByRole` ([src/lib/jobPermissions.ts:16](../../../src/lib/jobPermissions.ts)) so the technician's "Lifetime Revenue" is automatically scoped to their own jobs. Persisting these rollups would either leak owner-level totals to techs or require a Cloud-Function-only write path. We keep them derived; the CustomerProfile gates Lifetime Revenue / Profit / Expenses behind `permissions.canViewFinancials` so techs only ever see derived-from-their-own-jobs totals (which they already see today on the Customers page).
+
+### Customer Quick Notes (v3.2 user-confirmed)
+
+**Refinement #2:** structured note fields that live on the Customer entity and **auto-appear during future jobs** — the technician sees the customer's standing instructions inline in AddJob the moment a returning customer is selected, before they tap Save.
+
+**The 8 Quick Note fields** (all listed in the Customer schema table above, repeated here as a coherent reference):
+
+| Field | Type | Default | Purpose |
+|---|---|---|---|
+| `gateCode` | string? | unset | Gated-community / parking-gate access code. |
+| `apartmentNumber` | string? | unset | Apartment / suite / unit number. |
+| `wheelLockKeyLocation` | string? | unset | Where the wheel-lock key lives in the vehicle (tire vertical). |
+| `tpmsNotes` | string? | unset | Customer-level TPMS guidance. Cross-references the Vehicle-level `tpmsNotes` field — both render side-by-side in the AddJob context card. |
+| `preferredPaymentMethod` | string? | unset | Customer's standing payment preference (free-text advisory). |
+| `parkingInstructions` | string? | unset | Where to park on arrival. |
+| `preferredContactMethod` | `'phone' \| 'sms' \| 'email'`? | unset | Drives the CustomerProfile primary CTA selection (Call vs Text). |
+| `generalNotes` | string? | unset | Catch-all standing instructions (e.g. "dog in yard", "deaf — text only"). |
+
+**Indexing posture (v3.2):** mostly free-text fields, **no indexes needed for v1**. `preferredContactMethod` could earn an index in SP7 if retention campaigns need to segment by it; none of the other seven warrant an index. This explicit "no indexes" decision is part of the System of Record callout's future-proofing posture — the fields are reserved on the schema with intentional, documented index minimalism.
+
+**AUTO-ATTACH BEHAVIOR (the key v3.2 contract):**
+
+When AddJob's Returning Customer card autofills (operator types a phone number, `lookupCustomerByPhone` resolves a hit, operator taps **Use Customer** or **Repeat Last Service** — see *AddJob Workflow Change*), the customer's Quick Notes are surfaced as a **non-dismissable info card at the top of the job notes section**. The technician sees the Quick Notes inline — they cannot tap them away before saving the job. Sample render (mobile, illustrative):
+
+```
++-------------------------------------------------+
+|  📌 Customer Quick Notes                        |
+|                                                 |
+|  Gate code:    4421                             |
+|  Apt #:        3B                               |
+|  Parking:      Behind garage, alley access      |
+|  Wheel lock:   Glovebox                         |
+|  Payment:      Zelle to (305) 555-0100          |
+|  Contact:      SMS preferred                    |
+|  Notes:        Dog in yard — call first         |
++-------------------------------------------------+
+```
+
+**Critical contract — Quick Notes live on the Customer, not on the Job.** The Job entity does **NOT** duplicate these fields. The Quick Notes are READ AT DISPLAY TIME from the Customer doc that `Job.customerId` references. This has two important consequences:
+
+1. **Retroactive edits propagate.** When the operator edits Quick Notes on the CustomerProfile (e.g. the gate code changes from `4421` to `9988` because the HOA rotated codes), the new value is reflected on **every future job's** auto-attach card without any per-job rewrite. Historical jobs naturally render the historical context the technician saw at job time (the technician's free-text job notes already capture that), but the live Quick Notes view always reflects current customer state.
+2. **No write amplification at job-save time.** The 8 fields are NOT copied into the Job document on save. This keeps Job docs lean and avoids stale-copy hazards.
+
+**SP1 vs SP3 split for the Quick Notes capability:**
+
+- **SP1 (Data Model):** the 8 fields land on the Customer schema, the Firestore rule allowlist permits them, the TypeScript `Customer` interface exposes them. No UI yet. Empty / unset for every existing customer.
+- **SP2 (AddJob auto-attach):** the AddJob Returning Customer card reads the Customer doc's Quick Notes and renders the non-dismissable info card above the notes section when any Quick Notes field is non-empty. If all 8 are unset, no card renders.
+- **SP3 (CustomerProfile edit surface):** CustomerProfile gains a "Quick Notes" section (owner/admin editable; see *Customer Profile* placement note in cross-references below) where operators populate the 8 fields. The inline editing pattern reuses the existing `canEditBusinessSettings` gate plus the new Quick Notes write-allowlist branch in the security rule.
+
+**RBAC posture for Quick Notes editing.** Operationally these are operator-side instructions, not personally identifying customer data. The security rule above gates writes to **owner/admin only** for editing the Quick Notes (same as `note`/`tags`). Technicians **read** the Quick Notes (they need to see them at job time) but **cannot rewrite** them. This matches the existing `canEditNote` precedent in `src/pages/Customers.tsx`.
 
 ### `businesses/{businessId}/customers/{customerId}/vehicles/{vehicleId}`
 
@@ -1700,6 +1813,8 @@ When `lookupCustomerByPhone` returns a hit:
 
 **Auto-fill behavior:** the autofill is **non-destructive merge** — if the operator already typed a name into the existing Customer card before the lookup matched, "Use Customer" overwrites with a confirmation toast ("Customer auto-filled from match. Tap to undo."). The undo restores the prior draft via a snapshot kept in `useRef`.
 
+**Quick Notes auto-render (v3.2 — refinement #2 cross-reference):** when **Use Customer** OR **Repeat Last Service** fires, AddJob ALSO surfaces the customer's *Quick Notes* (see *Customer Quick Notes (v3.2 user-confirmed)*) as a non-dismissable info card pinned to the **top of the job notes section**. The technician sees `Gate code: 4421` / `Wheel lock key in glovebox` / `SMS preferred` / etc. before they tap Save. The card reads the Quick Notes fields LIVE from the Customer doc (`gateCode`, `apartmentNumber`, `wheelLockKeyLocation`, `tpmsNotes`, `preferredPaymentMethod`, `parkingInstructions`, `preferredContactMethod`, `generalNotes`) — none are copied into the Job document on save. If all 8 fields are unset, no card renders.
+
 **Miss state:** when no match is found after 500ms of stable input, the card shows:
 
 ```
@@ -1793,7 +1908,7 @@ The 9 buttons in the Quick Actions row, each labeled with its dispatch path:
 | # | Button | Behavior | Existing or New? | Further design? |
 |---|---|---|---|---|
 | 1 | **Create Job** | Navigates to `add` tab with draft preloaded: `customerId`, `vehicleId`, `customerName`, `customerPhone`, `customerEmail`, `city`, `state`, plus pre-selected vehicle chip. Reuses existing `setTab('add')` + draft-preload mechanism from `handleDuplicate`. | New wiring, reuses existing draft mechanism | No |
-| 2 | **Repeat Last Service** | Same as the Returning Customer card's "Repeat Last Service" button. Calls a shared helper. | New wiring | No |
+| 2 | **Repeat Last Service** | **v3.2 emphasis (refinement #3):** clones the customer's MOST RECENT COMPLETED job into a new AddJob draft. **Field-clone list:** `service` (service type), `vehicleType` / `vehicleMakeModel` / `vehicleSize` / `tireSize` / `tireBrand` (vehicle + tire identity), `customerId` / `customerName` / `customerPhone` / `customerEmail` (customer), `city` / `state` / `addressLine` / `zipCode` (location), `source` (lead source), `payment` (method). **Price stays editable.** `revenue` / `tireCost` / `materialCost` are NOT cloned — the operator may need to adjust for current conditions (tire prices fluctuate, services may scope differently). This button's behavior is **identical to** the Returning Customer card's "Repeat Last Service" CTA defined in *AddJob Workflow Change → Returning Customer card spec*; both surfaces wire to the same shared helper (`cloneLastCompletedJobIntoDraft(customerId)`). The CustomerProfile surface widens the operator's reach: the same one-tap clone is available from the profile page (drilling in from search results or the Customer Hub) without going through AddJob's Lookup step first. | New wiring, shared helper with AddJob CTA | No |
 | 3 | **Call** | **v1 always uses `tel:` native scheme.** `<a href={`tel:${customer.phoneE164}`}>`. Free, instant. Logs `lastContactedAt = now` on the customer doc via merge write. SP7 may add an "Answer in MSOS" capability via Twilio Programmable Voice client SDK (deferred). UI is identical; only the dispatch path would change. | New | No |
 | 4 | **Text** | **v3 default uses Twilio `sendSMS`** when `settings.twilioConnected && settings.outboundSMSEnabled`. Opens an inline SMS composer (single message); on Send calls the `sendSMS` callable, logs to `communicationEvents`, updates `lastContactedAt`. **Fallback:** native `sms:` scheme when Twilio is not configured or `sendSMS` returns `'disabled'`. Resolves user answer #6 (v3 variant). | New | No |
 | 5 | **Send Quote** | Opens existing QuoteWorkflow (separate spec, [2026-05-22-quote-workflow-design.md](2026-05-22-quote-workflow-design.md)) preloaded with customer + most-recent vehicle. | Existing dispatch, new entry point | No |
@@ -1803,6 +1918,42 @@ The 9 buttons in the Quick Actions row, each labeled with its dispatch path:
 | 9 | **Delete** | Owner/admin only. Confirms with "This will hide the customer but keep all jobs intact. Continue?" Soft-delete via `customer.deletedAt = now`. Read paths filter `deletedAt == null`. Jobs retain `customerId` for audit. | New | No |
 
 All 9 buttons are part of SP3. None require further design after this spec.
+
+---
+
+## Customer Profile Sections (v3.2 user-confirmed)
+
+The Customer Profile page is a vertically scrolling stack of sections. v3.2 locks the section order and adds the v3.2-introduced **Quick Notes** and **Service History Photos** sections so future contributors do not have to re-derive placement.
+
+### Canonical section order (top-to-bottom)
+
+1. **Header** — name, kind badge (`fleet` if `kind === 'fleet'`), VIP tier badge, customerStatus badge, formatted phone, repeat-customer badge, tags (chips).
+2. **Quick Actions row** — the 9 buttons from *Customer Profile Actions*.
+3. **Customer Insights card** — the 9 metrics from *Customer Insights Card (Phase 9)*.
+4. **Vehicles** — chip list of all vehicles in the subcollection, tap to filter the timeline.
+5. **Quick Notes** — **v3.2 NEW (refinement #2).** The 8 structured note fields rendered as a labeled list (gate code, apt #, wheel-lock key location, TPMS, payment, parking, contact preference, general). Inline-editable by owner/admin. Placement sits **between Vehicles and Service History** so technicians who drill into a profile mid-job have the Quick Notes visible without scrolling past timeline cards. When all 8 fields are unset, the section renders an empty-state stub with an "Add Quick Notes" CTA for owner/admin and a hidden block for technicians (no point cluttering the tech view).
+6. **Service History (timeline)** — the chronological JobList. Newest first. Each row: service type, date, location, price (gated by `canViewFinancials`), vehicle (year + make + model), technician. Tap a row to open `JobDetailModal`. Reaffirmed by refinement #8.
+7. **Service History Photos** — **v3.2 NEW (refinement #7).** See sub-section below.
+8. **Notes** — the existing free-text `note` field from CustomerMeta. Editable by owner/admin.
+9. **Communication log** (when SP4 lands) — chronological feed of `communicationEvents` for this customer (calls, texts). Hidden when SP4 is dormant.
+
+### Service History Photos (v3.2 user-confirmed — refinement #7)
+
+**Goal:** the operator should be able to see "last tire repair photos" or "all detailing photos" for a customer **without opening individual old jobs**. Today, photos live on the `Job` entity (per existing MSOS — `Job.photos` is an array of photo URLs / metadata). v3.2 surfaces them in aggregate on the CustomerProfile.
+
+**Implementation contract (SP3 — pure rendering, no storage changes):**
+
+- **No new storage.** Photo URLs already exist on Job docs. The CustomerProfile does NOT duplicate, re-upload, or re-index photos. This refinement is **rendering-only**.
+- **Aggregation source.** CustomerProfile already loads the bounded timeline of the customer's recent jobs (limit 100, per *Insights jobs-load bound*). The Photos section reuses that same job array — no second query — by flattening `jobs.flatMap(j => (j.photos || []).map(p => ({ jobId: j.id, service: j.service, date: j.date, photoUrl: p })))`. Implementation MAY swap to a Firestore collection-group query against a hypothetical `businesses/{bid}/jobs/{jobId}/photos/*` subcollection if photos ever migrate to a subcollection, but per existing MSOS they are flat on the Job doc.
+- **Grouping.** The aggregated photo array is grouped by **service type** (from `verticalConfig.services[j.service].label`): "Tire Repair photos", "Replacement photos", "Detailing photos", etc. Within each group, photos sort newest-first.
+- **Bounded window.** Same 100-job window as the Insights jobs-load bound — this avoids surprise scans for long-history customers and keeps the section render fast. For customers with more than 100 jobs, the section displays a **"See full history"** affordance that paginates further pages of 100 jobs and re-aggregates their photos (the same pagination control already specified for the Insights metrics).
+- **Tap-through.** Tapping any photo opens the **original job's `JobDetailModal`** (existing modal, no new component) scrolled to its Photos sub-section. The Customer Profile photos section is purely a discovery surface; full per-job context is one tap away.
+- **RBAC.** Photos render to all roles — the existing `scopeJobsByRole` gating on the timeline already filters technicians to their own jobs, and the photos derive from that same filtered job array. Owners and admins see every job's photos; technicians see only their own.
+- **Empty state.** When the customer has zero photos in the bounded window, the section renders an unobtrusive "No service photos yet" stub instead of hiding entirely — keeps the profile's vertical rhythm consistent.
+
+**SP1 storage impact: NONE.** Per refinement #7's "No SP1 storage changes — pure aggregation" instruction, SP1 does not need to touch the Job photos schema. The aggregation lands in SP3 alongside CustomerProfile.
+
+**SP3 component:** `src/components/customerProfile/ServiceHistoryPhotos.tsx`. Reads the jobs array already loaded by CustomerProfile (no prop drilling beyond what's already there). Renders a vertically-stacked accordion of service-type groups; each group is a horizontally scrolling thumbnail strip. Tap → existing JobDetailModal.
 
 ---
 
@@ -2288,7 +2439,7 @@ v2 expands the marketed phase numbering from 12 to 18. The dev-execution sub-pro
 
 | Old phase (12) | New phase (18) | New phase title | Lands in SP |
 |---|---|---|---|
-| P1 Customer Directory | **P1** | Customer Directory foundation | SP1 |
+| P1 Customer Directory | **P1** | Customer Directory foundation **+ top-level Customers nav route + skeleton CustomerHub page (v3.2 — refinement #1)** | SP1 |
 | P2 Vehicle Directory | **P2** | Vehicle Directory | SP1 |
 | (was OQ#3) | **P3 NEW** | Backfill existing data | SP3 (backfill button + Cloud Function) |
 | P3 Universal Lookup | **P4** | Universal Customer Lookup by phone | SP2 |
@@ -2327,7 +2478,11 @@ Each sub-project is shippable in isolation. The order minimizes risk and accumul
 ### SP1 — Customer + Vehicle entities + saveJob upsert
 
 - **Phases covered:** **P1, P2, P15 (RBAC schema), P16 (Database Structure), P17 (Settings schema only)**
-- **Scope:** `src/lib/phone.ts`, `src/lib/customerEntity.ts`, `src/lib/customers.ts` (hybrid refactor), `src/App.tsx` saveJob hook, `firestore.rules` deltas for `customers/{cid}/vehicles/**` and tightened `customers/{cid}` update rules. **v2 additions:**
+- **Scope:** `src/lib/phone.ts`, `src/lib/customerEntity.ts`, `src/lib/customers.ts` (hybrid refactor), `src/App.tsx` saveJob hook, `firestore.rules` deltas for `customers/{cid}/vehicles/**` and tightened `customers/{cid}` update rules. **v3.2 additions (refinement #1 nav, #2 Quick Notes, #6 fleet kind):**
+  - **Top-level Customers nav route + skeleton CustomerHub page (v3.2 — refinement #1).** SP1 lands the `/customers` route and the existing `src/pages/Customers.tsx` is wired as the entry point (no fork; the file evolves in place — agent verifies at SP1 grep time). Bottom-nav adds the **Customers** tab as the fifth tab per the canonical order (Dashboard / Jobs / Customers / Inventory / Analytics / Settings). Six-tab viability is verified at 360px / 390px / 414px viewports; overflow recommendation (push Analytics or Settings to a MoreSheet) is implemented if any tab label truncates or icon overlaps a thumb-reach safe zone. Any existing settings-buried customer affordances discovered at grep time are redirected to the new tab.
+  - **Customer Quick Notes fields (v3.2 — refinement #2): SCHEMA ONLY.** Adds `gateCode`, `apartmentNumber`, `wheelLockKeyLocation`, `tpmsNotes`, `preferredPaymentMethod`, `parkingInstructions`, `preferredContactMethod`, `generalNotes` to the Customer schema and the Firestore-rule write allowlist. No UI yet. AddJob auto-attach lands in SP2; CustomerProfile edit lands in SP3.
+  - **Customer kind enum (v3.2 — refinement #6): SCHEMA ONLY.** Adds `kind: 'individual' | 'fleet'` (default `'individual'`) to the Customer schema and the rule allowlist. Default-writes from `upsertCustomerFromJob` set `kind = 'individual'`. No fleet workflow UI in SP1-SP3; the field is reserved so future fleet features plug in without entity-shape changes.
+  - **v2 additions (carried forward):**
   - **New Customer fields:** `companyName`, `nameLower`, `companyLower`, `cityLower`, `zipCode`, `averageTicket`, `customerStatus`, `vipTier`, `referralCount`. Firestore-rule allowlist + index registrations.
   - **New Vehicle fields:** `year`, `make`, `model`, `trim`, `color`, `makeModelLower`. Tire-specific fields **hoisted under `vehicle.tire`** sub-object (vertical-agnostic refactor). Legacy flat-field reads still work via fallback.
   - **Settings schema:** `autoSaveCustomersFromJobs: boolean` (default true), `twilioConnected: boolean` (default false), `communicationProvider: 'twilio'` (read-only label), `incomingCallLookupEnabled: boolean` (default true), `incomingSMSLoggingEnabled: boolean` (default true), `missedCallAutoTextEnabled: boolean` (default false), `outboundSMSEnabled: boolean` (default true), `outboundCommunicationProvider: 'native' | 'twilio'` (default 'native'). No UI yet — schema + Firestore-rule allowlist only.
@@ -2341,7 +2496,7 @@ Each sub-project is shippable in isolation. The order minimizes risk and accumul
 ### SP2 — Phone lookup + AddJob "returning customer" card + 8-step order + address autofill
 
 - **Phases covered:** **P4 (Universal Lookup), P6 (AddJob redesign with 8-step order)**
-- **Scope:** `src/lib/lookupCustomerByPhone.ts`, `src/components/addJob/CustomerLookupCard.tsx`, `src/pages/AddJob.tsx` restructured into the confirmed 8-step order (Phone → Lookup → Vehicle → Quick Pricing → Service Type → Tire Size → Location → Notes), email input added to existing Customer card. **v2 additions:**
+- **Scope:** `src/lib/lookupCustomerByPhone.ts`, `src/components/addJob/CustomerLookupCard.tsx`, `src/pages/AddJob.tsx` restructured into the confirmed 8-step order (Phone → Lookup → Vehicle → Quick Pricing → Service Type → Tire Size → Location → Notes), email input added to existing Customer card. **v3.2 addition (refinement #2 — Quick Notes auto-attach in AddJob):** when AddJob's Returning Customer card autofills, the customer's 8 Quick Notes fields render as a non-dismissable info card pinned at the top of the job notes section. The card reads LIVE from the Customer doc (no field copy into the Job). Component: `src/components/addJob/QuickNotesInfoCard.tsx`. If all 8 fields are unset, no card renders. **v2 additions:**
   - **`AddressAutofillInput` component** inserted at AddJob step 7 (Location). Populates `addressLine`, `city`, `state`, `zipCode`. Lightweight US-ZIP lookup in v1 (no external API). Also added to CustomerProfile edit mode.
   - **Vertical dispatch on step 6** (Tire Size): tire-vertical renders tire-size input; other verticals render their `verticalConfig.primaryDomainField` or skip the step entirely.
   - **Customer card** captures `companyName` (optional) for fleet customers.
@@ -2353,6 +2508,10 @@ Each sub-project is shippable in isolation. The order minimizes risk and accumul
 
 - **Phases covered:** **P3 (Backfill), P5 (Global Search), P7 (Customer Profile), P8 (Service Timeline), P9 (Customer Insights), P10 (Quick Actions), P17 UI (Auto-save toggle), P15 UI (RBAC)**
 - **Scope:** This is the BIG slice — it absorbs most of v2's new requirements.
+  - **v3.2 additions (refinement #2 Quick Notes edit UI, #3 Repeat Last Service surface, #7 Service History Photos):**
+    - **Quick Notes edit surface on CustomerProfile.** Inline edit of the 8 Quick Notes fields gated by `canEditBusinessSettings` (owner/admin); technicians see read-only. Placement: between Vehicles and Service History (canonical Customer Profile section order).
+    - **Repeat Last Service CustomerProfile button.** Wires the existing AddJob CTA's helper (`cloneLastCompletedJobIntoDraft(customerId)`) to a button on CustomerProfile's Quick Actions row (button #2). Field-clone list and editable-price contract are identical to the AddJob version.
+    - **Service History Photos aggregation.** `src/components/customerProfile/ServiceHistoryPhotos.tsx` — flattens the bounded (100-job) jobs array into photo groups by service type. No new storage. Tap-through opens existing JobDetailModal scrolled to its Photos sub-section.
   - **CustomerProfile + timeline:** `src/pages/CustomerProfile.tsx`, `src/pages/Customers.tsx` modifications (row click → CustomerProfile, tightened revenue gating, vehicles surfaced), routing add to App.tsx, 9 quick-action buttons wired.
   - **v2: Global Customer Search.** `GlobalSearchSheet.tsx` (bottom-sheet), `searchCustomers.ts` (parallel multi-field helper), persistent search icon in main nav, new composite indexes for `nameLower` / `companyLower` / `cityLower` / `zipCode` on Customers and `makeModelLower` / `licensePlate` / `tire.size` collection-group on Vehicles.
   - **v2: Customer Insights card.** `CustomerInsightsCard.tsx` (rendered on CustomerProfile), `customerInsights.ts` (helpers: `deriveVipTier`, `deriveCustomerStatus`, `computeMostCommonVehicle`, etc.), VIP tier badge component. `onJobWriteCustomerRollup` Cloud Function trigger that recomputes `averageTicket` / `vipTier` / `customerStatus` on Customer doc on every job write.
@@ -2837,3 +2996,78 @@ This pass locks in the **priority and dormancy contract** confirmed by the user 
 - v2 customer/vehicle/search/insights/AddJob/RBAC architecture — unchanged.
 - v2 ship order (SP1 → SP2 → SP3 → SP4 → SP5 → SP6 → SP7 → SP7.5) — unchanged for marketing purposes; engineering execution can land SP6 between SP3 and SP4 without altering the spec.
 - Open Questions Q3 (backfill), Q4 (auto-text), Q5 (address autofill), Q6 (outbound provider), Q9 (entity ID), Q10 (toast), Q13 (provider abstraction) — all still resolved per their v2/v3 answers.
+
+---
+
+## v3.2 Update Log
+
+This pass applies **nine user-confirmed refinements** captured on 2026-06-03 in the final pre-SP1 sign-off review. All refinements concern the Customer Directory module — no Twilio architecture changes, no Vehicle / Job / RBAC / Search / Insights changes beyond what each refinement explicitly touches. v3 / v3.1 priority lock and dormant-Twilio contracts are preserved verbatim.
+
+### Header / framing changes
+
+- **Status line** updated to `v3.2 — final pre-SP1 refinements: Customer Hub nav, Quick Notes, Fleet kind, photos aggregation, System of Record callout, pending user approval`.
+- **System of Record callout** added directly below the v3.1 Priority Lock callout, citing refinement #9 verbatim and explaining the future-proofing posture for schemas, indexes, RBAC, and contributor priority.
+- **Top-level Navigation callout** added below the System of Record callout, locking the canonical Dashboard / Jobs / Customers / Inventory / Analytics / Settings order and flagging the six-tab UX viability with the MoreSheet overflow recommendation.
+
+### Architecture Overview
+
+- New **High-level navigation** sub-section at the top of Architecture Overview showing the six-tab bottom-nav diagram and naming `/customers` as the entry path to CustomerHub. Component file: `src/pages/Customers.tsx` (evolves in place; no fork).
+
+### Data Model
+
+- **Customer schema:** added `kind: 'individual' | 'fleet'` (default `'individual'`) per refinement #6. DATA MODEL ONLY — no fleet workflow UI in v1. `companyName` description amended: informational for individuals, required when `kind === 'fleet'`.
+- **Customer schema:** added 8 Quick Notes fields per refinement #2 — `gateCode`, `apartmentNumber`, `wheelLockKeyLocation`, `tpmsNotes`, `preferredPaymentMethod`, `parkingInstructions`, `preferredContactMethod`, `generalNotes`. No indexes in v1.
+- **Customer rule allowlist:** expanded to include `kind` and all 8 Quick Notes fields in both the meta-write (owner/admin) and identity-upsert branches.
+- **New section:** *Customer Quick Notes (v3.2 user-confirmed)* directly under the Customer schema — defines the auto-attach behavior (read live from Customer doc; never copied into Job; retroactive edits propagate), the SP1 / SP2 / SP3 split, and the RBAC posture.
+
+### AddJob Workflow Change
+
+- **Returning Customer card spec:** added a Quick Notes auto-render paragraph (refinement #2 cross-reference). When **Use Customer** or **Repeat Last Service** fires, the customer's 8 Quick Notes fields render as a non-dismissable info card pinned at the top of the job notes section. Live read from the Customer doc; no field copy into the Job.
+
+### Customer Profile Actions
+
+- **Repeat Last Service (button #2)** row rewritten with the explicit field-clone list (per refinement #3): service type, vehicle + tire identity, customer identity, location, source, payment. **Price stays editable** — `revenue` / `tireCost` / `materialCost` are NOT cloned. Behavior identical to the AddJob CTA; both wire to `cloneLastCompletedJobIntoDraft(customerId)`. The CustomerProfile surface widens reach to operators drilling in from search / Customer Hub.
+
+### NEW section: Customer Profile Sections (v3.2 user-confirmed)
+
+- Locks the canonical Customer Profile section order: Header → Quick Actions → Insights → Vehicles → **Quick Notes (NEW)** → Service History → **Service History Photos (NEW)** → Notes → Communication log.
+- **Quick Notes placement** between Vehicles and Service History so technicians drilling into a profile mid-job have the notes visible without scrolling past timeline cards.
+- **Service History Photos** sub-section (refinement #7) — pure rendering, no storage changes. Aggregates `Job.photos[]` across the bounded 100-job window into service-type groups; tap-through opens existing JobDetailModal scrolled to its Photos sub-section.
+
+### Ship Order
+
+- **SP1** scope expanded with: (a) top-level Customers nav route + skeleton CustomerHub page (refinement #1 — verified six-tab viability with MoreSheet overflow recommendation), (b) Customer Quick Notes fields SCHEMA ONLY (refinement #2), (c) Customer `kind` enum SCHEMA ONLY (refinement #6).
+- **SP2** scope expanded with: AddJob Quick Notes auto-attach info card component (`QuickNotesInfoCard.tsx`) per refinement #2.
+- **SP3** scope expanded with: (a) Quick Notes edit surface on CustomerProfile (refinement #2 UI), (b) Repeat Last Service CustomerProfile button (refinement #3), (c) Service History Photos aggregation component `src/components/customerProfile/ServiceHistoryPhotos.tsx` (refinement #7).
+- **SP4 / SP5 / SP6 / SP7 / SP7.5** — unchanged in v3.2.
+
+### Phase Mapping
+
+- **P1 Customer Directory** row updated to include the top-level Customers nav route + skeleton CustomerHub page (refinement #1).
+
+### Refinements 4, 5, 8 — reaffirmation only
+
+- **Refinement #4 (Customer Search):** reaffirmed. Already specified as Phase 5 / SP3 in v2/v3 with global search across phone / name / company / tire size / vehicle / license plate / city. No spec change in v3.2 — refinement #4 reinforces priority only.
+- **Refinement #5 (Customer Lifetime Value):** reaffirmed. Already specified in v2/v3 Customer Insights card with Lifetime Revenue, Total Jobs, Average Ticket, Last Service Date, plus VIP tier badge (Gold $1,000+, Platinum $2,500+). No spec change in v3.2 — refinement #5 reinforces priority only.
+- **Refinement #8 (Customer Timeline newest-first):** reaffirmed. Already specified in v2/v3 SP3 with newest-first ordering. The Customer Profile Sections canonical order section (above) now explicitly enumerates the per-row fields — service type, date, location, price (gated by RBAC), vehicle (year + make + model), technician.
+
+### Refinements 9 — callout-only
+
+- **Refinement #9 (System of Record):** added as a verbatim-citation callout block at the top of the spec (below the v3.1 Priority Lock). Calls out future-proof schemas, scalable indexes, production-grade RBAC, and the explicit instruction that future contributors must not deprioritize Customer Directory work.
+
+### Implementation impact summary
+
+| Question | Before v3.2 | After v3.2 |
+|---|---|---|
+| Where is the Customers tab? | Implicit / inside Settings or Jobs | Top-level fifth tab in canonical six-tab nav |
+| Do Quick Notes auto-attach during future jobs? | Not specified | Yes — non-dismissable info card at top of AddJob notes section |
+| Is `kind: individual \| fleet` on the Customer schema? | No (companyName implied fleet) | Yes (default `'individual'`); fleet workflow deferred to a future SP |
+| Are Service History photos aggregated on CustomerProfile? | No (operator opened individual jobs to see photos) | Yes — grouped by service type, bounded by 100-job window, tap-through to JobDetailModal |
+| Does the spec call out Customer Directory as a System of Record? | Implicit | Explicit callout cited from refinement #9 |
+
+### Scope unchanged in v3.2
+
+- v3 / v3.1 Twilio integration architecture, dormant-popup contract, Priority Lock — all unchanged.
+- v2 search / insights / RBAC / AddJob 8-step order — unchanged beyond the Quick Notes auto-attach addition.
+- Open Questions Q1-Q15 — all still resolved per their v2 / v3 / v3.1 answers; no new open questions introduced.
+- Sub-project shipping order SP1 → SP2 → SP3 → SP4 → SP5 → SP6 → SP7 → SP7.5 — unchanged. All v3.2 additions fit cleanly inside SP1 (schema + nav route), SP2 (Quick Notes auto-attach card), and SP3 (Quick Notes edit + Repeat Last Service surface + Service History Photos).
