@@ -42,9 +42,10 @@ export function JobDetailModal({
   // Tire Details block shows only when the active vertical uses
   // tire-style inventory OR the job itself carries tire data
   // (back-compat: a mechanic-account user viewing a legacy tire job
-  // imported via WheelRushBackupImport should still see its details).
-  // Without this gate, mechanic/detailing accounts saw an empty
-  // "Tire Details — Size: — / Qty: 0 / Source:" block on every job.
+  // — including any historical pre-vertical-system imports — should
+  // still see its details). Without this gate, mechanic/detailing
+  // accounts saw an empty "Tire Details — Size: — / Qty: 0 /
+  // Source:" block on every job.
   const showTireBlock =
     vertical.features.inventoryDeduction ||
     !!(job.tireSize || job.tireBrand || job.tireSource);
