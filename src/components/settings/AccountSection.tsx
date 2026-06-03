@@ -131,6 +131,12 @@ function AccountForm() {
               requestedBy: u.uid,
               requestedEmail: u.email || '',
               scope: 'business',
+              // P2 audit fix (2026-06-03): sentinel field that the
+              // scheduledDeletionPurge collectionGroup query filters
+              // on. Prevents junk meta docs (e.g. future placeholder
+              // signals) from being counted against the purge-per-run
+              // quota.
+              marker: 'deletion-request',
             });
             // Best-effort: also try to set a marker on the business root
             // doc. If rules block this, the meta doc above is enough
