@@ -1,21 +1,23 @@
-# OpenPhone Integration + Customer Intelligence System — Design
+# Twilio Integration + Customer Intelligence System — Design
 
 **Date:** 2026-06-03
-**Status:** v2 — user-answered, pending final approval
+**Status:** v3 — Twilio pivot (OpenPhone/Quo removed), pending user approval
 **Scope:** Full architecture for user phases 1-18. This spec defines the data model, integration points, security model, and sub-project shipping order. Each sub-project will get its own dedicated implementation plan after the user signs off on this architecture.
+
+**v3 framing:** Twilio is the primary (and only active) communications provider. The architecture introduces a thin **Provider Abstraction Layer** so future providers could be added without rewriting business logic — but Twilio is the only implementation that exists. Quo/OpenPhone references throughout v2 have been replaced. See *v3 Update Log* at the bottom for the full pivot diff.
 
 ---
 
 ## User Answers to Open Questions (resolved) — v2 changelog
 
-The user reviewed v1 and provided the following verbatim answers. Every item below has been folded into the spec body (Data Model, AddJob Workflow, Customer Profile Actions, OpenPhone Integration, Ship Order). This section is preserved as a permanent changelog so future readers can trace why certain decisions were made.
+The user reviewed v1 and provided the following verbatim answers. Every item below has been folded into the spec body (Data Model, AddJob Workflow, Customer Profile Actions, Twilio Integration, Ship Order). This section is preserved as a permanent changelog so future readers can trace why certain decisions were made.
 
-1. **Quo/OpenPhone account:** *"Not yet. Will purchase OpenPhone Business plan. Architecture must work WITHOUT OpenPhone initially and be activatable later via feature flag with minimal code changes."* → SP4 ships with `QUO_WEBHOOK_ENABLED=false` and a per-business `settings.openphoneConnected` toggle. See *OpenPhone-Optional Architecture*.
-2. **Beta webhook system:** *"Yes — operator confirms ability to enable Beta when account is provisioned. Build using webhooks + feature flags."* → SP4 builds against Quo Beta payload shape; legacy fallback retained in the same handler.
+1. **Communications provider (v3 update):** *"Twilio is now the primary communications provider. The user already has a Twilio account and a Twilio phone number provisioned."* → SP4 ships with `TWILIO_WEBHOOK_ENABLED=false` (kill switch, default off until operator opts in) and a per-business `settings.twilioConnected` toggle. The architecture is provider-abstracted, but Twilio is the only active implementation. See *Twilio-Optional Architecture*.
+2. **Webhook signature verification (v3 update):** *"Twilio webhook signature verification using X-Twilio-Signature header (HMAC-SHA1)."* → SP4 verifies every webhook via Twilio's documented algorithm: HMAC-SHA1 of `URL + sorted POST params (key+value concatenated)`, base64-encoded, timing-safe comparison against the `X-Twilio-Signature` header. See *Twilio webhook signature verification*.
 3. **Backfill existing jobs:** *"YES. Scan all existing jobs, create Customer profiles from historical data using phone number as primary identifier, auto-merge duplicates where possible. No existing data lost."* → New Phase 3 (P3) lands in SP3 as a one-shot `backfillCustomers` Cloud Function triggered from Settings. See *Backfill Existing Jobs (P3)*.
-4. **Missed-call SMS auto-text:** *"Defer to Phase 7 (SP7). Build the architecture only. No automated outbound texts yet."* → Unchanged from v1 recommendation; explicitly recorded here.
+4. **Missed-call SMS auto-text:** *"Defer to Phase 7 (SP7). Build the architecture only. No automated outbound texts yet."* → Unchanged from v1 recommendation; explicitly recorded here. v3 lands the outbound `sendSMS` callable scaffolding in SP4 (Twilio plumbing already exists); rules-based auto-text is SP7.
 5. **Address input in AddJob:** *"YES. Add customer address lookup + autofill in AddJob workflow."* → New `AddressAutofillInput` component lands in SP2 at AddJob step 7 (Location). See *AddJob Workflow Change*.
-6. **Outgoing Call/Text buttons:** *"Phase 1 uses device-native tel: and sms: schemes. Admins can LATER choose OpenPhone API as an optional communication provider (per-business toggle)."* → v1 ships native `tel:` / `sms:` only; SP7 adds per-business `outboundCommunicationProvider` setting.
+6. **Outgoing Call/Text buttons (v3 update):** *"Twilio is now THE provider; provider abstraction allows future additions but no other providers planned."* → v1 ships native `tel:` / `sms:` for Call. Outbound SMS uses Twilio via the new `sendSMS` callable (SP4 plumbing, SP6+ wiring). Provider abstraction documented for future-proofing only.
 
 **Three NEW first-class requirements added by the user:**
 
@@ -39,7 +41,7 @@ Restated in implementation terms:
 
 1. **Identity is persistent.** Customer and Vehicle stop being read-time projections and become real Firestore entities under `businesses/{businessId}/customers/{customerId}` and `customers/{customerId}/vehicles/{vehicleId}`. Job documents gain `customerId` + `vehicleId` foreign keys, written at save time. The existing derived-customers UI keeps working through a hybrid read path so we ship without a backfill.
 2. **Phones are canonical.** A single `normalizePhone()` helper produces an E.164 form and a digit-only `phoneKey` used everywhere — Customer lookup, Job lookup, webhook resolution. No format-mismatch dedup failures.
-3. **Inbound calls drive UI.** A new Cloud Function `quoWebhook` receives Quo (formerly OpenPhone) `call.ringing` / `call.missed` / `call.completed` events, verifies HMAC, deduplicates by `webhook-id`, resolves business + customer, and writes a Firestore doc that a real-time client listener turns into a screen-blocking popup with caller intelligence.
+3. **Inbound calls drive UI.** Three new Cloud Functions — `twilioIncomingCall` (voice webhook), `twilioIncomingSMS` (SMS webhook), and `twilioCallStatus` (status-callback webhook) — receive Twilio's form-encoded webhook payloads, verify the `X-Twilio-Signature` HMAC-SHA1 signature, deduplicate by `CallSid` / `MessageSid`, resolve business + customer, and write a Firestore doc that a real-time client listener turns into a screen-blocking popup with caller intelligence. The voice webhook returns minimal TwiML (`<Response><Pause length="1"/></Response>`) — Twilio's number-level call forwarding still rings the operator's actual phone; the MSOS popup is an **out-of-band signal** to the operator's MSOS device.
 4. **Missed calls become leads.** Every missed-call webhook creates a `leads/{leadId}` row keyed off the same `phoneKey`, with status `new → contacted → converted | lost`.
 5. **Permissions reuse what we have.** No new permission flags. Technicians see customer identity + vehicle + service history; financial rollups gate on existing `canViewFinancials` / `canViewProfit`.
 6. **AddJob gets a returning-customer card.** Phone-first input at the top of the form auto-fills name/email/city/vehicle in <300ms when a known number is typed.
@@ -47,11 +49,11 @@ Restated in implementation terms:
 
 Success is binary per sub-project (see *Ship Order*); the headline success criterion is: **a customer calls the business number, and within 2 seconds every foregrounded MSOS device shows the caller's name, vehicle, last service date, and Accept / Create Job / Open Profile buttons.**
 
-### v2 scope additions (from user answers)
+### v2 scope additions (from user answers) — v3-updated
 
 The scope is broadened in three architectural directions without changing the headline success criterion:
 
-1. **OpenPhone is optional in v1.** The entire SP1-SP3 customer-intelligence value chain (entities, lookup, profile, search, insights, backfill, settings toggle) ships **without** an OpenPhone account. SP4-SP6 (webhook, missed calls, popup) are gated behind `QUO_WEBHOOK_ENABLED` (global) and `settings.openphoneConnected` (per-business). When neither is set, the IncomingCallModal listener never attaches, the Leads page is empty, and Settings → Integrations shows a "Connect OpenPhone" CTA. The operator buys a Quo Business plan and flips both flags at their own pace.
+1. **Twilio is optional in v1 at the MSOS layer, even though the operator owns a Twilio account.** The entire SP1-SP3 customer-intelligence value chain (entities, lookup, profile, search, insights, backfill, settings toggle) ships **without** any Twilio configuration. SP4 (webhooks + sendSMS) is gated behind `TWILIO_WEBHOOK_ENABLED` (global kill switch) and `settings.twilioConnected` (per-business). SP6 (popup) is harmless when no `incomingCalls` docs ever land. When the global kill switch is off, every Twilio webhook endpoint returns `404`. When the per-business flag is off, the IncomingCallModal listener never attaches, the Leads page is empty, and Settings → Communications shows a "Connect Twilio" CTA. **Critical:** MSOS must work even if the Twilio env vars are not configured yet — this is success criterion #12.
 2. **The entity model is vertical-agnostic.** Customer is fully universal. Vehicle has a universal core (year/make/model/trim/color/vin/licensePlate) plus per-vertical sub-objects (`vehicle.tire`, `vehicle.mechanic`, `vehicle.detailing`). Customer Timeline labels read from `verticalConfig.services` rather than hardcoded "Tire Replacement" strings. This is a first-class requirement, not a future seam — tire-specific fields are NEVER persisted at the Vehicle root level in v2.
 3. **Global search, Customer Insights, and the auto-save Settings toggle are v1 deliverables, not future-ready seams.** They land alongside the Customer Profile page in SP3. Global search targets sub-300ms on the Wheel Rush dataset (~2k customers, ~3k vehicles) via composite indexes + parallel queries + result caching. Customer Insights computes nine metrics with two persisted as Customer-doc rollups (averageTicket, vipTier) for fast list-sort. The auto-save toggle reads through a context cache initialized at App.tsx mount.
 
@@ -69,7 +71,7 @@ The scope is broadened in three architectural directions without changing the he
 
 **RBAC exists and is already wired for financial-field hiding.** Three roles — owner / admin / technician — live on `businesses/{businessId}/members/{uid}.role` ([src/types/index.ts:115, 193-244](../../../src/types/index.ts)). `getPermissions()` ([src/lib/permissions.ts](../../../src/lib/permissions.ts)) produces a flat `Permissions` boolean map. The canonical field-hiding pattern is `{canViewProfit && <Row ... />}` used at [src/components/JobDetailModal.tsx:121-135](../../../src/components/JobDetailModal.tsx) and [src/pages/Customers.tsx:600](../../../src/pages/Customers.tsx). Firestore rules cannot mask individual fields on a doc; the established workaround when server enforcement is required is to split sensitive data into a subcollection with its own rule.
 
-**Webhook pattern is established but unused for inbound.** [functions/src/stripeWebhook.ts:1-225](../../../functions/src/stripeWebhook.ts) is a complete reference: v2 `onRequest`, `defineSecret`, raw-body HMAC verification, Firestore-based idempotency, kill-switch env-var. It is intentionally not exported from [functions/src/index.ts:69-82](../../../functions/src/index.ts) because production Stripe events flow through the Firebase Stripe Extension. We will mirror this file exactly for `quoWebhook`.
+**Webhook pattern is established but unused for inbound.** [functions/src/stripeWebhook.ts:1-225](../../../functions/src/stripeWebhook.ts) is a complete reference: v2 `onRequest`, `defineSecret`, raw-body HMAC verification, Firestore-based idempotency, kill-switch env-var. It is intentionally not exported from [functions/src/index.ts:69-82](../../../functions/src/index.ts) because production Stripe events flow through the Firebase Stripe Extension. We will mirror this file's defensive structure for each of the three Twilio webhook endpoints (`twilioIncomingCall`, `twilioIncomingSMS`, `twilioCallStatus`) — same kill-switch + idempotency + structured-logging discipline, but with Twilio's signature algorithm (HMAC-SHA1 of URL + sorted POST params) substituted for Stripe's.
 
 **Real-time delivery exists but only via Firestore listeners.** [src/lib/firebase.ts:266-285](../../../src/lib/firebase.ts) defines `fbListen` over `onSnapshot`. App.tsx attaches all real-time listeners between [src/App.tsx:437-583](../../../src/App.tsx). There is **no FCM, no web push, no service-worker push handler** anywhere in the codebase. `public/sw.js` is purely cache-strategy. Mobile browsers suspend WebSockets on backgrounded tabs after ~30s, so a Firestore-listener-driven popup only fires when the tab is foregrounded. This is a known v1 gap, documented and accepted; FCM is a future-ready seam.
 
@@ -79,27 +81,31 @@ The scope is broadened in three architectural directions without changing the he
 
 ## Architecture Overview
 
-### End-to-end incoming-call flow (headline scenario)
+### End-to-end incoming-call flow (headline scenario) — Twilio
 
 ```
-+---------------------+     +-----------------------+     +---------------------------------+
-| Customer dials      |     | Quo (OpenPhone) Beta  |     | Cloud Function: quoWebhook      |
-| business line       | --> | sends call.ringing    | --> |  1. Verify webhook-signature    |
-| (305) 897-7030      |     | webhook to MSOS       |     |  2. Idempotency: webhook-id     |
-+---------------------+     +-----------------------+     |  3. Resolve businessId from     |
-                                                          |     quoPhoneNumbers/{toE164}    |
-                                                          |  4. Normalize fromE164 -> digits|
-                                                          |  5. Query customers where       |
-                                                          |     phoneKey == digits          |
-                                                          |  6. Read up to 3 vehicles +     |
-                                                          |     last job summary            |
-                                                          |  7. Write incomingCalls/{id}    |
-                                                          |     status='ringing' +          |
-                                                          |     denormalized snapshot       |
-                                                          +---------------------------------+
-                                                                              |
++---------------------+     +-----------------------+     +-----------------------------------+
+| Customer dials      |     | Twilio receives call  |     | Cloud Function: twilioIncomingCall|
+| business line       | --> | Voice webhook fires   | --> |  1. Verify X-Twilio-Signature     |
+| (305) 897-7030      |     | (POST, form-encoded)  |     |     (HMAC-SHA1 of URL+POST params)|
++---------------------+     +-----------+-----------+     |  2. Idempotency: CallSid          |
+                                        |                 |  3. Resolve businessId from       |
+              Twilio's number-level     |                 |     twilioPhoneNumbers/{To-E164}  |
+              call forwarding ALSO      |                 |  4. Normalize From -> digits      |
+              rings operator's actual   |                 |  5. lookupCustomerByPhone() at    |
+              phone CONCURRENTLY        |                 |     customer layer                |
+                                        v                 |  6. Read up to 3 vehicles +       |
+                          +-------------+----------+      |     last job summary              |
+                          | Operator's phone rings |      |  7. Write incomingCalls/{CallSid} |
+                          | per Twilio's call      |      |     status='ringing' +            |
+                          | forwarding config      |      |     denormalized snapshot         |
+                          +------------------------+      |  8. Return minimal TwiML:         |
+                                                          |     <Response><Pause length="1"/> |
+                                                          |     </Response>                   |
+                                                          +-----------------+-----------------+
+                                                                            |
                                             (Firestore realtime channel, 200-800ms)
-                                                                              v
+                                                                            v
                           +-----------------------------------------------------------------+
                           | All foregrounded MSOS devices for that business:                |
                           |   useIncomingCallListener(businessId) <- attached in App.tsx    |
@@ -111,7 +117,9 @@ The scope is broadened in three architectural directions without changing the he
                           +-----------------------------------------------------------------+
 ```
 
-End-to-end target: <2s wall-clock from Quo webhook receipt to popup visible on a foregrounded device. Cloud Function work is well under 1s; the Firestore → onSnapshot leg is 200-800ms in practice.
+**Critical architecture point: the voice webhook does NOT route the call.** Twilio's number-level forwarding (configured in the Twilio console: VoiceUrl + Voice fallback/forwarding rules) is what rings the operator's actual mobile phone. The webhook fires **concurrently** with that ringing path. The MSOS popup is purely an **out-of-band** signal to the operator's MSOS device — a richer caller-intelligence overlay while the real call rings on their phone. The operator picks up via their phone (Twilio's forward); the popup auto-clears when `status` transitions on a subsequent `twilioCallStatus` webhook (`CallStatus=completed`). A future SP7 may add an "Answer in MSOS" button using the Twilio Programmable Voice client SDK, but that's not in v1 scope.
+
+End-to-end target: <2s wall-clock from Twilio webhook receipt to popup visible on a foregrounded device. Cloud Function work is well under 1s; the Firestore → onSnapshot leg is 200-800ms in practice.
 
 ### Job-save → Customer auto-creation flow
 
@@ -155,7 +163,7 @@ Result: zero migration required to ship SP1. New jobs use persisted entities; le
 
 ## Data Model
 
-All paths are scoped under `businesses/{businessId}/...` except `quoPhoneNumbers/{e164}` and `quoWebhookEvents/{webhookId}`, which are top-level (the webhook arrives without a business context and must resolve from the dialed number).
+All paths are scoped under `businesses/{businessId}/...` except `twilioPhoneNumbers/{e164}` and `twilioWebhookEvents/{webhookEventId}`, which are top-level (the webhook arrives without a business context and must resolve from the dialed number — Twilio's `To` field).
 
 ### `businesses/{businessId}/customers/{customerId}`
 
@@ -183,13 +191,13 @@ Doc ID is the existing `customerKey()` output (`p_<digits>` or `n_<slug>`) — p
 | `lastJobId` | string? | Most recent job. Drives "Repeat Last Service" action. |
 | `jobCount` | number? | Rollup counter. Nullable; fallback to derived count for legacy. |
 | `averageTicket` | number? | **v2 NEW. COMPUTED rollup** = `lifetimeRevenue / jobCount`. Recomputed by a `onJobWrite` Cloud Function trigger (SP3). Falls back to client-computed on read for legacy customers without the rollup. Stored to enable Customers-page sort/filter without scanning the jobs collection. |
-| `customerStatus` | `'Active' \| 'Inactive' \| 'Fleet' \| 'Archived'` | **v2 NEW. DERIVED rollup — OPERATIONAL state ONLY.** `Active` if `lastJobAt` within 12 months (override `settings.activeWindowMonths` if set); `Inactive` if outside that window; `Fleet` if `companyName` is non-empty; `Archived` only via manual override. **VIP is NOT a `customerStatus` value** — VIP is a revenue tier persisted separately as `vipTier` and rendered as its own badge. A customer can be `(Active, Gold)` or `(Fleet, Platinum)` or `(Inactive, Standard)` — the two badges render side-by-side on CustomerProfile when non-default. The Customers-page filter UX uses two independent filters (status + tier), not a single mutually-exclusive selector. Owners/admins can manually override the status via CustomerProfile edit. |
-| `vipTier` | `'Standard' \| 'Gold' \| 'Platinum'` | **v2 NEW. DERIVED rollup.** `deriveVipTier(lifetimeRevenue)`: Standard `< $1,000`, Gold `$1,000-$2,499`, Platinum `$2,500+`. Recomputed by the same `onJobWrite` trigger. Displayed as a badge on CustomerProfile and CustomersList row. |
+| `customerStatus` | `'Active' \| 'Inactive' \| 'Fleet' \| 'VIP' \| 'Archived'` | **v2 NEW / v3-updated. DERIVED rollup with manual-override semantics.** `Active` if `lastJobAt` within 12 months (override `settings.activeWindowMonths` if set); `Inactive` if outside that window; `Fleet` if `companyName` is non-empty; `'VIP'` is a **MANUAL** override only — set by owner/admin via CustomerProfile edit to flag a customer as VIP regardless of revenue tier; `Archived` only via manual override. **`'VIP'` here is operational/manual** — distinct from `vipTier` below which is a revenue-derived badge. A customer can be `(Active, Gold)` (auto status + auto tier), `(VIP, Standard)` (operator-flagged VIP at low revenue), or `(Fleet, Platinum)` (auto status + auto tier). Both badges can render side-by-side on CustomerProfile. The Customers-page filter UX uses two independent filters (status + tier), not a single mutually-exclusive selector. |
+| `vipTier` | `'Standard' \| 'Gold' \| 'Platinum'` | **v2 NEW. DERIVED rollup — REVENUE TIER.** `deriveVipTier(lifetimeRevenue)`: Standard `< $1,000`, Gold `$1,000-$2,499`, Platinum `$2,500+`. Recomputed by the `onJobWrite` trigger. Displayed as a badge on CustomerProfile and CustomersList row. Independent of `customerStatus='VIP'` manual flag. |
 | `referralCount` | number? | **v2 NEW.** Schema-only in v1; defaults to 0. Reserved for a future referral-tracking feature. No UI surfaces it as an editable field. |
 | `lastContactedAt` | Timestamp? | Future-ready seam for retention campaigns. Updated when an outbound call/text is logged or when a call is accepted from the popup. |
 | `createdByUid` | string? | First tech who saved a job for this customer. |
 | `createdAt` | Timestamp | Server timestamp (admin SDK) or ISO string (client). |
-| `updatedAt` | string | EXISTING ISO string field. Preserved. |
+| `updatedAt` | string | EXISTING ISO string field. **v3 reaffirmed** — written by every upsert and every inline edit. Read as ISO string from client writes; Timestamp from Cloud Function writes. |
 | `lastEditedByUid` | string? | Uid of the last person to modify the doc. **Required on every update** going forward. |
 | `lastEditedAt` | Timestamp \| string? | When the last modification occurred. Required on every update. |
 | `processedJobIds` | string[] | Idempotency key array (last ~100 jobIds). Used by `upsertCustomerFromJob` transaction. |
@@ -236,9 +244,9 @@ The dual `allow update` rules (owner/admin-only for meta vs any-active-member fo
 
 ### `businesses/{businessId}/customers/{customerId}/vehicles/{vehicleId}`
 
-**v2 vertical-agnostic refactor.** The Vehicle entity has a universal core (works for every MSOS vertical) plus per-vertical sub-objects. Tire-specific fields are hoisted under `vehicle.tire`. Mechanic and detailing get placeholder sub-objects (schema-only in v1).
+**v3 update — tire fields are TOP-LEVEL on Vehicle.** v2 hoisted tire fields under a `vehicle.tire` sub-object. The user's v3 requirement reverses this: `tireSize`, `alternateTireSize`, `wheelLockNotes`, and `tpmsNotes` are **top-level Vehicle fields**, not under a sub-object. The vertical-agnostic principle survives — for non-tire verticals these fields are simply `null` / unset. Mechanic / detailing verticals add their own top-level fields the same way when they graduate from placeholder. No `vehicle.tire` / `vehicle.mechanic` / `vehicle.detailing` sub-objects.
 
-Doc ID is `vehicleKey(job)`. Updated v2 algorithm:
+Doc ID is `vehicleKey(job)`. Updated v2 algorithm (unchanged in v3):
 - If universal `make` + `model` are non-empty → `slug(year + '-' + make + '-' + model + '-' + (trim ?? 'base'))` (e.g. `2019-honda-civic-sport`).
 - Else if `job.vehicleMakeModel` is non-empty → `slug(vehicleMakeModel)` (legacy fallback, e.g. `honda-civic`).
 - Else if tire-vertical AND `job.vehicleType` is non-empty → `slug(vehicleType + '-' + (job.tireSize || 'na'))` (e.g. `sedan-215-55r17`).
@@ -264,77 +272,78 @@ Doc ID is `vehicleKey(job)`. Updated v2 algorithm:
 | `lastJobId` | string | Most recent job id for this vehicle. |
 | `serviceCount` | number? | Rollup counter. |
 | `createdAt` | Timestamp | Server timestamp. |
-| `updatedAt` | Timestamp | Server timestamp. |
+| `updatedAt` | Timestamp | Server timestamp. **v3 reaffirmed.** Written by every upsert and every inline edit. |
 | `processedJobIds` | string[] | Per-vehicle idempotency array (mirrors Customer). |
 
-#### `vehicle.tire` (tire vertical only)
+#### Tire-vertical fields (top-level — v3)
 
-Other verticals do NOT write this sub-object. Read paths treat it as optional.
-
-| Field | Type | Notes |
-|---|---|---|
-| `tire.size` | string? | From `Job.tireSize` (e.g. `215/55R17`). Indexed for global search. |
-| `tire.alternateSize` | string? | Operator-entered alternate (winter set, staggered fitment). |
-| `tire.brand` | string? | Most recent. |
-| `tire.condition` | string? | From `Job.tireCondition`. |
-| `tire.tpmsNotes` | string? | TPMS reset / sensor notes. |
-| `tire.wheelLockNotes` | string? | Wheel lock location / key notes. |
-
-#### `vehicle.mechanic` (mechanic vertical only — schema-only in v1)
+These are top-level Vehicle fields for tire-vertical tenants. For non-tire verticals they are simply unset / null. The v2 `vehicle.tire.*` sub-object form is **removed in v3**.
 
 | Field | Type | Notes |
 |---|---|---|
-| `mechanic.engineCode` | string? | Reserved. No UI in v1. |
-| `mechanic.lastDiagnostic` | string? | Reserved. No UI in v1. |
+| `tireSize` | string? | **v3 TOP-LEVEL.** From `Job.tireSize` (e.g. `215/55R17`). Indexed for global search. |
+| `alternateTireSize` | string? | **v3 TOP-LEVEL.** Operator-entered alternate (winter set, staggered fitment). |
+| `tireBrand` | string? | **v3 TOP-LEVEL.** Most recent. |
+| `tireCondition` | string? | **v3 TOP-LEVEL.** From `Job.tireCondition`. |
+| `tpmsNotes` | string? | **v3 TOP-LEVEL.** TPMS reset / sensor notes. |
+| `wheelLockNotes` | string? | **v3 TOP-LEVEL.** Wheel lock location / key notes. |
 
-#### `vehicle.detailing` (detailing vertical only — schema-only in v1)
+#### Mechanic-vertical fields (top-level — schema-only in v1)
 
 | Field | Type | Notes |
 |---|---|---|
-| `detailing.interiorMaterial` | string? | Reserved. No UI in v1. |
-| `detailing.paintCondition` | string? | Reserved. No UI in v1. |
+| `engineCode` | string? | Reserved. No UI in v1. |
+| `lastDiagnostic` | string? | Reserved. No UI in v1. |
+
+#### Detailing-vertical fields (top-level — schema-only in v1)
+
+| Field | Type | Notes |
+|---|---|---|
+| `interiorMaterial` | string? | Reserved. No UI in v1. |
+| `paintCondition` | string? | Reserved. No UI in v1. |
 
 **Indexes:**
 - `(lastServicedAt DESC)` — for "vehicles owned" sort on CustomerProfile.
 - **v2 NEW** `(makeModelLower ASC)` — global-search by make/model.
 - **v2 NEW** `(licensePlate ASC)` — global-search by plate.
-- **v2 NEW** `(tire.size ASC)` — global-search by tire size (tire vertical).
+- **v3 UPDATED** `(tireSize ASC)` — global-search by tire size (tire vertical, top-level field).
 
 Composite indexes are added as collection-group indexes so global search can fan out across all customers' vehicles in a single query.
 
 **Security:** inherits the parent customer rule (any member read; any member with `canCreateJobs` may upsert via saveJob). No financial fields, so no extra gating.
 
-**Backfill migration note (P3):** the SP3 `backfillCustomers` Cloud Function hoists tire-specific fields out of the legacy flat-Vehicle schema into the `tire: { ... }` sub-object as it walks job history. Legacy reads continue to work via fallback: client reads `vehicle.tire?.size ?? vehicle.tireSize`.
+**Backfill migration note (P3 — v3 update):** v3 no longer needs to hoist tire fields into a sub-object (they were always intended to be top-level). The SP3 `backfillCustomers` Cloud Function simply ensures `tireSize`, `alternateTireSize`, `tireBrand`, `tireCondition`, `tpmsNotes`, `wheelLockNotes` are written from `Job.tireSize` / `Job.tireBrand` / `Job.tireCondition` onto the Vehicle doc as top-level fields. Legacy Job rows already carry these as flat fields; the migration is a straight copy.
 
 ### `businesses/{businessId}/incomingCalls/{callId}`
 
-Doc ID is the Quo call resource id (e.g. `AC...`). Cloud-Function-only create; clients may update only a constrained subset.
+Doc ID is the Twilio `CallSid` (e.g. `CAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`). Cloud-Function-only create; clients may update only a constrained subset.
 
 | Field | Type | Notes |
 |---|---|---|
-| `id` | string | Quo call id. |
-| `quoCallId` | string | Same as id; kept distinct for future provider abstraction. |
+| `id` | string | Twilio CallSid. |
+| `twilioCallSid` | string | Same as id; kept distinct for future provider abstraction (would be `providerEventId` in a multi-provider future). |
+| `provider` | `'twilio'` | **v3 NEW.** Always `'twilio'` in v1. Future providers would carry their own enum value. |
 | `direction` | `'incoming' \| 'outgoing'` | Always `'incoming'` for popup-triggering docs. |
-| `status` | `'ringing' \| 'answered' \| 'missed' \| 'declined' \| 'dismissed' \| 'completed'` | Drives popup visibility. Only `'ringing'` renders the modal. |
-| `fromE164` | string | Caller, E.164. |
+| `status` | `'ringing' \| 'answered' \| 'missed' \| 'declined' \| 'dismissed' \| 'completed'` | Drives popup visibility. Only `'ringing'` renders the modal. Updated from `twilioCallStatus` webhook on `CallStatus=completed/busy/no-answer/failed`. |
+| `fromE164` | string | Caller, E.164. Sourced from Twilio `From` field. |
 | `fromDigits` | string | Caller, digits-only. Client re-lookup fallback if `customerId` is null. |
-| `toE164` | string | Business number. Disambiguates multi-line businesses. |
-| `customerId` | string \| null | Resolved at webhook time. `null` = lead OR invalid phone (see `lookupSkippedReason`). For shared-phone cases, the primary (first) customer's id; the disambiguation sheet may rewrite this. |
+| `toE164` | string | Business number (Twilio `To` field). Disambiguates multi-line businesses. |
+| `customerId` | string \| null | Resolved at webhook time via `lookupCustomerByPhone()`. `null` = unknown caller (new lead) OR invalid phone (see `lookupSkippedReason`). For shared-phone cases, the primary (first) customer's id; the disambiguation sheet may rewrite this. |
 | `customerName` | string \| null | Snapshot of the PRIMARY match's name so popup renders even if the doc changes. |
-| `customersSnapshot` | `Array<{customerId, name, vehiclesSnapshot: VehicleSnapshotEntry[]}>` where `VehicleSnapshotEntry = { year?, make?, model?, trim?, color?, licensePlate?, tire?: { size?, brand? }, lastServicedAt? }` | Up to 3 matches snapshotted at ring time. Empty array on unknown caller. **Only the render-relevant Vehicle subset is snapshotted** — full Vehicle docs (with `processedJobIds`, `createdAt`, `updatedAt`, and any legacy tire-detailing internals) are NEVER spread into the snapshot; the resolveAndWrite pseudocode picks fields explicitly to keep the IncomingCalls doc small (matters for the rapid-listener path and Firestore doc-size limits). Supports the shared-phone "Also: Jose Lopez" render path. |
+| `customersSnapshot` | `Array<{customerId, name, vehiclesSnapshot: VehicleSnapshotEntry[]}>` where `VehicleSnapshotEntry = { year?, make?, model?, trim?, color?, licensePlate?, tireSize?, tireBrand?, lastServicedAt? }` | Up to 3 matches snapshotted at ring time. Empty array on unknown caller. **Only the render-relevant Vehicle subset is snapshotted** — full Vehicle docs are NEVER spread into the snapshot; the resolveAndWrite pseudocode picks fields explicitly to keep the IncomingCalls doc small (matters for the rapid-listener path and Firestore doc-size limits). **v3 NOTE:** tire fields are now top-level on the Vehicle so the snapshot picks `tireSize` and `tireBrand` directly. Supports the shared-phone "Also: Jose Lopez" render path. |
 | `additionalMatchesCount` | number | Number of matches beyond the 3 in `customersSnapshot`. Drives "Also: Jose Lopez (+N more)" tail. |
 | `lastJobSummary` | object \| null | `{ jobId, service, date, vehicleLabel, tireSize, paymentStatus }`. **`paymentStatus` is null unless the line is single-tech-assigned** — see *Privacy posture* above. |
 | `lookupSkippedReason` | string? | Diagnostic. `'invalid_phone'` when `normalizePhone(from).valid === false`. |
-| `assignedToUid` | string \| null | If the called Quo line maps to a single tech, only their device should ring. `null` = all-members. |
+| `assignedToUid` | string \| null | If the called Twilio line maps to a single tech, only their device should ring. `null` = all-members. **v3 note:** Twilio (unlike Quo) does NOT have a multi-user-per-account workspace concept that surfaces a per-call routed-user — this field is populated only from `twilioPhoneNumbers.defaultAssignedToUid`. |
 | `createdAt` | Timestamp | Server timestamp at webhook receipt. |
 | `ringingExpiresAt` | Timestamp | `createdAt + 60s`. Client auto-dismisses stale rings. |
 | `answeredByUid` | string? | Who tapped Accept. |
 | `callbackBookedJobId` | string? | If operator tapped "Create Job" from the popup. |
-| `missedAt` | Timestamp? | From `call.missed`. |
-| `completedAt` | Timestamp? | From `call.completed`. |
-| `durationSec` | number? | From `call.completed`. |
-| `recordingUrl` | string? | From `call.recording.completed`. **Future-ready.** |
-| `transcript` | string? | From `call.transcript.completed`. **Future-ready (AI receptionist seam).** |
+| `missedAt` | Timestamp? | Set from `twilioCallStatus` webhook when `CallStatus=no-answer` or `busy`. |
+| `completedAt` | Timestamp? | Set from `twilioCallStatus` webhook when `CallStatus=completed`. |
+| `durationSec` | number? | From `twilioCallStatus` webhook's `CallDuration` field. |
+| `recordingUrl` | string? | **Future-ready.** Twilio supports call recording via TwiML `<Record>` verb or recording rules; not enabled in v1. |
+| `transcript` | string? | **Future-ready (AI receptionist seam).** Twilio offers Voice Intelligence transcripts; not enabled in v1. |
 
 **Indexes:**
 - `(status ASC, createdAt DESC)` — client subscribes filtered to `status=='ringing'`
@@ -386,15 +395,16 @@ match /businesses/{bid}/leads/{leadId} {
 }
 ```
 
-### `quoPhoneNumbers/{e164}` (top-level)
+### `twilioPhoneNumbers/{e164}` (top-level)
 
-Doc ID is the E.164 business phone number — the webhook's `to` field. Top-level because the webhook resolves business *from* this collection.
+Doc ID is the E.164 business phone number — the webhook's `To` field. Top-level because the webhook resolves business *from* this collection.
 
 | Field | Type | Notes |
 |---|---|---|
 | `e164` | string | Doc ID. |
-| `businessId` | string | Which MSOS business owns this Quo line. |
-| `quoPhoneNumberId` | string | Quo's internal `phoneNumberId` for outbound API calls. |
+| `businessId` | string | Which MSOS business owns this Twilio line. |
+| `twilioPhoneNumberSid` | string | Twilio's `PNxxxx` SID for this number (used for future outbound API operations, e.g. setting per-number config). |
+| `messagingServiceSid` | string? | Optional per-business Messaging Service SID (`MGxxxx`) — if set, outbound SMS uses this instead of the global `TWILIO_PHONE_NUMBER`. Encrypted-at-rest by Firestore Google-managed keys. |
 | `label` | string? | Operator-friendly label e.g. "Main line", "Tech 1". |
 | `defaultAssignedToUid` | string? | If set, only this tech's device rings. |
 | `active` | boolean | Per-number kill switch. |
@@ -402,25 +412,151 @@ Doc ID is the E.164 business phone number — the webhook's `to` field. Top-leve
 
 **Indexes:** `(businessId ASC, active ASC)`.
 
-**Security:** Reads only allowed for owner/admin of the linked business; writes blocked (managed via `adminConnectQuoNumber` callable). The webhook reads via the admin SDK and bypasses rules.
+**Security:** Reads only allowed for owner/admin of the linked business; writes blocked (managed via `adminConnectTwilioNumber` callable). The webhook reads via the admin SDK and bypasses rules.
 
-### `quoWebhookEvents/{webhookId}` (top-level)
+### `twilioWebhookEvents/{webhookEventId}` (top-level)
 
-Mirrors `stripeWebhookEvents` pattern from [functions/src/stripeWebhook.ts:141-177](../../../functions/src/stripeWebhook.ts). Doc ID is the Quo Beta `webhook-id` header value.
+Mirrors `stripeWebhookEvents` pattern from [functions/src/stripeWebhook.ts:141-177](../../../functions/src/stripeWebhook.ts). Doc ID is a deterministic key: `${endpoint}:${CallSid|MessageSid}` where `endpoint ∈ {'voice', 'sms', 'status'}`. This guarantees that the same Twilio retry attempt (which carries the same CallSid + endpoint) is deduplicated, while still allowing the voice + status webhooks for the same CallSid to coexist as separate idempotency rows.
 
 | Field | Type | Notes |
 |---|---|---|
-| `webhookId` | string | Doc ID. Idempotency key. |
-| `type` | string | Event type e.g. `'call.ringing'`. |
-| `createdAt` | Timestamp | When the function first saw this webhook id. |
+| `webhookEventId` | string | Doc ID. Idempotency key. |
+| `endpoint` | `'voice' \| 'sms' \| 'status'` | Which Twilio endpoint received the webhook. |
+| `providerEventId` | string | The Twilio CallSid or MessageSid. |
+| `createdAt` | Timestamp | When the function first saw this event. |
 | `processed` | boolean | Set true after side effects committed. |
 | `processedAt` | Timestamp? | When `processed` flipped to true. |
 | `businessId` | string? | Resolved (debug). |
-| `callId` | string? | Quo call resource id (debug). |
+| `callId` | string? | Resolved Twilio CallSid (debug). |
 
-**TTL:** auto-delete after 28h via Firestore TTL policy on `createdAt` (Quo Beta idempotency window is ~27.5h). **The TTL policy MUST be configured at SP4 deploy time** — it is a hard requirement, not a fallback. The existing `scheduledDeletionPurge` weekly sweep is a secondary safety net but the per-doc TTL is the primary defense against post-window replay attacks.
+**TTL:** auto-delete after 28h via Firestore TTL policy on `createdAt`. **The TTL policy MUST be configured at SP4 deploy time** — Twilio retries up to 4 attempts spread over a few hours, so 28h is a comfortable safety margin. The existing `scheduledDeletionPurge` weekly sweep is a secondary safety net.
 
 **Security:** all client access denied; Cloud Function service account only.
+
+### `twilioSyncCursors/{twilioPhoneNumberSid}` (top-level)
+
+Used by the `reconcileTwilioCalls` scheduled function (analogue of v2's `reconcileQuoCalls`) to query Twilio's REST API for any call records that may have arrived during a webhook outage.
+
+| Field | Type | Notes |
+|---|---|---|
+| `twilioPhoneNumberSid` | string | Doc ID. |
+| `businessId` | string | For cascade deletion. |
+| `lastSyncedAt` | Timestamp | Cursor advanced after each successful poll of Twilio's `/2010-04-01/Accounts/{AccountSid}/Calls.json?To={e164}&StartTime>={lastSyncedAt}`. |
+| `updatedAt` | Timestamp | |
+
+**Security:** all client access denied; Cloud Function service account only.
+
+### `twilioPhoneNumberOwnershipAudits/{auditId}` (top-level)
+
+Identical purpose to v2's `quoPhoneNumberOwnershipAudits` — records every attempt (refused or forced) to overwrite a `twilioPhoneNumbers/{e164}` mapping owned by another business. Retained 90 days for compliance.
+
+**v3 NOTE — removed collections.** v2's `quoUserMapping/{quoUserId}` (which mapped Quo workspace user ids to MSOS uids for per-call routing) is **NOT carried over**. Twilio does not surface a per-call routed-user concept like Quo did, so multi-operator routing in v3 is simpler: all operators in the business see the popup; per-line operator targeting still works via `twilioPhoneNumbers.defaultAssignedToUid` but no per-call override exists.
+
+### `businesses/{businessId}/communicationEvents/{eventId}` (v3 NEW)
+
+**Purpose:** unified customer-facing timeline of all communications (incoming calls, outgoing calls, incoming SMS, outgoing SMS, missed calls, future AI interactions). Rendered in CustomerProfile's Communication History section. **Distinct from `incomingCalls`** — `incomingCalls` is the real-time pipeline source optimized for popup latency; `communicationEvents` is the denormalized timeline copy optimized for chronological customer-history rendering. The denormalization is intentional: the popup pipeline needs sub-2s read latency; the customer timeline can lag.
+
+When a Twilio incoming call resolves to a customer, a row is written to BOTH `incomingCalls` (popup) AND `communicationEvents` (timeline). When the call completes (`twilioCallStatus` webhook), the `communicationEvents` row is updated with duration/status.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | string | Random Firestore ID. |
+| `type` | `'incoming_call' \| 'outgoing_call' \| 'incoming_sms' \| 'outgoing_sms' \| 'missed_call' \| 'ai_interaction'` | Event type. |
+| `direction` | `'inbound' \| 'outbound'` | |
+| `provider` | `'twilio'` | Always `'twilio'` in v1. |
+| `providerEventId` | string | Twilio `CallSid` or `MessageSid`. Idempotency key. |
+| `customerId` | string \| null | Resolved via `lookupCustomerByPhone()` at write time. Nullable for unknown callers. |
+| `customerPhoneE164` | string | Caller / recipient phone. |
+| `customerPhoneKey` | string | Digits-only form. |
+| `businessPhoneE164` | string | Twilio number that received/sent the event. |
+| `body` | string? | SMS body (truncated to 2000 chars). NULL for calls. |
+| `durationSec` | number? | For completed calls. |
+| `callStatus` | string? | Twilio `CallStatus` for calls (`completed`, `busy`, `no-answer`, `failed`). |
+| `messageStatus` | string? | Twilio message status for SMS (`queued`, `sent`, `delivered`, `failed`, `undelivered`). |
+| `actorUid` | string? | For outbound events: which operator sent it. |
+| `occurredAt` | Timestamp | When the underlying communication happened. |
+| `createdAt` | Timestamp | When the doc was written. |
+| `payloadSnapshot` | object | A shallow copy of the relevant Twilio webhook params for debugging — `{From, To, CallSid, CallStatus, ...}`. NEVER contains the full raw body; SMS `Body` is in the top-level `body` field. |
+
+**Indexes:** `(customerId ASC, occurredAt DESC)` — customer-timeline render. `(type ASC, occurredAt DESC)` — for ops filtering. `(providerEventId ASC)` — idempotency lookup.
+
+**Security:**
+```
+match /businesses/{bid}/communicationEvents/{eventId} {
+  allow read: if isMemberOfBusiness(bid);
+  allow create, delete: if false; // Cloud Function service account only
+  allow update: if false;
+}
+```
+
+Outbound SMS sends from the `sendSMS` callable also write to this collection (admin SDK bypasses rules).
+
+### `businesses/{businessId}/callerLookupEvents/{eventId}` (v3 NEW)
+
+**Purpose:** telemetry + audit log of every `lookupCustomerByPhone()` invocation triggered by the popup pipeline. Used to debug the resolution chain (Twilio → number mapping → phoneKey → customer match) when an operator reports a missed popup or wrong-customer popup.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | string | Random Firestore ID. |
+| `triggeredBy` | `'twilio_voice_webhook' \| 'twilio_sms_webhook' \| 'manual_lookup'` | What kicked off the lookup. |
+| `providerEventId` | string? | Twilio CallSid or MessageSid (when applicable). |
+| `rawFromPhone` | string | The phone Twilio reported. |
+| `normalizedPhoneKey` | string \| null | After `normalizePhone()`. Null if invalid. |
+| `normalizedValid` | boolean | Whether `normalizePhone()` succeeded. |
+| `customerIdMatched` | string \| null | The customer the lookup resolved to. Null on miss. |
+| `matchCount` | number | How many customer docs matched the phoneKey (0, 1, or N for shared-phone case). |
+| `latencyMs` | number | End-to-end webhook → write latency. |
+| `outcome` | `'matched' \| 'no_match' \| 'invalid_phone' \| 'unmapped_business' \| 'error'` | Resolution outcome. |
+| `errorDetail` | string? | Short error message (no PII, no stack). |
+| `createdAt` | Timestamp | |
+
+**Indexes:** `(createdAt DESC)`, `(outcome ASC, createdAt DESC)`.
+
+**Security:** read for owner/admin only; write blocked (Cloud Function only).
+
+**TTL:** 30 days. Telemetry-grade; not part of customer history.
+
+### `businesses/{businessId}/missedCallEvents/{eventId}` (v3 NEW)
+
+**Purpose:** captures every missed-call notification + status, separate from `leads`. A missed call always creates a `missedCallEvents` row; a `leads` row is created only when the missed call is deemed a fresh sales opportunity (deduplicated within a 7d window per `phoneKey`). This separation lets operators see "every missed call" in a notification feed while keeping the Leads funnel clean.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | string | Random Firestore ID. |
+| `twilioCallSid` | string | Idempotency key. |
+| `fromE164` | string | |
+| `phoneKey` | string | |
+| `toE164` | string | Which business line was called. |
+| `customerId` | string \| null | Resolved at missed-call time. |
+| `callStatus` | `'no-answer' \| 'busy' \| 'failed'` | The Twilio `CallStatus` that classified this as a miss. |
+| `leadId` | string? | Set if a `leads` row was also created for this miss. |
+| `acknowledged` | boolean | Operator can dismiss from the missed-call feed. Default false. |
+| `occurredAt` | Timestamp | |
+| `createdAt` | Timestamp | |
+
+**Indexes:** `(acknowledged ASC, occurredAt DESC)` for the feed; `(twilioCallSid ASC)` for idempotency; `(customerId ASC, occurredAt DESC)` for customer-timeline render.
+
+**Security:** read for all members; `update` allowed for any member to set `acknowledged = true`; create/delete blocked (Cloud Function only).
+
+### `businesses/{businessId}/autoTextRules/{ruleId}` (v3 NEW — schema only in v1; UI deferred to SP7)
+
+**Purpose:** operator-defined rules for missed-call auto-text-back. Stored in v1 so the schema is stable when SP7 builds the rule engine.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | string | Random Firestore ID. |
+| `enabled` | boolean | Per-rule kill switch. |
+| `trigger` | `'missed_call' \| 'after_hours_call' \| 'new_customer_call'` | What fires the rule. |
+| `messageTemplate` | string | Operator-authored template. Supports `{customer.name}` / `{business.name}` placeholders (v1 schema; v1 doesn't render them — SP7 does). |
+| `cooldownMinutes` | number | Don't re-trigger for the same phoneKey within N minutes. Default 1440 (24h). |
+| `appliesTo` | `'all_callers' \| 'new_callers_only' \| 'known_callers_only'` | Audience filter. |
+| `createdByUid` | string | |
+| `createdAt` | Timestamp | |
+| `updatedAt` | Timestamp | |
+
+**Indexes:** `(enabled ASC)`.
+
+**Security:** read for all members; create/update/delete for owner/admin only. v1 has no UI for this collection; it ships schema-only as an SP7 future-ready seam.
 
 ### Data retention & cascade deletion
 
@@ -430,15 +566,20 @@ Every collection introduced by this spec MUST be reachable by tenant deletion. T
 |---|---|---|
 | `businesses/{bid}/customers/**` | tenant-scoped | `recursiveDelete(businessRef)` (existing). |
 | `businesses/{bid}/customers/{cid}/vehicles/**` | tenant-scoped | `recursiveDelete(businessRef)` (existing). |
-| `businesses/{bid}/incomingCalls/**` | tenant-scoped | `recursiveDelete(businessRef)` (existing). Note: `recordingUrl` points at Quo's CDN — the recording itself is governed by Quo retention; operator must align Quo settings with their privacy policy. |
+| `businesses/{bid}/incomingCalls/**` | tenant-scoped | `recursiveDelete(businessRef)` (existing). Note: `recordingUrl` (future) would point at Twilio's CDN — the recording itself would be governed by Twilio retention; operator must align Twilio settings with their privacy policy. |
 | `businesses/{bid}/leads/**` | tenant-scoped | `recursiveDelete(businessRef)` (existing). |
-| `quoPhoneNumbers/{e164}` | **top-level** | **`scheduledDeletionPurge` MUST be extended** to query `quoPhoneNumbers where businessId == purgedBusinessId` and delete each doc AFTER the `recursiveDelete(businessRef)` completes. This work is part of SP4, not a follow-up. |
-| `quoWebhookEvents/{webhookId}` | top-level | TTL-managed (28h). Not tenant-scoped — events for the deleted tenant naturally age out within 28h of their last write. No explicit purge step required, but document the asymmetry. |
-| `quoUserMapping/{quoUserId}` | top-level | **`scheduledDeletionPurge` MUST be extended** to query `quoUserMapping where businessId == purgedBusinessId` and delete each doc. Part of SP4. |
-| `quoSyncCursors/{quoPhoneNumberId}` | top-level | Deleted alongside `quoPhoneNumbers` in the same purge sweep (lookup `quoPhoneNumberId` from each soon-to-be-deleted `quoPhoneNumbers` doc before its deletion). Part of SP4. |
-| `quoPhoneNumberOwnershipAudits/{...}` | top-level | Retained 90 days for compliance; sweep via a separate scheduled function. SP4 scope. |
+| `businesses/{bid}/communicationEvents/**` | tenant-scoped (v3 NEW) | `recursiveDelete(businessRef)` (existing). |
+| `businesses/{bid}/callerLookupEvents/**` | tenant-scoped (v3 NEW) | `recursiveDelete(businessRef)` (existing). |
+| `businesses/{bid}/missedCallEvents/**` | tenant-scoped (v3 NEW) | `recursiveDelete(businessRef)` (existing). |
+| `businesses/{bid}/autoTextRules/**` | tenant-scoped (v3 NEW) | `recursiveDelete(businessRef)` (existing). |
+| `twilioPhoneNumbers/{e164}` | **top-level** | **`scheduledDeletionPurge` MUST be extended** to query `twilioPhoneNumbers where businessId == purgedBusinessId` and delete each doc AFTER the `recursiveDelete(businessRef)` completes. This work is part of SP4, not a follow-up. |
+| `twilioWebhookEvents/{webhookEventId}` | top-level | TTL-managed (28h). Not tenant-scoped — events for the deleted tenant naturally age out within 28h of their last write. No explicit purge step required, but document the asymmetry. |
+| `twilioSyncCursors/{twilioPhoneNumberSid}` | top-level | Deleted alongside `twilioPhoneNumbers` in the same purge sweep (lookup `twilioPhoneNumberSid` from each soon-to-be-deleted `twilioPhoneNumbers` doc before its deletion). Part of SP4. |
+| `twilioPhoneNumberOwnershipAudits/{...}` | top-level | Retained 90 days for compliance; sweep via a separate scheduled function. SP4 scope. |
 
 After this extension, a tenant deletion leaves zero records pointing at the deleted businessId. The audit-collection retention is intentional (90 days) and matches the compliance posture for ownership conflicts.
+
+**v3 note — removed:** v2's `quoUserMapping` is not part of v3 (Twilio has no analogue), so no cascade-delete handling for it is needed.
 
 ### Per-customer right-to-delete (GDPR / CCPA)
 
@@ -448,7 +589,7 @@ End-customers of an MSOS business have the right under GDPR Article 17 and CCPA 
 
 - Add a separate "Forget customer (GDPR)" action, owner-only, with a second-confirmation prompt that names the regulatory implications.
 - Hard-cascade: delete the Customer doc; delete all `vehicles` subdocs; for every Job with this customerId, tombstone `customerName`/`customerPhone`/`customerEmail`/`city`/`state` to `'[deleted]'` (PRESERVE financial records for tax compliance — IRS retention requirements supersede the right to erasure for financial data); delete `leads` matching `phoneKey`; scrub `incomingCalls` (clear `fromE164`/`fromDigits`/`customerName`/`customersSnapshot`).
-- Trigger Quo CDN deletion of any `recordingUrl` referenced from the scrubbed calls.
+- Trigger Twilio recording deletion (via the Twilio REST API) of any `recordingUrl` referenced from the scrubbed calls. v1 does not enable recordings; SP7.5 inherits the Twilio recording-delete path.
 - Generate an audit record in the operator's business-level compliance log.
 
 Until SP7.5 ships, businesses receiving a GDPR/CCPA erasure request must run the operation manually (deleting the docs via Firestore console). The Out of Scope section calls this out.
@@ -487,13 +628,18 @@ The existing Settings doc (already a single doc per business) gains new fields. 
 | Field | Type | Default | Notes |
 |---|---|---|---|
 | `autoSaveCustomersFromJobs` | boolean | `true` | **v2 NEW — P17.** When `true`, `saveJob` calls `upsertCustomerFromJob`. When `false`, the job saves with no `customerId` / `vehicleId` / `phoneKey`. Settings UI lands in SP3 ("Customer Directory" accordion). |
-| `openphoneConnected` | boolean | `false` | **v2 NEW — gating flag.** Per-business toggle. When `false`, IncomingCallModal listener does not attach, Settings → Integrations shows "Connect OpenPhone" CTA. Set to `true` by `adminConnectQuoNumber` after operator pastes a `whsec_` key. |
-| `outboundCommunicationProvider` | `'native' \| 'openphone'` | `'native'` | **v2 NEW — SP7 toggle.** v1 always uses `tel:` / `sms:`. SP7 flips behavior so Call/Text buttons POST to a Cloud Function that initiates the call/SMS from the Quo number. Schema-shaped in v1 so no migration is needed for SP7. |
-| `autoTextBackEnabled` | boolean | `false` | **Future-ready seam (SP7).** No effect in v1. Documented here so future phases land without a Settings schema change. |
+| `communicationProvider` | `'twilio'` | `'twilio'` | **v3 NEW.** Read-only label in v1 (always `'twilio'`). The provider-abstraction layer resolves the implementation at request time from this field. Future providers would add new enum values. |
+| `twilioConnected` | boolean | `false` | **v3 NEW — replaces v2's `openphoneConnected`.** Per-business toggle. When `false`, IncomingCallModal listener does not attach; Settings → Communications shows "Connect Twilio" CTA. Set to `true` by `adminConnectTwilioNumber` after operator supplies their Twilio number + (verified) account info. **Derived display value:** Settings UI shows "Connected" when this is true AND `lastTwilioWebhookSuccessAt` (telemetry) is within 7d; otherwise "Not connected". |
+| `incomingCallLookupEnabled` | boolean | `true` | **v3 NEW.** Controls whether the voice webhook performs customer lookup + writes `incomingCalls`. Owner-only toggle. |
+| `incomingSMSLoggingEnabled` | boolean | `true` | **v3 NEW.** Controls whether the SMS webhook writes `communicationEvents` rows. Owner-only toggle. |
+| `missedCallAutoTextEnabled` | boolean | `false` | **v3 NEW.** Master switch for the SP7 `autoTextRules` engine. Default OFF — no automated outbound texts in v1. Owner-only toggle. |
+| `outboundSMSEnabled` | boolean | `true` | **v3 NEW.** Master switch consulted by the `sendSMS` callable before sending. Default ON (callable still gated on auth + env-var safeguards). Owner-only toggle. |
+| `outboundCommunicationProvider` | `'native' \| 'twilio'` | `'native'` | **v3-updated.** v1 always uses `tel:` for Call; outbound SMS uses Twilio via the `sendSMS` callable. The "Text" button in v1 opens a small inline UI that calls `sendSMS` when `outboundSMSEnabled === true`, else falls back to native `sms:` link. |
+| `autoTextBackEnabled` | boolean | `false` | **Future-ready seam (SP7).** Superseded in v3 by `missedCallAutoTextEnabled`; retained for backward-compat. |
 
-Existing Settings fields (verticalId, mileageRate, defaultTaxRate, currency, etc.) are unchanged. The v2 additions follow the same `lastEditedByUid` / `lastEditedAt` audit pattern already required on Customer writes.
+Existing Settings fields (verticalId, mileageRate, defaultTaxRate, currency, etc.) are unchanged. The v2/v3 additions follow the same `lastEditedByUid` / `lastEditedAt` audit pattern already required on Customer writes.
 
-**Migration note:** existing Wheel Rush tenants default to `autoSaveCustomersFromJobs: true` (preserves current behavior) and `openphoneConnected: false` (no OpenPhone account yet). No admin action required for upgrade.
+**Migration note:** existing Wheel Rush tenants default to `autoSaveCustomersFromJobs: true` (preserves current behavior), `twilioConnected: false` (no Twilio config until operator opts in), `communicationProvider: 'twilio'` (read-only). No admin action required for upgrade.
 
 ---
 
@@ -585,12 +731,12 @@ export function formatPhoneForDisplay(e164: string): string;
 | `305-897-7030 x123` (ext) | `` | `` | `305-897-7030 x123` | false | Extensions stripped to 13-digit garbage (`13058977030123`) which fails the length check → invalid. Operators with PBX extensions must enter the bare number in v1. |
 | `1-800-FLOWERS` (vanity) | `` | `` | `1-800-FLOWERS` | false | Letters stripped to 4 digits → invalid. Vanity numbers rejected. |
 
-**Hard contract for callers (upsertCustomerFromJob, saveJob, quoWebhook resolveAndWrite):**
+**Hard contract for callers (upsertCustomerFromJob, saveJob, twilioIncomingCall provider handler):**
 
 If `normalizePhone(raw).valid === false`:
 - `upsertCustomerFromJob` MUST NOT write `phoneKey` or `phoneE164` on the Customer doc. Instead it falls back to the `n_<slug>` name-keyed customer doc with phone fields unset. If both phone and name are empty/invalid, throw and let the caller's try/catch toast the warning.
 - `saveJob` MUST NOT write `phoneKey` on the Job doc (omit the field; never write `''`).
-- `quoWebhook resolveAndWrite` MUST bail out of the `customers.where('phoneKey','==',digits)` query before issuing it, write `customerId: null` with diagnostic `lookupSkippedReason: 'invalid_phone'` on the `incomingCalls` doc, and treat the call as an unknown-caller lead.
+- The `twilioIncomingCall` provider handler MUST bail out of the `customers.where('phoneKey','==',digits)` query before issuing it, write `customerId: null` with diagnostic `lookupSkippedReason: 'invalid_phone'` on the `incomingCalls` doc, and treat the call as an unknown-caller lead.
 
 **phoneKey canonical form — single source of truth:** `phoneKey` is the 11-digit US E.164 digits (e.g. `13058977030`) **everywhere**: the `Customer.phoneKey` field, `Job.phoneKey` field, all Firestore indexes, and inside the Customer doc ID prefix `p_<phoneKey>` (so the canonical doc ID for the example becomes `p_13058977030`).
 
@@ -599,7 +745,7 @@ This is a **breaking change vs today's `customerKey()`** at `src/lib/customers.t
 1. **`customerKey()` is updated in SP1** to compute via `normalizePhone(...).digits` and produce `p_13058977030`-style IDs going forward.
 2. **SP3's `backfillCustomers` Cloud Function (P3 — confirmed in v2) explicitly renames every legacy `p_<10-digit>` Customer doc to `p_<11-digit>`** and adds `phoneKey` to every doc that lacks it. The hybrid second-chance lookup below becomes a **transitional safety net** during backfill execution (and for the short window between SP1 deploy and SP3 deploy), not a permanent fallback.
 3. **Hybrid read path also tries the legacy form (transitional).** `deriveCustomerProfiles` and `lookupCustomerByPhone` first query `customers/p_<normalized 11-digit>`; on miss they fall back to `customers/p_<legacy 10-digit>` (digits 1-10 of the normalized form, i.e. drop the leading `1`). Found legacy docs are surfaced unchanged. After SP3's backfill runs, the fallback path becomes dead code — kept for one release cycle as a safety net, then removed.
-4. **Webhook `phoneKey` query stays single-form:** the `customers.where('phoneKey','==',digits)` query in `quoWebhook` uses ONLY the 11-digit form. Pre-backfill, legacy customers without a `phoneKey` field on the doc resolve to `customerId: null` and show as unknown callers. **Post-backfill, every customer has a `phoneKey` and the unknown-caller fallback only fires for genuine first-time callers.** This is the primary reason backfill became confirmed scope in v2.
+4. **Webhook `phoneKey` query stays single-form:** the `customers.where('phoneKey','==',digits)` query in the `twilioIncomingCall` provider handler uses ONLY the 11-digit form. Pre-backfill, legacy customers without a `phoneKey` field on the doc resolve to `customerId: null` and show as unknown callers. **Post-backfill, every customer has a `phoneKey` and the unknown-caller fallback only fires for genuine first-time callers.** This is the primary reason backfill became confirmed scope in v2.
 
 **International / extension / vanity — explicit deferral.** v1 rejects everything outside US/Canada NANP. International support is deferred until we adopt `libphonenumber-js`; the spec table above lists the exact rejection behavior for each input class so operators get a deterministic "invalid phone" rather than a silently corrupt customer record.
 
@@ -626,15 +772,21 @@ This is a **breaking change vs today's `customerKey()`** at `src/lib/customers.t
 | `App.tsx#saveJob` (mod) | client-module | `src/App.tsx` | Insert `upsertCustomerFromJob(businessId, finalJob)` between finalJob assembly at [line 1076](../../../src/App.tsx) and `fbSetFast` write at [line 1078](../../../src/App.tsx). Wrap in try/catch — failure toasts non-blocking warning. Write `customerId`, `vehicleId`, `phoneKey` onto `finalJob` before save. | `customerEntity.ts` |
 | `CustomerProfile.tsx` | react-component | `src/pages/CustomerProfile.tsx` | Drill-down page. Header (name, phone, repeat badge, tags), Vehicles section (chips), Service Timeline (chronological JobList reusing `JobDetailModal`), Notes (editable when `canEditBusinessSettings`), Quick Actions row (Create Job, Repeat Last, Call, Text, Quote, Invoice, Review, Edit, Delete), Lifetime stats (gated by `canViewFinancials`). | `customers.ts`, `phone.ts` |
 | `Customers.tsx` (mod) | react-component | `src/pages/Customers.tsx` | Surface vehicles per customer (from new subcollection), wire row click → `CustomerProfile`, gate Lifetime Revenue strictly behind `canViewFinancials` (tighter than today's per-row `canViewProfit` at [line 600](../../../src/pages/Customers.tsx)). | `CustomerProfile.tsx` |
-| `quoWebhook.ts` | cloud-function | `functions/src/quoWebhook.ts` | v2 `onRequest` HMAC-verified webhook. Mirrors [stripeWebhook.ts](../../../functions/src/stripeWebhook.ts) line-for-line. See *OpenPhone Integration* below. | `phone.ts` (functions) |
-| `functions/src/index.ts` (mod) | barrel | `functions/src/index.ts` | Add `export { quoWebhook } from './quoWebhook';`. Mirrors commented-out Stripe pattern but enabled. | `quoWebhook.ts` |
-| `adminConnectQuoNumber.ts` | cloud-function | `functions/src/adminConnectQuoNumber.ts` | v1 `https.onCall`. Owner/admin only via `assertOwnerOrAdmin`. Inputs: `{businessId, e164, quoPhoneNumberId, label?, defaultAssignedToUid?, force?: boolean}`. Normalizes `e164` via `normalizePhone()`, rejects `valid === false`. **Uniqueness check:** if `quoPhoneNumbers/{e164}` already exists AND its `businessId !== input.businessId`, refuse with error code `'phone_number_owned_by_other_business'` UNLESS `force: true` (owner-only + UI confirmation). Every conflict-write (refusal or forced overwrite) writes an audit doc to `quoPhoneNumberOwnershipAudits/{ts}_{e164}` with `{actorUid, attemptedBusinessId, existingBusinessId, action, ip}`. | — |
+| `twilioIncomingCall.ts` | cloud-function | `functions/src/twilioIncomingCall.ts` | v2 `onRequest` Twilio voice webhook. Verifies `X-Twilio-Signature` (HMAC-SHA1 of URL + sorted POST params). Resolves business from `twilioPhoneNumbers/{To}`. Resolves customer via `lookupCustomerByPhone()`. Writes `incomingCalls/{CallSid}`. Returns minimal TwiML `<Response><Pause length="1"/></Response>`. See *Twilio Integration* below. | `phone.ts` (functions), `communicationProvider.ts` |
+| `twilioIncomingSMS.ts` | cloud-function | `functions/src/twilioIncomingSMS.ts` | v2 `onRequest` Twilio SMS webhook. Same signature verification. Writes `communicationEvents` row (type `incoming_sms`). Returns empty `<Response/>` TwiML. | `phone.ts` (functions), `communicationProvider.ts` |
+| `twilioCallStatus.ts` | cloud-function | `functions/src/twilioCallStatus.ts` | v2 `onRequest` Twilio status-callback webhook. Same signature verification. Updates `incomingCalls/{CallSid}` with `completedAt` / `missedAt` / `durationSec` based on `CallStatus`. On `no-answer` / `busy` / `failed`, writes `missedCallEvents` row and optionally creates a `leads` row (7d dedup). Returns 200 + empty body. | `phone.ts` (functions), `communicationProvider.ts` |
+| `sendSMS.ts` | cloud-function | `functions/src/sendSMS.ts` | v2 `onCall` callable. Owner/admin only. Inputs `{businessId, to, message}`. Safeguards: `TWILIO_*` env present; `settings.outboundSMSEnabled !== false`; rate-limit per business per minute. Resolves per-business sender (Messaging Service SID > global `TWILIO_PHONE_NUMBER`). Calls Twilio REST API via `twilioClient.ts`. Logs to `communicationEvents`. Returns `{messageSid, status}`. Graceful "Twilio not configured" error when env unset. | `twilioClient.ts`, `communicationProvider.ts` |
+| `twilioClient.ts` | helper-library | `functions/src/lib/twilioClient.ts` | Thin wrapper over Twilio's Node SDK (or raw `fetch` to REST API). Loads `TWILIO_ACCOUNT_SID` + `TWILIO_AUTH_TOKEN` from secrets. Exposes `sendSMS({from, to, body})` and `validateSignature(authToken, url, params, signature)` helpers. Centralizes the env-var presence check so the three webhook endpoints and the callable share one source of truth. | — |
+| `communicationProvider.ts` | helper-library | `functions/src/lib/communicationProvider.ts` | Provider abstraction interface + registry. Exposes `getProvider(name: 'twilio')` returning an object with `handleIncomingCall`, `handleIncomingSMS`, `handleCallStatusUpdate`, `sendSMS`, `verifySignature` methods. Registry: `{ twilio: TwilioProvider }`. See *Provider Abstraction Layer*. | `providers/twilio.ts` |
+| `providers/twilio.ts` | helper-library | `functions/src/lib/providers/twilio.ts` | Twilio implementation of the `CommunicationProvider` interface. Encapsulates form-encoded payload parsing, signature verification, TwiML response construction, and the Twilio REST API client. | `twilioClient.ts` |
+| `functions/src/index.ts` (mod) | barrel | `functions/src/index.ts` | Add `export { twilioIncomingCall } from './twilioIncomingCall'; export { twilioIncomingSMS } from './twilioIncomingSMS'; export { twilioCallStatus } from './twilioCallStatus'; export { sendSMS } from './sendSMS';`. Mirrors the Stripe pattern. | (above) |
+| `adminConnectTwilioNumber.ts` | cloud-function | `functions/src/adminConnectTwilioNumber.ts` | v1 `https.onCall`. Owner/admin only via `assertOwnerOrAdmin`. Inputs: `{businessId, e164, twilioPhoneNumberSid, messagingServiceSid?, label?, defaultAssignedToUid?, force?: boolean}`. Normalizes `e164` via `normalizePhone()`, rejects `valid === false`. **Uniqueness check:** if `twilioPhoneNumbers/{e164}` already exists AND its `businessId !== input.businessId`, refuse with error code `'phone_number_owned_by_other_business'` UNLESS `force: true` (owner-only + UI confirmation). Every conflict-write (refusal or forced overwrite) writes an audit doc to `twilioPhoneNumberOwnershipAudits/{ts}_{e164}` with `{actorUid, attemptedBusinessId, existingBusinessId, action, ip}`. Sets `settings.twilioConnected = true` on success. | — |
 | `IncomingCallModal.tsx` | react-component | `src/components/IncomingCallModal.tsx` | Centered modal at z-index 9500. `.modal-overlay` + `useFocusTrap` + `role='alert' aria-live='assertive'`. Renders caller name (or "Unknown caller"), formatted phone, repeat badge, vehicles, last-job card, Accept / Decline / Dismiss + quick action buttons. Plays `/sounds/ringtone.mp3` via `HTMLAudioElement` loop until any action or `ringingExpiresAt` passes. | `useFocusTrap.ts`, `phone.ts` |
 | `useIncomingCallListener.ts` | client-module | `src/lib/useIncomingCallListener.ts` | `useIncomingCallListener(businessId, currentUid): IncomingCall \| null`. Attaches `onSnapshot` on `collection(_db, 'businesses/${businessId}/incomingCalls')` filtered by `where('status','==','ringing')` + ordered by `createdAt desc` + `limit(5)`. Returns most recent unexpired ringing doc visible to current user (respects `assignedToUid`). Auto-clears when `ringingExpiresAt` passes via a single `setTimeout`. | `firebase.ts` |
 | `App.tsx` (mod) | react-component | `src/App.tsx` | Add `const incomingCall = useIncomingCallListener(businessId, uid)` near existing listener setup ([lines 437-583](../../../src/App.tsx)). Render `{incomingCall && <IncomingCallModal ... />}` near `JobDetailModal` mount at [line 1568](../../../src/App.tsx). | `useIncomingCallListener.ts`, `IncomingCallModal.tsx` |
-| `Leads.tsx` + `Lead` type | react-component | `src/pages/Leads.tsx` | List page sorted by `createdAt DESC`. Columns: time, name (or "Unknown"), phone, source, status, last action. Row actions: Call back (`tel:`), Text (`sms:`), Convert to Job (preloads AddJob draft with customer + lead context), Mark Lost. New tab added to MoreSheet for owner/admin/canCreateJobs. | `quoWebhook.ts` (indirectly via writes) |
-| `firestore.rules` (mod) | rules | `firestore.rules` | Add rules for `customers/{cid}/vehicles/**`, `incomingCalls/**`, `leads/**`, `quoPhoneNumbers/**`, `quoWebhookEvents/**`. Tighten `customers/{cid}` update to allow non-meta upserts by any member with `canCreateJobs` while preserving owner/admin gate on note/tags. | — |
-| `QuoIntegrationSection.tsx` | react-component | `src/components/settings/QuoIntegrationSection.tsx` | Owner-only debug panel under Settings → Integrations. Lists last 50 `quoWebhookEvents`, lets owner re-process a failed event, shows signing-key registration status, and a "Connect Quo Number" form that calls `adminConnectQuoNumber`. | `adminConnectQuoNumber.ts` |
+| `Leads.tsx` + `Lead` type | react-component | `src/pages/Leads.tsx` | List page sorted by `createdAt DESC`. Columns: time, name (or "Unknown"), phone, source, status, last action. Row actions: Call back (`tel:`), Text (`sms:` or `sendSMS`), Convert to Job (preloads AddJob draft with customer + lead context), Mark Lost. New tab added to MoreSheet for owner/admin/canCreateJobs. | `twilioCallStatus.ts` (indirectly via writes) |
+| `firestore.rules` (mod) | rules | `firestore.rules` | Add rules for `customers/{cid}/vehicles/**`, `incomingCalls/**`, `leads/**`, `twilioPhoneNumbers/**`, `twilioWebhookEvents/**`, `communicationEvents/**`, `callerLookupEvents/**`, `missedCallEvents/**`, `autoTextRules/**`. Tighten `customers/{cid}` update to allow non-meta upserts by any member with `canCreateJobs` while preserving owner/admin gate on note/tags. | — |
+| `CommunicationsSettingsSection.tsx` | react-component | `src/components/settings/CommunicationsSettingsSection.tsx` | **v3 NEW** Settings accordion. Read-only "Communication Provider: Twilio" label, derived "Connected/Not connected" status, four toggles (`incomingCallLookupEnabled`, `incomingSMSLoggingEnabled`, `missedCallAutoTextEnabled`, `outboundSMSEnabled`), a "Connect Twilio Number" form that calls `adminConnectTwilioNumber`, and an owner-only "Last 50 webhook events" debug panel. Replaces v2's `QuoIntegrationSection.tsx`. | `adminConnectTwilioNumber.ts` |
 | **v2 NEW** `searchCustomers.ts` | client-module | `src/lib/searchCustomers.ts` | Debounced multi-field search across `customers.{nameLower, companyLower, phoneKey, cityLower, zipCode}` + collection-group on `vehicles.{makeModelLower, licensePlate, tire.size}`. Parallel `Promise.all` for the field branches; per-query `limit(20)`; result merge keyed on `customerId`; 60s in-memory result cache keyed on normalized query. Targets sub-300ms on Wheel Rush-scale data. RBAC: techs see only their own customers (post-fetch filter by `customerId IN scopedCustomerIds`); owners/admins see all. | `phone.ts`, `firebase.ts` |
 | **v2 NEW** `GlobalSearchSheet.tsx` | react-component | `src/components/GlobalSearchSheet.tsx` | Bottom-sheet modal launched from a persistent search icon in main nav. Single text input using the `MemoInput` pattern with 200ms debounce. Renders grouped results: Customer header + nested Vehicle sub-rows; tap → CustomerProfile. Empty / no-match / loading skeleton states. Mobile-first. | `searchCustomers.ts` |
 | **v2 NEW** `CustomerInsightsCard.tsx` | react-component | `src/components/customerProfile/CustomerInsightsCard.tsx` | Renders the 9 insight metrics on CustomerProfile. Financial metrics gated by `canViewFinancials`; non-financial metrics visible to all. VIP Tier badge rendered prominently. Vertical-aware: "Most Common Tire Size" only renders for tire-vertical tenants. | `customerInsights.ts` |
@@ -646,80 +798,217 @@ This is a **breaking change vs today's `customerKey()`** at `src/lib/customers.t
 
 ---
 
-## OpenPhone Integration
+## Provider Abstraction Layer (v3)
 
-### OpenPhone-Optional Architecture (v2)
+**Rationale:** Twilio is the only active communications provider in v3 — the user explicitly stated *"Twilio is now the primary communications provider"* with no other providers planned. But the architecture exposes a thin abstraction so future provider additions don't require rewiring every business-logic call site. The abstraction lives at the **business-logic layer**, NOT the HTTP route layer (each provider's webhook payload shape differs, so each needs its own HTTP route).
 
-**Decision (from user answer #1):** v1 ships without an OpenPhone account. SP1-SP3 deliver the full customer-intelligence value chain (entities, lookup, profile, search, insights, backfill, settings toggle) with zero dependency on OpenPhone. SP4-SP6 (webhook, missed calls, popup) are gated behind two flags so the operator can flip them on later without a code deploy.
+### Interface
+
+```ts
+// functions/src/lib/communicationProvider.ts
+export interface CommunicationProvider {
+  /** Process an inbound voice webhook payload. Resolves business + customer; writes incomingCalls. */
+  handleIncomingCall(rawPayload: Record<string, string>, signature: string, requestUrl: string): Promise<HandleResult>;
+
+  /** Process an inbound SMS webhook payload. Resolves business + customer; writes communicationEvents. */
+  handleIncomingSMS(rawPayload: Record<string, string>, signature: string, requestUrl: string): Promise<HandleResult>;
+
+  /** Process a call status-update webhook (completed/missed/etc.). Updates incomingCalls + missedCallEvents. */
+  handleCallStatusUpdate(rawPayload: Record<string, string>, signature: string, requestUrl: string): Promise<HandleResult>;
+
+  /** Send an outbound SMS via this provider. */
+  sendSMS(args: { businessId: string; to: string; message: string; actorUid: string }): Promise<SendResult>;
+
+  /** Verify a webhook signature for this provider's webhook payload format. */
+  verifySignature(authToken: string, requestUrl: string, params: Record<string, string>, signature: string): boolean;
+
+  /** Build the provider-appropriate HTTP response body. For Twilio voice/SMS this is TwiML XML. */
+  buildAcceptResponse(): { contentType: string; body: string };
+}
+
+export type HandleResult =
+  | { kind: 'ok'; incomingCallId?: string; communicationEventId?: string }
+  | { kind: 'idempotent_skip' }
+  | { kind: 'bad_signature' }
+  | { kind: 'unmapped_business' }
+  | { kind: 'invalid_payload'; reason: string };
+
+export type SendResult =
+  | { kind: 'ok'; providerEventId: string; status: string }
+  | { kind: 'disabled'; reason: 'env_missing' | 'outbound_disabled' | 'rate_limited' }
+  | { kind: 'error'; reason: string };
+```
+
+### Registry
+
+```ts
+import { TwilioProvider } from './providers/twilio';
+
+const PROVIDERS: Record<string, CommunicationProvider> = {
+  twilio: new TwilioProvider(),
+};
+
+export function getProvider(name: string): CommunicationProvider {
+  const p = PROVIDERS[name];
+  if (!p) throw new Error(`Unknown communication provider: ${name}`);
+  return p;
+}
+```
+
+Resolved at request time from `settings.communicationProvider` (currently always `'twilio'`). The three webhook endpoint files each construct their provider via `getProvider('twilio')` (hardcoded in v1 since there's only one provider; the indirection exists so SP7+ can swap to a settings-driven lookup without rewriting the endpoints).
+
+### Files
+
+- `functions/src/lib/communicationProvider.ts` — interface + registry.
+- `functions/src/lib/providers/twilio.ts` — Twilio implementation.
+- `functions/src/lib/twilioClient.ts` — thin wrapper over Twilio's REST SDK (used by both the SMS-send path and the Twilio-managed signature verification).
+
+### Why not at the HTTP-route layer?
+
+Twilio webhooks arrive as `application/x-www-form-urlencoded` with field names like `From`, `To`, `CallSid`. A hypothetical future provider would have a different payload shape and a different signature algorithm. Putting all providers behind a single `/inboundCommunicationWebhook` endpoint would require sniffing User-Agent or path prefixes to dispatch — fragile and error-prone. Instead, each provider has its own HTTP route (`twilioIncomingCall`, `twilioIncomingSMS`, `twilioCallStatus`); the route deserializes the provider-specific payload and hands a normalized `Record<string, string>` to the provider interface. The provider does signature verification, business logic, and returns a normalized result that the route turns into the provider-appropriate HTTP response.
+
+### `lookupCustomerByPhone` is at the customer layer, not the provider
+
+`lookupCustomerByPhone(businessId, rawPhone)` lives at `src/lib/lookupCustomerByPhone.ts` (client) and `functions/src/lib/lookupCustomerByPhone.ts` (functions) — it is NOT part of the provider interface. Provider implementations call it after resolving `businessId` from their phone-number mapping. This keeps customer-resolution logic provider-agnostic.
+
+---
+
+## Twilio Integration
+
+### Twilio-Optional Architecture (v3)
+
+**Decision (from user requirement #16):** MSOS must work even if the Twilio env vars are NOT configured yet. The architecture is feature-flag gated such that SP1-SP3 ship full value with NO Twilio config; SP4 (webhooks) returns 404 when `TWILIO_WEBHOOK_ENABLED !== 'true'`; SP6 (popup) listener is harmless when no `incomingCalls` docs ever land; `sendSMS` callable returns "Twilio not configured" error gracefully.
 
 #### Two-layer gating
 
-1. **Global gate — `QUO_WEBHOOK_ENABLED` env var on Cloud Functions.**
-   - Default `false` at v1 deploy.
-   - When `false`: the `quoWebhook` function returns a cheap `404` immediately (no secret read, no Firestore touch). Same kill-switch pattern as Stripe webhook.
-   - Flip via `firebase functions:config:set quo.webhook_enabled=true` + `firebase deploy --only functions:quoWebhook` (no source code change required).
+1. **Global gate — `TWILIO_WEBHOOK_ENABLED` env var on Cloud Functions.**
+   - Default `'false'` at v1 deploy.
+   - When `'false'`: every Twilio webhook endpoint (`twilioIncomingCall`, `twilioIncomingSMS`, `twilioCallStatus`) returns a cheap `404` immediately (no secret read, no Firestore touch). Same kill-switch pattern as the Stripe webhook.
+   - Flip via `firebase functions:config:set twilio.webhook_enabled=true` + `firebase deploy --only functions:twilioIncomingCall,functions:twilioIncomingSMS,functions:twilioCallStatus` (no source change).
 
-2. **Per-business gate — `businesses/{bid}/settings.openphoneConnected` boolean.**
+2. **Per-business gate — `businesses/{bid}/settings.twilioConnected` boolean.**
    - Default `false`.
-   - When `false`: client-side `useIncomingCallListener` short-circuits before attaching the `onSnapshot`. Settings → Integrations shows a "Connect OpenPhone" CTA. CustomerProfile Call/Text buttons unconditionally use `tel:` / `sms:` (no provider switch UI in v1).
-   - Set to `true` by `adminConnectQuoNumber` when the operator pastes a `whsec_` key + completes the connect flow.
+   - When `false`: client-side `useIncomingCallListener` short-circuits before attaching the `onSnapshot`. Settings → Communications shows a "Connect Twilio" CTA. CustomerProfile Call button always uses `tel:`; Text button falls back to native `sms:` instead of the Twilio-backed inline UI.
+   - Set to `true` by `adminConnectTwilioNumber` after the operator supplies their Twilio number + verified account info.
 
-#### Unconnected-mode UX (the v1 default)
+#### Unconnected-mode UX (the v1 default — even though the operator owns a Twilio account)
 
-- **CustomerProfile Call/Text buttons:** native `tel:` / `sms:` only.
+- **CustomerProfile Call button:** native `tel:` only.
+- **CustomerProfile Text button:** falls back to native `sms:` when `twilioConnected === false` OR `outboundSMSEnabled === false` OR `sendSMS` returns `'disabled'`.
 - **IncomingCallModal:** never renders (listener does not attach). No flash of error UI.
-- **Leads page:** still accessible from MoreSheet; empty list until either `call.missed` webhooks land OR a future "manual lead" affordance ships.
-- **Settings → Integrations:** displays a "Connect OpenPhone" CTA with operator instructions: (1) buy a Quo Business plan, (2) enable the Beta webhook system, (3) paste the `whsec_` key here, (4) MSOS ops flips `QUO_WEBHOOK_ENABLED`.
-- **Global Customer Search, Customer Profile, Customer Insights, Add Job, Backfill:** all fully functional. The user gets the SP1-SP3 value pile regardless of OpenPhone status.
+- **Leads page:** still accessible from MoreSheet; empty list until either missed-call webhooks land OR a future "manual lead" affordance ships.
+- **Settings → Communications:** displays a "Connect Twilio" CTA with operator instructions: (1) confirm Twilio account + provisioned number, (2) provide the Twilio number's E.164 form and SID via the connect form, (3) MSOS ops flips `TWILIO_WEBHOOK_ENABLED`, (4) operator configures the Twilio number's VoiceUrl/StatusCallback/SMS webhook URLs in the Twilio console.
+- **Global Customer Search, Customer Profile, Customer Insights, Add Job, Backfill:** all fully functional. The user gets the SP1-SP3 value pile regardless of Twilio status.
 
-#### Activation flow (when operator buys Quo)
+#### Activation flow (when operator opts in)
 
-1. Owner pastes the `whsec_` key into Settings → Integrations form.
-2. The connect form calls a new callable `adminConnectQuoIntegration({ businessId, signingKey, quoPhoneNumberId, e164 })` which:
-   - Validates the `whsec_` prefix.
-   - Writes `quoPhoneNumbers/{e164}` mapping.
-   - Sets `settings.openphoneConnected = true`.
+1. Owner opens Settings → Communications → "Connect Twilio Number". Supplies E.164 number + Twilio Phone Number SID (`PNxxxx`) + optional Messaging Service SID + label.
+2. `adminConnectTwilioNumber` callable:
+   - Normalizes `e164` via `normalizePhone()`.
+   - Refuses overwrite if `twilioPhoneNumbers/{e164}` is owned by another business (unless `force: true` + audit).
+   - Writes `twilioPhoneNumbers/{e164}` mapping.
+   - Sets `settings.twilioConnected = true`.
    - Writes audit doc.
-3. Operator (or MSOS ops) flips `QUO_WEBHOOK_ENABLED=true` on the function via `firebase functions:config:set` and redeploys the function (no source change). Within ~60s the webhook accepts traffic.
-4. IncomingCallModal listener attaches on next App.tsx mount (or sooner if the Settings change is propagated via the existing settings listener).
+3. MSOS ops flips `TWILIO_WEBHOOK_ENABLED=true` on the functions via `firebase functions:config:set` and redeploys. Within ~60s the three webhook endpoints accept traffic.
+4. Operator opens Twilio console for their number and points:
+   - **A Call Comes In** (Voice) → `https://us-central1-<project>.cloudfunctions.net/twilioIncomingCall` (HTTP POST).
+   - **Call Status Changes** (Status Callback) → `https://us-central1-<project>.cloudfunctions.net/twilioCallStatus` (HTTP POST). Subscribes to `completed`, `busy`, `no-answer`, `failed` events.
+   - **A Message Comes In** (Messaging) → `https://us-central1-<project>.cloudfunctions.net/twilioIncomingSMS` (HTTP POST).
+   - **Call Forwarding** (still operator-configured in Twilio console — rings their actual mobile phone). The MSOS webhook does NOT replace this; it complements it.
+5. IncomingCallModal listener attaches on next App.tsx mount.
 
-#### The architecture is already shaped this way in v1
+#### Why these flags can stay safe-off by default
 
-Both flags default to safe-off in SP4's deploy manifest. The flag-checking code paths exist in v1. This section makes the principle explicit so future engineers don't accidentally add OpenPhone-required code paths to SP1-SP3.
+The architecture is already shaped this way: all webhook endpoints check `TWILIO_WEBHOOK_ENABLED` first. The IncomingCallModal listener checks `settings.twilioConnected` first. The `sendSMS` callable checks env-var presence first. This section makes the principle explicit so future engineers don't accidentally add Twilio-required code paths to SP1-SP3.
 
-### Webhook endpoint
+### Three webhook endpoints (Twilio model)
 
-**Function:** `quoWebhook` — single v2 `onRequest` handler at `https://us-central1-mobile-service-os.cloudfunctions.net/quoWebhook` (matches the URL shape confirmed in [stripeWebhook.ts:33](../../../functions/src/stripeWebhook.ts)).
+Twilio sends a separate webhook for each event kind. v3 ships **three** distinct Firebase Cloud Functions, each with its own URL:
 
-**Plan/system:** Subscribe to the **Quo Beta** webhook system. Rationale (from discovery):
-- Beta is the only system that emits a distinct `call.missed` event (richer than inferring from `call.completed.status == 'unanswered' | 'abandoned'` in the legacy system).
-- Beta uses Standard-Webhooks-compatible signing (`whsec_`-prefixed key, `webhook-signature` header with `v1,{base64}` format, signed content `{webhook-id}.{webhook-timestamp}.{rawBody}`).
-- Beta is available on all Quo plan tiers (Starter $15/mo annual, Business $23/mo, Scale $35/mo) — Business plan is NOT required.
-- Beta payload shape uses `data.resource` (vs legacy `data.object`) and provides `context.participants.workspace[]` / `external[]` arrays + `context.contacts.lookupStatus` — cleaner lookup signals.
+| Function | URL | Triggered by | Response |
+|---|---|---|---|
+| `twilioIncomingCall` | `https://us-central1-<project>.cloudfunctions.net/twilioIncomingCall` | Twilio number's **VoiceUrl** when an inbound call rings. | Minimal TwiML `<Response><Pause length="1"/></Response>` — keeps the call alive without barging in on Twilio's number-level forwarding which routes the call to the operator's actual phone. |
+| `twilioIncomingSMS` | `https://us-central1-<project>.cloudfunctions.net/twilioIncomingSMS` | Twilio number's **MessagingUrl** when an inbound SMS arrives. | Empty TwiML `<Response/>` — accepts the message without auto-replying. |
+| `twilioCallStatus` | `https://us-central1-<project>.cloudfunctions.net/twilioCallStatus` | Twilio number's **StatusCallback** when call state transitions (`completed`, `busy`, `no-answer`, `failed`). | 200 + empty body. |
+
+**Why three endpoints, not one:** Twilio's payload differs by event type. The voice webhook carries `From / To / CallSid / CallStatus / Direction / Caller / Called`; the SMS webhook carries `From / To / Body / MessageSid / NumMedia`; the status webhook carries `From / To / CallSid / CallStatus / CallDuration`. Twilio configures these URLs separately in the phone-number console. A single combined endpoint would have to dispatch on the presence of `Body` vs `CallSid` vs `CallDuration` — fragile and error-prone. Three endpoints match Twilio's configuration model 1:1.
 
 **Subscribed events (v1):**
 
-| Event | Beta payload key path | Handler behavior |
+| Endpoint | Twilio event | Handler behavior |
 |---|---|---|
-| `call.ringing` | `data.resource.{id,direction,createdAt}`, `data.context.{phoneNumberId,conversationId}` | Create `incomingCalls/{id}` with `status='ringing'`, resolve customer, snapshot vehicles + last job. |
-| `call.missed` | `data.resource.{id}`, `data.context.{participants.workspace[], participants.external[], contacts.{ids,lookupStatus}}` | Update existing `incomingCalls/{id}` `status='missed'` + `missedAt`. Create `leads/{leadId}` if not already present for that `phoneKey` in last 7d. |
-| `call.completed` | `data.resource.{id,status,duration,answeredAt,completedAt,hasVoicemail}` | Update `incomingCalls/{id}` with `completedAt`, `durationSec`. If `status == 'answered'` → set `incomingCalls.status='completed'`. If `status in ('unanswered','abandoned','failed')` AND no `call.missed` arrived → treat as missed (defensive). |
-| `call.recording.completed` | `data.resource.{id}`, `data.recording.url` | Update `incomingCalls/{id}.recordingUrl`. v1 stores only. |
-| `call.transcript.completed` | `data.resource.{id}`, `data.transcript` | Update `incomingCalls/{id}.transcript`. v1 stores only. **AI receptionist seam.** |
+| `twilioIncomingCall` | Voice webhook (Twilio fires this when the inbound call begins to ring) | Verify signature. Create `incomingCalls/{CallSid}` with `status='ringing'`. Resolve business + customer via `lookupCustomerByPhone()`. Write `customersSnapshot`. ALSO write a `communicationEvents` row (type `incoming_call`, status `ringing`). Return TwiML pause. |
+| `twilioCallStatus` | Status callback for `CallStatus=completed` | Verify signature. Update `incomingCalls/{CallSid}` with `completedAt`, `durationSec`, status `'completed'`. Update the corresponding `communicationEvents` row. |
+| `twilioCallStatus` | Status callback for `CallStatus=no-answer`, `busy`, `failed` | Verify signature. Update `incomingCalls/{CallSid}` with `missedAt` + status `'missed'`. Write `missedCallEvents` row. Create or update `leads` row (7d dedup by `phoneKey`). |
+| `twilioIncomingSMS` | Messaging webhook | Verify signature. Resolve customer via `lookupCustomerByPhone()`. Write `communicationEvents` row (type `incoming_sms`, body, payloadSnapshot). Return empty TwiML. |
 
-**Not subscribed in v1:** `message.received`, `message.delivered`, `contact.updated`, `contact.deleted`. The architecture supports adding them later (same handler, new switch arm).
+**Not subscribed in v1:** call recording webhooks, transcript webhooks, MMS/WhatsApp/RCS channels. The provider abstraction supports adding them later (same provider interface, new handler arms).
 
-### HMAC verification (Quo Beta — Standard Webhooks)
+### Webhook payloads (form-encoded — not JSON)
 
-Mirror [stripeWebhook.ts:71-139](../../../functions/src/stripeWebhook.ts) exactly. Differences from Stripe:
+Twilio webhooks arrive as `application/x-www-form-urlencoded`. Firebase Functions v2 `onRequest` exposes `req.body` already-parsed for this content type AND preserves `req.rawBody` for signature verification.
 
-1. **Secret:** `defineSecret('QUO_WEBHOOK_SIGNING_KEY')`. The key is `whsec_`-prefixed; **strip the prefix** before base64-decoding.
-2. **Headers required:** `webhook-id`, `webhook-timestamp`, `webhook-signature`. Reject 400 if any missing.
-3. **Signed content:** `${webhookId}.${webhookTimestamp}.${rawBody}` (NOT `${timestamp}.${rawBody}` like Stripe legacy).
-4. **Signature header format:** `v1,{base64-signature}` — may contain space-separated multiple versions; iterate and accept first match.
-5. **Algorithm:** HMAC-SHA256 with timing-safe comparison via `crypto.timingSafeEqual`.
-6. **Raw body:** `req.rawBody` Buffer — preserved by Firebase Functions on `onRequest` automatically.
-7. **Method:** POST only; reject 405.
+**Voice (incoming call) payload — required fields:**
+- `From` — caller E.164
+- `To` — business number E.164
+- `CallSid` — Twilio's unique call id (idempotency key)
+- `CallStatus` — typically `ringing` for the initial voice webhook
+- `AccountSid` — Twilio account id (sanity check against `TWILIO_ACCOUNT_SID`)
+- `Direction` — `inbound`
+- `Caller` — same as `From`
+- `Called` — same as `To`
+
+**SMS (incoming message) payload — required fields:**
+- `From` — sender E.164
+- `To` — business number E.164
+- `Body` — message text
+- `MessageSid` — idempotency key
+- `NumMedia` — `0` for SMS, `>0` for MMS (v1 ignores MMS attachments; we just log the message)
+- `AccountSid`
+
+**Call status callback payload — required fields:**
+- `From` — caller E.164
+- `To` — business number E.164
+- `CallSid` — matches the original voice webhook's `CallSid`
+- `CallStatus` — one of `completed`, `busy`, `no-answer`, `failed`, `canceled`
+- `CallDuration` — seconds, when `CallStatus=completed`
+
+### TwiML response shapes (v1)
+
+The voice webhook returns:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Pause length="1"/>
+</Response>
+```
+
+**Why a pause?** The operator's phone is being rung by Twilio's separate number-level call forwarding (configured in the Twilio console). The MSOS webhook fires concurrently. Returning a `<Pause length="1"/>` keeps Twilio from immediately barging into the call with default behavior (which would otherwise be to say "Sorry, an application error has occurred"). One second is enough for Twilio's forwarding to take over the call routing. **No AI receptionist in v1.** SP7 may add `<Say>` / `<Gather>` / `<Dial>` verbs for an AI receptionist; that's deferred.
+
+The SMS webhook returns an empty Response (Twilio interprets this as "accepted, no auto-reply"):
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<Response/>
+```
+
+The status callback returns 200 + empty body (Twilio doesn't expect TwiML on status callbacks).
+
+### Twilio webhook signature verification
+
+**Algorithm (verified against [Twilio's security docs](https://www.twilio.com/docs/usage/security)):**
+
+1. **Header:** `X-Twilio-Signature`.
+2. **HMAC:** HMAC-SHA1 using `TWILIO_AUTH_TOKEN` as the key.
+3. **Signed content:** the exact request URL (including query string, exactly as Twilio sees it) concatenated with the sorted POST params as `key + value + key + value + ...` (Unix-style case-sensitive sort, NO delimiters between concatenated entries).
+4. **Encoding:** base64-encode the HMAC-SHA1 result.
+5. **Comparison:** timing-safe compare against `X-Twilio-Signature`.
+6. **Special case (JSON bodies — not applicable to v1):** when `Content-Type` is `application/json`, Twilio appends a `bodySHA256` query param and signs that instead of the body. Our v1 webhooks are all form-encoded so this branch doesn't apply, but the provider helper documents it.
+
+**Note: Twilio does NOT sign a timestamp.** Unlike Standard Webhooks (Quo's signing model), there is no replay-tolerance window built into the signature. Twilio's defense is: signatures are HMAC-strong; idempotency keys (`CallSid`, `MessageSid`) prevent replay-causing duplicate side-effects; Twilio retries are limited (up to 4 attempts over ~4h). We accept the entire signature window — captured-and-replayed signatures within the retry window will hit the idempotency dedup table and be skipped.
+
+**Webhook URL construction note:** The URL that goes into the signed content must match exactly what Twilio sees on the wire. For Firebase Functions, this is `https://<region>-<project>.cloudfunctions.net/<functionName>` (no trailing slash) plus the original query string if any. The helper accepts a `requestUrl` parameter from the route so it can be tested without a real request.
 
 **Pseudocode:**
 
@@ -727,270 +1016,433 @@ Mirror [stripeWebhook.ts:71-139](../../../functions/src/stripeWebhook.ts) exactl
 import { onRequest } from 'firebase-functions/v2/https';
 import { defineSecret } from 'firebase-functions/params';
 import * as crypto from 'crypto';
+import { getProvider } from './lib/communicationProvider';
 
-const QUO_SIGNING_KEY = defineSecret('QUO_WEBHOOK_SIGNING_KEY');
-const REPLAY_TOLERANCE_SEC = 300; // Standard Webhooks recommendation
+const TWILIO_AUTH_TOKEN = defineSecret('TWILIO_AUTH_TOKEN');
+const TWILIO_ACCOUNT_SID_PARAM = defineSecret('TWILIO_ACCOUNT_SID');
 
-export const quoWebhook = onRequest(
+export const twilioIncomingCall = onRequest(
   {
-    secrets: [QUO_SIGNING_KEY],
+    secrets: [TWILIO_AUTH_TOKEN, TWILIO_ACCOUNT_SID_PARAM],
     cors: false,
     invoker: 'public',
     memory: '256MiB',
-    timeoutSeconds: 60,
+    timeoutSeconds: 30,
     region: 'us-central1',
-    maxInstances: 10,  // cap blast radius from URL-discovery cost-amplification attacks
+    maxInstances: 10,
   },
   async (req, res) => {
-    if (process.env.QUO_WEBHOOK_ENABLED !== 'true') {
-      // Cheap 404 keeps the function killable under sustained attack.
+    if (process.env.TWILIO_WEBHOOK_ENABLED !== 'true') {
       res.status(404).send('not found'); return;
     }
-    if (req.method !== 'POST') { res.status(405).send('method not allowed'); return; }
-
-    const id = req.header('webhook-id');
-    const ts = req.header('webhook-timestamp');
-    const sigHeader = req.header('webhook-signature');
-    if (!id || !ts || !sigHeader || !req.rawBody) {
-      // Structured warn — NEVER log rawBody or sigHeader values (would leak PII / signature material).
-      console.warn('quoWebhook_missing_headers', {
-        hasId: !!id, hasTs: !!ts, hasSig: !!sigHeader,
-        contentLength: req.header('content-length'),
-        ip: req.ip, ua: req.header('user-agent')
-      });
-      res.status(400).send('missing'); return;
+    if (req.method !== 'POST') {
+      res.status(405).send('method not allowed'); return;
     }
 
-    // Replay-attack defense: reject if signed timestamp is more than 5 minutes off wall clock.
-    const tsNum = parseInt(ts, 10);
-    if (!Number.isFinite(tsNum) || Math.abs(Date.now() / 1000 - tsNum) > REPLAY_TOLERANCE_SEC) {
-      console.warn('quoWebhook_stale_timestamp', {
-        webhookId: id, deltaSec: Math.abs(Date.now() / 1000 - (tsNum || 0)),
-        ip: req.ip, ua: req.header('user-agent')
+    const signature = req.header('x-twilio-signature') || '';
+    if (!signature) {
+      console.warn('twilioIncomingCall_missing_signature', {
+        ip: req.ip, ua: req.header('user-agent'),
+        contentLength: req.header('content-length')
       });
-      res.status(400).send('stale timestamp'); return;
+      res.status(403).send('forbidden'); return;
     }
 
-    // Strip whsec_ prefix, base64-decode
-    const rawKey = QUO_SIGNING_KEY.value();
-    const secret = Buffer.from(rawKey.replace(/^whsec_/, ''), 'base64');
-    const signed = `${id}.${ts}.${req.rawBody.toString('utf8')}`;
-    const expected = crypto.createHmac('sha256', secret).update(signed).digest('base64');
+    // req.body is already parsed as Record<string, string> for application/x-www-form-urlencoded.
+    const params = req.body as Record<string, string>;
 
-    const ok = sigHeader.split(' ').some(part => {
-      const [ver, sig] = part.split(',');
-      if (ver !== 'v1' || !sig) return false;
-      try {
-        return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
-      } catch { return false; }
-    });
-    if (!ok) {
-      // Structured WARN, no rawBody, no sigHeader value, no secret.
-      console.warn('quoWebhook_bad_signature', {
-        webhookId: id, webhookTs: ts,
-        contentLength: req.header('content-length'),
-        ip: req.ip, ua: req.header('user-agent')
-      });
-      res.status(400).send('bad signature'); return;
+    // Sanity check Twilio account id (defense against cross-account misconfiguration).
+    if (params.AccountSid !== TWILIO_ACCOUNT_SID_PARAM.value()) {
+      console.warn('twilioIncomingCall_account_sid_mismatch', { ip: req.ip });
+      res.status(403).send('forbidden'); return;
     }
 
-    // Idempotency, routing, handlers ...
+    // Reconstruct the URL Twilio signed.
+    const requestUrl = `https://${req.hostname}${req.originalUrl}`;
+
+    const provider = getProvider('twilio');
+
+    if (!provider.verifySignature(TWILIO_AUTH_TOKEN.value(), requestUrl, params, signature)) {
+      console.warn('twilioIncomingCall_bad_signature', {
+        ip: req.ip, ua: req.header('user-agent'),
+        contentLength: req.header('content-length')
+      });
+      res.status(403).send('forbidden'); return;
+    }
+
+    // Hand off to provider business logic.
+    const result = await provider.handleIncomingCall(params, signature, requestUrl);
+
+    // Always respond with TwiML — even on idempotent-skip.
+    const accept = provider.buildAcceptResponse();
+    res.set('Content-Type', accept.contentType);
+    res.status(200).send(accept.body);
   }
 );
+```
+
+**Twilio signature helper (inside `providers/twilio.ts`):**
+
+```ts
+verifySignature(authToken: string, requestUrl: string, params: Record<string, string>, signature: string): boolean {
+  // Algorithm per https://www.twilio.com/docs/usage/security
+  // 1. Sort POST params alphabetically by key (Unix case-sensitive).
+  // 2. Concatenate key+value pairs with no delimiters, appended to the URL.
+  // 3. HMAC-SHA1 with authToken as key.
+  // 4. Base64-encode.
+  // 5. Timing-safe compare with the X-Twilio-Signature header.
+  const sortedKeys = Object.keys(params).sort();
+  let data = requestUrl;
+  for (const k of sortedKeys) data += k + params[k];
+
+  const expected = crypto.createHmac('sha1', authToken).update(data, 'utf8').digest('base64');
+
+  // Both buffers must be the same length for timingSafeEqual.
+  try {
+    const a = Buffer.from(signature);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
 ```
 
 **Hardening posture & accepted risk:**
 
 - **`maxInstances: 10`** caps the cost-amplification blast radius from anyone POSTing to the discovered URL.
-- **`QUO_WEBHOOK_ENABLED='false'` kill switch** returns 404 cheaply (no secret read, no Firestore touch). Under sustained attack, flip this env var to mute the endpoint instantly.
-- **Replay tolerance: 300 seconds** matches the Standard Webhooks recommended 5-minute window. Combined with the 28h `quoWebhookEvents` TTL, captured-and-replayed-after-window attacks are blocked at the timestamp check, not just the dedup table.
-- **Logging rules (mandatory):** structured WARN at every signature/timestamp/header failure with `webhookId`, `webhookTs`, `contentLength`, `ip`, `ua`. **NEVER log** `req.rawBody`, the `webhook-signature` header value, the `QUO_WEBHOOK_SIGNING_KEY`, customer phone numbers extracted from the payload, or any field of the payload at WARN/ERROR levels. INFO-level logs may include `webhookId` and event `type` only.
-- **Alerting:** elevate to ERROR-level log on the 11th consecutive bad-signature attempt in a 5-minute window so Cloud Logging metric-based alerts can fire to the operator's on-call.
-- **Cloud Armor / App Check / IP allowlist:** OUT OF SCOPE for v1. Documented as a future hardening seam. The defense is HMAC + idempotency + replay window + `maxInstances` + kill switch. The function is `invoker: 'public'` because the webhook receiver pattern requires unauthenticated POST.
-- **Plaintext PII:** `phoneE164`, `phoneKey`, `fromE164`, `fromDigits`, `toE164`, `customerPhone` are stored plaintext in Firestore. This is INTENTIONAL — the `phoneKey` index is the sub-2s lookup primary key and equality-on-encrypted-fields is not supported. Protection model: Firestore at-rest encryption (Google-managed) + role-based rules + per-business path scoping + the tenant isolation invariants above. CMEK is OUT OF SCOPE for v1.
-- **`incomingCalls.toE164`** is business-confidential (operator's Quo line) not customer PII; same protection model applies.
+- **`TWILIO_WEBHOOK_ENABLED='false'` kill switch** returns 404 cheaply (no secret read, no Firestore touch). Under sustained attack, flip this env var to mute all three endpoints instantly.
+- **No timestamp window — accepted risk:** Twilio doesn't sign a timestamp. We rely on (a) HMAC-SHA1 strength against forgery, (b) idempotency keys (CallSid/MessageSid) preventing side-effect replay, (c) the 28h `twilioWebhookEvents` TTL window matching Twilio's retry horizon (~4h). A captured-signature replay outside the retry window can still cause a fresh write since the idempotency row may have aged out — but the side effects (writing an `incomingCalls` row for a long-past call) are operationally low-harm; the operator sees a stale "ringing" doc that auto-clears in 60s via `ringingExpiresAt`.
+- **AccountSid sanity check:** every webhook verifies `params.AccountSid === TWILIO_ACCOUNT_SID` (the value our function expects). Defends against a misconfigured Twilio number from a different account accidentally hitting our endpoint.
+- **Logging rules (mandatory):** structured WARN at every signature/header failure with `contentLength`, `ip`, `ua`. **NEVER log** `req.rawBody`, the `X-Twilio-Signature` header value, the `TWILIO_AUTH_TOKEN`, customer phone numbers extracted from the payload, SMS message bodies, or any field of the payload at WARN/ERROR levels. INFO-level logs may include `CallSid` / `MessageSid` and `CallStatus` only.
+- **Alerting:** elevate to ERROR-level log on the 11th consecutive bad-signature attempt in a 5-minute window so Cloud Logging metric-based alerts can fire.
+- **Cloud Armor / App Check / IP allowlist:** OUT OF SCOPE for v1. The defense is HMAC + idempotency + `maxInstances` + kill switch + AccountSid check. The function is `invoker: 'public'` because the webhook receiver pattern requires unauthenticated POST.
+- **Plaintext PII:** `phoneE164`, `phoneKey`, `fromE164`, `fromDigits`, `toE164`, `customerPhone`, SMS bodies on `communicationEvents` are stored plaintext in Firestore. Intentional — the `phoneKey` index drives sub-2s lookup. Protection model: Firestore at-rest encryption (Google-managed) + role-based rules + per-business path scoping + tenant isolation invariants. CMEK is OUT OF SCOPE for v1.
+- **`incomingCalls.toE164`** is business-confidential (operator's Twilio line) not customer PII; same protection model applies.
 
 ### Idempotency
 
-Mirror [stripeWebhook.ts:141-177](../../../functions/src/stripeWebhook.ts). Key off the `webhook-id` header (not the payload event id — payload event ids can repeat across retries; `webhook-id` is unique per delivery attempt grouping per Quo's docs).
+Each Twilio retry of the same event carries the same `CallSid` (for calls) or `MessageSid` (for SMS). Twilio retries up to 4 attempts over ~4 hours.
+
+Key off a deterministic compound key: `${endpoint}:${CallSid|MessageSid}`. This lets the voice webhook for CallSid=CAxxx and the status webhook for the same CallSid=CAxxx coexist as separate idempotency rows.
 
 ```ts
-const ref = db.collection('quoWebhookEvents').doc(id);
+const webhookEventId = `${endpoint}:${params.CallSid || params.MessageSid}`;
+const ref = db.collection('twilioWebhookEvents').doc(webhookEventId);
 await db.runTransaction(async tx => {
   const snap = await tx.get(ref);
   if (snap.exists) {
-    // Already processed or in flight; 200 to stop retries
-    return { alreadyProcessed: true };
+    return { alreadyProcessed: true }; // 200 + TwiML to stop retries
   }
-  tx.set(ref, { type: body.type, createdAt: FieldValue.serverTimestamp(), processed: false });
+  tx.set(ref, {
+    webhookEventId,
+    endpoint,
+    providerEventId: params.CallSid || params.MessageSid,
+    createdAt: FieldValue.serverTimestamp(),
+    processed: false,
+  });
   return { alreadyProcessed: false };
 });
 ```
 
 After successful handling: `ref.set({ processed: true, processedAt: FieldValue.serverTimestamp(), businessId, callId }, { merge: true })`.
 
-On idempotency-store failure return **503** (not 200) so Quo retries — matches the Stripe rule "never process events we can't dedupe."
+On idempotency-store failure return **503** (not 200) so Twilio retries.
 
 ### Secret management
 
-Register exactly one secret with Firebase Secret Manager via operator CLI:
+Register the Twilio secrets with Firebase Secret Manager via operator CLI:
 
 ```bash
-firebase functions:secrets:set QUO_WEBHOOK_SIGNING_KEY
-# Paste the whsec_-prefixed signing key revealed in the Quo dashboard
+firebase functions:secrets:set TWILIO_ACCOUNT_SID
+# Paste the Twilio Account SID (ACxxxxxxxxxxxx)
+
+firebase functions:secrets:set TWILIO_AUTH_TOKEN
+# Paste the Twilio Auth Token (used for both signature verification and REST API calls)
+
+firebase functions:secrets:set TWILIO_PHONE_NUMBER
+# Paste the business's primary Twilio E.164 number, used as the default outbound sender
 ```
 
-A second secret `QUO_API_KEY` is registered now but only used by SP7 outbound-SMS work — including it in the v1 secret set means SP7 needs zero deploy changes:
+Optional secrets:
 
 ```bash
-firebase functions:secrets:set QUO_API_KEY
-# Paste the Quo Bearer API token (sk_live_... or similar)
+firebase functions:secrets:set TWILIO_MESSAGING_SERVICE_SID
+# Optional — when set, sendSMS uses Messaging Service instead of single phone number
+
+firebase functions:secrets:set TWILIO_WEBHOOK_SECRET
+# Optional — defaults to TWILIO_AUTH_TOKEN (Twilio's standard); only set if your account uses a separate webhook signing key
 ```
 
-Both register via `defineSecret('NAME')` at module top and pass via `{ secrets: [...] }` in `onRequest` options — same pattern as `STRIPE_WEBHOOK_SECRET` / `STRIPE_SECRET_KEY` at [functions/src/stripeWebhook.ts](../../../functions/src/stripeWebhook.ts) and [functions/src/onSubscriptionWrite.ts:37-44](../../../functions/src/onSubscriptionWrite.ts).
+All register via `defineSecret('NAME')` at module top and pass via `{ secrets: [...] }` in `onRequest` options — same pattern as the existing Stripe webhook.
 
-Kill switch: env var `QUO_WEBHOOK_ENABLED=='true'` required for the function to do anything other than return 404. Same safe-by-default pattern as the existing Stripe webhook.
+Kill switch: env var `TWILIO_WEBHOOK_ENABLED='true'` required for any of the three endpoints to do anything other than return 404. Same safe-by-default pattern as the existing Stripe webhook.
+
+### Per-business sender resolution (outbound SMS)
+
+When `sendSMS` runs, it resolves the outbound sender as:
+
+1. If `twilioPhoneNumbers/{business.primaryE164}.messagingServiceSid` is set → use that Messaging Service SID (Twilio routes via the service's pool of numbers and pre-configured copy/branding).
+2. Else if the env var `TWILIO_MESSAGING_SERVICE_SID` is set globally → use that (single-tenant deploys).
+3. Else → use the business's `twilioPhoneNumbers.e164` as the From number. The env var `TWILIO_PHONE_NUMBER` is the fallback for businesses without a registered number doc.
 
 ### Retry / failure handling
 
-- **Always return 200 on accepted webhooks** (signature valid, idempotent dedup hit OR successful handle).
-- Return **400** on bad signature, missing headers, malformed body, or invalid event type — these are non-retryable client errors and we don't want Quo wasting attempts on them.
-- Return **503** on idempotency-store failure or downstream Firestore write failure — Quo Beta retries up to 8 times over ~27.5h with exponential backoff (5s → 10h), giving us a long recovery window.
-- Set the function timeout to **60s** to match Quo's 10s soft-timeout (legacy) plus headroom for cold start.
+- **Always return 200 + TwiML on accepted webhooks** (signature valid, idempotent dedup hit OR successful handle). Twilio retries on non-2xx.
+- Return **403** on bad signature, missing signature header, or AccountSid mismatch — these are non-retryable.
+- Return **404** when `TWILIO_WEBHOOK_ENABLED !== 'true'`.
+- Return **400** on malformed payload or missing required Twilio fields.
+- Return **405** on non-POST.
+- Return **503** on idempotency-store failure or downstream Firestore write failure — Twilio retries.
+- Set the function timeout to **30s** (down from Quo's 60s) — Twilio's webhook timeout is 15s, so we have headroom but no need for the full 60s.
+
+### Outbound SMS (sendSMS)
+
+**Function:** `sendSMS` — v2 `https.onCall` Firebase callable.
+
+**File layout:**
+- `functions/src/sendSMS.ts` — the callable function (entry point + auth + safeguards).
+- `functions/src/lib/twilioClient.ts` — provider helper that wraps Twilio's REST SDK.
+
+**Auth check:** only owner/admin can call. Technicians can request via the in-app UI but the callable rejects with `permission-denied`.
+
+**Safeguards (in order):**
+
+1. **Twilio config present.** Refuse with `failed-precondition` code `'twilio_not_configured'` if `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, or `TWILIO_PHONE_NUMBER` env vars are missing. This is the graceful "Twilio not configured" failure mode that lets MSOS function without Twilio (per success criterion #12).
+2. **Outbound SMS enabled.** Refuse with `failed-precondition` code `'outbound_sms_disabled'` if `settings.outboundSMSEnabled === false`.
+3. **Recipient phone valid.** Refuse with `invalid-argument` if `normalizePhone(to).valid === false`.
+4. **Message body non-empty + under length cap.** Refuse with `invalid-argument` if `message.trim().length === 0` or `> 1600` (Twilio SMS 10-segment cap).
+5. **Rate limit.** Refuse with `resource-exhausted` if this business has sent > 30 outbound SMS in the last 60 seconds (anti-runaway-loop defense). Counter lives in `businesses/{bid}/_rateLimits/sendSMS` as a transactional sliding window.
+
+**Behavior:**
+
+```ts
+export const sendSMS = onCall<{ businessId: string; to: string; message: string }>(
+  {
+    secrets: [TWILIO_ACCOUNT_SID_PARAM, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER_PARAM],
+    maxInstances: 10,
+    region: 'us-central1',
+  },
+  async (req) => {
+    await assertOwnerOrAdmin(req.auth, req.data.businessId);
+    await assertTwilioConfigured();           // safeguard 1
+    await assertOutboundSMSEnabled(req.data.businessId); // safeguard 2
+    const normalized = normalizePhone(req.data.to);
+    if (!normalized.valid) throw new HttpsError('invalid-argument', 'bad phone');
+    if (!req.data.message?.trim() || req.data.message.length > 1600)
+      throw new HttpsError('invalid-argument', 'bad message');
+    await assertRateLimit(req.data.businessId); // safeguard 5
+
+    const sender = await resolveSender(req.data.businessId);
+    const provider = getProvider('twilio');
+    const result = await provider.sendSMS({
+      businessId: req.data.businessId,
+      to: normalized.e164,
+      message: req.data.message,
+      actorUid: req.auth!.uid,
+    });
+
+    if (result.kind !== 'ok') {
+      throw new HttpsError('internal', result.kind === 'disabled' ? result.reason : result.reason);
+    }
+
+    // Log every send to communicationEvents.
+    await db.collection(`businesses/${req.data.businessId}/communicationEvents`).add({
+      type: 'outgoing_sms',
+      direction: 'outbound',
+      provider: 'twilio',
+      providerEventId: result.providerEventId,
+      customerPhoneE164: normalized.e164,
+      customerPhoneKey: normalized.digits,
+      businessPhoneE164: sender,
+      body: req.data.message,
+      messageStatus: result.status,
+      actorUid: req.auth!.uid,
+      occurredAt: FieldValue.serverTimestamp(),
+      createdAt: FieldValue.serverTimestamp(),
+      payloadSnapshot: { From: sender, To: normalized.e164, MessageSid: result.providerEventId },
+    });
+
+    return { messageSid: result.providerEventId, status: result.status };
+  }
+);
+```
+
+**Future (SP7):**
+- Per-business default templates (operator picks a saved snippet).
+- Bulk-send (operator picks a customer-list filter and sends one message to all).
+- Scheduled sends (operator drafts a message and picks "Send at 9am tomorrow").
+- The `autoTextRules` engine consumes `sendSMS` programmatically.
 
 ### Webhook tenant isolation invariants
 
 These are HARD invariants. Any future contributor who breaks them creates a cross-tenant data leak.
 
-1. **`businessId` MUST be derived solely from `quoPhoneNumbers/{toE164}` (the dialed number's mapping doc).** It is NEVER taken from the webhook payload. A forged but HMAC-valid payload from a compromised Quo workspace can only affect the tenant who owns the dialed number on our side.
+1. **`businessId` MUST be derived solely from `twilioPhoneNumbers/{toE164}` (the dialed number's mapping doc).** It is NEVER taken from the webhook payload. A forged but HMAC-valid payload from a compromised Twilio account can only affect the tenant who owns the dialed number on our side.
 2. **`toE164` MUST be extracted from the payload BEFORE the businessId resolution.** Order of operations:
-   1. Outer handler reads `toE164` from `payload.data.context.participants.workspace[0]` (Beta) or `payload.data.object.to` (legacy fallback), normalizes via `normalizePhone()` — REJECT 400 if `valid === false`.
-   2. Outer handler reads `quoPhoneNumbers/{normalizedToE164}` — if missing OR `active === false`, returns **200 + structured log warning** (so Quo stops retrying) and writes NOTHING. This is a deliberate ghost-write prevention.
+   1. Outer handler reads `To` from `req.body`, normalizes via `normalizePhone()` — REJECT 400 if `valid === false`.
+   2. Outer handler reads `twilioPhoneNumbers/{normalizedToE164}` — if missing OR `active === false`, returns **200 + TwiML accept** (so Twilio stops retrying) and writes NOTHING. This is a deliberate ghost-write prevention.
    3. Outer handler resolves `businessId = numberDoc.data().businessId`.
-   4. Outer handler THEN calls `resolveAndWrite(payload, businessId, normalizedToE164)`.
+   4. Outer handler THEN delegates to `provider.handleIncomingCall(...)` with the resolved `businessId`.
 3. **All customer / vehicle / job / lead lookups MUST be path-scoped to `businesses/{resolvedBusinessId}/...`.** Collection-group queries on `phoneKey` (or any field) are **EXPLICITLY FORBIDDEN** in the webhook handler. Code review for any future PR touching this file MUST reject collection-group queries.
-4. **`toE164` normalization at write AND read.** `adminConnectQuoNumber` MUST normalize its input via the same `normalizePhone()` helper and reject `valid === false`. Otherwise an operator typing `305-897-7030` into the admin form and Quo sending `+13058977030` in the payload would produce two doc IDs that never match.
-5. **Uniqueness / ownership on `quoPhoneNumbers/{e164}`.** `adminConnectQuoNumber` MUST refuse to overwrite an existing doc whose `businessId !== caller.businessId`. The refusal is hard: return an error to the caller with code `'phone_number_owned_by_other_business'` and write an audit entry to `quoPhoneNumberOwnershipAudits/{ts}_{e164}`. An explicit `force: true` parameter, owner-only, plus a confirmation in the UI, is required to override — and any forced overwrite ALSO writes the audit entry.
+4. **`toE164` normalization at write AND read.** `adminConnectTwilioNumber` MUST normalize its input via the same `normalizePhone()` helper and reject `valid === false`. Otherwise an operator typing `305-897-7030` into the admin form and Twilio sending `+13058977030` in the payload would produce two doc IDs that never match.
+5. **Uniqueness / ownership on `twilioPhoneNumbers/{e164}`.** `adminConnectTwilioNumber` MUST refuse to overwrite an existing doc whose `businessId !== caller.businessId`. The refusal is hard: return an error to the caller with code `'phone_number_owned_by_other_business'` and write an audit entry to `twilioPhoneNumberOwnershipAudits/{ts}_{e164}`. An explicit `force: true` parameter, owner-only, plus a confirmation in the UI, is required to override — and any forced overwrite ALSO writes the audit entry.
 
-### Customer resolution algorithm (inside the handler)
+### Customer resolution algorithm (inside the provider's `handleIncomingCall`)
 
 ```ts
-// Outer handler (abbreviated, after HMAC + idempotency):
-const toE164Raw = payload.data.context?.participants?.workspace?.[0]?.phoneNumber
-               ?? payload.data.object?.to
-               ?? '';
-const toNorm = normalizePhone(toE164Raw);
-if (!toNorm.valid) { res.status(400).send('bad to-number'); return; }
+// Inside providers/twilio.ts -> handleIncomingCall(params, signature, requestUrl)
+// (Outer route already verified signature, idempotency, and TWILIO_WEBHOOK_ENABLED.)
 
-const numberDoc = await db.doc(`quoPhoneNumbers/${toNorm.e164}`).get();
+const callSid = params.CallSid;
+const toRaw = String(params.To ?? '');
+const fromRaw = String(params.From ?? '');
+
+// 1. Tenant resolution from To-number (HARD invariant — never from payload-supplied businessId).
+const toNorm = normalizePhone(toRaw);
+if (!toNorm.valid) return { kind: 'invalid_payload', reason: 'bad_to_number' };
+
+const numberDoc = await db.doc(`twilioPhoneNumbers/${toNorm.e164}`).get();
 if (!numberDoc.exists || numberDoc.data()?.active === false) {
-  console.warn('quoWebhook_unmapped_number', { toE164: toNorm.e164, webhookId: id });
-  res.status(200).send('ok'); // stop retries; nothing to do
-  return;
+  console.warn('twilioIncomingCall_unmapped_number', { toE164: toNorm.e164, callSid });
+  return { kind: 'unmapped_business' };
 }
 const businessId = numberDoc.data()!.businessId as string;
 const assignedToUid = numberDoc.data()?.defaultAssignedToUid ?? null;
 
-await resolveAndWrite(payload, businessId, toNorm.e164, assignedToUid);
+// 2. Caller normalization.
+const fromNorm = normalizePhone(fromRaw);
 
-// resolveAndWrite:
-async function resolveAndWrite(payload, businessId, toE164, assignedToUid) {
-  const callId = payload.data.resource.id;
-  const fromE164Raw = payload.data.context?.participants?.external?.[0]?.phoneNumber
-                   ?? payload.data.resource.from
-                   ?? '';
-  const fromNorm = normalizePhone(String(fromE164Raw));
-
-  // Invalid caller phone → write unknown-caller doc, no phoneKey lookup.
-  if (!fromNorm.valid) {
-    await db.doc(`businesses/${businessId}/incomingCalls/${callId}`).set({
-      id: callId, quoCallId: callId, direction: 'incoming', status: 'ringing',
-      fromE164: '', fromDigits: '', toE164,
-      customerId: null, customerName: null,
-      customersSnapshot: [], additionalMatchesCount: 0,
-      lastJobSummary: null, assignedToUid,
-      lookupSkippedReason: 'invalid_phone',
-      createdAt: FieldValue.serverTimestamp(),
-      ringingExpiresAt: Timestamp.fromMillis(Date.now() + 60_000)
-    });
-    return;
-  }
-  const { e164, digits } = fromNorm;
-
-  // 1. Find customer(s) — path-scoped, NEVER collection-group.
-  const custSnap = await db.collection(`businesses/${businessId}/customers`)
-    .where('phoneKey', '==', digits).limit(4).get();
-  const customer = custSnap.docs[0]?.data() ?? null;
-  const customerId = custSnap.docs[0]?.id ?? null;
-  const hasMultiple = custSnap.size > 1;  // shared phone number edge case
-
-  // 2. Build customersSnapshot for up to 3 matches; record overflow count.
-  //    Vehicle subset is EXPLICITLY PICKED — never spread the full doc, which
-  //    would leak processedJobIds / createdAt / legacy detailing internals and
-  //    bloat the IncomingCalls doc for customers with rich vehicle histories.
-  const customersSnapshot = [];
-  const matchDocs = custSnap.docs.slice(0, 3);
-  for (const doc of matchDocs) {
-    const cData = doc.data();
-    const vSnap = await db.collection(
-      `businesses/${businessId}/customers/${doc.id}/vehicles`
-    ).orderBy('lastServicedAt', 'desc').limit(3).get();
-    customersSnapshot.push({
-      customerId: doc.id,
-      name: cData.name ?? null,
-      vehiclesSnapshot: vSnap.docs.map(d => {
-        const v = d.data();
-        return {
-          year:          v.year          ?? null,
-          make:          v.make          ?? null,
-          model:         v.model         ?? null,
-          trim:          v.trim          ?? null,
-          color:         v.color         ?? null,
-          licensePlate:  v.licensePlate  ?? null,
-          tire: v.tire ? { size: v.tire.size ?? null, brand: v.tire.brand ?? null } : null,
-          lastServicedAt: v.lastServicedAt ?? null
-        };
-      })
-    });
-  }
-  const additionalMatchesCount = Math.max(0, custSnap.size - 3);
-
-  // 3. Last job summary — for the PRIMARY (first) customer only.
-  //    Privacy: scope by assignedToUid when set so techs don't see other techs' jobs.
-  //    When assignedToUid is null (rings everywhere), snapshot identity-only — no paymentStatus.
-  let lastJobSummary = null;
-  if (customerId) {
-    let q = db.collection(`businesses/${businessId}/jobs`)
-      .where('customerId', '==', customerId);
-    if (assignedToUid) q = q.where('techId', '==', assignedToUid);
-    const jSnap = await q.orderBy('date', 'desc').limit(1).get();
-    const j = jSnap.docs[0]?.data();
-    if (j) {
-      lastJobSummary = {
-        jobId: j.id, service: j.service, date: j.date,
-        vehicleLabel: j.vehicleMakeModel || j.vehicleType || '',
-        tireSize: j.tireSize ?? null,
-        // paymentStatus only when the lookup was tech-scoped — never leak other techs' financial outcome.
-        paymentStatus: assignedToUid ? j.paymentStatus : null
-      };
-    }
-  }
-
-  // 4. Write the call doc.
-  await db.doc(`businesses/${businessId}/incomingCalls/${callId}`).set({
-    id: callId, quoCallId: callId, direction: 'incoming', status: 'ringing',
-    fromE164: e164, fromDigits: digits, toE164,
-    customerId, customerName: customer?.name ?? null,
-    customersSnapshot, additionalMatchesCount,
-    lastJobSummary, assignedToUid,
+// 3. Invalid caller phone → unknown-caller doc, no phoneKey lookup.
+const lookupStart = Date.now();
+if (!fromNorm.valid) {
+  await db.doc(`businesses/${businessId}/incomingCalls/${callSid}`).set({
+    id: callSid, twilioCallSid: callSid, provider: 'twilio',
+    direction: 'incoming', status: 'ringing',
+    fromE164: '', fromDigits: '', toE164: toNorm.e164,
+    customerId: null, customerName: null,
+    customersSnapshot: [], additionalMatchesCount: 0,
+    lastJobSummary: null, assignedToUid,
+    lookupSkippedReason: 'invalid_phone',
     createdAt: FieldValue.serverTimestamp(),
     ringingExpiresAt: Timestamp.fromMillis(Date.now() + 60_000),
-    multipleMatches: hasMultiple
+  });
+  await writeLookupTelemetry(businessId, {
+    triggeredBy: 'twilio_voice_webhook',
+    providerEventId: callSid,
+    rawFromPhone: fromRaw,
+    normalizedPhoneKey: null, normalizedValid: false,
+    customerIdMatched: null, matchCount: 0,
+    latencyMs: Date.now() - lookupStart,
+    outcome: 'invalid_phone',
+  });
+  return { kind: 'ok', incomingCallId: callSid };
+}
+const { e164, digits } = fromNorm;
+
+// 4. Customer lookup — path-scoped, NEVER collection-group.
+//    Implementation lives in lookupCustomerByPhone() at the customer layer.
+const lookupResult = await lookupCustomerByPhone(businessId, digits);
+const { customer, customerId, customers, hasMultiple } = lookupResult;
+
+// 5. Build customersSnapshot for up to 3 matches; record overflow count.
+//    Vehicle subset is EXPLICITLY PICKED — never spread the full doc.
+//    v3: tire fields are top-level (no .tire sub-object).
+const customersSnapshot = [];
+const matchDocs = customers.slice(0, 3);
+for (const cust of matchDocs) {
+  const vSnap = await db.collection(
+    `businesses/${businessId}/customers/${cust.id}/vehicles`
+  ).orderBy('lastServicedAt', 'desc').limit(3).get();
+  customersSnapshot.push({
+    customerId: cust.id,
+    name: cust.name ?? null,
+    vehiclesSnapshot: vSnap.docs.map(d => {
+      const v = d.data();
+      return {
+        year:          v.year          ?? null,
+        make:          v.make          ?? null,
+        model:         v.model         ?? null,
+        trim:          v.trim          ?? null,
+        color:         v.color         ?? null,
+        licensePlate:  v.licensePlate  ?? null,
+        tireSize:      v.tireSize      ?? null,   // v3: top-level
+        tireBrand:     v.tireBrand     ?? null,   // v3: top-level
+        lastServicedAt: v.lastServicedAt ?? null
+      };
+    })
   });
 }
+const additionalMatchesCount = Math.max(0, customers.length - 3);
+
+// 6. Last job summary — for the PRIMARY (first) customer only.
+//    Privacy: scope by assignedToUid when set; omit paymentStatus when null.
+let lastJobSummary = null;
+if (customerId) {
+  let q = db.collection(`businesses/${businessId}/jobs`)
+    .where('customerId', '==', customerId);
+  if (assignedToUid) q = q.where('techId', '==', assignedToUid);
+  const jSnap = await q.orderBy('date', 'desc').limit(1).get();
+  const j = jSnap.docs[0]?.data();
+  if (j) {
+    lastJobSummary = {
+      jobId: j.id, service: j.service, date: j.date,
+      vehicleLabel: j.vehicleMakeModel || j.vehicleType || '',
+      tireSize: j.tireSize ?? null,
+      paymentStatus: assignedToUid ? j.paymentStatus : null,
+    };
+  }
+}
+
+// 7. Write the incoming-call doc (popup pipeline source).
+await db.doc(`businesses/${businessId}/incomingCalls/${callSid}`).set({
+  id: callSid, twilioCallSid: callSid, provider: 'twilio',
+  direction: 'incoming', status: 'ringing',
+  fromE164: e164, fromDigits: digits, toE164: toNorm.e164,
+  customerId, customerName: customer?.name ?? null,
+  customersSnapshot, additionalMatchesCount,
+  lastJobSummary, assignedToUid,
+  createdAt: FieldValue.serverTimestamp(),
+  ringingExpiresAt: Timestamp.fromMillis(Date.now() + 60_000),
+  multipleMatches: hasMultiple,
+});
+
+// 8. Mirror to communicationEvents (customer timeline copy).
+await db.collection(`businesses/${businessId}/communicationEvents`).add({
+  type: 'incoming_call', direction: 'inbound', provider: 'twilio',
+  providerEventId: callSid,
+  customerId, customerPhoneE164: e164, customerPhoneKey: digits,
+  businessPhoneE164: toNorm.e164,
+  callStatus: 'ringing',
+  occurredAt: FieldValue.serverTimestamp(),
+  createdAt: FieldValue.serverTimestamp(),
+  payloadSnapshot: { From: e164, To: toNorm.e164, CallSid: callSid, CallStatus: 'ringing' },
+});
+
+// 9. Telemetry.
+await writeLookupTelemetry(businessId, {
+  triggeredBy: 'twilio_voice_webhook',
+  providerEventId: callSid,
+  rawFromPhone: fromRaw,
+  normalizedPhoneKey: digits, normalizedValid: true,
+  customerIdMatched: customerId, matchCount: customers.length,
+  latencyMs: Date.now() - lookupStart,
+  outcome: customerId ? 'matched' : 'no_match',
+});
+
+return { kind: 'ok', incomingCallId: callSid };
 ```
 
 **Multi-match render contract.** The `incomingCalls` schema replaces the singular `customerName` + `vehiclesSnapshot` with a `customersSnapshot: Array<{customerId, name, vehiclesSnapshot}>` (capped at 3) plus an `additionalMatchesCount: number` for the overflow. The primary customer (`customerId`, `customerName`) still appears as top-level convenience fields for the most common single-match case; on shared-phone cases the client renders the first entry of `customersSnapshot` as the hero, a secondary chip "Also: {name} (+N more)" using `customersSnapshot[1].name` and `additionalMatchesCount`, and a tap-to-disambiguate sheet that lets the operator pick which customer the call is for. The picked customerId is written back via the same Firestore rule that allows members to update `status`/`answeredByUid`/`callbackBookedJobId` — extend the rule's `affectedKeys()` allowlist to include `customerId`.
+
+**New-caller variant.** When the lookup yields no match (`customerId === null` and `customers.length === 0`), the popup renders a **NEW CALLER** card showing the phone number and three buttons:
+
+- **Create Customer** → opens CustomerProfile in new-customer mode pre-filled with `fromE164`.
+- **Create Job** → opens AddJob with `customerPhone` pre-filled.
+- **Text Back** → opens an inline send-SMS UI that (when `outboundSMSEnabled === true`) calls `sendSMS`; otherwise falls back to a `sms:` link. SP7 evolves this into a templated quick-reply.
+
+The disambiguation sheet for shared-phone matches and the New Caller card are mutually exclusive UI paths driven by `customersSnapshot.length`.
 
 **Privacy posture for `lastJobSummary`.** When the line has a `defaultAssignedToUid` set, the snapshot reads only that tech's jobs (no cross-tech leak). When the line rings everywhere (`assignedToUid == null`), the snapshot omits `paymentStatus` entirely — the most sensitive field — and shows identity + service + date only. This satisfies the tenant-isolation review and preserves the popup's "triage at a glance" UX.
 
@@ -1052,7 +1504,7 @@ export function useIncomingCallListener(businessId: string | null, uid: string):
 
 **Why this is <2s end-to-end:**
 
-- Webhook receipt → Firestore write: ~200-500ms (HMAC + 2 reads + 1 write on warm function; +500-1000ms cold start tolerated since fact-of-call already arrived at Quo before ring)
+- Webhook receipt → Firestore write: ~200-500ms (HMAC-SHA1 + 2 reads + 1 write on warm function; +500-1000ms cold start tolerated since Twilio's voice webhook fires concurrently with the actual phone ring)
 - Firestore write → onSnapshot fire: 200-800ms typical (Firebase realtime channel)
 - onSnapshot → setState → modal render: <100ms
 
@@ -1079,8 +1531,8 @@ The popup may render on multiple foregrounded devices simultaneously. Two tech t
 Open Question #2 (was unresolved) is **resolved in this spec** as follows:
 
 - **Default: rings every foregrounded device in the business** (the spec's headline-goal language).
-- **`quoPhoneNumbers/{e164}.defaultAssignedToUid`** is a per-line override: when set, only that user's foregrounded devices ring.
-- **`incomingCalls.assignedToUid` is a per-call override.** Populated by the Cloud Function from the Quo payload's routing data when available — Quo Beta surfaces the targeted workspace user in `payload.data.context.participants.workspace[0].userId`. We map Quo user ids to MSOS uids via a `quoUserMapping/{quoUserId}` doc with `{ businessId, msosUid }` (owner-managed via SP4's debug panel). If a mapping exists, `incomingCalls.assignedToUid` takes precedence over `defaultAssignedToUid`. If no mapping exists, we fall back to the line-level `defaultAssignedToUid` and then to "all members" (null).
+- **`twilioPhoneNumbers/{e164}.defaultAssignedToUid`** is a per-line override: when set, only that user's foregrounded devices ring.
+- **`incomingCalls.assignedToUid` is populated from `twilioPhoneNumbers.defaultAssignedToUid`.** v3 note: Twilio (unlike v2's Quo) does NOT surface a per-call routed-user concept, so v3 has no `twilioUserMapping` collection. Per-call routing is not available; only per-line targeting via `defaultAssignedToUid` is. When `defaultAssignedToUid` is null, the call rings "all members".
 - The listener filter `assignedToUid == null || assignedToUid === uid` correctly delivers in all three modes without further code changes.
 - Success criterion is precise: **every FOREGROUNDED MSOS device that the call is targeted at**. Backgrounded devices are SP5 (toast) and SP7 (FCM) concerns — not a v1 deliverable for SP6.
 
@@ -1088,7 +1540,7 @@ Open Question #2 (was unresolved) is **resolved in this spec** as follows:
 
 Three concrete mechanisms ensure missed calls never disappear:
 
-1. **Reconciliation scheduled function (`reconcileQuoCalls`)** runs every 5 minutes (`onSchedule('every 5 minutes')`). Reads each `quoPhoneNumbers/{e164}` with `active === true`, calls Quo's `/v1/calls?phoneNumberId={id}&since={lastSyncTs}` API, and creates/updates `incomingCalls/{id}` docs for any call missing from Firestore. Same idempotency key (Quo callId == doc id) prevents duplicates. Status determined from Quo's `status` field. Persisted `quoSyncCursors/{quoPhoneNumberId}.lastSyncedAt` cursor advances after each successful poll. Added to SP4 scope.
+1. **Reconciliation scheduled function (`reconcileTwilioCalls`)** runs every 5 minutes (`onSchedule('every 5 minutes')`). Reads each `twilioPhoneNumbers/{e164}` with `active === true`, calls Twilio's REST API `/2010-04-01/Accounts/{AccountSid}/Calls.json?To={e164}&StartTime>={lastSyncedAt}`, and creates/updates `incomingCalls/{CallSid}` docs for any call missing from Firestore. Same idempotency key (Twilio CallSid == doc id) prevents duplicates. Status determined from Twilio's `Status` field on the call resource. Persisted `twilioSyncCursors/{twilioPhoneNumberSid}.lastSyncedAt` cursor advances after each successful poll. Added to SP4 scope.
 2. **Stale-ring guard in the handler.** When `call.ringing` arrives and `payload.data.resource.createdAt` is more than **30 seconds old** at function-receipt time, the handler writes `status='missed'` directly (skipping `'ringing'`) so we don't pop a popup for a call the customer already hung up on. Also writes the Lead row as if `call.missed` had fired.
 3. **Manual "Attach to customer" action on Leads page.** When a webhook arrived with `customerId: null` (unknown caller) and the operator later identifies them, they can pick a customer from a typeahead and the Leads page updates `leads.customerId` and the corresponding `incomingCalls.customerId` (rule allowlist already includes `customerId`). Gated by `canCreateJobs`. Added to SP5.
 
@@ -1169,11 +1621,11 @@ Auditable summary by enforcement layer:
 
 `incomingCalls.recordingUrl` and `incomingCalls.transcript` are persisted in v1 (fields exist, written by `call.recording.completed` and `call.transcript.completed` handlers) even though they are NOT surfaced in any v1 UI. Posture:
 
-1. **Storage location.** `recordingUrl` points at Quo's CDN (signed URL with Quo-defined expiry). The recording itself is not stored in Firestore or Cloud Storage in v1 — only the URL is. Quo's retention policy governs the recording itself; operators must align Quo's retention settings with their published privacy policy.
-2. **Transcripts in Firestore.** `transcript` is stored as plaintext on the `incomingCalls` doc. CMEK encryption is OUT OF SCOPE for v1. Accepted risk; documented.
-3. **Access control in v1.** Any active business member can read `incomingCalls` and thus the `recordingUrl` and `transcript`. SP7 will introduce a `canViewRecordings` Permissions flag and gate these fields client-side; v1 deliberately delegates access to the role-level membership check.
-4. **Two-party-consent jurisdictions.** Recording calls without notification is illegal in California, Florida, Pennsylvania, and other two-party-consent states. The OPERATOR is responsible for enabling Quo's built-in recording disclosure prompt. The spec does NOT generate the disclosure; it does NOT validate compliance; this is documented as the operator's regulatory obligation. SP4's Settings → Integrations panel will surface a notice and link to Quo's docs.
-5. **Cascade deletion.** Recording URLs and transcripts on `incomingCalls` are deleted alongside the call doc on business deletion (via `recursiveDelete(businessRef)`). The Quo-hosted recording itself is NOT deleted by MSOS — Quo's retention policy applies. The SP7.5 GDPR follow-up adds a Quo API call to delete the recording in response to a per-customer erasure request.
+1. **Storage location.** `recordingUrl` (future, not enabled in v1) would point at Twilio's CDN (signed URL with Twilio-defined expiry). The recording itself would not be stored in Firestore or Cloud Storage — only the URL. Twilio's retention policy governs the recording itself; operators must align Twilio's retention settings with their published privacy policy.
+2. **Transcripts in Firestore.** `transcript` (future) would be stored as plaintext on the `incomingCalls` doc. CMEK encryption is OUT OF SCOPE for v1. Accepted risk; documented.
+3. **Access control in v1.** v1 does not enable recordings or transcripts. SP7 may introduce a `canViewRecordings` Permissions flag and gate these fields client-side at the same time as enabling Twilio's recording webhooks.
+4. **Two-party-consent jurisdictions.** Recording calls without notification is illegal in California, Florida, Pennsylvania, and other two-party-consent states. The OPERATOR would be responsible for enabling Twilio's `<Record>` verb with the appropriate consent prompt or configuring recording with Twilio's compliance features. The spec does NOT generate the disclosure; it does NOT validate compliance; this is documented as the operator's regulatory obligation. SP4's Settings → Communications panel will surface a notice and link to Twilio's recording-compliance docs when recordings are eventually enabled.
+5. **Cascade deletion.** Recording URLs and transcripts on `incomingCalls` are deleted alongside the call doc on business deletion (via `recursiveDelete(businessRef)`). The Twilio-hosted recording itself is NOT deleted by MSOS — Twilio's retention policy applies. The SP7.5 GDPR follow-up adds a Twilio REST API call to delete the recording in response to a per-customer erasure request.
 6. **Logging hygiene.** `transcript` must NEVER appear in Cloud Logging (it is customer PII). Handler logic that processes transcripts MUST NOT log payload bodies at any level.
 
 ---
@@ -1311,7 +1763,7 @@ Two technicians on different devices can save jobs for the same customer at the 
 **Client-write field types:** Firestore client writes go through `fbSetFast` (`src/lib/firebase.ts:209-223`), which JSON-stringifies object values and would corrupt `FieldValue.serverTimestamp()` / `FieldValue.increment()` / `Timestamp` instances. Therefore:
 
 - **From the client (`upsertCustomerFromJob` running in saveJob):** use `runTransaction` directly with the unmodified Firestore SDK — bypass `fbSetFast`. Inside the transaction, `FieldValue.increment(1)` / `FieldValue.arrayUnion(jobId)` are written as-is on `tx.update(...)`. For timestamp-type fields written from the client, store ISO strings (`new Date().toISOString()`) and let the Cloud Function path use real `Timestamp` / `serverTimestamp()`. The schema-table columns marked `Timestamp` accept either form on read (a string parses to a Date; a Timestamp `.toDate()`s); document this dual-form explicitly in the `Customer` TypeScript interface so future contributors don't get caught.
-- **From the Cloud Function (`quoWebhook`, `adminConnectQuoNumber`, future SP7 background jobs):** use admin SDK directly with `FieldValue.serverTimestamp()` and real `Timestamp` — admin SDK bypasses `fbSetFast` entirely.
+- **From the Cloud Function (`twilioIncomingCall`, `twilioIncomingSMS`, `twilioCallStatus`, `sendSMS`, `adminConnectTwilioNumber`, future SP7 background jobs):** use admin SDK directly with `FieldValue.serverTimestamp()` and real `Timestamp` — admin SDK bypasses `fbSetFast` entirely.
 
 **Customer-changes-phone-number edge case — explicit v1 behavior.** If Maria's number changes from `(305) 897-7030` to `(305) 555-0001` and her next job is saved with the new phone:
 
@@ -1334,8 +1786,8 @@ The 9 buttons in the Quick Actions row, each labeled with its dispatch path:
 |---|---|---|---|---|
 | 1 | **Create Job** | Navigates to `add` tab with draft preloaded: `customerId`, `vehicleId`, `customerName`, `customerPhone`, `customerEmail`, `city`, `state`, plus pre-selected vehicle chip. Reuses existing `setTab('add')` + draft-preload mechanism from `handleDuplicate`. | New wiring, reuses existing draft mechanism | No |
 | 2 | **Repeat Last Service** | Same as the Returning Customer card's "Repeat Last Service" button. Calls a shared helper. | New wiring | No |
-| 3 | **Call** | **v1 always uses `tel:` native scheme.** `<a href={`tel:${customer.phoneE164}`}>`. Free, instant. Logs `lastContactedAt = now` on the customer doc via merge write. **SP7 introduces a per-business setting `outboundCommunicationProvider: 'native' \| 'openphone'`; when set to `'openphone'` AND `settings.openphoneConnected === true`, the button POSTs to a Cloud Function that initiates the call from the business Quo number instead. UI is identical; only the dispatch path changes.** Resolves user answer #6. | New | No |
-| 4 | **Text** | **v1 always uses `sms:` native scheme.** `<a href={`sms:${customer.phoneE164}`}>`. Same `lastContactedAt` update. **SP7 introduces the same `outboundCommunicationProvider` toggle as Call (#3); when set to `'openphone'` AND `openphoneConnected === true`, the button POSTs to a Cloud Function that sends the SMS from the business Quo number. UI identical; dispatch path differs.** Resolves user answer #6. | New | No |
+| 3 | **Call** | **v1 always uses `tel:` native scheme.** `<a href={`tel:${customer.phoneE164}`}>`. Free, instant. Logs `lastContactedAt = now` on the customer doc via merge write. SP7 may add an "Answer in MSOS" capability via Twilio Programmable Voice client SDK (deferred). UI is identical; only the dispatch path would change. | New | No |
+| 4 | **Text** | **v3 default uses Twilio `sendSMS`** when `settings.twilioConnected && settings.outboundSMSEnabled`. Opens an inline SMS composer (single message); on Send calls the `sendSMS` callable, logs to `communicationEvents`, updates `lastContactedAt`. **Fallback:** native `sms:` scheme when Twilio is not configured or `sendSMS` returns `'disabled'`. Resolves user answer #6 (v3 variant). | New | No |
 | 5 | **Send Quote** | Opens existing QuoteWorkflow (separate spec, [2026-05-22-quote-workflow-design.md](2026-05-22-quote-workflow-design.md)) preloaded with customer + most-recent vehicle. | Existing dispatch, new entry point | No |
 | 6 | **Send Invoice** | Resolves to last unpaid job for this customer; if found, opens the existing invoice send flow (reuses the path triggered from JobDetailModal). If no unpaid jobs, shows toast "No unpaid jobs for this customer." | Existing dispatch | No |
 | 7 | **Send Review** | Reuses existing ReviewAutomation send path ([2026-05-22-review-automation-design.md](2026-05-22-review-automation-design.md)), targets `customer.email` (falls back to phone). | Existing dispatch | No |
@@ -1587,7 +2039,7 @@ All v2 Settings fields are OPTIONAL (`?:`) in the `Settings` TypeScript interfac
 
 ```ts
 const autoSave    = settings.autoSaveCustomersFromJobs ?? true;
-const ophConnected = settings.openphoneConnected ?? false;
+const twilioConnected = settings.twilioConnected ?? false;
 const provider    = settings.outboundCommunicationProvider ?? 'native';
 ```
 
@@ -1653,6 +2105,45 @@ Existing Wheel Rush tenants default to `autoSaveCustomersFromJobs: true` (via th
 
 - **SP1:** schema field added + saveJob gate reads the setting. No UI yet.
 - **SP3:** toggle UI added to Settings → Customer Directory section, alongside the Backfill button.
+
+---
+
+## Communications Settings (v3 NEW)
+
+**Goal:** operator-visible Settings accordion that surfaces every Twilio-related toggle and the connect form. Replaces v2's "Settings → Integrations → Connect OpenPhone" surface.
+
+### Placement
+
+- New top-level Settings accordion labeled **"Communications"** — sits between "Customer Directory" and the existing "Integrations" accordion.
+- Gated by `canEditBusinessSettings` for edit; read-visible to all members.
+
+### Section contents
+
+1. **Communication Provider — Twilio** (read-only label). Future-ready for provider switching; v1 has no other providers.
+2. **Twilio connected status** (read-only). Derived display value: "Connected" when `settings.twilioConnected === true` AND a successful webhook has been observed in the last 7 days; "Not connected" otherwise. The 7d freshness threshold lives in `lastTwilioWebhookSuccessAt` (telemetry field updated by every successful webhook write).
+3. **"Connect Twilio Number" form** (when `twilioConnected === false`). Inputs: E.164 number, Twilio Phone Number SID (`PNxxxx`), optional Messaging Service SID (`MGxxxx`), optional label, optional default-assigned tech. Calls `adminConnectTwilioNumber`.
+4. **Enable incoming call lookup** — toggle bound to `settings.incomingCallLookupEnabled`, default ON. When OFF, the `twilioIncomingCall` provider handler skips the customer lookup + customersSnapshot build, still writes a bare `incomingCalls` doc with `customerId: null` for diagnostic continuity.
+5. **Enable incoming SMS logging** — toggle bound to `settings.incomingSMSLoggingEnabled`, default ON. When OFF, the `twilioIncomingSMS` handler returns the empty TwiML response without writing `communicationEvents`.
+6. **Enable missed-call auto text** — toggle bound to `settings.missedCallAutoTextEnabled`, default OFF. v1 reads only; SP7's `autoTextRules` engine consumes the flag.
+7. **Enable outbound SMS** — toggle bound to `settings.outboundSMSEnabled`, default ON. When OFF, the `sendSMS` callable refuses with `'outbound_sms_disabled'`.
+8. **"Auto-save customers from completed jobs"** — cross-link reference to the existing **Customer Directory** accordion's toggle (which stays where it is). Communications doesn't own this toggle — it just points at it so the operator can find it from either entry.
+
+### Per-business connected status verification
+
+A successful test call from the operator's mobile to their Twilio line should:
+1. Fire `twilioIncomingCall` → resolve business → write `incomingCalls` doc.
+2. Update `settings.lastTwilioWebhookSuccessAt = serverTimestamp()` on the same Firestore transaction.
+3. Within 1-2s the Settings UI re-derives "Connected" status from the updated timestamp.
+
+If the operator never makes a test call, `lastTwilioWebhookSuccessAt` stays unset → status reads "Not connected" even if `twilioConnected === true`. This is intentional — the operator can see the difference between "configured but never tested" and "configured and actively receiving".
+
+### Migration
+
+Existing tenants have none of these fields populated; nullish-coalesce defaults apply per the *Read-time default contract* subsection (defined for v2 fields, extended to v3 fields with the defaults listed above).
+
+### Lands in SP4
+
+`CommunicationsSettingsSection.tsx` ships in SP4 alongside the webhook endpoints. Until SP4 deploys, the accordion is absent. Once SP4 deploys (with `TWILIO_WEBHOOK_ENABLED=false` still), the accordion appears with the "Connect Twilio" CTA; flipping any toggle has no effect until the operator completes the connect flow and MSOS ops flips the env flag.
 
 ---
 
@@ -1764,15 +2255,15 @@ Phase 12 (the user's "ready for AI receptionist later" requirement) is delivered
 |---|---|---|
 | **AI receptionist** | `incomingCalls.transcript` (from `call.transcript.completed`) + `leads.status` state machine (`'new' → 'contacted' → 'converted' \| 'lost'`) | A new Cloud Function `aiReceptionistHandler` triggered on `incomingCalls.transcript` writes; updates `lead.status` and writes a follow-up suggestion to `leads.aiSuggestedAction`. Frontend consumes existing `Lead` type. |
 | **Retention campaigns** | `customer.tags` (existing, preserved) + `customer.lastContactedAt` (new field, written on every Call/Text action and on Accept of an incoming call) + `customer.lastJobAt` | A scheduled Cloud Function that queries `customers where lastJobAt < now - 60d AND lastContactedAt < now - 30d AND 'no_marketing' not in tags` and enqueues an SMS/email send. The query already works against the v1 schema. |
-| **Auto-text-back on missed call** | `quoWebhook` already handles `call.missed` and creates the Lead. `QUO_API_KEY` already registered as a secret in v1. | A new helper in `quoWebhook` that POSTs to Quo's `/v1/messages` endpoint when `settings.autoTextBackEnabled == true` AND `customer.tags` does not include `'no_marketing'`. Per-business toggle added to Settings. |
-| **FCM background push** | The IncomingCallModal already accepts being driven by any state setter; switching from Firestore listener to FCM-triggered state requires no UI changes. | Add `firebase/messaging` SDK, register a service-worker push handler in `public/sw.js`, persist FCM tokens per device in a new `businesses/{bid}/members/{uid}/fcmTokens/{tokenId}` subcollection, and modify `quoWebhook` to ALSO send an FCM push (in addition to writing the Firestore doc) when on iOS/Android backgrounded contexts. The Firestore doc remains the source of truth; the push is a wake signal. |
+| **Auto-text-back on missed call** | `twilioCallStatus` already handles missed-call status callbacks (`CallStatus=no-answer/busy/failed`) and creates the Lead. `sendSMS` is wired in v1. `autoTextRules` collection schema is shaped in v1. | A new rules-engine evaluator inside `twilioCallStatus` that queries enabled `autoTextRules` matching the trigger, evaluates audience filters and cooldown, and calls `sendSMS` programmatically when `settings.missedCallAutoTextEnabled == true` AND `customer.tags` does not include `'no_marketing'`. Per-business toggle already exists in v1. |
+| **FCM background push** | The IncomingCallModal already accepts being driven by any state setter; switching from Firestore listener to FCM-triggered state requires no UI changes. | Add `firebase/messaging` SDK, register a service-worker push handler in `public/sw.js`, persist FCM tokens per device in a new `businesses/{bid}/members/{uid}/fcmTokens/{tokenId}` subcollection, and modify `twilioIncomingCall` to ALSO send an FCM push (in addition to writing the Firestore doc) when on iOS/Android backgrounded contexts. The Firestore doc remains the source of truth; the push is a wake signal. |
 | **Call recording playback** | `incomingCalls.recordingUrl` (persisted in v1, just not rendered) | Add an `<audio>` element to a "Past Calls" section of CustomerProfile that loads `recordingUrl`. v1 stores; v2 surfaces. |
-| **Two-way SMS thread in app** | `quoWebhook` event handler already has the routing arm; v1 doesn't subscribe to `message.received`/`message.delivered` but adding them is a one-line change to the Quo webhook subscription + a new switch case in the handler. | A new `businesses/{bid}/conversations/{phoneKey}/messages/{msgId}` subcollection mirroring the call doc shape. ConversationsPage and inline message thread UI. |
+| **Two-way SMS thread in app** | `twilioIncomingSMS` already writes inbound messages to `communicationEvents`; `sendSMS` writes outbound. v1 doesn't surface a chronological thread view, but the data is already structured for it. | A new `ConversationsPage` and per-customer `MessageThread` component that read `communicationEvents` where `type in ['incoming_sms', 'outgoing_sms']` and `customerPhoneKey == phoneKey`, grouped chronologically with composer footer. No new collection required. |
 | **Vehicle directory (cross-customer)** | The Vehicle subcollection already carries `vin`, `licensePlate`, `color` fields — present but optional in v1. | A top-level vehicle search page that uses a Firestore Collection Group query on `vehicles` filtered by `licensePlate` or `vin`. No schema change. |
 | **Multiple matches on shared phone** | `incomingCalls.multipleMatches: boolean` + `vehiclesSnapshot` already carries up to 3 vehicles | IncomingCallModal renders the secondary "Also: Jose Lopez" line when `multipleMatches == true`. v1 already renders this. |
 | **Lead → Customer auto-promote** | `Lead.phoneKey` and `Customer.phoneKey` share the same field. When a future job is saved with a matching `phoneKey`, `upsertCustomerFromJob` can detect an unconverted lead and flip `lead.status = 'converted'` + `lead.convertedJobId`. | v1 doesn't auto-promote; the operator does it manually from the Leads page. SP7 adds the auto-flip. |
 | **v2 Per-vertical service catalogs** | Customer Timeline + Customer Insights "Most Common Service Type" already read service labels via `verticalConfig.services[id].label` rather than hardcoded strings. | When a new vertical's service catalog is added (e.g. mechanic engine codes, detailing packages), the timeline and insights render correctly with zero code change. |
-| **v2 Per-business OpenPhone toggle** | `settings.openphoneConnected` (boolean) + `settings.outboundCommunicationProvider: 'native' \| 'openphone'` are shaped in v1 schema. CustomerProfile Call/Text buttons inspect these but always dispatch native in v1. | SP7 flips the dispatch path when `provider === 'openphone'` — POSTs to a Cloud Function that initiates the call/SMS via Quo API. No schema change, no UI change. |
+| **v3 Per-business Twilio integration** | `settings.twilioConnected`, `incomingCallLookupEnabled`, `incomingSMSLoggingEnabled`, `outboundSMSEnabled`, `missedCallAutoTextEnabled` are all shaped in v1 schema with sensible defaults. CustomerProfile Call always uses `tel:`; Text uses `sendSMS` when enabled, else `sms:`. | SP7 may add an "Answer in MSOS" path via Twilio Programmable Voice client SDK (replaces native `tel:` dispatch with in-app call control). No schema change, no UI change. |
 | **v2 Referral tracking** | `Customer.referralCount: number` reserved on schema (defaults to 0). Insights card shows the count read-only. | A future referral-flow surface (CustomerProfile → "Refer a friend" action) increments this counter. No schema change. |
 | **v2 Per-vertical Vehicle sub-objects** | `vehicle.mechanic` and `vehicle.detailing` placeholder sub-objects reserved in schema. CustomerProfile renders fields conditional on active vertical via existing `resolveVertical()` pattern. | When mechanic / detailing verticals graduate from placeholder, the sub-objects fill in with no schema migration on existing Vehicle docs. |
 | **v2 Per-business VIP thresholds** | `deriveVipTier` reads thresholds from a config; v1 hardcodes Gold $1,000+ / Platinum $2,500+. | SP7 adds `settings.vipThresholds: { gold: number; platinum: number }` for tenants in higher-AOV verticals. The trigger Cloud Function rereads on each rollup. |
@@ -1795,7 +2286,7 @@ v2 expands the marketed phase numbering from 12 to 18. The dev-execution sub-pro
 | P5 Service Timeline | **P8** | Service Timeline | SP3 |
 | (NEW) | **P9 NEW** | Customer Insights + VIP tiers (Gold $1,000+, Platinum $2,500+) | SP3 |
 | P9 Quick Actions | **P10** | Quick Actions | SP3 |
-| P6 OpenPhone integration | **P11** | OpenPhone integration (gated, optional) | SP4 |
+| P6 OpenPhone integration | **P11** | Twilio integration (gated, optional) | SP4 |
 | P7 Incoming Call Popup | **P12** | Incoming Call Popup | SP6 |
 | P8 Missed Call framework | **P13** | Missed Call framework | SP5 |
 | (was implicit in P6/P8) | **P14 NEW-EXPLICIT** | Communication Logging | SP4 + SP5 |
@@ -1827,7 +2318,7 @@ Each sub-project is shippable in isolation. The order minimizes risk and accumul
 - **Scope:** `src/lib/phone.ts`, `src/lib/customerEntity.ts`, `src/lib/customers.ts` (hybrid refactor), `src/App.tsx` saveJob hook, `firestore.rules` deltas for `customers/{cid}/vehicles/**` and tightened `customers/{cid}` update rules. **v2 additions:**
   - **New Customer fields:** `companyName`, `nameLower`, `companyLower`, `cityLower`, `zipCode`, `averageTicket`, `customerStatus`, `vipTier`, `referralCount`. Firestore-rule allowlist + index registrations.
   - **New Vehicle fields:** `year`, `make`, `model`, `trim`, `color`, `makeModelLower`. Tire-specific fields **hoisted under `vehicle.tire`** sub-object (vertical-agnostic refactor). Legacy flat-field reads still work via fallback.
-  - **Settings schema:** `autoSaveCustomersFromJobs: boolean` (default true), `openphoneConnected: boolean` (default false), `outboundCommunicationProvider: 'native' | 'openphone'` (default 'native'). No UI yet — schema + Firestore-rule allowlist only.
+  - **Settings schema:** `autoSaveCustomersFromJobs: boolean` (default true), `twilioConnected: boolean` (default false), `communicationProvider: 'twilio'` (read-only label), `incomingCallLookupEnabled: boolean` (default true), `incomingSMSLoggingEnabled: boolean` (default true), `missedCallAutoTextEnabled: boolean` (default false), `outboundSMSEnabled: boolean` (default true), `outboundCommunicationProvider: 'native' | 'twilio'` (default 'native'). No UI yet — schema + Firestore-rule allowlist only.
   - **saveJob gate:** reads `settings.autoSaveCustomersFromJobs` via cached context; when false, skips the entire upsert path. Toast "Customer not auto-saved (toggle OFF)" on save.
   - **Updated `customerKey()`** uses `normalizePhone(...).digits` → `p_<11-digit>` format (breaking change from legacy `p_<10-digit>`; reconciled via hybrid read).
   - **Updated `vehicleKey()`** prefers universal `year-make-model-trim` slug; falls back to legacy tire-vertical keys only for jobs without make/model.
@@ -1860,38 +2351,39 @@ Each sub-project is shippable in isolation. The order minimizes risk and accumul
 - **Dependencies:** SP1
 - **Ships value when:** Operator taps any customer in Customers page → drills into full profile with phone, vehicles, full service history, notes, tags, 9 quick actions, AND a Customer Insights card with VIP tier badge. They tap the new search icon in main nav, type "Tesla" or "235/45R18" or "Hollywood", get sub-300ms results across name/vehicle/zip. They open Settings → Customer Directory, see the auto-save toggle (default ON), and run the Backfill button — within ~30s every existing job has been organized into Customer + Vehicle records.
 
-### SP4 — Quo webhook + idempotency + business-number mapping (gated, disabled by default)
+### SP4 — Twilio webhooks (3 endpoints) + sendSMS + provider abstraction + business-number mapping (gated, disabled by default)
 
-- **Phases covered:** **P11 (OpenPhone integration), P14 (Communication Logging — receive side: incoming call/SMS webhook + Firestore write)**
-- **Scope:** `functions/src/quoWebhook.ts`, `functions/src/adminConnectQuoNumber.ts`, `functions/src/reconcileQuoCalls.ts` (scheduled), `functions/src/lib/phone.ts` (duplicate of client copy), `functions/src/index.ts` export, `firestore.rules` for `incomingCalls/**`, `quoPhoneNumbers/**`, `quoWebhookEvents/**`, `quoUserMapping/**`, `quoSyncCursors/**`. Operator-only debug panel `QuoIntegrationSection.tsx` for verification. **Extension of `scheduledDeletionPurge`** to purge top-level `quoPhoneNumbers` / `quoUserMapping` / `quoSyncCursors` docs owned by a purged business. **Firestore TTL policy on `quoWebhookEvents.createdAt` (28h)** configured at deploy time — hard requirement, not optional.
-- **v2 emphasis: ships DISABLED by default.**
-  - **`QUO_WEBHOOK_ENABLED=false`** at v1 deploy. Webhook returns 404. Per user answer #1.
-  - **Per-business `settings.openphoneConnected = false`** at default. Settings → Integrations shows "Connect OpenPhone" CTA when false.
-  - Operator buys Quo Business plan → enables Beta → pastes `whsec_` key into Settings → Integrations form → `adminConnectQuoIntegration` writes mapping + flips `settings.openphoneConnected = true` → MSOS ops flips `QUO_WEBHOOK_ENABLED=true` on the function. Activation is a config-only operation, no code deploy.
-- **Rationale:** Backend-only. Ship the webhook with full HMAC + idempotency + business resolution + replay-window + tenant isolation invariants before adding the popup surface. Lets us instrument latency and verify the resolution chain (Quo number → business → customer) in production before any operator sees a popup. Reconciliation function closes the "calls never vanish" promise even on webhook outages. The OpenPhone-optional gating means SP1-SP3 ship and provide value without requiring SP4 to be turned on.
+- **Phases covered:** **P11 (Twilio integration), P14 (Communication Logging — receive side: incoming call/SMS webhook + Firestore write)**
+- **Scope:** `functions/src/twilioIncomingCall.ts`, `functions/src/twilioIncomingSMS.ts`, `functions/src/twilioCallStatus.ts`, `functions/src/sendSMS.ts`, `functions/src/adminConnectTwilioNumber.ts`, `functions/src/reconcileTwilioCalls.ts` (scheduled), `functions/src/lib/communicationProvider.ts` (interface + registry), `functions/src/lib/providers/twilio.ts` (Twilio implementation), `functions/src/lib/twilioClient.ts` (REST SDK wrapper), `functions/src/lib/phone.ts` (duplicate of client copy), `functions/src/lib/lookupCustomerByPhone.ts` (duplicate at functions layer), `functions/src/index.ts` exports, `firestore.rules` for `incomingCalls/**`, `twilioPhoneNumbers/**`, `twilioWebhookEvents/**`, `twilioSyncCursors/**`, `communicationEvents/**`, `callerLookupEvents/**`, `missedCallEvents/**`, `autoTextRules/**`. Operator-visible `CommunicationsSettingsSection.tsx` (v3 NEW) for connect form + toggles. **Extension of `scheduledDeletionPurge`** to purge top-level `twilioPhoneNumbers` / `twilioSyncCursors` docs owned by a purged business. **Firestore TTL policy on `twilioWebhookEvents.createdAt` (28h)** configured at deploy time — hard requirement, not optional.
+- **v3 emphasis: ships DISABLED by default.**
+  - **`TWILIO_WEBHOOK_ENABLED=false`** at v1 deploy. All three webhooks return 404. Per success criterion #12.
+  - **Per-business `settings.twilioConnected = false`** at default. Settings → Communications shows "Connect Twilio" CTA when false.
+  - **`sendSMS` callable returns `'twilio_not_configured'`** gracefully when env vars unset — does not throw an unhandled exception.
+  - Operator already owns a Twilio account + provisioned number → supplies E.164 + Twilio SID via Settings → Communications form → `adminConnectTwilioNumber` writes mapping + flips `settings.twilioConnected = true` → MSOS ops flips `TWILIO_WEBHOOK_ENABLED=true` on the function → operator configures the Twilio number's VoiceUrl / StatusCallback / MessagingUrl in the Twilio console. Activation is a config-only operation, no code deploy.
+- **Rationale:** Backend-first. Ship the three webhooks with full HMAC-SHA1 signature verification + idempotency + business resolution + tenant isolation invariants before adding the popup surface. Lets us instrument latency and verify the resolution chain (Twilio number → business → customer) in production before any operator sees a popup. Reconciliation function closes the "calls never vanish" promise even on webhook outages. The Twilio-optional gating means SP1-SP3 ship and provide value without requiring SP4 to be turned on. Including `sendSMS` in SP4 (rather than deferring to SP7) means the inline-SMS Text button on CustomerProfile can ship in SP3 with the safeguards (env present, outboundSMSEnabled, rate limit) already in place.
 - **Dependencies:** SP1 (needs Customer entity to resolve)
-- **Ships value when:** Owner connects their Quo number in Settings → Integrations, MSOS ops flips the env flag, owner places a test call to the Quo line from a known customer's phone, and within 1s sees a `incomingCalls/{id}` doc in Firestore with `customerId` resolved + vehicle snapshot. Foundational plumbing done. Until the operator opts in, this SP is invisible.
+- **Ships value when:** Owner connects their Twilio number in Settings → Communications, MSOS ops flips the env flag, owner places a test call to the Twilio line from a known customer's phone, and within 1s sees an `incomingCalls/{CallSid}` doc in Firestore with `customerId` resolved + vehicle snapshot. Owner sends a test SMS via the new Text inline UI and watches a `communicationEvents` row land. Foundational plumbing done. Until the operator opts in, this SP is invisible.
 
 ### SP5 — Missed-call workflow + Leads
 
 - **Phases covered:** **P13 (Missed Call framework), P14 (Communication Logging — leads/send side)**
-- **Scope:** `quoWebhook` adds Lead creation on `call.missed` (transactional dedup so two parallel webhooks for the same caller don't race-create two leads — read-then-create inside `runTransaction` keyed on `(phoneKey, createdAt window)`), `src/pages/Leads.tsx`, `Lead` type added, MoreSheet tab entry, in-app toast notification on missed call (uses existing `addActionToast` bus), **"Attach to customer" manual link action** for unknown-caller leads (typeahead picks a Customer; updates both `leads.customerId` and the originating `incomingCalls.customerId`).
+- **Scope:** `twilioCallStatus` adds Lead creation on `CallStatus=no-answer|busy|failed` (transactional dedup so two parallel webhooks for the same caller don't race-create two leads — read-then-create inside `runTransaction` keyed on `(phoneKey, createdAt window)`); `missedCallEvents` writes on every miss; `src/pages/Leads.tsx`, `Lead` type added, MoreSheet tab entry, in-app toast notification on missed call (uses existing `addActionToast` bus), missed-call feed surfaced via `missedCallEvents` listener, **"Attach to customer" manual link action** for unknown-caller leads (typeahead picks a Customer; updates both `leads.customerId` and the originating `incomingCalls.customerId`).
 - **Rationale:** Builds on SP4 webhook plumbing. Missed calls stop vanishing; operators can work the funnel.
 - **Dependencies:** SP4
 - **Ships value when:** Every missed call to the business number creates a Lead row that any operator can act on. Known customers' missed calls show their name; unknown numbers are first-touch leads. The toast surfaces them in real time when the tab is foregrounded. Lead dedup contract: a missed call from the same `phoneKey` within 7d updates the existing lead's `lastMissedCallAt` and increments `missedCallCount` instead of creating a duplicate row.
 
-### SP6 — Incoming Call Popup (headline feature)
+### SP6 — Incoming Call Popup (headline feature) + New Caller card
 
 - **Phases covered:** **P12 (Incoming Call Popup)**
-- **Scope:** `src/lib/useIncomingCallListener.ts`, `src/components/IncomingCallModal.tsx`, `src/App.tsx` listener attach + modal render, `/public/sounds/ringtone.mp3` asset. **Accept and Decline are Firestore transactions** with the "already answered by {name}" losing-device UX. Disambiguation sheet for shared-phone matches (renders `customersSnapshot[]` and writes the picked `customerId` back via the update-allowed field). Audio autoplay unlock via a one-time pointer listener on App mount.
-- **Rationale:** The headline. Ships last because it depends on Customer entity (SP1), CustomerProfile for "Open Profile" deep-link (SP3), and the webhook pipeline (SP4). Documents the backgrounded-tab gap and the SP5 toast-fallback compensating control.
+- **Scope:** `src/lib/useIncomingCallListener.ts`, `src/components/IncomingCallModal.tsx`, `src/App.tsx` listener attach + modal render, `/public/sounds/ringtone.mp3` asset. **Accept and Decline are Firestore transactions** with the "already answered by {name}" losing-device UX. Disambiguation sheet for shared-phone matches (renders `customersSnapshot[]` and writes the picked `customerId` back via the update-allowed field). **v3 NEW: New Caller card variant** — when `customersSnapshot.length === 0`, popup shows "NEW CALLER" with the formatted phone number and three buttons: **Create Customer** (opens CustomerProfile in new-customer mode with phone pre-filled), **Create Job** (opens AddJob with customerPhone pre-filled), **Text Back** (opens the inline send-SMS UI that calls `sendSMS` from SP4). Audio autoplay unlock via a one-time pointer listener on App mount.
+- **Rationale:** The headline. Ships last because it depends on Customer entity (SP1), CustomerProfile for "Open Profile" deep-link (SP3), and the webhook pipeline (SP4). The New Caller variant lands here (not SP3) because it's a popup-resident affordance triggered by webhook-driven state. Documents the backgrounded-tab gap and the SP5 toast-fallback compensating control.
 - **Dependencies:** SP1, SP3, SP4
-- **Ships value when:** Customer calls business number → within 1-2s on every foregrounded MSOS device a popup appears showing caller name, vehicle, last service, with Accept / Decline / Open Profile / Create Job and a ringtone. The full headline goal delivered.
+- **Ships value when:** Customer calls business number → within 1-2s on every foregrounded MSOS device a popup appears showing caller name, vehicle, last service, with Accept / Decline / Open Profile / Create Job and a ringtone. Unknown callers get the NEW CALLER card with the three quick actions. The full headline goal delivered.
 
 ### SP7 — Future-ready seams (optional follow-up)
 
-- **Phases covered:** **P18 (Future AI foundation) + extensions to P11 (outbound OpenPhone), P14 (auto-text-back)**
-- **Scope:** Per-item; not a single bundle. Items: (a) surface `recordingUrl` and `transcript` in CustomerProfile post-call section (gated by NEW `canViewRecordings` flag); (b) FCM web push for background delivery (firebase/messaging, sw.js push handler, token table, VAPID); (c) auto-text-back on missed call via Quo `/v1/messages` (per-business toggle in Settings); (d) AI receptionist hook on `transcript` write; (e) admin "Merge customers" tool for the customer-changes-phone-number case (rewrites every Job's `customerId` from source → target, sums rollup counters, concatenates notes, unions tags, then soft-deletes the source).
+- **Phases covered:** **P18 (Future AI foundation) + extensions to P11 (Answer-in-MSOS, recordings, transcripts), P14 (auto-text-back via `autoTextRules`)**
+- **Scope:** Per-item; not a single bundle. Items: (a) surface `recordingUrl` and `transcript` in CustomerProfile post-call section (gated by NEW `canViewRecordings` flag; requires enabling Twilio `<Record>` + Voice Intelligence transcripts); (b) FCM web push for background delivery (firebase/messaging, sw.js push handler, token table, VAPID); (c) **rules-based auto-text-back on missed call via `sendSMS` + `autoTextRules` engine** (the `sendSMS` callable already ships in SP4; SP7 builds the rule evaluator and rule-creation UI); (d) AI receptionist hook on `transcript` write; (e) "Answer in MSOS" using Twilio Programmable Voice client SDK so operators can take calls inside the app instead of via Twilio's call forwarding; (f) admin "Merge customers" tool for the customer-changes-phone-number case (rewrites every Job's `customerId` from source → target, sums rollup counters, concatenates notes, unions tags, then soft-deletes the source); (g) outbound SMS bulk-send + scheduled-send + templated quick-replies.
 - **Rationale:** Not required for the user's stated goal. Each item ships independently as ROI dictates.
 - **Dependencies:** SP6
 - **Ships value when:** Each item ships individually — auto-text-back in <1 week; FCM in 2-3 weeks; AI receptionist in a separate quarter-scoped project; customer-merge tool when the first split is reported.
@@ -1899,17 +2391,19 @@ Each sub-project is shippable in isolation. The order minimizes risk and accumul
 ### SP7.5 — GDPR/CCPA hard-delete + customer audit log
 
 - **Phases covered:** compliance follow-up
-- **Scope:** "Forget customer (GDPR)" owner-only action with hard cascade (tombstone `customerName`/phone/email/city/state on related Jobs while preserving financial fields for tax compliance; delete `vehicles`/`leads`/`incomingCalls` scrubbed); Firestore trigger Cloud Function populating `businesses/{bid}/customers/{cid}/audits/{auditId}` on every customer doc change; Quo API call to delete the upstream recording for any `recordingUrl` referenced from scrubbed `incomingCalls`; operator-facing compliance log surface in Settings.
+- **Scope:** "Forget customer (GDPR)" owner-only action with hard cascade (tombstone `customerName`/phone/email/city/state on related Jobs while preserving financial fields for tax compliance; delete `vehicles`/`leads`/`incomingCalls`/`communicationEvents`/`missedCallEvents`/`callerLookupEvents` scrubbed for the customer); Firestore trigger Cloud Function populating `businesses/{bid}/customers/{cid}/audits/{auditId}` on every customer doc change; Twilio REST API call to delete any upstream recording for any `recordingUrl` referenced from scrubbed `incomingCalls`; operator-facing compliance log surface in Settings.
 - **Rationale:** Soft-delete in v1 is operator UX only and does NOT satisfy regulatory deletion requests. This follow-up closes the compliance gap before MSOS markets to GDPR-regulated jurisdictions or any business that explicitly requires CCPA conformance.
-- **Dependencies:** SP3 (Customer profile + soft-delete UI), SP4 (recording URL persistence)
-- **Ships value when:** Owner can invoke "Forget customer" from CustomerProfile and the request flows through to (a) MSOS Firestore tombstoning, (b) Quo CDN recording deletion, (c) an audit-log entry the operator can show a regulator.
+- **Dependencies:** SP3 (Customer profile + soft-delete UI), SP4 (recording URL persistence if/when Twilio recordings are enabled)
+- **Ships value when:** Owner can invoke "Forget customer" from CustomerProfile and the request flows through to (a) MSOS Firestore tombstoning, (b) Twilio recording deletion via REST API, (c) an audit-log entry the operator can show a regulator.
 
 ---
 
 ## Out of Scope (this spec)
 
 - No production code yet (design only)
-- No live OpenPhone secrets / no real webhook deployment yet
+- No live Twilio secrets / no real webhook deployment yet
+- **No Twilio number provisioning automation** — operator owns the number in Twilio's console and provides the credentials. MSOS does not call Twilio's incoming-number provisioning API.
+- **No multi-channel messaging (WhatsApp, MMS, RCS) in v1** — text-only SMS via Twilio Messaging Service / Twilio Phone Number. The provider abstraction permits adding channels later.
 - ~~No backfill of historical jobs into the Customer collection~~ **— now IN SCOPE as Phase 3, lands in SP3 via the `backfillCustomers` Cloud Function + Settings admin button. Per user answer #3.**
 - ~~Address capture in AddJob deferred to SP3~~ **— now IN SCOPE in SP2 (AddJob step 7 Location) via `AddressAutofillInput`. Per user answer #5.**
 - No outbound SMS sending (P13 is backend logging only; outbound is SP7)
@@ -1919,15 +2413,16 @@ Each sub-project is shippable in isolation. The order minimizes risk and accumul
 - No customer-changes-phone-number auto-merge — phone change in v1 creates a SECOND Customer doc (history splits); admin merge tool is SP7.
 - No customer-changes-phone-number auto-detection UI — operator notices via the duplicate row in Customers.
 - No multi-country phone normalization — US default only. International, extension, and vanity inputs are explicitly REJECTED by `normalizePhone` (return `valid: false`) in v1.
-- **No outbound Quo API for Call/Text buttons in v1 — native `tel:` / `sms:` only.** Per-business OpenPhone outbound toggle (`outboundCommunicationProvider: 'native' | 'openphone'`) is SP7 (P11 extension). Schema field shaped in v1; behavior change ships in SP7. Per user answer #6.
+- **Call button in v1 always uses native `tel:`** — "Answer in MSOS" via Twilio Programmable Voice client SDK is SP7. Text button in v1 uses `sendSMS` when Twilio is configured, else falls back to native `sms:`.
+- **No AI receptionist / TwiML `<Say>` / `<Gather>` / `<Dial>` verbs in v1** — the voice webhook returns a minimal `<Pause length="1"/>` and the call rings through to the operator's actual phone via Twilio's number-level call forwarding. SP7 may evolve this.
 - **No service-vertical-specific search filters in P5 global search — search is field-agnostic across all verticals.** Vertical-specific power-search filters (e.g. "show only Platinum-tier tire customers in Hollywood") are SP7.
 - **No client-side or server-side fuzzy/typo-tolerant search in v1** — substring/prefix matching only. Full-text via Algolia / Meilisearch deferred to SP7 if Wheel Rush feedback indicates real demand.
 - No new permission flags in v1 — existing `Permissions` map suffices. (`canViewRecordings` is added in SP7.)
-- **No per-customer GDPR/CCPA hard-delete in v1.** The CustomerProfile "Delete" button is SOFT-DELETE only (operator UX affordance). Hard-delete with Job tombstoning, Quo recording removal, and audit logging is SP7.5. Businesses receiving GDPR/CCPA erasure requests before SP7.5 ships must run the operation manually via Firestore console.
+- **No per-customer GDPR/CCPA hard-delete in v1.** The CustomerProfile "Delete" button is SOFT-DELETE only (operator UX affordance). Hard-delete with Job tombstoning, Twilio recording removal, and audit logging is SP7.5. Businesses receiving GDPR/CCPA erasure requests before SP7.5 ships must run the operation manually via Firestore console.
 - No full customer-change diff audit log in v1 — only `lastEditedByUid` / `lastEditedAt` is captured. Full before/after diff log is SP7.5.
 - No CMEK encryption for plaintext PII (phones, transcripts) — Google-managed at-rest encryption is the v1 protection model.
 - No Cloud Armor / App Check / IP allowlist on the webhook — `maxInstances: 10` + HMAC + replay window + kill switch is the v1 defense.
-- No automatic two-party-consent recording disclosure — operator's regulatory responsibility, surfaced via a Settings notice and link to Quo's docs.
+- No automatic two-party-consent recording disclosure — operator's regulatory responsibility, surfaced via a Settings notice and link to Twilio's recording-compliance docs when recordings are eventually enabled.
 - **No per-business VIP threshold overrides in v1** — Gold $1,000+ / Platinum $2,500+ are hardcoded thresholds. Per-business `settings.vipThresholds` deferred to SP7.
 - **No external address-autocomplete API in v1** — `AddressAutofillInput` ships a bundled US ZIP → city/state JSON dataset (~200 KB gzipped, ~40k US ZIPs). Operator types ZIP first; city/state autofill; street `addressLine` is free-text. No street-level address validation in v1. Google Places API integration is an SP7 follow-up; it requires `GOOGLE_PLACES_API_KEY` and a per-tenant privacy-policy update since customer addresses would then be sent to Google for autocomplete.
 
@@ -1937,7 +2432,7 @@ Each sub-project is shippable in isolation. The order minimizes risk and accumul
 
 ### Resolved in v2 (user-answered)
 
-1. **Quo account / API access:** ✓ **RESOLVED — v2.** User answer: *"Not yet. Will purchase OpenPhone Business plan. Architecture must work WITHOUT OpenPhone initially and be activatable later via feature flag with minimal code changes."* → SP4 ships with `QUO_WEBHOOK_ENABLED=false` (global) and `settings.openphoneConnected=false` (per-business). SP1-SP3 ship and provide full value without OpenPhone. See *OpenPhone-Optional Architecture*.
+1. **Communications provider / API access:** ✓ **RESOLVED — v3.** User answer: *"Twilio is now the primary communications provider. Already has Twilio account + provisioned number."* → SP4 ships with `TWILIO_WEBHOOK_ENABLED=false` (global kill switch) and `settings.twilioConnected=false` (per-business) by default. SP1-SP3 ship and provide full value without Twilio configuration. See *Twilio-Optional Architecture*.
 
 2. **Multi-line / multi-tech routing:** ✓ **RESOLVED in v1 spec** — see *Multi-operator delivery rule — resolved* under Real-Time Popup Delivery.
 
@@ -1949,9 +2444,9 @@ Each sub-project is shippable in isolation. The order minimizes risk and accumul
 
 6. **Address capture in AddJob:** ✓ **RESOLVED — v2.** User answer: *"YES. Add customer address lookup + autofill in AddJob workflow."* → `AddressAutofillInput` lands in SP2 at AddJob step 7 (Location). Lightweight US-ZIP lookup in v1; Google Places deferred to SP7.
 
-7. **Quo Beta system signup:** ✓ **RESOLVED — v2.** User answer: *"Operator confirms ability to enable Beta when account is provisioned. Build using webhooks + feature flags."* → SP4 builds against Quo Beta; activation is config-only when operator provisions account.
+7. **Webhook signature verification:** ✓ **RESOLVED — v3.** Twilio uses `X-Twilio-Signature` (HMAC-SHA1 of URL + sorted POST params, base64-encoded, timing-safe compare). No timestamp signed; replay defense is idempotency + retry window. Algorithm verified against [Twilio's security docs](https://www.twilio.com/docs/usage/security). See *Twilio webhook signature verification*.
 
-8. **Outgoing call/SMS UX:** ✓ **RESOLVED — v2.** User answer: *"Phase 1 uses device-native `tel:` and `sms:` schemes. Admins can LATER choose OpenPhone API as an optional communication provider (per-business toggle)."* → v1 always uses native; SP7 adds `outboundCommunicationProvider: 'native' | 'openphone'` toggle. Schema field shaped in v1.
+8. **Outgoing call/SMS UX:** ✓ **RESOLVED — v3.** Call always uses `tel:` (SP7 may add Answer-in-MSOS via Twilio Voice client SDK). Text uses Twilio `sendSMS` when `twilioConnected && outboundSMSEnabled`, else falls back to native `sms:`. v3 introduces Provider Abstraction Layer so future providers add without schema/UI changes.
 
 9. **Customer entity ID strategy:** ✓ **RESOLVED in v1 spec** — `p_<11-digit>` canonical; legacy `p_<10-digit>` migrated by SP3 backfill (now confirmed).
 
@@ -1965,15 +2460,19 @@ B. **Customer Insights card (new P9):** ✓ **CONFIRMED.** 9 metrics with VIP ti
 
 C. **Auto-save customers toggle (new P17):** ✓ **CONFIRMED.** Default ON. Settings → Customer Directory accordion. Owner/admin only. Schema lands in SP1; toggle UI lands in SP3. See *Auto-Save Customers Setting (Phase 17)*.
 
-### Remaining open questions (NEW, surfaced by v2 additions)
+### Remaining open questions (NEW, surfaced by v2 additions + v3 pivot)
 
-The v2 additions surface three small follow-up decisions. None are blockers for sign-off; the spec ships with the recommended defaults. User can override any of them.
+The v2 additions surfaced three follow-up decisions. v3 adds two more. None are blockers for sign-off; the spec ships with the recommended defaults. User can override any of them.
 
 11. **Backfill execution timing.** When should the operator run the SP3 backfill — immediately on SP3 deploy, or after a few days of dogfooding the new CustomerProfile against new-write data? **Recommendation:** run immediately on SP3 deploy. The audit doc + dry-run mode gives the operator confidence; running early means CustomerProfile shows real history from day 1 instead of growing organically.
 
 12. **VIP tier threshold confirmation.** Gold $1,000+ / Platinum $2,500+ are tuned for Wheel Rush's average ticket (~$400-600). Does the operator want these to be **business-configurable from day 1** (Settings field) or **hardcoded in v1, with override deferred to SP7**? **Recommendation:** hardcode in v1; ship the override in SP7 once we see whether other tenants in higher-AOV verticals (mechanic engine work, detailing packages) need it.
 
 13. **Settings accordion placement for "Customer Directory" section.** Add as a new top-level accordion in Settings, or nest under the existing "Operations" section? **Recommendation:** new top-level section labeled "Customer Directory" — it's a coherent feature pile (auto-save toggle + backfill button + future retention-campaign opt-ins) and deserves its own surface.
+
+14. **(v3 NEW) Twilio number identification & registration.** The operator owns a Twilio account + provisioned number, but the spec needs the operator to (a) confirm which specific Twilio number is the business line, (b) provide the corresponding Twilio Phone Number SID (`PNxxxx`) for the connect form. **Operator action required** — no MSOS-side automation. The Settings → Communications → Connect form copy must include a "Find your Phone Number SID in the Twilio console at console.twilio.com/us1/develop/phone-numbers/manage/incoming" pointer.
+
+15. **(v3 NEW) Twilio call forwarding confirmation.** The voice webhook's TwiML `<Pause length="1"/>` response works only when the operator has separately configured Twilio's number-level call forwarding to ring their mobile phone. **Operator action required** — confirm that the Twilio number's voice configuration includes a TwiML Bin or a SIP/PSTN forward to the operator's actual mobile. The SP4 connect-form UI should display a checklist confirming all four URL configurations (VoiceUrl → twilioIncomingCall, StatusCallback → twilioCallStatus, MessagingUrl → twilioIncomingSMS, plus the call-forwarding TwiML) and require an "I've configured these" acknowledgement before flipping `settings.twilioConnected = true`.
 
 ---
 
@@ -2178,3 +2677,115 @@ The following minor issues from either review are judgment calls that the user (
 ### Strengths preserved (no edits)
 
 - OpenPhone-optional two-layer gating, Concurrency Contract on `upsertCustomerFromJob`, Webhook tenant-isolation invariants, Vertical-agnostic Vehicle sub-objects, Soft-delete vs. SP7.5 GDPR/CCPA split, Cross-device Accept/Decline race contract — all flagged as strengths by both reviewers; no changes.
+
+---
+
+## v3 Update Log
+
+This pass pivots the v2 communications layer from Quo (formerly OpenPhone) to Twilio. The user provided 16 new requirements; all are folded into the spec body. The customer/vehicle/search/insights/AddJob/RBAC architecture is unchanged; the provider layer is rewritten end-to-end. v2's `Review Pass 1` / `Review Pass 2` sections are preserved as historical records — they accurately describe v2's design at sign-off and contextualize the v3 deltas below.
+
+### Header / framing changes
+
+- Title changed: "OpenPhone Integration + Customer Intelligence System — Design" → "Twilio Integration + Customer Intelligence System — Design".
+- Status flipped: `v2 — user-answered, pending final approval` → `v3 — Twilio pivot (OpenPhone/Quo removed), pending user approval`.
+- Added a v3 framing paragraph below the scope line explaining the provider abstraction posture.
+
+### User Answers section
+
+- Q1 rewritten: "Quo/OpenPhone account: will purchase Business plan" → "Twilio is now the primary communications provider; user already has Twilio account + provisioned number".
+- Q2 rewritten: "Beta webhook system: Standard Webhooks signing" → "Twilio webhook signature verification (HMAC-SHA1, X-Twilio-Signature)".
+- Q6 rewritten: "Phase 1 native tel:/sms:; SP7 OpenPhone API option" → "Twilio is THE provider; provider abstraction permits future additions; v1 Call uses tel:; v1 Text uses Twilio sendSMS when configured, native sms: fallback".
+- Q3/Q4/Q5 preserved verbatim from v2 (no v3-impacting changes).
+
+### Goal & Success Criteria
+
+- Rewrote item 3 of the implementation-terms list: removed `quoWebhook` single-handler description; replaced with three-endpoint Twilio model (`twilioIncomingCall`, `twilioIncomingSMS`, `twilioCallStatus`) and added the critical out-of-band-popup architecture note.
+- Rewrote v2's "OpenPhone is optional" scope addition as "Twilio is optional at the MSOS layer" — added success criterion #12: MSOS must function with zero Twilio config.
+
+### Architecture Overview
+
+- End-to-end call-flow diagram replaced from Quo-Beta-single-webhook flow to Twilio-three-webhook + concurrent-call-forwarding flow.
+- Added explicit "voice webhook does NOT route the call" architecture note: Twilio's number-level call forwarding rings the operator's phone; MSOS popup is an out-of-band signal.
+
+### Data Model
+
+- **incomingCalls schema:** `quoCallId` → `twilioCallSid`. Added `provider: 'twilio'` field. Updated lookup-fallback notes for Twilio's single-user-per-call model.
+- **customerStatus enum (v3 update):** added `'VIP'` as a manual-only operator override. Distinct from `vipTier` which remains a derived revenue tier.
+- **Vehicle schema (v3 reversal):** v2 hoisted tire fields into `vehicle.tire.*` sub-object; v3 puts them back at TOP-LEVEL (`tireSize`, `alternateTireSize`, `tireBrand`, `tireCondition`, `tpmsNotes`, `wheelLockNotes`). Vertical-agnostic principle preserved: non-tire verticals leave these unset. Removed the `vehicle.tire` / `vehicle.mechanic` / `vehicle.detailing` sub-object structure.
+- **Removed collections:** `quoPhoneNumbers`, `quoWebhookEvents`, `quoUserMapping`, `quoSyncCursors`, `quoPhoneNumberOwnershipAudits` → `twilioPhoneNumbers`, `twilioWebhookEvents`, (nothing replaces quoUserMapping — Twilio has no analogue), `twilioSyncCursors`, `twilioPhoneNumberOwnershipAudits`. The `twilioWebhookEvents` idempotency key is now `${endpoint}:${CallSid|MessageSid}` to allow the voice/status webhooks for the same CallSid to coexist.
+- **New collections (v3):** `communicationEvents` (unified customer timeline of calls + texts), `callerLookupEvents` (telemetry / audit of every popup-pipeline lookup), `missedCallEvents` (every miss notification, separate from `leads`), `autoTextRules` (schema-only; SP7 rules engine).
+- **Settings schema:** removed `openphoneConnected`; added `twilioConnected`, `communicationProvider: 'twilio'` (read-only label), `incomingCallLookupEnabled`, `incomingSMSLoggingEnabled`, `missedCallAutoTextEnabled`, `outboundSMSEnabled`. Updated `outboundCommunicationProvider` enum to `'native' | 'twilio'`.
+- **Customer + Vehicle:** reaffirmed `updatedAt` as explicit field per user requirement #3 + #4.
+- **Indexes:** added `tireSize` top-level (was `tire.size` in v2); added indexes for the four v3 new collections.
+
+### Provider Abstraction Layer (NEW section)
+
+- New section "Provider Abstraction Layer (v3)" inserted before Twilio Integration. Defines interface `CommunicationProvider` with `handleIncomingCall`, `handleIncomingSMS`, `handleCallStatusUpdate`, `sendSMS`, `verifySignature`, `buildAcceptResponse`. Documents registry pattern. Explains why abstraction is at business-logic layer (not HTTP route layer). Notes that `lookupCustomerByPhone` lives at customer layer, not provider layer.
+
+### Twilio Integration (full rewrite)
+
+- Renamed section "OpenPhone Integration" → "Twilio Integration". Renamed sub-section "OpenPhone-Optional Architecture (v2)" → "Twilio-Optional Architecture (v3)".
+- **Replaced single `quoWebhook` endpoint** with three Twilio endpoints (`twilioIncomingCall`, `twilioIncomingSMS`, `twilioCallStatus`) — each with its own URL, payload shape, idempotency key, and response shape. Documented form-encoded payloads (vs JSON for Quo).
+- **TwiML responses:** voice returns `<Response><Pause length="1"/></Response>`; SMS returns `<Response/>`; status callback returns 200 + empty body. Documented why minimal TwiML keeps the call forwarding intact (no AI receptionist in v1).
+- **Signature verification rewritten:** HMAC-SHA1 (not SHA256), `X-Twilio-Signature` header (not `webhook-signature`), signed content is `URL + sorted POST params (key+value concatenated)` (not `webhook-id.timestamp.rawBody`), base64-encoded, timing-safe compare. Algorithm verified against Twilio's docs. No timestamp signed — replay defense is idempotency + retry window.
+- **Idempotency key:** compound key `${endpoint}:${CallSid|MessageSid}` (not just `webhook-id`).
+- **Secret management:** new env vars `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`, optional `TWILIO_MESSAGING_SERVICE_SID` + `TWILIO_WEBHOOK_SECRET`. Removed `QUO_WEBHOOK_SIGNING_KEY` + `QUO_API_KEY`.
+- **Kill switch renamed:** `QUO_WEBHOOK_ENABLED` → `TWILIO_WEBHOOK_ENABLED` (default `'false'`).
+- **Per-business sender resolution:** Messaging Service SID > global `TWILIO_PHONE_NUMBER`.
+- **Customer resolution pseudocode rewritten:** all Quo payload paths replaced with Twilio `From` / `To` / `CallSid`. Vehicle snapshot now picks `tireSize` / `tireBrand` (top-level) instead of `tire: {...}`. Added telemetry write to `callerLookupEvents`. Added mirror write to `communicationEvents`. Removed `quoUserMapping` per-call routing branch.
+- **New subsection: Outbound SMS (sendSMS):** Firebase callable, owner/admin only, safeguards (env present / `outboundSMSEnabled` / phone valid / message length / rate limit). Logs every send to `communicationEvents`. Returns `messageSid + status`. Graceful "Twilio not configured" failure.
+
+### Communications Settings (NEW section)
+
+- New section between "Auto-Save Customers Setting" and "Backfill Existing Jobs" — defines the Settings → Communications accordion (replaces v2's "Settings → Integrations → Connect OpenPhone" surface). Lists the four toggles + read-only provider label + connect form + derived connected-status display. Cross-links the existing Customer Directory auto-save toggle. Lands in SP4.
+
+### Incoming Call Popup — New Caller variant
+
+- Added New Caller render contract: when `customersSnapshot.length === 0`, popup shows the phone number + three buttons: Create Customer, Create Job, Text Back (uses `sendSMS` when configured, else native `sms:`). Distinct from the shared-phone disambiguation sheet.
+
+### Customer Profile Actions
+
+- Call (#3): updated note from v2's "SP7 outboundCommunicationProvider=openphone" to v3's "SP7 Answer-in-MSOS via Twilio Voice client SDK".
+- Text (#4): rewrote from v2's "always native sms:" to v3's "default uses Twilio sendSMS when twilioConnected && outboundSMSEnabled; native sms: fallback".
+
+### Future-Ready Seams
+
+- Updated auto-text-back row: now references `autoTextRules` collection (schema in v1) + `sendSMS` callable (v1) — SP7 only builds the rule evaluator.
+- Updated two-way SMS thread row: notes `communicationEvents` already structures the data; SP7 only adds the UI.
+- Updated FCM row: references `twilioIncomingCall` not `quoWebhook`.
+- Replaced "Per-business OpenPhone toggle" seam with "Per-business Twilio integration" seam (all flags shaped in v1).
+
+### Ship Order
+
+- **SP1:** Settings schema expanded to include all v3 communications flags (schema only; no UI).
+- **SP4 fully renamed:** "Quo webhook + idempotency + business-number mapping" → "Twilio webhooks (3 endpoints) + sendSMS + provider abstraction + business-number mapping". Scope expanded to include the three webhook endpoints, `sendSMS` callable, provider abstraction files, four new collections' rules, the v3 Settings panel. `TWILIO_WEBHOOK_ENABLED=false` + `settings.twilioConnected=false` default. Operator activation flow rewritten (no `whsec_` key paste; instead SID + E.164 + Twilio console URL configuration).
+- **SP5:** Lead-creation trigger moved from `call.missed` Beta event to `twilioCallStatus` callback with `CallStatus=no-answer|busy|failed`. Adds `missedCallEvents` writes.
+- **SP6:** New Caller card variant added to scope explicitly.
+- **SP7:** Outbound SMS bulk-send + templates + scheduled-sends added. AI receptionist + Answer-in-MSOS added. Auto-text-back now driven by the `autoTextRules` engine (v1 has the schema; SP7 has the evaluator).
+- **SP7.5:** Twilio REST API recording-delete in cascade; communicationEvents/missedCallEvents/callerLookupEvents added to the per-customer scrub list.
+
+### Out of Scope
+
+- Added: "No Twilio number provisioning automation — operator owns the number in Twilio's console."
+- Added: "No multi-channel messaging (WhatsApp, MMS, RCS) in v1 — text-only SMS."
+- Added: "No AI receptionist / TwiML `<Say>` / `<Gather>` / `<Dial>` verbs in v1 — minimal TwiML pause keeps call forwarding intact."
+- Rewrote Quo-specific outbound-API line to reflect v3's `sendSMS` for Text + tel: for Call posture.
+- Updated GDPR section to reference Twilio recording deletion via REST API (not Quo CDN).
+- Updated two-party-consent recording disclosure language to reference Twilio's compliance docs.
+
+### Open Questions
+
+- Q1 rewritten as RESOLVED with Twilio account confirmation.
+- Q7 rewritten from "Quo Beta signup" to "Webhook signature verification algorithm" (HMAC-SHA1 documented and verified).
+- Q8 rewritten from "outboundCommunicationProvider: 'native' | 'openphone'" to "Call uses tel:; Text uses sendSMS when configured".
+- Added Q14 (Twilio number identification + Phone Number SID — operator action) and Q15 (call forwarding configuration confirmation — operator action). Both are operator-side actions, not MSOS-side decisions.
+
+### Spec coverage summary
+
+- 18 marketed phases (unchanged from v2).
+- 8 sub-projects (unchanged: SP1, SP2, SP3, SP4, SP5, SP6, SP7, SP7.5).
+- 0 new sub-projects in v3 — the Twilio pivot fit cleanly inside SP4's expanded scope.
+- 4 new Firestore collections (`communicationEvents`, `callerLookupEvents`, `missedCallEvents`, `autoTextRules`).
+- 5 new Cloud Functions (`twilioIncomingCall`, `twilioIncomingSMS`, `twilioCallStatus`, `sendSMS`, `adminConnectTwilioNumber`). 1 new scheduled function (`reconcileTwilioCalls`). 2 new helper libraries (`communicationProvider`, `twilioClient`).
+- 1 architectural reversal vs v2: Vehicle tire fields are TOP-LEVEL again (not `vehicle.tire.*` sub-object).
+- 0 backward-incompatible changes to v2 customer/vehicle/job/search/insights/AddJob/RBAC architecture.
