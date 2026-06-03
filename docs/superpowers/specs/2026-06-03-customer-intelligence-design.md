@@ -1,8 +1,31 @@
 # OpenPhone Integration + Customer Intelligence System — Design
 
 **Date:** 2026-06-03
-**Status:** Draft — pending user approval
-**Scope:** Full architecture for user phases 1-12. This spec defines the data model, integration points, security model, and sub-project shipping order. Each sub-project will get its own dedicated implementation plan after the user signs off on this architecture.
+**Status:** v2 — user-answered, pending final approval
+**Scope:** Full architecture for user phases 1-18. This spec defines the data model, integration points, security model, and sub-project shipping order. Each sub-project will get its own dedicated implementation plan after the user signs off on this architecture.
+
+---
+
+## User Answers to Open Questions (resolved) — v2 changelog
+
+The user reviewed v1 and provided the following verbatim answers. Every item below has been folded into the spec body (Data Model, AddJob Workflow, Customer Profile Actions, OpenPhone Integration, Ship Order). This section is preserved as a permanent changelog so future readers can trace why certain decisions were made.
+
+1. **Quo/OpenPhone account:** *"Not yet. Will purchase OpenPhone Business plan. Architecture must work WITHOUT OpenPhone initially and be activatable later via feature flag with minimal code changes."* → SP4 ships with `QUO_WEBHOOK_ENABLED=false` and a per-business `settings.openphoneConnected` toggle. See *OpenPhone-Optional Architecture*.
+2. **Beta webhook system:** *"Yes — operator confirms ability to enable Beta when account is provisioned. Build using webhooks + feature flags."* → SP4 builds against Quo Beta payload shape; legacy fallback retained in the same handler.
+3. **Backfill existing jobs:** *"YES. Scan all existing jobs, create Customer profiles from historical data using phone number as primary identifier, auto-merge duplicates where possible. No existing data lost."* → New Phase 3 (P3) lands in SP3 as a one-shot `backfillCustomers` Cloud Function triggered from Settings. See *Backfill Existing Jobs (P3)*.
+4. **Missed-call SMS auto-text:** *"Defer to Phase 7 (SP7). Build the architecture only. No automated outbound texts yet."* → Unchanged from v1 recommendation; explicitly recorded here.
+5. **Address input in AddJob:** *"YES. Add customer address lookup + autofill in AddJob workflow."* → New `AddressAutofillInput` component lands in SP2 at AddJob step 7 (Location). See *AddJob Workflow Change*.
+6. **Outgoing Call/Text buttons:** *"Phase 1 uses device-native tel: and sms: schemes. Admins can LATER choose OpenPhone API as an optional communication provider (per-business toggle)."* → v1 ships native `tel:` / `sms:` only; SP7 adds per-business `outboundCommunicationProvider` setting.
+
+**Three NEW first-class requirements added by the user:**
+
+A. **Global Customer Search** — universal search accessible from main nav. Fields: phone, customer name, company name, vehicle make, vehicle model, license plate, tire size, city, zip code. Sub-300ms target on Wheel Rush-scale dataset. Lands in SP3 as Phase 5 (P5). See *Global Customer Search*.
+
+B. **Customer Insights card on Customer Profile** — Lifetime Revenue, Total Jobs, Average Ticket, Last Service Date, Most Common Vehicle, Most Common Tire Size, Most Common Service Type, Referral Count (schema-only), VIP Tier badge (Gold $1,000+, Platinum $2,500+). Lands in SP3 as Phase 9 (P9). See *Customer Insights Card (Phase 9)*.
+
+C. **"Auto-save customers from completed jobs" toggle in Settings** — default ON. When OFF, `saveJob` skips `upsertCustomerFromJob`. Schema field lands in SP1; toggle UI lands in SP3 inside a new "Customer Directory" Settings accordion. Lands as Phase 17 (P17). See *Auto-Save Customers Setting (Phase 17)*.
+
+**Vertical-agnostic framing (architectural principle):** the system must work for ALL MSOS verticals from day 1 — mobile tire, roadside assistance, mobile mechanics, car wash / detailing, and future categories — not just tire. The Customer entity is fully vertical-agnostic. The Vehicle entity has a universal core (`year`, `make`, `model`, `trim`, `color`, `vin`, `licensePlate`) plus per-vertical sub-objects (`vehicle.tire`, `vehicle.mechanic`, `vehicle.detailing`). The Customer Timeline displays service-type labels via the active vertical's service catalog rather than hardcoded strings. See *Vertical-Agnostic Entity Design*.
 
 ---
 
@@ -23,6 +46,14 @@ Restated in implementation terms:
 7. **Future-ready.** Call recording, transcript, AI receptionist, auto-text-back, and FCM background push all have named seams in the schema and component graph; none ship in v1.
 
 Success is binary per sub-project (see *Ship Order*); the headline success criterion is: **a customer calls the business number, and within 2 seconds every foregrounded MSOS device shows the caller's name, vehicle, last service date, and Accept / Create Job / Open Profile buttons.**
+
+### v2 scope additions (from user answers)
+
+The scope is broadened in three architectural directions without changing the headline success criterion:
+
+1. **OpenPhone is optional in v1.** The entire SP1-SP3 customer-intelligence value chain (entities, lookup, profile, search, insights, backfill, settings toggle) ships **without** an OpenPhone account. SP4-SP6 (webhook, missed calls, popup) are gated behind `QUO_WEBHOOK_ENABLED` (global) and `settings.openphoneConnected` (per-business). When neither is set, the IncomingCallModal listener never attaches, the Leads page is empty, and Settings → Integrations shows a "Connect OpenPhone" CTA. The operator buys a Quo Business plan and flips both flags at their own pace.
+2. **The entity model is vertical-agnostic.** Customer is fully universal. Vehicle has a universal core (year/make/model/trim/color/vin/licensePlate) plus per-vertical sub-objects (`vehicle.tire`, `vehicle.mechanic`, `vehicle.detailing`). Customer Timeline labels read from `verticalConfig.services` rather than hardcoded "Tire Replacement" strings. This is a first-class requirement, not a future seam — tire-specific fields are NEVER persisted at the Vehicle root level in v2.
+3. **Global search, Customer Insights, and the auto-save Settings toggle are v1 deliverables, not future-ready seams.** They land alongside the Customer Profile page in SP3. Global search targets sub-300ms on the Wheel Rush dataset (~2k customers, ~3k vehicles) via composite indexes + parallel queries + result caching. Customer Insights computes nine metrics with two persisted as Customer-doc rollups (averageTicket, vipTier) for fast list-sort. The auto-save toggle reads through a context cache initialized at App.tsx mount.
 
 ---
 
@@ -134,18 +165,27 @@ Doc ID is the existing `customerKey()` output (`p_<digits>` or `n_<slug>`) — p
 |---|---|---|
 | `id` | string | Doc ID. |
 | `name` | string | Migrated from `Job.customerName` on first upsert. |
+| `nameLower` | string? | **v2 NEW.** `name.trim().toLowerCase()` for global-search prefix queries. Written by `upsertCustomerFromJob`. |
+| `companyName` | string? | **v2 NEW.** For fleet customers. Optional; UI surfaces a "Company" field in AddJob and CustomerProfile edit. |
+| `companyLower` | string? | **v2 NEW.** Lowercased copy for search. |
 | `phoneE164` | string | Normalized phone, e.g. `+13058977030`. |
 | `phoneKey` | string | Digits-only, e.g. `13058977030`. **Indexed.** Primary webhook lookup field. |
 | `email` | string? | From `Job.customerEmail` ([src/types/index.ts:683](../../../src/types/index.ts)). |
-| `addressLine` | string? | NEW; not captured in AddJob today, edited via CustomerProfile (SP3). |
+| `addressLine` | string? | NEW; captured in AddJob (v2) via `AddressAutofillInput`, edited via CustomerProfile. |
 | `city` | string? | Migrated from `Job.city`. |
+| `cityLower` | string? | **v2 NEW.** Lowercased copy for search. |
 | `state` | string? | Migrated from `Job.state`. |
+| `zipCode` | string? | **v2 NEW.** 5-digit US zip (optional). Captured by `AddressAutofillInput`. Indexed for exact-match search. |
 | `note` | string? | **EXISTING** field on CustomerMeta. Preserved verbatim. |
 | `tags` | string[]? | **EXISTING** field on CustomerMeta. Preserved verbatim. |
 | `firstJobAt` | Timestamp? | Set on first upsert; never overwritten. |
 | `lastJobAt` | Timestamp? | Updated on every upsert. |
 | `lastJobId` | string? | Most recent job. Drives "Repeat Last Service" action. |
 | `jobCount` | number? | Rollup counter. Nullable; fallback to derived count for legacy. |
+| `averageTicket` | number? | **v2 NEW. COMPUTED rollup** = `lifetimeRevenue / jobCount`. Recomputed by a `onJobWrite` Cloud Function trigger (SP3). Falls back to client-computed on read for legacy customers without the rollup. Stored to enable Customers-page sort/filter without scanning the jobs collection. |
+| `customerStatus` | `'Active' \| 'Inactive' \| 'Fleet' \| 'Archived'` | **v2 NEW. DERIVED rollup — OPERATIONAL state ONLY.** `Active` if `lastJobAt` within 12 months (override `settings.activeWindowMonths` if set); `Inactive` if outside that window; `Fleet` if `companyName` is non-empty; `Archived` only via manual override. **VIP is NOT a `customerStatus` value** — VIP is a revenue tier persisted separately as `vipTier` and rendered as its own badge. A customer can be `(Active, Gold)` or `(Fleet, Platinum)` or `(Inactive, Standard)` — the two badges render side-by-side on CustomerProfile when non-default. The Customers-page filter UX uses two independent filters (status + tier), not a single mutually-exclusive selector. Owners/admins can manually override the status via CustomerProfile edit. |
+| `vipTier` | `'Standard' \| 'Gold' \| 'Platinum'` | **v2 NEW. DERIVED rollup.** `deriveVipTier(lifetimeRevenue)`: Standard `< $1,000`, Gold `$1,000-$2,499`, Platinum `$2,500+`. Recomputed by the same `onJobWrite` trigger. Displayed as a badge on CustomerProfile and CustomersList row. |
+| `referralCount` | number? | **v2 NEW.** Schema-only in v1; defaults to 0. Reserved for a future referral-tracking feature. No UI surfaces it as an editable field. |
 | `lastContactedAt` | Timestamp? | Future-ready seam for retention campaigns. Updated when an outbound call/text is logged or when a call is accepted from the popup. |
 | `createdByUid` | string? | First tech who saved a job for this customer. |
 | `createdAt` | Timestamp | Server timestamp (admin SDK) or ISO string (client). |
@@ -157,6 +197,12 @@ Doc ID is the existing `customerKey()` output (`p_<digits>` or `n_<slug>`) — p
 **Indexes:**
 - `(phoneKey ASC)` — incoming-call lookup
 - `(lastJobAt DESC)` — Customers page sort
+- **v2 NEW** `(nameLower ASC)` — global-search name prefix match
+- **v2 NEW** `(companyLower ASC)` — global-search company prefix match
+- **v2 NEW** `(cityLower ASC)` — global-search city prefix match
+- **v2 NEW** `(zipCode ASC)` — global-search zip exact match
+- **v2 NEW** `(vipTier ASC, lastJobAt DESC)` — Customers page filter-by-tier sort
+- **v2 NEW** `(customerStatus ASC, lastJobAt DESC)` — Customers page filter-by-status sort
 
 **Security rule sketch** (delta against [firestore.rules:604-607](../../../firestore.rules)):
 
@@ -172,9 +218,12 @@ match /businesses/{bid}/customers/{customerId} {
   allow create, update: if isMemberOfBusiness(bid)
               && memberRole(bid) in ['owner','admin','technician']
               && request.resource.data.diff(resource.data).affectedKeys()
-                 .hasOnly(['name','phoneE164','phoneKey','email','addressLine',
-                          'city','state','firstJobAt','lastJobAt','lastJobId',
-                          'jobCount','lastContactedAt','createdByUid','createdAt','updatedAt',
+                 .hasOnly(['name','nameLower','companyName','companyLower',
+                          'phoneE164','phoneKey','email','addressLine',
+                          'city','cityLower','state','zipCode',
+                          'firstJobAt','lastJobAt','lastJobId',
+                          'jobCount','averageTicket','customerStatus','vipTier','referralCount',
+                          'lastContactedAt','createdByUid','createdAt','updatedAt',
                           'processedJobIds','lastEditedByUid','lastEditedAt']);
 }
 ```
@@ -187,30 +236,75 @@ The dual `allow update` rules (owner/admin-only for meta vs any-active-member fo
 
 ### `businesses/{businessId}/customers/{customerId}/vehicles/{vehicleId}`
 
-Doc ID is `vehicleKey(job)`:
-- If `job.vehicleMakeModel` is non-empty → `slug(vehicleMakeModel)` (e.g. `honda-civic`).
-- Else if `job.vehicleType` is non-empty → `slug(vehicleType + '-' + (job.tireSize || job.vehicleSize || 'na'))` (e.g. `sedan-215-55r17`).
+**v2 vertical-agnostic refactor.** The Vehicle entity has a universal core (works for every MSOS vertical) plus per-vertical sub-objects. Tire-specific fields are hoisted under `vehicle.tire`. Mechanic and detailing get placeholder sub-objects (schema-only in v1).
+
+Doc ID is `vehicleKey(job)`. Updated v2 algorithm:
+- If universal `make` + `model` are non-empty → `slug(year + '-' + make + '-' + model + '-' + (trim ?? 'base'))` (e.g. `2019-honda-civic-sport`).
+- Else if `job.vehicleMakeModel` is non-empty → `slug(vehicleMakeModel)` (legacy fallback, e.g. `honda-civic`).
+- Else if tire-vertical AND `job.vehicleType` is non-empty → `slug(vehicleType + '-' + (job.tireSize || 'na'))` (e.g. `sedan-215-55r17`).
 - Else → `slug('unknown-' + jobId.slice(0,6))` (rare fallback).
+
+#### Universal core (every vertical)
 
 | Field | Type | Notes |
 |---|---|---|
 | `id` | string | Doc ID. |
-| `vehicleType` | string? | From `Job.vehicleType` (tire vertical). |
-| `vehicleMakeModel` | string? | From `Job.vehicleMakeModel` (mechanic vertical). |
-| `vehicleSize` | string? | From `Job.vehicleSize` (detailing vertical). |
-| `tireSize` | string? | From `Job.tireSize`. For tire vertical this is vehicle identity. |
-| `tireBrand` | string? | Most recent. |
-| `color` | string? | NEW; optional, v2 field. |
-| `licensePlate` | string? | NEW; optional, v2 field. |
-| `vin` | string? | NEW; optional, future-ready for `vehicleDiagnostics` flag ([src/config/businessTypes/types.ts:117](../../../src/config/businessTypes/types.ts)). |
+| `year` | number? | **v2 NEW universal.** Model year. |
+| `make` | string? | **v2 NEW universal.** e.g. `Honda`. |
+| `model` | string? | **v2 NEW universal.** e.g. `Civic`. |
+| `trim` | string? | **v2 NEW universal.** e.g. `Sport`, `Limited`, `LX`. |
+| `color` | string? | **v2 NEW universal.** e.g. `Pearl White`. |
+| `vin` | string? | Optional, future-ready for `vehicleDiagnostics` flag ([src/config/businessTypes/types.ts:117](../../../src/config/businessTypes/types.ts)). |
+| `licensePlate` | string? | Optional. Uppercased and trimmed for search. |
+| `makeModelLower` | string? | **v2 NEW.** `(make + ' ' + model).toLowerCase()` for global-search prefix queries. |
+| `vehicleMakeModel` | string? | **LEGACY** — from `Job.vehicleMakeModel`. Retained for backward-compat read path; new writes prefer universal `make`/`model`. |
+| `vehicleType` | string? | **LEGACY (tire vertical)** — retained for backward compat. |
+| `vehicleSize` | string? | **LEGACY (detailing vertical)** — retained for backward compat. |
 | `lastServicedAt` | Timestamp | Most recent job date for this vehicle. |
 | `lastJobId` | string | Most recent job id for this vehicle. |
+| `serviceCount` | number? | Rollup counter. |
 | `createdAt` | Timestamp | Server timestamp. |
 | `updatedAt` | Timestamp | Server timestamp. |
+| `processedJobIds` | string[] | Per-vehicle idempotency array (mirrors Customer). |
 
-**Indexes:** `(lastServicedAt DESC)` — for "vehicles owned" sort on CustomerProfile.
+#### `vehicle.tire` (tire vertical only)
+
+Other verticals do NOT write this sub-object. Read paths treat it as optional.
+
+| Field | Type | Notes |
+|---|---|---|
+| `tire.size` | string? | From `Job.tireSize` (e.g. `215/55R17`). Indexed for global search. |
+| `tire.alternateSize` | string? | Operator-entered alternate (winter set, staggered fitment). |
+| `tire.brand` | string? | Most recent. |
+| `tire.condition` | string? | From `Job.tireCondition`. |
+| `tire.tpmsNotes` | string? | TPMS reset / sensor notes. |
+| `tire.wheelLockNotes` | string? | Wheel lock location / key notes. |
+
+#### `vehicle.mechanic` (mechanic vertical only — schema-only in v1)
+
+| Field | Type | Notes |
+|---|---|---|
+| `mechanic.engineCode` | string? | Reserved. No UI in v1. |
+| `mechanic.lastDiagnostic` | string? | Reserved. No UI in v1. |
+
+#### `vehicle.detailing` (detailing vertical only — schema-only in v1)
+
+| Field | Type | Notes |
+|---|---|---|
+| `detailing.interiorMaterial` | string? | Reserved. No UI in v1. |
+| `detailing.paintCondition` | string? | Reserved. No UI in v1. |
+
+**Indexes:**
+- `(lastServicedAt DESC)` — for "vehicles owned" sort on CustomerProfile.
+- **v2 NEW** `(makeModelLower ASC)` — global-search by make/model.
+- **v2 NEW** `(licensePlate ASC)` — global-search by plate.
+- **v2 NEW** `(tire.size ASC)` — global-search by tire size (tire vertical).
+
+Composite indexes are added as collection-group indexes so global search can fan out across all customers' vehicles in a single query.
 
 **Security:** inherits the parent customer rule (any member read; any member with `canCreateJobs` may upsert via saveJob). No financial fields, so no extra gating.
+
+**Backfill migration note (P3):** the SP3 `backfillCustomers` Cloud Function hoists tire-specific fields out of the legacy flat-Vehicle schema into the `tire: { ... }` sub-object as it walks job history. Legacy reads continue to work via fallback: client reads `vehicle.tire?.size ?? vehicle.tireSize`.
 
 ### `businesses/{businessId}/incomingCalls/{callId}`
 
@@ -227,7 +321,7 @@ Doc ID is the Quo call resource id (e.g. `AC...`). Cloud-Function-only create; c
 | `toE164` | string | Business number. Disambiguates multi-line businesses. |
 | `customerId` | string \| null | Resolved at webhook time. `null` = lead OR invalid phone (see `lookupSkippedReason`). For shared-phone cases, the primary (first) customer's id; the disambiguation sheet may rewrite this. |
 | `customerName` | string \| null | Snapshot of the PRIMARY match's name so popup renders even if the doc changes. |
-| `customersSnapshot` | `Array<{customerId, name, vehiclesSnapshot: Vehicle[]}>` | Up to 3 matches snapshotted at ring time. Empty array on unknown caller. Supports the shared-phone "Also: Jose Lopez" render path. |
+| `customersSnapshot` | `Array<{customerId, name, vehiclesSnapshot: VehicleSnapshotEntry[]}>` where `VehicleSnapshotEntry = { year?, make?, model?, trim?, color?, licensePlate?, tire?: { size?, brand? }, lastServicedAt? }` | Up to 3 matches snapshotted at ring time. Empty array on unknown caller. **Only the render-relevant Vehicle subset is snapshotted** — full Vehicle docs (with `processedJobIds`, `createdAt`, `updatedAt`, and any legacy tire-detailing internals) are NEVER spread into the snapshot; the resolveAndWrite pseudocode picks fields explicitly to keep the IncomingCalls doc small (matters for the rapid-listener path and Firestore doc-size limits). Supports the shared-phone "Also: Jose Lopez" render path. |
 | `additionalMatchesCount` | number | Number of matches beyond the 3 in `customersSnapshot`. Drives "Also: Jose Lopez (+N more)" tail. |
 | `lastJobSummary` | object \| null | `{ jobId, service, date, vehicleLabel, tireSize, paymentStatus }`. **`paymentStatus` is null unless the line is single-tech-assigned** — see *Privacy posture* above. |
 | `lookupSkippedReason` | string? | Diagnostic. `'invalid_phone'` when `normalizePhone(from).valid === false`. |
@@ -386,6 +480,57 @@ These are written by `upsertCustomerFromJob` AND by the SP3 inline Edit action. 
 
 **No change** to existing job rules at [firestore.rules:573-588](../../../firestore.rules). The new fields are part of the same write that already writes the job; the existing role-based create/update rules cover them.
 
+### `businesses/{businessId}/settings` — additive changes (v2)
+
+The existing Settings doc (already a single doc per business) gains new fields. No new collections, no rule rewrites — the existing owner/admin-only update rule covers them.
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `autoSaveCustomersFromJobs` | boolean | `true` | **v2 NEW — P17.** When `true`, `saveJob` calls `upsertCustomerFromJob`. When `false`, the job saves with no `customerId` / `vehicleId` / `phoneKey`. Settings UI lands in SP3 ("Customer Directory" accordion). |
+| `openphoneConnected` | boolean | `false` | **v2 NEW — gating flag.** Per-business toggle. When `false`, IncomingCallModal listener does not attach, Settings → Integrations shows "Connect OpenPhone" CTA. Set to `true` by `adminConnectQuoNumber` after operator pastes a `whsec_` key. |
+| `outboundCommunicationProvider` | `'native' \| 'openphone'` | `'native'` | **v2 NEW — SP7 toggle.** v1 always uses `tel:` / `sms:`. SP7 flips behavior so Call/Text buttons POST to a Cloud Function that initiates the call/SMS from the Quo number. Schema-shaped in v1 so no migration is needed for SP7. |
+| `autoTextBackEnabled` | boolean | `false` | **Future-ready seam (SP7).** No effect in v1. Documented here so future phases land without a Settings schema change. |
+
+Existing Settings fields (verticalId, mileageRate, defaultTaxRate, currency, etc.) are unchanged. The v2 additions follow the same `lastEditedByUid` / `lastEditedAt` audit pattern already required on Customer writes.
+
+**Migration note:** existing Wheel Rush tenants default to `autoSaveCustomersFromJobs: true` (preserves current behavior) and `openphoneConnected: false` (no OpenPhone account yet). No admin action required for upgrade.
+
+---
+
+## Vertical-Agnostic Entity Design
+
+The system supports mobile tire, roadside assistance, mobile mechanics, car wash / detailing, and future MSOS verticals from day 1. Three architectural principles enforce this:
+
+### 1. Customer is fully vertical-agnostic
+
+No field on the Customer doc is specific to a single vertical. Fleet (`companyName`), VIP tiering, status derivation, and global search all operate uniformly across every vertical. The mobile-tire-specific historical pattern of bundling tire metadata onto the customer entity is explicitly rejected.
+
+### 2. Vehicle has a universal core + per-vertical sub-objects
+
+The Vehicle schema (above) separates a universal core (`year`, `make`, `model`, `trim`, `color`, `vin`, `licensePlate`) from vertical-specific sub-objects:
+
+- `vehicle.tire` — written only for tire-vertical jobs. Contains `size`, `alternateSize`, `brand`, `condition`, `tpmsNotes`, `wheelLockNotes`.
+- `vehicle.mechanic` — placeholder sub-object reserved for the mechanic vertical. Schema-only in v1.
+- `vehicle.detailing` — placeholder sub-object reserved for the detailing vertical. Schema-only in v1.
+
+`upsertCustomerFromJob` reads the active `verticalId` from `settings.verticalId` and writes ONLY the matching sub-object. A roadside or mechanic tenant never accumulates empty `vehicle.tire` keys.
+
+### 3. Customer Timeline labels read from the vertical config
+
+The Customer Timeline (Service History section of CustomerProfile) renders each job's service label by looking up `verticalConfig.services[job.service].label` rather than hardcoded strings. The existing `resolveVertical()` pattern at `src/lib/verticals/resolveVertical.ts` is already shaped this way; SP3 wires the Customer Timeline through the same lookup.
+
+### 4. `vehicleKey()` prefers universal fields
+
+The doc-ID generator is updated to slug `year-make-model-trim` when those universal fields are present, and only falls back to tire-vertical-specific keys (`vehicleType + tireSize`) for legacy tire jobs that lack make/model. This means switching verticals on an existing tenant does not cause vehicle-key collisions.
+
+### 5. Backfill migration collapses tire fields into the sub-object
+
+The SP3 `backfillCustomers` Cloud Function walks every existing job and rewrites tire-flat-field Vehicle docs into the `vehicle.tire.{size,brand,condition}` sub-object form. Legacy reads continue to work via a fallback path (`vehicle.tire?.size ?? vehicle.tireSize`) — the migration is non-breaking.
+
+### 6. CustomerProfile renders fields conditional on active vertical
+
+CustomerProfile uses the existing `resolveVertical()` pattern to conditionally render tire-specific Insights tiles ("Most Common Tire Size") only for tire-vertical tenants. Mechanic and detailing tenants see vertical-appropriate tiles in their place (when those verticals graduate from schema-only).
+
 ---
 
 ## Phone Number Normalization (canonical)
@@ -452,8 +597,9 @@ If `normalizePhone(raw).valid === false`:
 This is a **breaking change vs today's `customerKey()`** at `src/lib/customers.ts:91-102`, which returns `p_<raw 10-digit local>` (e.g. `p_3058977030`). To reconcile:
 
 1. **`customerKey()` is updated in SP1** to compute via `normalizePhone(...).digits` and produce `p_13058977030`-style IDs going forward.
-2. **Hybrid read path also tries the legacy form.** `deriveCustomerProfiles` and `lookupCustomerByPhone` first query `customers/p_<normalized 11-digit>`; on miss they fall back to `customers/p_<legacy 10-digit>` (digits 1-10 of the normalized form, i.e. drop the leading `1`). Found legacy docs are surfaced unchanged in v1; SP3's optional backfill renames them to the new key.
-3. **Webhook `phoneKey` query stays single-form:** the `customers.where('phoneKey','==',digits)` query in `quoWebhook` uses ONLY the 11-digit form. Legacy customers without a `phoneKey` field on the doc are picked up via the SP3 backfill or by the operator's first job save (which calls `upsertCustomerFromJob`, populating `phoneKey`). Until then, an inbound call to a legacy-only customer resolves to `customerId: null` and shows as an unknown caller — acceptable v1 tradeoff.
+2. **SP3's `backfillCustomers` Cloud Function (P3 — confirmed in v2) explicitly renames every legacy `p_<10-digit>` Customer doc to `p_<11-digit>`** and adds `phoneKey` to every doc that lacks it. The hybrid second-chance lookup below becomes a **transitional safety net** during backfill execution (and for the short window between SP1 deploy and SP3 deploy), not a permanent fallback.
+3. **Hybrid read path also tries the legacy form (transitional).** `deriveCustomerProfiles` and `lookupCustomerByPhone` first query `customers/p_<normalized 11-digit>`; on miss they fall back to `customers/p_<legacy 10-digit>` (digits 1-10 of the normalized form, i.e. drop the leading `1`). Found legacy docs are surfaced unchanged. After SP3's backfill runs, the fallback path becomes dead code — kept for one release cycle as a safety net, then removed.
+4. **Webhook `phoneKey` query stays single-form:** the `customers.where('phoneKey','==',digits)` query in `quoWebhook` uses ONLY the 11-digit form. Pre-backfill, legacy customers without a `phoneKey` field on the doc resolve to `customerId: null` and show as unknown callers. **Post-backfill, every customer has a `phoneKey` and the unknown-caller fallback only fires for genuine first-time callers.** This is the primary reason backfill became confirmed scope in v2.
 
 **International / extension / vanity — explicit deferral.** v1 rejects everything outside US/Canada NANP. International support is deferred until we adopt `libphonenumber-js`; the spec table above lists the exact rejection behavior for each input class so operators get a deterministic "invalid phone" rather than a silently corrupt customer record.
 
@@ -489,10 +635,57 @@ This is a **breaking change vs today's `customerKey()`** at `src/lib/customers.t
 | `Leads.tsx` + `Lead` type | react-component | `src/pages/Leads.tsx` | List page sorted by `createdAt DESC`. Columns: time, name (or "Unknown"), phone, source, status, last action. Row actions: Call back (`tel:`), Text (`sms:`), Convert to Job (preloads AddJob draft with customer + lead context), Mark Lost. New tab added to MoreSheet for owner/admin/canCreateJobs. | `quoWebhook.ts` (indirectly via writes) |
 | `firestore.rules` (mod) | rules | `firestore.rules` | Add rules for `customers/{cid}/vehicles/**`, `incomingCalls/**`, `leads/**`, `quoPhoneNumbers/**`, `quoWebhookEvents/**`. Tighten `customers/{cid}` update to allow non-meta upserts by any member with `canCreateJobs` while preserving owner/admin gate on note/tags. | — |
 | `QuoIntegrationSection.tsx` | react-component | `src/components/settings/QuoIntegrationSection.tsx` | Owner-only debug panel under Settings → Integrations. Lists last 50 `quoWebhookEvents`, lets owner re-process a failed event, shows signing-key registration status, and a "Connect Quo Number" form that calls `adminConnectQuoNumber`. | `adminConnectQuoNumber.ts` |
+| **v2 NEW** `searchCustomers.ts` | client-module | `src/lib/searchCustomers.ts` | Debounced multi-field search across `customers.{nameLower, companyLower, phoneKey, cityLower, zipCode}` + collection-group on `vehicles.{makeModelLower, licensePlate, tire.size}`. Parallel `Promise.all` for the field branches; per-query `limit(20)`; result merge keyed on `customerId`; 60s in-memory result cache keyed on normalized query. Targets sub-300ms on Wheel Rush-scale data. RBAC: techs see only their own customers (post-fetch filter by `customerId IN scopedCustomerIds`); owners/admins see all. | `phone.ts`, `firebase.ts` |
+| **v2 NEW** `GlobalSearchSheet.tsx` | react-component | `src/components/GlobalSearchSheet.tsx` | Bottom-sheet modal launched from a persistent search icon in main nav. Single text input using the `MemoInput` pattern with 200ms debounce. Renders grouped results: Customer header + nested Vehicle sub-rows; tap → CustomerProfile. Empty / no-match / loading skeleton states. Mobile-first. | `searchCustomers.ts` |
+| **v2 NEW** `CustomerInsightsCard.tsx` | react-component | `src/components/customerProfile/CustomerInsightsCard.tsx` | Renders the 9 insight metrics on CustomerProfile. Financial metrics gated by `canViewFinancials`; non-financial metrics visible to all. VIP Tier badge rendered prominently. Vertical-aware: "Most Common Tire Size" only renders for tire-vertical tenants. | `customerInsights.ts` |
+| **v2 NEW** `customerInsights.ts` | client-module | `src/lib/customerInsights.ts` | Pure helpers: `deriveVipTier(lifetimeRevenue)`, `deriveCustomerStatus({ lastJobAt, companyName, vipTier })`, `computeMostCommonVehicle(jobs)`, `computeMostCommonTireSize(jobs)`, `computeMostCommonServiceType(jobs, verticalConfig)`. Used both by the client card AND by the `onJobWrite` Cloud Function rollup trigger. | — |
+| **v2 NEW** `onJobWriteCustomerRollup.ts` | cloud-function | `functions/src/onJobWriteCustomerRollup.ts` | Firestore trigger on `businesses/{bid}/jobs/{jobId}` writes. Recomputes `averageTicket`, `vipTier`, `customerStatus` on the Customer doc. Idempotent (re-runs are safe). Wraps the same helpers as the client `customerInsights.ts` (logic colocated via the duplicated-helper pattern). | `customerInsights.ts` (duplicate) |
+| **v2 NEW** `backfillCustomers.ts` | cloud-function | `functions/src/backfillCustomers.ts` | One-shot HTTPS callable (owner-only) triggered from Settings admin button. Takes `{businessId, dryRun: boolean}`. Scans all jobs, upserts Customer + Vehicle, auto-merges duplicates by `phoneKey`, migrates legacy `p_<10-digit>` doc IDs to `p_<11-digit>`, hoists tire fields into `vehicle.tire`, computes initial rollups. Writes audit doc `businesses/{bid}/maintenance/backfillCustomers`. Re-runnable via `processedJobIds` dedup. | `phone.ts` (functions), `customerInsights.ts` (functions) |
+| **v2 NEW** `AddressAutofillInput.tsx` | react-component | `src/components/AddressAutofillInput.tsx` | v1 contract: ZIP-first input flow — operator types 5-digit ZIP → `addressLine`/`city`/`state` autofill from a bundled US ZIP → city/state JSON dataset (~200 KB gzipped, ~40k ZIPs, shipped with the client). No external API, no street-level validation, no PII sent off-device. `addressLine` is free-text. Populates `addressLine`, `city`, `state`, `zipCode` on the draft. Used in AddJob step 7 (Location) and in CustomerProfile edit mode. **SP7 follow-up:** swap dataset for Google Places API to add street-level autocomplete (requires `GOOGLE_PLACES_API_KEY` secret + per-tenant privacy disclosure). | — |
+| **v2 NEW** `CustomerDirectorySettingsSection.tsx` | react-component | `src/components/settings/CustomerDirectorySettingsSection.tsx` | New Settings accordion: (a) `autoSaveCustomersFromJobs` toggle row with helper copy, (b) "Backfill Customers from Job History" button (owner-only, calls `backfillCustomers` callable; shows audit-doc summary when complete), (c) future home for retention-campaign opt-ins. Gated by `canEditBusinessSettings`. | `backfillCustomers.ts` |
 
 ---
 
 ## OpenPhone Integration
+
+### OpenPhone-Optional Architecture (v2)
+
+**Decision (from user answer #1):** v1 ships without an OpenPhone account. SP1-SP3 deliver the full customer-intelligence value chain (entities, lookup, profile, search, insights, backfill, settings toggle) with zero dependency on OpenPhone. SP4-SP6 (webhook, missed calls, popup) are gated behind two flags so the operator can flip them on later without a code deploy.
+
+#### Two-layer gating
+
+1. **Global gate — `QUO_WEBHOOK_ENABLED` env var on Cloud Functions.**
+   - Default `false` at v1 deploy.
+   - When `false`: the `quoWebhook` function returns a cheap `404` immediately (no secret read, no Firestore touch). Same kill-switch pattern as Stripe webhook.
+   - Flip via `firebase functions:config:set quo.webhook_enabled=true` + `firebase deploy --only functions:quoWebhook` (no source code change required).
+
+2. **Per-business gate — `businesses/{bid}/settings.openphoneConnected` boolean.**
+   - Default `false`.
+   - When `false`: client-side `useIncomingCallListener` short-circuits before attaching the `onSnapshot`. Settings → Integrations shows a "Connect OpenPhone" CTA. CustomerProfile Call/Text buttons unconditionally use `tel:` / `sms:` (no provider switch UI in v1).
+   - Set to `true` by `adminConnectQuoNumber` when the operator pastes a `whsec_` key + completes the connect flow.
+
+#### Unconnected-mode UX (the v1 default)
+
+- **CustomerProfile Call/Text buttons:** native `tel:` / `sms:` only.
+- **IncomingCallModal:** never renders (listener does not attach). No flash of error UI.
+- **Leads page:** still accessible from MoreSheet; empty list until either `call.missed` webhooks land OR a future "manual lead" affordance ships.
+- **Settings → Integrations:** displays a "Connect OpenPhone" CTA with operator instructions: (1) buy a Quo Business plan, (2) enable the Beta webhook system, (3) paste the `whsec_` key here, (4) MSOS ops flips `QUO_WEBHOOK_ENABLED`.
+- **Global Customer Search, Customer Profile, Customer Insights, Add Job, Backfill:** all fully functional. The user gets the SP1-SP3 value pile regardless of OpenPhone status.
+
+#### Activation flow (when operator buys Quo)
+
+1. Owner pastes the `whsec_` key into Settings → Integrations form.
+2. The connect form calls a new callable `adminConnectQuoIntegration({ businessId, signingKey, quoPhoneNumberId, e164 })` which:
+   - Validates the `whsec_` prefix.
+   - Writes `quoPhoneNumbers/{e164}` mapping.
+   - Sets `settings.openphoneConnected = true`.
+   - Writes audit doc.
+3. Operator (or MSOS ops) flips `QUO_WEBHOOK_ENABLED=true` on the function via `firebase functions:config:set` and redeploys the function (no source change). Within ~60s the webhook accepts traffic.
+4. IncomingCallModal listener attaches on next App.tsx mount (or sooner if the Settings change is propagated via the existing settings listener).
+
+#### The architecture is already shaped this way in v1
+
+Both flags default to safe-off in SP4's deploy manifest. The flag-checking code paths exist in v1. This section makes the principle explicit so future engineers don't accidentally add OpenPhone-required code paths to SP1-SP3.
 
 ### Webhook endpoint
 
@@ -732,6 +925,9 @@ async function resolveAndWrite(payload, businessId, toE164, assignedToUid) {
   const hasMultiple = custSnap.size > 1;  // shared phone number edge case
 
   // 2. Build customersSnapshot for up to 3 matches; record overflow count.
+  //    Vehicle subset is EXPLICITLY PICKED — never spread the full doc, which
+  //    would leak processedJobIds / createdAt / legacy detailing internals and
+  //    bloat the IncomingCalls doc for customers with rich vehicle histories.
   const customersSnapshot = [];
   const matchDocs = custSnap.docs.slice(0, 3);
   for (const doc of matchDocs) {
@@ -742,7 +938,19 @@ async function resolveAndWrite(payload, businessId, toE164, assignedToUid) {
     customersSnapshot.push({
       customerId: doc.id,
       name: cData.name ?? null,
-      vehiclesSnapshot: vSnap.docs.map(d => d.data())
+      vehiclesSnapshot: vSnap.docs.map(d => {
+        const v = d.data();
+        return {
+          year:          v.year          ?? null,
+          make:          v.make          ?? null,
+          model:         v.model         ?? null,
+          trim:          v.trim          ?? null,
+          color:         v.color         ?? null,
+          licensePlate:  v.licensePlate  ?? null,
+          tire: v.tire ? { size: v.tire.size ?? null, brand: v.tire.brand ?? null } : null,
+          lastServicedAt: v.lastServicedAt ?? null
+        };
+      })
     });
   }
   const additionalMatchesCount = Math.max(0, custSnap.size - 3);
@@ -972,23 +1180,22 @@ Auditable summary by enforcement layer:
 
 ## AddJob Workflow Change
 
-**New step order (top-down):**
+**v2 confirmed 8-step explicit order (from user answer #5 + new requirement F):**
 
-1. **NEW — Customer Lookup card** (`<CustomerLookupCard />`)
-2. Suggested-price sticky tile (existing)
-3. Miles to job (existing)
-4. Tire cost (existing, tire vertical)
-5. Revenue charged (existing)
-6. Vehicle size chips (existing)
-7. Service picker (existing)
-8. Add-ons chips (existing, detailing)
-9. Vehicle chips (existing)
-10. Customer card (existing — now Name / Phone / Email / Address / City)
-11. Assigned to (existing)
-12. Vertical job fields loop (existing)
-13. … (all remaining sections unchanged)
+The user confirmed the following top-down step order, replacing v1's looser "above the suggested-price tile" framing:
 
-The Customer Lookup card sits **above** the suggested-price tile because the headline value prop is "type a known phone and the form auto-fills before you pick a service." The existing Customer card stays in its original position to handle new-customer entry and manual overrides — operators who already know it's a new customer just skip the lookup card.
+1. **Phone** — phone input (`MemoInput` with debounced lookup; mirrors P1-3 keystroke-storm fix). Phone is the primary identifier and the first thing the operator types.
+2. **Lookup** — `<CustomerLookupCard />` renders inline once the phone normalizes to `valid: true`. On hit: Returning Customer card with Use Customer / Repeat Last Service buttons. On miss: "No match — continue as new" with phone preserved.
+3. **Vehicle** — vehicle chips (when Returning Customer is matched, chips show known vehicles; tap a chip to set the active vehicle for this draft). For new customers, vehicle make/model/trim/color inputs.
+4. **Quick Pricing** — suggested-price sticky tile + revenue charged input + miles to job. v2 keeps these together as a single conceptual block (matches the user's mental model: "what am I quoting").
+5. **Service Type** — service picker (vertical-aware; reads from `verticalConfig.services`).
+6. **Tire Size** — **tire-vertical only.** For non-tire verticals this step is REPLACED by the active vertical's domain field (e.g. mechanic vertical might show "Diagnostic Code"; detailing vertical might show "Package Tier"). The step slot persists; the content is vertical-dispatched via `resolveVertical()`.
+7. **Location** — **v2 NEW:** `<AddressAutofillInput />` populates `addressLine`, `city`, `state`, `zipCode`. Confirmed by user answer #5. Replaces the previous "Customer card has City only" pattern. **v1 implementation contract (review-pass):** the component uses a bundled US ZIP → city/state JSON dataset (~200 KB gzipped, ~40k US ZIPs) shipped with the client. The operator types the 5-digit ZIP first; city + state autofill instantly from the table; the `addressLine` field is **free-text** (no street-level validation in v1). No external API call, no privacy concerns sending PII to a third party, zero round-trips. SP7 may swap in Google Places API to enable real street-address autocomplete — that's a deferred upgrade documented in Future-Ready Seams (requires `GOOGLE_PLACES_API_KEY` secret + privacy-policy disclosure to the operator's tenant since customer addresses would then be sent to Google).
+8. **Notes** — free-text notes field. End of the standard AddJob flow. Vertical job-fields loop and Assigned-To picker render below this as before.
+
+The "Returning Customer card sits above suggested-price tile" framing from v1 is replaced by the explicit 8-step ordering: **Phone is step 1, Lookup is step 2, Pricing is step 4**. This means the operator types phone → sees match → confirms vehicle → THEN sees pricing. The cognitive flow is "who is this person" before "what am I charging them."
+
+**Vertical dispatch on step 6 (Tire Size).** For tire-vertical tenants, the step renders the existing tire-size input. For other verticals, the step renders the vertical's primary domain input (defined in `verticalConfig.primaryDomainField`). For verticals that have no domain-specific field, the step is omitted entirely.
 
 ### Returning Customer card spec
 
@@ -1005,11 +1212,13 @@ When `lookupCustomerByPhone` returns a hit:
 |  Vehicles:  [Honda Civic · 215/55R17]           |
 |             [Toyota Camry · 205/55R16]          |
 |                                                 |
-|  Last service: Tire Replacement · $480 · Paid   |
+|  Last service: {label} · ${rev} · {paymentStatus}|
 |                                                 |
 |  [Use Customer]  [Repeat Last Service]  [×]     |
 +-------------------------------------------------+
 ```
+
+*(Mock is vertical-agnostic — `{label}` is resolved via `verticalConfig.services[lastJobSummary.service].label` at render time. For a tire-vertical tenant this might display "Tire Replacement"; for a mechanic tenant "Brake Service"; for detailing "Full Detail".)*
 
 **Fields rendered:**
 - Repeat badge (always, when there's any match)
@@ -1047,21 +1256,41 @@ Tapping the button collapses the lookup card and focuses the existing Customer c
 [src/App.tsx:842-1099](../../../src/App.tsx) gains one insertion between the `finalJob` assembly at line 1076 and the `fbSetFast(jobsCol, ...)` write at line 1078:
 
 ```ts
-try {
-  const { customerId, vehicleId } = await upsertCustomerFromJob(businessId, finalJob);
-  if (customerId) finalJob.customerId = customerId;
-  if (vehicleId) finalJob.vehicleId = vehicleId;
-  const phone = normalizePhone(String(finalJob.customerPhone ?? ''));
-  if (phone.valid) finalJob.phoneKey = phone.digits;
-  // NEVER write phoneKey when invalid — '' and short codes would pollute the directory.
-} catch (err) {
-  addToast('Customer record not updated (job saved anyway)', 'warn');
-  console.warn('upsertCustomerFromJob failed', err);
+// v2: gate the entire upsert path on the autoSaveCustomersFromJobs setting.
+const autoSave = settingsCtx?.autoSaveCustomersFromJobs ?? true;
+
+if (autoSave) {
+  try {
+    const { customerId, vehicleId } = await upsertCustomerFromJob(businessId, finalJob);
+    if (customerId) finalJob.customerId = customerId;
+    if (vehicleId) finalJob.vehicleId = vehicleId;
+    const phone = normalizePhone(String(finalJob.customerPhone ?? ''));
+    if (phone.valid) finalJob.phoneKey = phone.digits;
+    // NEVER write phoneKey when invalid — '' and short codes would pollute the directory.
+  } catch (err) {
+    addToast('Customer record not updated (job saved anyway)', 'warn');
+    console.warn('upsertCustomerFromJob failed', err);
+  }
+} else {
+  // Auto-save toggle OFF: the operator manages Customer entries manually.
+  // The job still saves; it just has no customerId/vehicleId/phoneKey.
+  // Toast is one-time-per-session so the operator who intentionally disabled
+  // the toggle isn't nag-spammed every save. The post-save success surface
+  // additionally shows a "Save this customer to your directory? [Save] [Skip]"
+  // row when there was NO existing Customer match — see "Manual customer
+  // creation path" under Auto-Save Customers Setting.
+  if (!sessionStorage.getItem('autoSaveOffToastShown')) {
+    addToast('Customer not auto-saved (toggle OFF) — Manage manually from Customers tab', 'info');
+    sessionStorage.setItem('autoSaveOffToastShown', '1');
+  }
 }
+
 await fbSetFast(jobsCol, finalJob.id, finalJob);
 ```
 
 The try/catch enforces the contract: **the Job write is authoritative; the Customer upsert is best-effort.** If Firestore rejects the customer upsert (e.g. transient permissions issue), the job still saves with `customerId === undefined` and falls back to the derived path on read. The `if (phone.valid)` guard mirrors the `normalizePhone` contract above — invalid inputs never produce a `phoneKey`.
+
+**v2 auto-save setting integration:** `settingsCtx.autoSaveCustomersFromJobs` is read once at App.tsx mount via the existing Settings listener (`businesses/{bid}/settings` onSnapshot). The value is cached in a React context so saveJob does not re-fetch on every save. Toggling the setting in the UI updates the context within ~200ms (Firestore propagation + state set). When OFF: CustomerLookupCard in AddJob still surfaces matches from existing Customer docs (read-only behavior); "Use Customer" continues to autofill the draft; the job save just does not write back to the directory. The toast on save makes the behavior visible so the operator never wonders why their directory isn't growing.
 
 ### Concurrency contract — upsertCustomerFromJob
 
@@ -1077,6 +1306,7 @@ Two technicians on different devices can save jobs for the same customer at the 
 8. **`updatedAt`** — always overwritten (ISO string for client writes — see *Client-write field types* below).
 9. **Identity fields (name, phoneE164, phoneKey, email, addressLine, city, state)** — always merge-write with the values from the current job. Last-write-wins on these is acceptable because the operator who typed the most recent value almost certainly has the freshest data. (If this becomes a problem we'll add an explicit "Edit customer" surface in SP3 — already part of the spec.)
 10. **Vehicle subdoc** — same transactional treatment: increment `serviceCount`, max `lastServicedAt`, set-if-absent `createdAt`, idempotency via a `processedJobIds` array on the vehicle doc.
+11. **Tire dual-write (SP1 → SP3 transition window — v2 review-pass).** For tire-vertical writes, the transaction MUST write tire data to BOTH `vehicle.tire.size` AND the legacy `vehicle.tireSize` root field (same for `brand`, `condition`). This guarantees global search in SP3 (which queries `vehicle.tire.size`) and legacy-branch reads can co-exist while the SP3 backfill catches up on historic docs. The dual-write is retired in SP4 once the backfill audit doc records `tireFieldsHoisted >= legacy-count`.
 
 **Client-write field types:** Firestore client writes go through `fbSetFast` (`src/lib/firebase.ts:209-223`), which JSON-stringifies object values and would corrupt `FieldValue.serverTimestamp()` / `FieldValue.increment()` / `Timestamp` instances. Therefore:
 
@@ -1104,8 +1334,8 @@ The 9 buttons in the Quick Actions row, each labeled with its dispatch path:
 |---|---|---|---|---|
 | 1 | **Create Job** | Navigates to `add` tab with draft preloaded: `customerId`, `vehicleId`, `customerName`, `customerPhone`, `customerEmail`, `city`, `state`, plus pre-selected vehicle chip. Reuses existing `setTab('add')` + draft-preload mechanism from `handleDuplicate`. | New wiring, reuses existing draft mechanism | No |
 | 2 | **Repeat Last Service** | Same as the Returning Customer card's "Repeat Last Service" button. Calls a shared helper. | New wiring | No |
-| 3 | **Call** | `<a href={`tel:${customer.phoneE164}`}>`. Uses device's native dialer. Free, instant. Logs `lastContactedAt = now` on the customer doc via merge write. | New | No |
-| 4 | **Text** | `<a href={`sms:${customer.phoneE164}`}>`. Native SMS app. Same `lastContactedAt` update. | New | No |
+| 3 | **Call** | **v1 always uses `tel:` native scheme.** `<a href={`tel:${customer.phoneE164}`}>`. Free, instant. Logs `lastContactedAt = now` on the customer doc via merge write. **SP7 introduces a per-business setting `outboundCommunicationProvider: 'native' \| 'openphone'`; when set to `'openphone'` AND `settings.openphoneConnected === true`, the button POSTs to a Cloud Function that initiates the call from the business Quo number instead. UI is identical; only the dispatch path changes.** Resolves user answer #6. | New | No |
+| 4 | **Text** | **v1 always uses `sms:` native scheme.** `<a href={`sms:${customer.phoneE164}`}>`. Same `lastContactedAt` update. **SP7 introduces the same `outboundCommunicationProvider` toggle as Call (#3); when set to `'openphone'` AND `openphoneConnected === true`, the button POSTs to a Cloud Function that sends the SMS from the business Quo number. UI identical; dispatch path differs.** Resolves user answer #6. | New | No |
 | 5 | **Send Quote** | Opens existing QuoteWorkflow (separate spec, [2026-05-22-quote-workflow-design.md](2026-05-22-quote-workflow-design.md)) preloaded with customer + most-recent vehicle. | Existing dispatch, new entry point | No |
 | 6 | **Send Invoice** | Resolves to last unpaid job for this customer; if found, opens the existing invoice send flow (reuses the path triggered from JobDetailModal). If no unpaid jobs, shows toast "No unpaid jobs for this customer." | Existing dispatch | No |
 | 7 | **Send Review** | Reuses existing ReviewAutomation send path ([2026-05-22-review-automation-design.md](2026-05-22-review-automation-design.md)), targets `customer.email` (falls back to phone). | Existing dispatch | No |
@@ -1113,6 +1343,416 @@ The 9 buttons in the Quick Actions row, each labeled with its dispatch path:
 | 9 | **Delete** | Owner/admin only. Confirms with "This will hide the customer but keep all jobs intact. Continue?" Soft-delete via `customer.deletedAt = now`. Read paths filter `deletedAt == null`. Jobs retain `customerId` for audit. | New | No |
 
 All 9 buttons are part of SP3. None require further design after this spec.
+
+---
+
+## Global Customer Search (Phase 5)
+
+**Goal:** universal search accessible from main navigation. Operator types one query, sees every matching customer across name, company, phone, vehicle, license plate, tire size, city, or zip — sub-300ms on Wheel Rush-scale data.
+
+### Entry surface
+
+- Persistent search icon in the main nav (mobile-first, prominent — sits next to MoreSheet).
+- Tap opens `<GlobalSearchSheet />` as a bottom-sheet modal (`.modal-overlay` + `useFocusTrap` + `role='search'`).
+- Single text input using the `MemoInput` pattern with a `useCallback`-wrapped `onChange` and **200ms debounce** (same keystroke-storm fix as P1-3).
+- Voice input is OUT OF SCOPE for v1.
+
+### Search algorithm
+
+```ts
+// src/lib/searchCustomers.ts
+export async function searchCustomers(
+  businessId: string,
+  query: string,
+  opts: { scopedCustomerIds?: Set<string>; limitPerField?: number } = {}
+): Promise<{ customer: Customer; matchedVehicles: Vehicle[]; matchedField: string }[]>
+```
+
+### Scale tiers (v2 — review-pass fix)
+
+Global search routes through one of four scale tiers based on the tenant's persisted customer count (cached at App.tsx mount from the same `customers` listener used by the Customers page):
+
+| Tier | Customer count | Strategy | Notes |
+|---|---|---|---|
+| **T0** | `< 1,000` | Client-side filter over the already-hydrated `customers` collection (today's pattern). | Triggers ONLY after the Customers-page `customers` onSnapshot listener has hydrated the cache. Before hydration completes (cold deep-link into search), the path falls through to T1. Implementation contract: `searchCustomers` reads the hydrated count from a `customersHydrated` boolean kept on the React context; never re-loads the full collection just to decide which tier to use. |
+| **T1** | `1,000 – 10,000` | Server-side composite-index parallel queries (the 9-branch fan-out below). | The headline v1 path. |
+| **T2** | `10,000 – 50,000` | Same fan-out as T1 BUT with cursor pagination on the merged result set and a hard cap of 200 total returned rows before client-side ranking. | Operator sees a "Showing top 200 — refine your query" tail. |
+| **T3** | `> 50,000` | Migrate to Algolia or Meilisearch via a Firestore extension. | **Migration trigger:** p95 query latency `> 500ms` over a rolling 24h window OR customer count crosses 25,000 → ops files an SP7.x ticket. Not a v1 deliverable. |
+
+The T0 / T1 boundary is checked from a `customerCount` rollup persisted on `businesses/{bid}/settings` (incremented by `upsertCustomerFromJob` on first-create, decremented on soft-delete) — NOT from a `customers.length` check on the client, which would require the full collection to already be loaded.
+
+### Algorithm (T1 / T2 server-side path)
+
+1. Normalize the query: `q = query.trim().toLowerCase()`; also compute `qDigits = query.replace(/\D/g, '')` for phone matching. **Short-circuit:** if `q.length < 2` AND `qDigits.length < 2`, return `[]` immediately — single-letter prefixes would hit Firestore with hundreds of rows per branch.
+2. Define the prefix high-sentinel: `qHigh = q + ''` (the Firestore-canonical end-of-prefix marker — `` is in the Unicode Private Use Area, after every standard character). For the digit-only `phoneKey` index where values are pure `[0-9]`, use `qDigits + ':'` (the next ASCII code point after `'9'`, giving a tight index scan).
+3. **Parallel fetch via `Promise.all`** across 9 field branches (each `limit(20)`):
+   - `customers where nameLower >= q AND nameLower < qHigh` (prefix)
+   - `customers where companyLower >= q AND companyLower < qHigh` (prefix)
+   - `customers where phoneKey == qDigits` (exact)
+   - `customers where phoneKey >= qDigits AND phoneKey < qDigits + ':'` (suffix-of-last-4 via `phoneKeySuffix4` index — added if user supplies exactly 4 digits)
+   - `customers where cityLower >= q AND cityLower < qHigh` (prefix)
+   - `customers where zipCode == query` (exact)
+   - Collection-group on `vehicles`:
+     - `vehicles where makeModelLower >= q AND makeModelLower < qHigh` (prefix)
+     - `vehicles where licensePlate == query.toUpperCase()` (exact)
+     - `vehicles where tire.size == query` (exact)
+     - **Dual-read transition window (SP3 → SP4):** ALSO query `vehicles where tireSize == query` (legacy root-level field) and merge into results. Removes once SP3 backfill audit-doc confirms all legacy docs have been hoisted. See Backfill — *Dual-write transition window for tire fields*.
+4. **Client-side merge** by `customerId`; deduplicate; rank by field-priority (exact phone > exact plate > exact zip > name prefix > company prefix > city prefix > vehicle prefix).
+5. **RBAC filter:** if the current user is a technician, post-fetch filter results by `customerId IN scopedCustomerIds` (derived from `scopeJobsByRole`-filtered jobs).
+6. **Cache:** in-memory `Map<string, Result[]>` keyed on the normalized query; 60s TTL; cache invalidated on any Customer/Vehicle write via the existing onSnapshot listeners.
+
+**Critical prefix-query contract.** The high-sentinel `` MUST be explicit in every prefix branch — a missing/empty upper bound (`q + ''`) reduces to `[q, q)` which is an empty range and returns ZERO rows. The `` constant is the canonical idiom from Firestore docs; equivalent forms (`String.fromCharCode(0xf8ff)`) are interchangeable. The phoneKey suffix branch uses `':'` instead because phoneKeys are guaranteed pure digits and `':'` is the next ASCII code point above `'9'`, giving a tighter index scan than `` would. **Acceptance test (regression gate):** searching `te` MUST return customers with names starting `Te...` (Tesla, Tetris, Terra). This unit test ships with the `searchCustomers.ts` helper as the canonical regression test for the prefix-query bug and MUST pass before SP3 merges to main.
+
+**Mobile keyboard friction.** The `GlobalSearchSheet` input MUST set `inputmode='search'`, `autocapitalize='off'`, `autocorrect='off'`, `spellcheck='false'` so operators can type tire sizes like `215/55R17` and license plates without iOS auto-correct sabotaging the query.
+
+**Ranking acceptance tests.** The field-priority order is hand-coded and ships with three deterministic regression tests in `searchCustomers.test.ts`:
+
+| Query | Expected top-3 ordering | Why |
+|---|---|---|
+| `3058977030` (exact 10-digit phone) | (1) Maria Lopez `+13058977030` (exact phone hit) → (2) any name-prefix match for `'305...'` if present → (3) any other branch | exact-phone beats every prefix branch. |
+| `7030` (last 4) | (1) Maria Lopez (`phoneKeySuffix4 == '7030'`) → (2) other suffix-4 hits → (3) name-prefix matches | suffix-4 ranks above name-prefix when query is exactly 4 digits. |
+| `te` (2-letter prefix) | (1) Customers with names starting `Te...` (Tesla, Terra) → (2) companies starting `Te...` → (3) cities starting `Te...` | name-prefix beats company-prefix beats city-prefix; tire/vehicle prefix lower still. Critical regression test for the prefix-query high-sentinel bug. |
+
+### Result panel
+
+Grouped by Customer. Each customer row shows:
+- Name (with bolded substring match)
+- Company name (if matched)
+- Formatted phone
+- City + state
+- VIP tier badge if non-Standard
+- Nested vehicle sub-rows for any matched vehicles (shows make/model/trim, plate, tire size)
+- Tap → CustomerProfile (deep link via existing routing)
+
+States:
+- **Empty (query.length === 0):** prompt copy "Search by name, phone, company, vehicle, plate, tire size, city, or zip".
+- **Loading:** 3-row skeleton.
+- **No match:** "No customers match '\{query\}' — try a phone number or vehicle plate."
+
+### Performance contract
+
+- **Target:** p95 < 300ms on Wheel Rush dataset (~2k customers, ~3k vehicles).
+- **Mechanisms:** composite indexes per field branch + parallel `Promise.all` + `limit(20)` per branch + in-memory result cache.
+- **Network budget:** 7 parallel reads × ~50ms each on warm Firestore ≈ ~70ms wall-clock; merge + filter ≈ 30ms; total ≈ ~150ms typical, ~280ms p95.
+- **Cold start:** first search after app boot is ~100ms slower; cache warmup hides subsequent typing.
+
+### Required Firestore indexes (new)
+
+- `customers (nameLower ASC)`
+- `customers (companyLower ASC)`
+- `customers (cityLower ASC)`
+- `customers (zipCode ASC)`
+- `vehicles (makeModelLower ASC)` — **collection group**
+- `vehicles (licensePlate ASC)` — **collection group**
+- `vehicles (tire.size ASC)` — **collection group**
+
+All collection-group indexes require deploy via `firebase deploy --only firestore:indexes` with explicit collection-group declarations in `firestore.indexes.json`.
+
+### v1 fuzzy-search posture
+
+v1 does substring / prefix matching only. No typo tolerance. No semantic search. Algolia / Meilisearch integration is deferred to SP7 if Wheel Rush feedback indicates real demand. The 200ms debounce + prefix queries match user mental model ("I type three letters of 'Tesla' and see Teslas") without the infra cost.
+
+### Lands in SP3
+
+The component, helper, indexes, and main-nav entry all land alongside CustomerProfile in SP3. No separate sub-project.
+
+---
+
+## Customer Insights Card (Phase 9)
+
+**Goal:** at-a-glance customer value summary on CustomerProfile. Replaces the v1 "Lifetime Revenue stat" with a structured 9-metric card and a derived VIP Tier badge.
+
+### Card placement & visibility
+
+- Renders at the bottom of CustomerProfile's Overview section, above the Quick Actions row.
+- Financial metrics (Lifetime Revenue, Total Jobs counted-against-revenue, Average Ticket) gated by `permissions.canViewFinancials`.
+- Non-financial metrics (vehicles, service types, last service, vehicle make/model) shown to all roles.
+- VIP Tier badge: shown to all roles (operational signal, not a financial figure).
+
+### The 9 metrics
+
+| # | Metric | Source / derivation | Gated? |
+|---|---|---|---|
+| 1 | **Lifetime Revenue** | `sum(scopedJobs.revenue)` — uses existing `scopeJobsByRole` so techs see only their own | `canViewFinancials` |
+| 2 | **Total Jobs** | `scopedJobs.length` | always |
+| 3 | **Average Ticket** | `lifetimeRevenue / totalJobs` — computed live AND persisted on Customer doc as `averageTicket` for list-sort | `canViewFinancials` |
+| 4 | **Last Service Date** | `Customer.lastJobAt` | always |
+| 5 | **Most Common Vehicle** | `mode(jobs map { year + ' ' + make + ' ' + model })` | always |
+| 6 | **Most Common Tire Size** | **tire-vertical only**; `mode(jobs.tireSize)` | always (when tire vertical) |
+| 7 | **Most Common Service Type** | `mode(jobs.service)` mapped through `verticalConfig.services[id].label` for display | always |
+| 8 | **Referral Count** | `Customer.referralCount` (defaults to 0); **schema-only in v1** — no UI surfaces it as editable | always (read-only) |
+| 9 | **VIP Tier** | `deriveVipTier(lifetimeRevenue)` — badge rendered prominently | always |
+
+### VIP tier derivation
+
+```ts
+// src/lib/customerInsights.ts
+export type VipTier = 'Standard' | 'Gold' | 'Platinum';
+
+export function deriveVipTier(lifetimeRevenue: number): VipTier {
+  if (lifetimeRevenue >= 2500) return 'Platinum';
+  if (lifetimeRevenue >= 1000) return 'Gold';
+  return 'Standard';
+}
+```
+
+**Thresholds confirmed by user:** Gold at $1,000+, Platinum at $2,500+. These are mode-aware of Wheel Rush's current Average Ticket (~$400-600) — a Gold customer is roughly 2-3 services in, a Platinum is roughly 5+. Future tenants in higher-AOV verticals (e.g. mechanic engine work) may want a per-business override; **deferred to SP7** as a Settings field `vipThresholds: { gold: number; platinum: number }`.
+
+### customerStatus derivation
+
+`customerStatus` is the OPERATIONAL state — independent of `vipTier`. The two values render as separate side-by-side badges on CustomerProfile.
+
+```ts
+export type CustomerStatus = 'Active' | 'Inactive' | 'Fleet' | 'Archived';
+
+export function deriveCustomerStatus(args: {
+  lastJobAt: Date | null;
+  companyName?: string;
+  manualOverride?: CustomerStatus;
+  activeWindowMs?: number;  // default 365d; overridable via settings.activeWindowMonths
+}): CustomerStatus {
+  if (args.manualOverride) return args.manualOverride;
+  if (args.companyName) return 'Fleet';
+  const windowMs = args.activeWindowMs ?? 365 * 24 * 60 * 60 * 1000;
+  if (args.lastJobAt && Date.now() - args.lastJobAt.getTime() < windowMs) return 'Active';
+  return 'Inactive';
+}
+```
+
+**Key changes from v1 review:**
+- `'VIP'` REMOVED from the enum. VIP-ness is a revenue tier, not an operational state. A Gold Fleet customer is `(Fleet, Gold)`, displayed as two badges; a Platinum Active customer is `(Active, Platinum)`.
+- `'Archived'` ADDED as a manual-only override for customers the operator wants hidden from default lists without soft-deleting. Read paths filter `customerStatus != 'Archived'` by default.
+- `activeWindowMs` is parameterized. Different verticals have different repeat cycles (tire rotation ~6mo, oil change ~3mo, detailing ~1mo). v1 hardcodes 12 months for Wheel Rush; SP7 adds `settings.activeWindowMonths` per-business override (same SP7 ticket as the VIP-threshold override).
+
+Owners/admins can override status manually via CustomerProfile edit (`manualOverride` field on the Customer doc).
+
+### Insights jobs-load bound (v2 — review-pass)
+
+The CustomerProfile MUST bound its jobs query to **the most recent 100 jobs per customer** (`orderBy('date', 'desc'), limit(100)`). The 6 "computed live" metrics (Most Common Vehicle, Most Common Tire Size, Most Common Service Type, etc.) run `mode()` over the returned array — bounding the input to the recent 100 jobs is both an operationally-meaningful improvement (a customer who switched cars five years ago shouldn't show their old vehicle as "most common") and a hard cap on the worst-case `mode()` cost for long-tail customers with 500+ lifetime jobs.
+
+For customers with more than 100 lifetime jobs, the timeline section displays a **"See full history"** affordance that paginates further pages of 100 jobs each. The "computed live" insights metrics are NOT recomputed across pagination — they remain bound to the most recent 100 by spec.
+
+Lifetime totals (`lifetimeRevenue`, `jobCount`, `lastJobAt`) are NOT bound by the 100-job window — they're computed by the `onJobWriteCustomerRollup` trigger over the FULL job history (admin SDK, no scoping). Only client-side `mode()`-style "Most Common X" metrics use the bounded window.
+
+**Performance contract update:** p95 < 200ms on profile open for customers with up to 500 lifetime jobs (jobs query is `limit(100)`; only 100 docs travel over the wire regardless of history depth).
+
+### Rollup persistence (recommendation: persist averageTicket + vipTier + customerStatus)
+
+**Recommended approach:** persist `averageTicket`, `vipTier`, `customerStatus` on the Customer doc via a Cloud Function trigger (`onJobWriteCustomerRollup`). Compute on-the-fly for the remaining 6 metrics from the bounded (recent-100) jobs query.
+
+**Rationale:**
+- `averageTicket` + `vipTier` are the only metrics that need to be SORTABLE / FILTERABLE on the Customers list page. Persisting them enables index-backed queries like `customers where vipTier == 'Platinum' orderBy averageTicket desc`.
+- `customerStatus` is similarly used for list filtering.
+- The other 6 metrics are derived purely from the jobs list, which is already loaded for the timeline render — no incremental cost.
+- A Cloud Function trigger is preferred over client-side recomputation because techs only see their own jobs (rollups would skew per-viewer), but the rollup must reflect the OWNER's view of revenue.
+
+**Trigger spec:** `onJobWriteCustomerRollup` listens to `businesses/{bid}/jobs/{jobId}` create/update/delete. When `job.customerId` is set, it loads ALL jobs for that customerId (admin SDK bypasses scoping), computes `lifetimeRevenue` + `jobCount` **in memory**, derives `averageTicket = lifetimeRevenue / jobCount`, calls `deriveVipTier(lifetimeRevenue)` + `deriveCustomerStatus(...)`, and writes back ONLY `{ jobCount, averageTicket, vipTier, customerStatus, lastJobAt, lastJobId }` to the Customer doc. Debounced via a 30s coalescing window per `customerId` to avoid write storms when batches of jobs are imported. Skips when the source Job carries `metadata.backfillRun` (see Backfill — *Idempotency*).
+
+**Critical privacy contract: `lifetimeRevenue` MUST NOT be persisted on the Customer doc.** It is computed in-memory inside the trigger solely to derive `averageTicket` and `vipTier`. Persisting `lifetimeRevenue` would leak owner-aggregated revenue to technicians who can read the customer doc (the Firestore rule `allow read: if isMemberOfBusiness(bid)` is intentionally broad to keep the cross-role hybrid read path simple). The same rule applies to `lifetimeProfit` and `expensesTotal` if a future trigger ever computes them. A Firestore-rule allowlist negative-check (rejecting writes that include any of these three field names) belongs in the SP3 rules delta, and an explicit code-review checklist item enforces it: *"PR must not add `lifetimeRevenue`, `lifetimeProfit`, or `expensesTotal` to any write path on the Customer doc."*
+
+**Stale-rollup display contract.** The 30s coalescing window means `averageTicket` / `vipTier` on the Customer doc may be up to 30s older than `lastJobAt` after a fresh save. The CustomerProfile page MUST recompute these values client-side from the loaded jobs list (via the same `customerInsights.ts` helpers used by the trigger) when `(lastJobAt - updatedAt) > 30s` — this keeps the post-save UX consistent without coupling the page to the trigger's debounce. The Customers-page list (where index-backed sort/filter matters more than 30s staleness) reads the persisted rollup as-is.
+
+**Progress-to-next-tier UX (v2 — review-pass).** A customer at $999 lifetime revenue would otherwise show a plain "Standard" badge with no signal that the next sale tiers them up. The CustomerInsightsCard renders a small subline under the VIP badge:
+
+| Tier | Subline |
+|---|---|
+| Standard | `Gold tier in $XXX` where `XXX = 1000 - lifetimeRevenue` |
+| Gold | `Platinum tier in $XXX` where `XXX = 2500 - lifetimeRevenue` |
+| Platinum | `Top tier reached` (read-only) |
+
+Computed live on the client from the same in-memory `lifetimeRevenue` used to render the current badge — no schema change, no trigger change, no additional Firestore read. This closes the retention-engineering UX gap raised in the v2 review pass.
+
+**Legacy fallback:** for customers without persisted rollups (pre-trigger or pre-backfill), the card falls back to client-computed values from the loaded jobs list.
+
+### Lands in SP3
+
+CustomerInsightsCard component, customerInsights helper, onJobWriteCustomerRollup Cloud Function, VIP tier badge component — all in SP3 alongside CustomerProfile.
+
+---
+
+## Auto-Save Customers Setting (Phase 17)
+
+**Goal:** operator-controlled toggle to disable the automatic Customer/Vehicle upsert in saveJob. Default ON. When OFF, the operator manages Customer entries manually (or via the search + manual-create UI in SP3).
+
+### Schema
+
+- Field: `businesses/{bid}/settings.autoSaveCustomersFromJobs: boolean`
+- Default: `true` (preserves v1 behavior on upgrade)
+- Field: `businesses/{bid}/settings.autoSaveDisabledAt: Timestamp?` — written every time the toggle transitions from `true` → `false`. Used by the OFF→ON banner (below) to scope the "orphan job" count.
+- Rule: owner/admin only (existing Settings update rule covers it)
+
+### Read-time default contract (v2 — review-pass)
+
+All v2 Settings fields are OPTIONAL (`?:`) in the `Settings` TypeScript interface and MUST be read with a nullish-coalesce default at every read site. Existing Settings docs (Wheel Rush et al.) do NOT carry these fields and MUST behave as if they were set to their defaults:
+
+```ts
+const autoSave    = settings.autoSaveCustomersFromJobs ?? true;
+const ophConnected = settings.openphoneConnected ?? false;
+const provider    = settings.outboundCommunicationProvider ?? 'native';
+```
+
+No backfill of existing Settings docs is required — they read as their default until the owner first changes the value via the new Settings UI. A future contributor doing `settings = { ...settings, autoSaveCustomersFromJobs: false }` as a "safe default" would silently break every existing tenant, so the type signature MUST mark these fields optional and the saveJob/CustomerProfile snippets MUST always nullish-coalesce. SP1's PR adds a code-review checklist item enforcing this pattern.
+
+### Placement
+
+- New "Customer Directory" accordion section in Settings (between "Operations" and "Integrations").
+- Toggle row label: **"Auto-save customers from completed jobs"**.
+- Helper copy: *"When ON, every saved job upserts a Customer record (and a Vehicle if applicable). When OFF, jobs save without creating directory entries — useful if you prefer to manage your customer list manually."*
+- Component: `CustomerDirectorySettingsSection.tsx` (gated by `canEditBusinessSettings`).
+
+### saveJob integration
+
+See *saveJob change* in the AddJob Workflow Change section above for the full code path. Summary:
+
+- `App.tsx` reads `settings.autoSaveCustomersFromJobs` once at mount via the existing Settings listener and caches it in a React context (with nullish-coalesce default `true`).
+- saveJob checks the context value before calling `upsertCustomerFromJob`. When OFF, the entire upsert path is skipped.
+- The Job document still saves successfully; it just has no `customerId`, `vehicleId`, or `phoneKey`.
+
+### UX when toggle is OFF
+
+- CustomerLookupCard in AddJob still surfaces matches from existing Customer docs (read-only behavior).
+- "Use Customer" continues to autofill the draft (operator convenience).
+- On save, a one-time-per-session toast appears: *"Customer not auto-saved (toggle OFF)"* — makes the behavior visible without nag-spamming. The toast is dismissible-with-"don't show again-this-session" via a chip on the toast itself. Re-fires on the next session unless the operator toggles back ON.
+- No orphaned data: Customer docs already created remain untouched; only NEW jobs do not contribute to the directory.
+
+#### Manual customer creation path (v2 — review-pass)
+
+When `autoSaveCustomersFromJobs` is OFF and the operator saves a job for a phone with **no existing Customer match** (the CustomerLookupCard had no hit), the post-save success surface displays a single confirmation row:
+
+```
++--------------------------------------------------+
+| Save this customer to your directory?            |
+| [ Save customer ]    [ Skip ]                    |
++--------------------------------------------------+
+```
+
+- **Save customer** invokes `upsertCustomerFromJob(businessId, finalJob)` synchronously (the exact same transactional helper saveJob would have called) and then writes back `customerId` / `vehicleId` / `phoneKey` to the just-saved Job doc via `fbSetFast` merge update.
+- **Skip** dismisses the row. No further action.
+- The row is rendered ONCE per AddJob session — closing AddJob without picking either button is treated as Skip.
+
+The same affordance lands on the Customers page as a permanent **"+ New Customer"** button (gated by `canCreateJobs`) that opens an empty CustomerProfile edit form. Customer docs no longer require originating from a job; with auto-save OFF, the operator's directory IS the manual-creation path.
+
+### OFF→ON transition behavior (v2 — review-pass)
+
+Flipping the toggle from OFF → ON does NOT retroactively upsert prior toggle-OFF jobs. Instead:
+
+1. When the toggle transitions `true` → `false`, the Settings doc records `autoSaveDisabledAt: serverTimestamp()`. When the toggle transitions `false` → `true`, `autoSaveDisabledAt` is left in place (used to scope the banner below) and a `autoSaveReEnabledAt: serverTimestamp()` field is also written.
+2. When the Customer Directory Settings panel is rendered AND `autoSaveCustomersFromJobs === true` AND `autoSaveDisabledAt` exists AND no completed backfill audit doc references the post-disable window, the panel shows a banner:
+   > *"You have N jobs saved while auto-save was off. Run Backfill to add them to your directory."*
+   The `N` is computed via `count(jobs where customerId == null AND date > autoSaveDisabledAt)`.
+3. Clicking the banner CTA re-uses the existing `backfillCustomers` Cloud Function — it is already idempotent via `processedJobIds` and skips jobs already in the directory. The same audit-doc + dry-run surface applies.
+4. The banner auto-dismisses when the next backfill audit doc shows `jobsUpdated >= N` for the window. The operator may also dismiss it manually (writes a `autoSaveOrphanBannerDismissedAt` Settings field); dismissal is per-banner-instance, not permanent.
+
+This makes the toggle-OFF → toggle-ON cycle operationally complete without `saveJob` ever retroactively writing — the retro-pull is always an explicit operator action via the existing Backfill primitive.
+
+### Migration
+
+Existing Wheel Rush tenants default to `autoSaveCustomersFromJobs: true` (via the nullish-coalesce read contract above — no doc write required). No admin action required for upgrade. The toggle is opt-out for operators who want manual control.
+
+### Lands in SP1 + SP3
+
+- **SP1:** schema field added + saveJob gate reads the setting. No UI yet.
+- **SP3:** toggle UI added to Settings → Customer Directory section, alongside the Backfill button.
+
+---
+
+## Backfill Existing Jobs (Phase 3)
+
+**Confirmed by user answer #3.** A one-shot HTTPS-callable Cloud Function scans every existing job for a business, creates Customer + Vehicle docs from the job history, auto-merges duplicates by `phoneKey`, migrates legacy doc IDs, and computes initial rollups. Owner triggers it from Settings → Customer Directory after SP3 deploys.
+
+### Function signature
+
+```ts
+// functions/src/backfillCustomers.ts
+export const backfillCustomers = onCall<
+  { businessId: string; dryRun: boolean },
+  Promise<BackfillResult>
+>(async (req) => { ... });
+
+type BackfillResult = {
+  customerCount: number;
+  vehicleCount: number;
+  jobsUpdated: number;
+  mergesPerformed: number;
+  legacyKeysRenamed: number;
+  tireFieldsHoisted: number;
+  durationMs: number;
+  auditDocPath: string;
+};
+```
+
+### Algorithm
+
+1. Assert owner role on `req.auth.uid` for `businessId` (`assertOwnerOrAdmin`).
+2. Read all `businesses/{bid}/jobs` ordered by `date ASC` (admin SDK; ~5k docs paginated).
+3. For each job in order, invoke the **same transactional `upsertCustomerFromJob(businessId, job)` helper that live saveJob uses** (small batches of ~10-20 parallel invocations to bound transactional cost). The helper handles all field merging, idempotency, and concurrency safety; backfill does NOT pre-compute aggregates client-side and bulk-write — that path is race-unsafe (see *Live-write concurrency* below).
+4. After all jobs are processed, walk the resulting Customer/Vehicle docs and finalize:
+   - Recompute `averageTicket`, `vipTier`, `customerStatus` from the final `jobCount` + summed revenue (via `customerInsights.ts`). These are also written by `onJobWriteCustomerRollup`; the backfill writes them directly to avoid waiting for 5k debounced trigger invocations.
+   - Ensure `nameLower`, `companyLower`, `cityLower`, `makeModelLower` are present on every doc.
+   - Hoist tire-specific legacy fields (`tireSize` / `tireBrand` / `tireCondition`) from each Vehicle root into `vehicle.tire.{size, brand, condition}`. The dual-write contract below keeps SP1-SP3 reads unbroken.
+5. **Batch-update each job doc** with `customerId`, `vehicleId`, `phoneKey` if missing (Firestore batches of 500).
+6. **Migrate legacy `p_<10-digit>` Customer docs to `p_<11-digit>`:** write the new doc with all fields, rewrite every Job's `customerId` reference, then delete the old doc. Idempotent via a `migratedFrom` field on the new doc.
+7. Write audit doc to `businesses/{bid}/maintenance/backfillCustomers` with the result struct + timestamps, including `backfillConflictsResolved` counters (see *Conflict resolution policy* below).
+
+### Live-write concurrency (v2 — review-pass)
+
+Backfill MUST be race-safe against `saveJob`-driven `upsertCustomerFromJob` invocations that may fire during the 30+ second backfill walk. The contract:
+
+- **Backfill uses the same transactional `upsertCustomerFromJob` helper as live writes** — invoked per-job (or in small parallel batches), NOT as a precomputed bulk write. The `processedJobIds` array on the Customer doc, combined with `runTransaction` semantics, guarantees that concurrent live saveJob + backfill writes serialize and each `jobCount` increment lands at most once per `jobId` regardless of which path processed the job first.
+- Specifically: if a live saveJob processes `jobId X` at 14:00:15 (writing `processedJobIds = [..., 'X']`, `jobCount = 43`), and backfill reaches `jobId X` at 14:00:42, backfill's transaction reads `processedJobIds` containing `'X'` and SKIPS the increment but still merges identity fields (per the *Concurrency Contract* on `upsertCustomerFromJob`). Counters stay correct.
+- **Per-business advisory lock (optional belt-and-suspenders):** backfill writes `businesses/{bid}/maintenance/backfillCustomers.lockedAt = serverTimestamp()` at start and clears at completion. The live `saveJob` path does NOT check this lock (it would block AddJob save during backfill, which is unacceptable). Instead, an out-of-band watchdog in the backfill function aborts itself if it detects a stale lock from a prior crashed run (`lockedAt > 10 minutes old AND no completedAt`). This is a Cloud-Function-side concern only; clients are unaware.
+- **Backfill MAY also be run during a "maintenance window"** where the operator temporarily flips `autoSaveCustomersFromJobs` to OFF for the duration. This is documented as the operator's preferred posture for very large backfills (>10k jobs) where the additional transactional cost of dual-write would slow active operations. The Settings UI offers a one-click "Pause auto-save and run backfill" affordance that flips the toggle, runs backfill, then flips back.
+
+### Conflict resolution policy (v2 — review-pass)
+
+When jobs grouped under the same `phoneKey` carry different values for the same Customer field (e.g. `customerName = 'J. Smith'` on a 2023 job and `'John A Smith'` on a 2025 job), the merge policy is:
+
+| Field | Policy |
+|---|---|
+| `name`, `email`, `addressLine`, `city`, `state`, `zipCode`, `companyName` | **Most-recent-job-wins** (jobs ordered `date desc` within the group; first non-empty value chosen). Rationale: operators who update a customer's address on a 2025 job intended that as the current address. |
+| `firstJobAt` | `min(date)` across the group. |
+| `lastJobAt` | `max(date)` across the group. |
+| `jobCount` | `length` of the deduplicated group. |
+| `lifetimeRevenue` (for trigger-only persisted `averageTicket` derivation) | `sum(revenue)` always. |
+| `tags`, `note` from any pre-existing customer doc | **Preserved verbatim** — backfill NEVER overwrites operator-typed notes/tags. |
+| `lastEditedByUid` / `lastEditedAt` | Set to `'system:backfill'` / `serverTimestamp()`. |
+
+The backfill audit doc records a `backfillConflictsResolved: { name?: number; email?: number; addressLine?: number; companyName?: number }` counter so the operator can see how many conflicts the policy resolved silently. After backfill completes, the operator can override any field via inline edit in CustomerProfile.
+
+### Dual-write transition window for tire fields (v2 — review-pass)
+
+Between SP1 deploy and SP3 backfill completion (could be days to weeks), `upsertCustomerFromJob` MUST dual-write tire data to BOTH `vehicle.tire.size` AND the legacy `vehicle.tireSize` root field. Global search (which queries `vehicle.tire.size`) ALSO issues a parallel legacy-branch query `vehicles where tireSize == query` during the transition window and merges the results. This guarantees:
+
+- New writes between SP1 and SP3 are discoverable in global search via either index (dual-write).
+- Legacy unmigrated Vehicle docs from before SP1 remain discoverable via the legacy-branch query.
+- SP3 backfill rewrites all historic docs into the sub-object form. Once the backfill audit doc records `tireFieldsHoisted >= legacy count`, the legacy branch is retired in SP4 (PR removes the legacy query + stops dual-writing).
+- Tire-vertical reads (CustomerProfile vehicle chips, AddJob lookup card) use the fallback `vehicle.tire?.size ?? vehicle.tireSize` for both reads — no operator-visible regression at SP1 deploy.
+
+The SP1 ship-value checklist explicitly includes: *"Tire-vertical reads continue to work via the dual-write; no operator-visible regression at SP1 deploy."*
+
+### Idempotency
+
+- Re-runnable safely. The `processedJobIds` array on the Customer doc gates `jobCount` increments and `lastJobAt` updates inside `upsertCustomerFromJob`'s transaction. Re-running the backfill on a customer that already has all its jobs in `processedJobIds` is a no-op for counters; identity fields still merge with the conflict-resolution policy above.
+- The audit doc records `startedAt`, `completedAt`, `customerCount`, etc. A second run that finds the audit doc with `completedAt < 7 days ago` warns the owner but proceeds (cheap no-op).
+- **Trigger interaction:** the SP3 `onJobWriteCustomerRollup` trigger fires on every Job write the backfill makes (Step 5). To prevent N×30s coalescing churn, the backfill flags each job's batch-update with `metadata: { backfillRun: '<auditDocId>' }`; the trigger short-circuits when this metadata is present (the backfill writes the final rollups directly in Step 4 already, so the trigger has nothing to add). The flag is cleared by a follow-up sweep after audit-doc finalization.
+
+### Dry-run mode
+
+`dryRun: true` returns counts and merge previews only; no Firestore writes. The dry-run runs the same per-job transactional walk but with all `tx.set/update` calls replaced by an in-memory accumulator that produces the result struct. Useful for the owner to verify expected scale AND to calibrate the operator-shown estimate (`"Will create ~342 customers in ~30 seconds"`) — the 30-second figure is derived from the dry-run's measured `durationMs` × 1.5 (typical write-path overhead) rather than a hardcoded constant.
+
+### Trigger UX
+
+- "Backfill Customers from Job History" button in Settings → Customer Directory section (owner-only, gated by `permissions.role === 'owner'`).
+- Shown only when no completed audit doc exists OR a re-run is explicitly requested via a "Re-run backfill" affordance.
+- On click: confirmation modal showing dry-run estimate ("Will create ~342 customers, ~487 vehicles. This takes ~30 seconds. Continue?") → live progress indicator → success toast with audit-doc summary.
+
+### Performance
+
+Wheel Rush's job count (~3k-5k) backfills in well under a minute on a single Cloud Function invocation (admin SDK batched writes at 500/batch). Tenants with 50k+ jobs would need a multi-invocation cursor pattern — deferred to a future enhancement.
+
+### Lands in SP3
+
+Function + Settings button land in SP3 alongside CustomerProfile. The operator runs the backfill ONCE after SP3 deploys, verifies via the audit doc, and moves on.
 
 ---
 
@@ -1131,6 +1771,49 @@ Phase 12 (the user's "ready for AI receptionist later" requirement) is delivered
 | **Vehicle directory (cross-customer)** | The Vehicle subcollection already carries `vin`, `licensePlate`, `color` fields — present but optional in v1. | A top-level vehicle search page that uses a Firestore Collection Group query on `vehicles` filtered by `licensePlate` or `vin`. No schema change. |
 | **Multiple matches on shared phone** | `incomingCalls.multipleMatches: boolean` + `vehiclesSnapshot` already carries up to 3 vehicles | IncomingCallModal renders the secondary "Also: Jose Lopez" line when `multipleMatches == true`. v1 already renders this. |
 | **Lead → Customer auto-promote** | `Lead.phoneKey` and `Customer.phoneKey` share the same field. When a future job is saved with a matching `phoneKey`, `upsertCustomerFromJob` can detect an unconverted lead and flip `lead.status = 'converted'` + `lead.convertedJobId`. | v1 doesn't auto-promote; the operator does it manually from the Leads page. SP7 adds the auto-flip. |
+| **v2 Per-vertical service catalogs** | Customer Timeline + Customer Insights "Most Common Service Type" already read service labels via `verticalConfig.services[id].label` rather than hardcoded strings. | When a new vertical's service catalog is added (e.g. mechanic engine codes, detailing packages), the timeline and insights render correctly with zero code change. |
+| **v2 Per-business OpenPhone toggle** | `settings.openphoneConnected` (boolean) + `settings.outboundCommunicationProvider: 'native' \| 'openphone'` are shaped in v1 schema. CustomerProfile Call/Text buttons inspect these but always dispatch native in v1. | SP7 flips the dispatch path when `provider === 'openphone'` — POSTs to a Cloud Function that initiates the call/SMS via Quo API. No schema change, no UI change. |
+| **v2 Referral tracking** | `Customer.referralCount: number` reserved on schema (defaults to 0). Insights card shows the count read-only. | A future referral-flow surface (CustomerProfile → "Refer a friend" action) increments this counter. No schema change. |
+| **v2 Per-vertical Vehicle sub-objects** | `vehicle.mechanic` and `vehicle.detailing` placeholder sub-objects reserved in schema. CustomerProfile renders fields conditional on active vertical via existing `resolveVertical()` pattern. | When mechanic / detailing verticals graduate from placeholder, the sub-objects fill in with no schema migration on existing Vehicle docs. |
+| **v2 Per-business VIP thresholds** | `deriveVipTier` reads thresholds from a config; v1 hardcodes Gold $1,000+ / Platinum $2,500+. | SP7 adds `settings.vipThresholds: { gold: number; platinum: number }` for tenants in higher-AOV verticals. The trigger Cloud Function rereads on each rollup. |
+
+---
+
+## Phase Mapping (user phases 1-18 → sub-projects SP1-SP7.5)
+
+v2 expands the marketed phase numbering from 12 to 18. The dev-execution sub-project structure (SP1-SP7.5) is unchanged — the 18 phases are how the operator narrates value as it lands; SP1-SP7.5 are how engineering ships.
+
+| Old phase (12) | New phase (18) | New phase title | Lands in SP |
+|---|---|---|---|
+| P1 Customer Directory | **P1** | Customer Directory foundation | SP1 |
+| P2 Vehicle Directory | **P2** | Vehicle Directory | SP1 |
+| (was OQ#3) | **P3 NEW** | Backfill existing data | SP3 (backfill button + Cloud Function) |
+| P3 Universal Lookup | **P4** | Universal Customer Lookup by phone | SP2 |
+| (NEW) | **P5 NEW** | Global Customer Search | SP3 |
+| P4 AddJob redesign | **P6** | AddJob redesign with 8-step order | SP2 |
+| P9 Customer Profile | **P7** | Customer Profile page (Overview, Vehicles, Service History, Photos, Invoices, Communication, Notes, Insights) | SP3 |
+| P5 Service Timeline | **P8** | Service Timeline | SP3 |
+| (NEW) | **P9 NEW** | Customer Insights + VIP tiers (Gold $1,000+, Platinum $2,500+) | SP3 |
+| P9 Quick Actions | **P10** | Quick Actions | SP3 |
+| P6 OpenPhone integration | **P11** | OpenPhone integration (gated, optional) | SP4 |
+| P7 Incoming Call Popup | **P12** | Incoming Call Popup | SP6 |
+| P8 Missed Call framework | **P13** | Missed Call framework | SP5 |
+| (was implicit in P6/P8) | **P14 NEW-EXPLICIT** | Communication Logging | SP4 + SP5 |
+| P10 Technician Permissions | **P15** | Technician Permissions | spans SP1-SP3 |
+| P11 Database Structure | **P16** | Database Structure (vertical-agnostic + new fields) | SP1 |
+| (NEW) | **P17 NEW** | Settings toggle for auto-save | SP1 schema + SP3 UI |
+| P12 AI receptionist | **P18** | Future AI foundation | SP7 |
+
+**Reading the map:**
+- P1, P2, P15, P16, P17-schema all land in **SP1** (the foundation slice).
+- P4, P6 land in **SP2** (the AddJob slice).
+- P3, P5, P7, P8, P9, P10, P17-UI all land in **SP3** (the CustomerProfile + global search + backfill + settings slice — this is the biggest SP3 has ever been, but it ships as a coherent operator-visible value pile).
+- P11, P14 land in **SP4** (the webhook foundation).
+- P13, P14 land in **SP5** (the leads + missed-call slice).
+- P12 lands in **SP6** (the popup slice).
+- P18 lands in **SP7** (future-ready follow-ups).
+
+The 18-phase numbering is the marketing scaffolding for what the operator sees in their app over time. The SP1-SP7.5 boundaries are the engineering execution structure. They run in parallel.
 
 ---
 
@@ -1140,39 +1823,58 @@ Each sub-project is shippable in isolation. The order minimizes risk and accumul
 
 ### SP1 — Customer + Vehicle entities + saveJob upsert
 
-- **Phases covered:** 1, 2, 11
-- **Scope:** `src/lib/phone.ts`, `src/lib/customerEntity.ts`, `src/lib/customers.ts` (hybrid refactor), `src/App.tsx` saveJob hook, `firestore.rules` deltas for `customers/{cid}/vehicles/**` and tightened `customers/{cid}` update rules. NO visible UI change other than the Customers page beginning to surface persisted vehicles on new entries.
-- **Rationale:** Smallest viable slice that unlocks every later phase. Adds persistence at save time without changing any visible operator flow. Hybrid read keeps Customers page working for both legacy and new data on day 1. Zero risk because upsert is wrapped in try/catch.
+- **Phases covered:** **P1, P2, P15 (RBAC schema), P16 (Database Structure), P17 (Settings schema only)**
+- **Scope:** `src/lib/phone.ts`, `src/lib/customerEntity.ts`, `src/lib/customers.ts` (hybrid refactor), `src/App.tsx` saveJob hook, `firestore.rules` deltas for `customers/{cid}/vehicles/**` and tightened `customers/{cid}` update rules. **v2 additions:**
+  - **New Customer fields:** `companyName`, `nameLower`, `companyLower`, `cityLower`, `zipCode`, `averageTicket`, `customerStatus`, `vipTier`, `referralCount`. Firestore-rule allowlist + index registrations.
+  - **New Vehicle fields:** `year`, `make`, `model`, `trim`, `color`, `makeModelLower`. Tire-specific fields **hoisted under `vehicle.tire`** sub-object (vertical-agnostic refactor). Legacy flat-field reads still work via fallback.
+  - **Settings schema:** `autoSaveCustomersFromJobs: boolean` (default true), `openphoneConnected: boolean` (default false), `outboundCommunicationProvider: 'native' | 'openphone'` (default 'native'). No UI yet — schema + Firestore-rule allowlist only.
+  - **saveJob gate:** reads `settings.autoSaveCustomersFromJobs` via cached context; when false, skips the entire upsert path. Toast "Customer not auto-saved (toggle OFF)" on save.
+  - **Updated `customerKey()`** uses `normalizePhone(...).digits` → `p_<11-digit>` format (breaking change from legacy `p_<10-digit>`; reconciled via hybrid read).
+  - **Updated `vehicleKey()`** prefers universal `year-make-model-trim` slug; falls back to legacy tire-vertical keys only for jobs without make/model.
+- **Rationale:** Smallest viable slice that unlocks every later phase. Adds persistence at save time without changing any visible operator flow. Hybrid read keeps Customers page working for both legacy and new data on day 1. Zero risk because upsert is wrapped in try/catch. The auto-save gate + new fields are schema-only at SP1 — UI lands in SP3 — so SP1's visible-change surface stays small.
 - **Dependencies:** none
-- **Ships value when:** Every newly saved job auto-creates a real Customer doc with `phoneKey` and a Vehicle subdoc. Customers page sorts by persisted `lastJobAt` for jobs saved post-deploy.
+- **Ships value when:** Every newly saved job auto-creates a real Customer doc with `phoneKey` and a Vehicle subdoc (assuming the auto-save toggle is ON, which it is by default). Customers page sorts by persisted `lastJobAt` for jobs saved post-deploy. Schema is fully vertical-agnostic from day 1. **Tire-vertical reads continue to work via the SP1→SP3 dual-write contract — no operator-visible regression at SP1 deploy.**
 
-### SP2 — Phone lookup + AddJob "returning customer" card
+### SP2 — Phone lookup + AddJob "returning customer" card + 8-step order + address autofill
 
-- **Phases covered:** 3, 4
-- **Scope:** `src/lib/lookupCustomerByPhone.ts`, `src/components/addJob/CustomerLookupCard.tsx`, `src/pages/AddJob.tsx` insertion at top of form, email input added to existing Customer card.
-- **Rationale:** First operator-visible win. Phone-first auto-fill on returning customers. The headline mobile-tech win.
+- **Phases covered:** **P4 (Universal Lookup), P6 (AddJob redesign with 8-step order)**
+- **Scope:** `src/lib/lookupCustomerByPhone.ts`, `src/components/addJob/CustomerLookupCard.tsx`, `src/pages/AddJob.tsx` restructured into the confirmed 8-step order (Phone → Lookup → Vehicle → Quick Pricing → Service Type → Tire Size → Location → Notes), email input added to existing Customer card. **v2 additions:**
+  - **`AddressAutofillInput` component** inserted at AddJob step 7 (Location). Populates `addressLine`, `city`, `state`, `zipCode`. Lightweight US-ZIP lookup in v1 (no external API). Also added to CustomerProfile edit mode.
+  - **Vertical dispatch on step 6** (Tire Size): tire-vertical renders tire-size input; other verticals render their `verticalConfig.primaryDomainField` or skip the step entirely.
+  - **Customer card** captures `companyName` (optional) for fleet customers.
+- **Rationale:** First operator-visible win. Phone-first auto-fill on returning customers. The explicit 8-step order matches the user's mental model: "who is this person" (steps 1-3) → "what am I charging" (steps 4-5) → "where am I going" (step 7) → "anything else" (step 8). Address capture lands here per user answer #5 (no longer deferred to SP3).
 - **Dependencies:** SP1
-- **Ships value when:** Tech opens AddJob, types `(305) 897-7030`, sees Maria Lopez + Honda Civic / 215/55R17 card in <300ms, taps "Use Customer," watches the whole Customer card autofill.
+- **Ships value when:** Tech opens AddJob, types `(305) 897-7030`, sees Maria Lopez + Honda Civic / 215/55R17 card in <300ms, taps "Use Customer," watches the whole Customer card autofill. Step 7 Location autofills city/state/zip from a typed ZIP. The 8-step order feels deliberate, not arbitrary.
 
-### SP3 — Customer Profile page + timeline
+### SP3 — Customer Profile + Global Search + Insights + Backfill + Customer Directory Settings
 
-- **Phases covered:** 5, 9, 10
-- **Scope:** `src/pages/CustomerProfile.tsx`, `src/pages/Customers.tsx` modifications (row click → CustomerProfile, tightened revenue gating, vehicles surfaced), routing add to App.tsx, 9 quick-action buttons wired.
-- **Rationale:** Customer Profile is the operator-facing payoff of SP1. Decouples nicely from the call popup so we can ship + dogfood + polish before adding the incoming-call surface area.
+- **Phases covered:** **P3 (Backfill), P5 (Global Search), P7 (Customer Profile), P8 (Service Timeline), P9 (Customer Insights), P10 (Quick Actions), P17 UI (Auto-save toggle), P15 UI (RBAC)**
+- **Scope:** This is the BIG slice — it absorbs most of v2's new requirements.
+  - **CustomerProfile + timeline:** `src/pages/CustomerProfile.tsx`, `src/pages/Customers.tsx` modifications (row click → CustomerProfile, tightened revenue gating, vehicles surfaced), routing add to App.tsx, 9 quick-action buttons wired.
+  - **v2: Global Customer Search.** `GlobalSearchSheet.tsx` (bottom-sheet), `searchCustomers.ts` (parallel multi-field helper), persistent search icon in main nav, new composite indexes for `nameLower` / `companyLower` / `cityLower` / `zipCode` on Customers and `makeModelLower` / `licensePlate` / `tire.size` collection-group on Vehicles.
+  - **v2: Customer Insights card.** `CustomerInsightsCard.tsx` (rendered on CustomerProfile), `customerInsights.ts` (helpers: `deriveVipTier`, `deriveCustomerStatus`, `computeMostCommonVehicle`, etc.), VIP tier badge component. `onJobWriteCustomerRollup` Cloud Function trigger that recomputes `averageTicket` / `vipTier` / `customerStatus` on Customer doc on every job write.
+  - **v2: Auto-save toggle UI.** `CustomerDirectorySettingsSection.tsx` adds a new "Customer Directory" accordion in Settings with the toggle row (schema lands in SP1; UI lands here).
+  - **v2: Backfill function + admin button.** `backfillCustomers` Cloud Function (HTTPS callable, owner-only). Settings → Customer Directory → "Backfill Customers from Job History" button. Audit doc + dry-run mode. Migrates legacy `p_<10-digit>` Customer doc IDs to `p_<11-digit>`. Hoists tire fields into `vehicle.tire`. Auto-merges by phoneKey.
+  - **Per-vertical service-catalog label lookup** in the timeline (vertical-agnostic framing — Service Type display reads from `verticalConfig.services` rather than hardcoded strings).
+- **Rationale:** SP3 is bigger in v2 than v1, but the additions are all CustomerProfile-adjacent — Global Search benefits from the same `nameLower` / `companyLower` fields the profile uses; Insights derives from the same jobs query the profile loads; Backfill is the natural moment to enrich the directory before the operator dogfoods Insights; Settings toggle UI lands here because that's where the Backfill button also lives. Shipping these together gives the operator one coherent "directory + intelligence" upgrade.
 - **Dependencies:** SP1
-- **Ships value when:** Operator taps any customer in Customers page → drills into full profile with phone, vehicles, full service history (reusing JobDetailModal), notes, tags, and 9 quick actions. Techs see same screen minus Lifetime Revenue / Profit / Expenses.
+- **Ships value when:** Operator taps any customer in Customers page → drills into full profile with phone, vehicles, full service history, notes, tags, 9 quick actions, AND a Customer Insights card with VIP tier badge. They tap the new search icon in main nav, type "Tesla" or "235/45R18" or "Hollywood", get sub-300ms results across name/vehicle/zip. They open Settings → Customer Directory, see the auto-save toggle (default ON), and run the Backfill button — within ~30s every existing job has been organized into Customer + Vehicle records.
 
-### SP4 — Quo webhook + idempotency + business-number mapping (no UI yet)
+### SP4 — Quo webhook + idempotency + business-number mapping (gated, disabled by default)
 
-- **Phases covered:** 6, 11
+- **Phases covered:** **P11 (OpenPhone integration), P14 (Communication Logging — receive side: incoming call/SMS webhook + Firestore write)**
 - **Scope:** `functions/src/quoWebhook.ts`, `functions/src/adminConnectQuoNumber.ts`, `functions/src/reconcileQuoCalls.ts` (scheduled), `functions/src/lib/phone.ts` (duplicate of client copy), `functions/src/index.ts` export, `firestore.rules` for `incomingCalls/**`, `quoPhoneNumbers/**`, `quoWebhookEvents/**`, `quoUserMapping/**`, `quoSyncCursors/**`. Operator-only debug panel `QuoIntegrationSection.tsx` for verification. **Extension of `scheduledDeletionPurge`** to purge top-level `quoPhoneNumbers` / `quoUserMapping` / `quoSyncCursors` docs owned by a purged business. **Firestore TTL policy on `quoWebhookEvents.createdAt` (28h)** configured at deploy time — hard requirement, not optional.
-- **Rationale:** Backend-only. Ship the webhook with full HMAC + idempotency + business resolution + replay-window + tenant isolation invariants before adding the popup surface. Lets us instrument latency and verify the resolution chain (Quo number → business → customer) in production before any operator sees a popup. Reconciliation function closes the "calls never vanish" promise even on webhook outages.
+- **v2 emphasis: ships DISABLED by default.**
+  - **`QUO_WEBHOOK_ENABLED=false`** at v1 deploy. Webhook returns 404. Per user answer #1.
+  - **Per-business `settings.openphoneConnected = false`** at default. Settings → Integrations shows "Connect OpenPhone" CTA when false.
+  - Operator buys Quo Business plan → enables Beta → pastes `whsec_` key into Settings → Integrations form → `adminConnectQuoIntegration` writes mapping + flips `settings.openphoneConnected = true` → MSOS ops flips `QUO_WEBHOOK_ENABLED=true` on the function. Activation is a config-only operation, no code deploy.
+- **Rationale:** Backend-only. Ship the webhook with full HMAC + idempotency + business resolution + replay-window + tenant isolation invariants before adding the popup surface. Lets us instrument latency and verify the resolution chain (Quo number → business → customer) in production before any operator sees a popup. Reconciliation function closes the "calls never vanish" promise even on webhook outages. The OpenPhone-optional gating means SP1-SP3 ship and provide value without requiring SP4 to be turned on.
 - **Dependencies:** SP1 (needs Customer entity to resolve)
-- **Ships value when:** Owner connects their Quo number in Settings → Integrations, places a test call to it from a known customer's phone, and within 1s sees a `incomingCalls/{id}` doc in Firestore with `customerId` resolved + vehicle snapshot. Foundational plumbing done.
+- **Ships value when:** Owner connects their Quo number in Settings → Integrations, MSOS ops flips the env flag, owner places a test call to the Quo line from a known customer's phone, and within 1s sees a `incomingCalls/{id}` doc in Firestore with `customerId` resolved + vehicle snapshot. Foundational plumbing done. Until the operator opts in, this SP is invisible.
 
 ### SP5 — Missed-call workflow + Leads
 
-- **Phases covered:** 8
+- **Phases covered:** **P13 (Missed Call framework), P14 (Communication Logging — leads/send side)**
 - **Scope:** `quoWebhook` adds Lead creation on `call.missed` (transactional dedup so two parallel webhooks for the same caller don't race-create two leads — read-then-create inside `runTransaction` keyed on `(phoneKey, createdAt window)`), `src/pages/Leads.tsx`, `Lead` type added, MoreSheet tab entry, in-app toast notification on missed call (uses existing `addActionToast` bus), **"Attach to customer" manual link action** for unknown-caller leads (typeahead picks a Customer; updates both `leads.customerId` and the originating `incomingCalls.customerId`).
 - **Rationale:** Builds on SP4 webhook plumbing. Missed calls stop vanishing; operators can work the funnel.
 - **Dependencies:** SP4
@@ -1180,7 +1882,7 @@ Each sub-project is shippable in isolation. The order minimizes risk and accumul
 
 ### SP6 — Incoming Call Popup (headline feature)
 
-- **Phases covered:** 7, 9, 12
+- **Phases covered:** **P12 (Incoming Call Popup)**
 - **Scope:** `src/lib/useIncomingCallListener.ts`, `src/components/IncomingCallModal.tsx`, `src/App.tsx` listener attach + modal render, `/public/sounds/ringtone.mp3` asset. **Accept and Decline are Firestore transactions** with the "already answered by {name}" losing-device UX. Disambiguation sheet for shared-phone matches (renders `customersSnapshot[]` and writes the picked `customerId` back via the update-allowed field). Audio autoplay unlock via a one-time pointer listener on App mount.
 - **Rationale:** The headline. Ships last because it depends on Customer entity (SP1), CustomerProfile for "Open Profile" deep-link (SP3), and the webhook pipeline (SP4). Documents the backgrounded-tab gap and the SP5 toast-fallback compensating control.
 - **Dependencies:** SP1, SP3, SP4
@@ -1188,7 +1890,7 @@ Each sub-project is shippable in isolation. The order minimizes risk and accumul
 
 ### SP7 — Future-ready seams (optional follow-up)
 
-- **Phases covered:** 12
+- **Phases covered:** **P18 (Future AI foundation) + extensions to P11 (outbound OpenPhone), P14 (auto-text-back)**
 - **Scope:** Per-item; not a single bundle. Items: (a) surface `recordingUrl` and `transcript` in CustomerProfile post-call section (gated by NEW `canViewRecordings` flag); (b) FCM web push for background delivery (firebase/messaging, sw.js push handler, token table, VAPID); (c) auto-text-back on missed call via Quo `/v1/messages` (per-business toggle in Settings); (d) AI receptionist hook on `transcript` write; (e) admin "Merge customers" tool for the customer-changes-phone-number case (rewrites every Job's `customerId` from source → target, sums rollup counters, concatenates notes, unions tags, then soft-deletes the source).
 - **Rationale:** Not required for the user's stated goal. Each item ships independently as ROI dictates.
 - **Dependencies:** SP6
@@ -1208,45 +1910,70 @@ Each sub-project is shippable in isolation. The order minimizes risk and accumul
 
 - No production code yet (design only)
 - No live OpenPhone secrets / no real webhook deployment yet
-- No backfill of historical jobs into the Customer collection (covered as an optional sub-project — SP3 or a follow-up; the hybrid read path makes day-1 backfill non-essential)
-- No outbound SMS sending (Phase 8 is backend logging only; outbound is SP7)
+- ~~No backfill of historical jobs into the Customer collection~~ **— now IN SCOPE as Phase 3, lands in SP3 via the `backfillCustomers` Cloud Function + Settings admin button. Per user answer #3.**
+- ~~Address capture in AddJob deferred to SP3~~ **— now IN SCOPE in SP2 (AddJob step 7 Location) via `AddressAutofillInput`. Per user answer #5.**
+- No outbound SMS sending (P13 is backend logging only; outbound is SP7)
 - No FCM web push (SP7)
 - No two-way SMS thread UI (SP7-adjacent)
 - No call recording or transcript surfacing in v1 — fields persisted, UI deferred
 - No customer-changes-phone-number auto-merge — phone change in v1 creates a SECOND Customer doc (history splits); admin merge tool is SP7.
 - No customer-changes-phone-number auto-detection UI — operator notices via the duplicate row in Customers.
 - No multi-country phone normalization — US default only. International, extension, and vanity inputs are explicitly REJECTED by `normalizePhone` (return `valid: false`) in v1.
-- No outbound Quo API calls from the client — all outbound goes through Cloud Functions when added
+- **No outbound Quo API for Call/Text buttons in v1 — native `tel:` / `sms:` only.** Per-business OpenPhone outbound toggle (`outboundCommunicationProvider: 'native' | 'openphone'`) is SP7 (P11 extension). Schema field shaped in v1; behavior change ships in SP7. Per user answer #6.
+- **No service-vertical-specific search filters in P5 global search — search is field-agnostic across all verticals.** Vertical-specific power-search filters (e.g. "show only Platinum-tier tire customers in Hollywood") are SP7.
+- **No client-side or server-side fuzzy/typo-tolerant search in v1** — substring/prefix matching only. Full-text via Algolia / Meilisearch deferred to SP7 if Wheel Rush feedback indicates real demand.
 - No new permission flags in v1 — existing `Permissions` map suffices. (`canViewRecordings` is added in SP7.)
 - **No per-customer GDPR/CCPA hard-delete in v1.** The CustomerProfile "Delete" button is SOFT-DELETE only (operator UX affordance). Hard-delete with Job tombstoning, Quo recording removal, and audit logging is SP7.5. Businesses receiving GDPR/CCPA erasure requests before SP7.5 ships must run the operation manually via Firestore console.
 - No full customer-change diff audit log in v1 — only `lastEditedByUid` / `lastEditedAt` is captured. Full before/after diff log is SP7.5.
 - No CMEK encryption for plaintext PII (phones, transcripts) — Google-managed at-rest encryption is the v1 protection model.
 - No Cloud Armor / App Check / IP allowlist on the webhook — `maxInstances: 10` + HMAC + replay window + kill switch is the v1 defense.
 - No automatic two-party-consent recording disclosure — operator's regulatory responsibility, surfaced via a Settings notice and link to Quo's docs.
+- **No per-business VIP threshold overrides in v1** — Gold $1,000+ / Platinum $2,500+ are hardcoded thresholds. Per-business `settings.vipThresholds` deferred to SP7.
+- **No external address-autocomplete API in v1** — `AddressAutofillInput` ships a bundled US ZIP → city/state JSON dataset (~200 KB gzipped, ~40k US ZIPs). Operator types ZIP first; city/state autofill; street `addressLine` is free-text. No street-level address validation in v1. Google Places API integration is an SP7 follow-up; it requires `GOOGLE_PLACES_API_KEY` and a per-tenant privacy-policy update since customer addresses would then be sent to Google for autocomplete.
 
 ---
 
 ## Open Questions for User
 
-1. **Quo account / API access:** Does Wheel Rush already have a Quo (formerly OpenPhone) account? If so, which plan (Starter / Business / Scale)? Webhooks are available on all tiers so plan is informational. We need to confirm you can enable the **Beta webhook system** (uses `whsec_`-prefixed key, explicit `call.missed` event). If only legacy is available, we fall back to inferring missed from `call.completed.status in ('unanswered', 'abandoned')` — the spec supports both via the same handler with a tiny shape adapter.
+### Resolved in v2 (user-answered)
 
-2. **Multi-line / multi-tech routing:** ~~Open.~~ **RESOLVED in this spec — see *Multi-operator delivery rule — resolved* under Real-Time Popup Delivery.** Default is "rings every foregrounded device in the business"; `quoPhoneNumbers/{e164}.defaultAssignedToUid` is the per-line override; `incomingCalls.assignedToUid` (populated from Quo's payload routing data via the `quoUserMapping/{quoUserId}` table) is the per-call override; listener filter `assignedToUid == null || assignedToUid === uid` delivers in all three modes.
+1. **Quo account / API access:** ✓ **RESOLVED — v2.** User answer: *"Not yet. Will purchase OpenPhone Business plan. Architecture must work WITHOUT OpenPhone initially and be activatable later via feature flag with minimal code changes."* → SP4 ships with `QUO_WEBHOOK_ENABLED=false` (global) and `settings.openphoneConnected=false` (per-business). SP1-SP3 ship and provide full value without OpenPhone. See *OpenPhone-Optional Architecture*.
 
-3. **Historical job backfill:** Should we batch-upsert Customer + Vehicle docs for ALL existing jobs in a one-time migration (so the Customers page is consistent on day 1 of SP3), or rely on the hybrid derive-or-persisted read path so customers materialize organically? **Recommendation:** ship SP1 without backfill (zero risk), then run a backfill Cloud Function during SP3 once we've verified the upsert path in production.
+2. **Multi-line / multi-tech routing:** ✓ **RESOLVED in v1 spec** — see *Multi-operator delivery rule — resolved* under Real-Time Popup Delivery.
 
-4. **Missed-call SMS automation:** v1 auto-text-back on every missed call, or defer to SP7 with operator opt-in? **Recommendation:** defer to SP7. Silent auto-SMS on every missed call risks A2P 10DLC reputation damage if it fires on robocalls. SP7 adds a per-business opt-in toggle and a deny-list of known spam patterns.
+3. **Historical job backfill:** ✓ **RESOLVED — v2.** User answer: *"YES. Scan all existing jobs, create Customer profiles from historical data using phone number as primary identifier, auto-merge duplicates where possible. No existing data lost."* → New Phase 3. `backfillCustomers` Cloud Function + Settings admin button land in SP3. See *Backfill Existing Jobs (Phase 3)*.
 
-5. **Phone lookup ambiguity (shared household line):** ~~Open.~~ **RESOLVED in this spec.** `incomingCalls.customersSnapshot` carries up to 3 candidate customers (each with name + up to 3 vehicles); `additionalMatchesCount` covers overflow. IncomingCallModal renders the primary as the hero, a secondary chip "Also: {name} (+N more)", and a tap-to-disambiguate sheet that lets the operator pick the right customer (write-back via the `customerId` field on the updated allowlist). Privacy tradeoff acknowledged: revealing "Also: Jose Lopez" on the popup discloses the existence of a second customer to the answering tech. Fine for household shared lines; documented as a known limitation for abuse-victim or separated-couples cases — operators should soft-delete or rename Customer records in sensitive situations.
+4. **Missed-call SMS automation:** ✓ **RESOLVED — v2.** User answer: *"Defer to Phase 7 (SP7). Build the architecture only. No automated outbound texts yet."* → Webhook architecture in SP4-SP5; outbound deferred to SP7 with per-business opt-in.
 
-6. **Address capture in AddJob:** Add a street-address input to the new CustomerLookupCard / Customer card in SP2, or leave `addressLine` as an optional that's only set via the CustomerProfile edit screen in SP3? **Recommendation:** defer to SP3 to keep SP2 small.
+5. **Phone lookup ambiguity (shared household line):** ✓ **RESOLVED in v1 spec** — `customersSnapshot[]` carries up to 3 candidate customers; disambiguation sheet on tap.
 
-7. **Quo Beta system signup:** The Beta webhook system uses `whsec_`-prefixed keys and Standard-Webhooks-compatible signing. Confirm you can enable Beta on your Quo account (operator action). If not, legacy `openphone-signature` HMAC works too — the spec supports both via the same handler.
+6. **Address capture in AddJob:** ✓ **RESOLVED — v2.** User answer: *"YES. Add customer address lookup + autofill in AddJob workflow."* → `AddressAutofillInput` lands in SP2 at AddJob step 7 (Location). Lightweight US-ZIP lookup in v1; Google Places deferred to SP7.
 
-8. **Outgoing call/SMS UX:** Quick actions "Call" and "Text" use the device's native `tel:` / `sms:` schemes (free, instant, but uses operator's personal number), OR call the Quo API to dial/text from the business number ($0.01/SMS segment, branded outbound, slower)? **Recommendation:** native `tel:` / `sms:` for v1; Quo-routed outbound in SP7.
+7. **Quo Beta system signup:** ✓ **RESOLVED — v2.** User answer: *"Operator confirms ability to enable Beta when account is provisioned. Build using webhooks + feature flags."* → SP4 builds against Quo Beta; activation is config-only when operator provisions account.
 
-9. **Customer entity ID strategy:** ~~Open.~~ **RESOLVED in this spec.** Computed keys retained: `p_<11-digit-normalized-digits>` (e.g. `p_13058977030`) for phone-keyed customers, `n_<slug>` for name-keyed fallback. Hybrid read path tolerates legacy `p_<10-digit>` IDs via a second-chance lookup (see *Phone Number Normalization* → "phoneKey canonical form"). Phone-change edge case: SECOND Customer doc is created automatically; admin merges via the SP7 "Merge customers" tool — explicitly documented in Out of Scope.
+8. **Outgoing call/SMS UX:** ✓ **RESOLVED — v2.** User answer: *"Phase 1 uses device-native `tel:` and `sms:` schemes. Admins can LATER choose OpenPhone API as an optional communication provider (per-business toggle)."* → v1 always uses native; SP7 adds `outboundCommunicationProvider: 'native' | 'openphone'` toggle. Schema field shaped in v1.
 
-10. **Toast vs full popup for missed/race-condition calls:** When the tab is foregrounded but no incoming-call popup fires because we missed the ringing event window (race condition), flash an `addActionToast` "Missed call from Maria Lopez" that taps through to her profile? **Recommendation:** yes, on every `call.missed` event regardless of whether the popup showed, with 8s dismiss + tap-to-open-profile.
+9. **Customer entity ID strategy:** ✓ **RESOLVED in v1 spec** — `p_<11-digit>` canonical; legacy `p_<10-digit>` migrated by SP3 backfill (now confirmed).
+
+10. **Toast vs full popup for missed/race-condition calls:** ✓ **RESOLVED in v1 spec** — toast on every `call.missed` regardless.
+
+### Resolved in v2 (new requirements added by user — auto-confirmed)
+
+A. **Global Customer Search (new P5):** ✓ **CONFIRMED.** Universal search from main nav, 7 field branches via `Promise.all`, sub-300ms target. Lands in SP3. See *Global Customer Search (Phase 5)*.
+
+B. **Customer Insights card (new P9):** ✓ **CONFIRMED.** 9 metrics with VIP tier badge (Gold $1,000+, Platinum $2,500+ thresholds confirmed by user). `averageTicket`, `vipTier`, `customerStatus` persisted as rollups via `onJobWriteCustomerRollup` trigger. Other 6 metrics computed live. Lands in SP3. See *Customer Insights Card (Phase 9)*.
+
+C. **Auto-save customers toggle (new P17):** ✓ **CONFIRMED.** Default ON. Settings → Customer Directory accordion. Owner/admin only. Schema lands in SP1; toggle UI lands in SP3. See *Auto-Save Customers Setting (Phase 17)*.
+
+### Remaining open questions (NEW, surfaced by v2 additions)
+
+The v2 additions surface three small follow-up decisions. None are blockers for sign-off; the spec ships with the recommended defaults. User can override any of them.
+
+11. **Backfill execution timing.** When should the operator run the SP3 backfill — immediately on SP3 deploy, or after a few days of dogfooding the new CustomerProfile against new-write data? **Recommendation:** run immediately on SP3 deploy. The audit doc + dry-run mode gives the operator confidence; running early means CustomerProfile shows real history from day 1 instead of growing organically.
+
+12. **VIP tier threshold confirmation.** Gold $1,000+ / Platinum $2,500+ are tuned for Wheel Rush's average ticket (~$400-600). Does the operator want these to be **business-configurable from day 1** (Settings field) or **hardcoded in v1, with override deferred to SP7**? **Recommendation:** hardcode in v1; ship the override in SP7 once we see whether other tenants in higher-AOV verticals (mechanic engine work, detailing packages) need it.
+
+13. **Settings accordion placement for "Customer Directory" section.** Add as a new top-level accordion in Settings, or nest under the existing "Operations" section? **Recommendation:** new top-level section labeled "Customer Directory" — it's a coherent feature pile (auto-save toggle + backfill button + future retention-campaign opt-ins) and deserves its own surface.
 
 ---
 
@@ -1308,3 +2035,146 @@ This pass addressed three adversarial reviews (correctness/security/operator-fit
 - Renaming `assignedToUid` to `routedToUid` (review 2 minor #7) — judgement call; field name stays as `assignedToUid` for consistency with the prior listener code; the per-call override semantic is now documented in the Multi-operator delivery rule subsection.
 - `customers/{uid}` Stripe Extension collision note (review 2 minor #1) — paths don't actually collide (one is top-level `/customers/{uid}`, the other is `/businesses/{bid}/customers/{cid}`); no rename required.
 - Exact `payload.data.context.participants.workspace` field path documentation (review 2 minor #2) — addressed by the new tenant-isolation pseudocode, but the exact Quo Beta field name should be re-verified during SP4 implementation against the live API.
+
+---
+
+## v2 Update Log
+
+This pass applied the user's answers to the seven deferred open questions plus three NEW first-class requirements (Global Search, Customer Insights, Auto-save toggle). All changes land within the existing SP1-SP7.5 dev-execution structure with no new sub-projects. Phase numbering expanded from 12 to 18.
+
+### Header / framing changes
+- Status flipped: `Draft — pending user approval` → `v2 — user-answered, pending final approval`.
+- Scope updated: "user phases 1-12" → "user phases 1-18".
+- Added a new top-level *User Answers to Open Questions (resolved) — v2 changelog* section recording all seven user answers verbatim plus the three NEW requirements and the vertical-agnostic framing principle.
+
+### Goal & Success Criteria
+- Appended *v2 scope additions* paragraph explicitly stating: (a) OpenPhone is optional in v1 (gated by `QUO_WEBHOOK_ENABLED` + `settings.openphoneConnected`); (b) entity model is vertical-agnostic from day 1; (c) Global Search + Customer Insights + Auto-save toggle are first-class v1 requirements (not future seams).
+
+### Data Model
+- **Customer schema:** added `nameLower`, `companyName`, `companyLower`, `cityLower`, `zipCode`, `averageTicket` (computed rollup), `customerStatus` (derived rollup), `vipTier` (derived rollup), `referralCount` (schema-only).
+- **Customer indexes:** added 6 new indexes for global-search and Customers-page filter-by-tier/status.
+- **Customer rule allowlist:** expanded to include all new fields.
+- **Vehicle schema:** added universal core fields (`year`, `make`, `model`, `trim`, `color`, `makeModelLower`); hoisted tire-specific fields under `vehicle.tire.{size, alternateSize, brand, condition, tpmsNotes, wheelLockNotes}` sub-object; added placeholder `vehicle.mechanic` and `vehicle.detailing` sub-objects (schema-only); marked legacy flat fields (`vehicleType`, `vehicleMakeModel`, `vehicleSize`) as backward-compat read-only.
+- **Vehicle indexes:** added 3 new collection-group indexes for global search.
+- **`vehicleKey()` algorithm:** updated to prefer universal `year-make-model-trim` slug; legacy tire-vertical keys retained as fallback.
+- **Settings schema:** added `autoSaveCustomersFromJobs`, `openphoneConnected`, `outboundCommunicationProvider`, `autoTextBackEnabled` fields with defaults and migration notes.
+- **New section: Vertical-Agnostic Entity Design** documenting the six principles that keep the system non-tire-coupled.
+
+### Phone Number Normalization
+- Updated the `phoneKey canonical form` paragraph to make explicit that SP3's backfill (now confirmed) renames every legacy `p_<10-digit>` doc to `p_<11-digit>` and adds `phoneKey` to docs that lack it. The hybrid second-chance lookup is now a *transitional safety net* rather than a permanent fallback.
+
+### System Components
+- Added 8 new component rows: `searchCustomers.ts`, `GlobalSearchSheet.tsx`, `CustomerInsightsCard.tsx`, `customerInsights.ts`, `onJobWriteCustomerRollup.ts`, `backfillCustomers.ts`, `AddressAutofillInput.tsx`, `CustomerDirectorySettingsSection.tsx`.
+
+### OpenPhone Integration
+- Added new **OpenPhone-Optional Architecture (v2)** section documenting the two-layer gating (`QUO_WEBHOOK_ENABLED` global + `settings.openphoneConnected` per-business), the unconnected-mode UX, and the activation flow.
+
+### AddJob Workflow Change
+- Replaced v1's loose ordering with the confirmed 8-step explicit order: Phone → Lookup → Vehicle → Quick Pricing → Service Type → Tire Size → Location → Notes.
+- Added vertical dispatch note on step 6 (Tire Size becomes the vertical's `primaryDomainField` for non-tire verticals).
+- Inserted `AddressAutofillInput` into step 7 (Location).
+- Updated saveJob snippet to read `settings.autoSaveCustomersFromJobs` and skip `upsertCustomerFromJob` when false. Added toast on save when toggle is OFF.
+
+### Customer Profile Actions
+- Updated Call (#3) and Text (#4) rows: v1 always uses `tel:` / `sms:`; SP7 introduces `outboundCommunicationProvider: 'native' | 'openphone'` per-business toggle. UI identical; dispatch path differs.
+
+### NEW sections added (in order of appearance)
+- **Vertical-Agnostic Entity Design** (after Data Model) — 6 principles.
+- **Global Customer Search (Phase 5)** (after Customer Profile Actions) — entry surface, algorithm, performance contract, required indexes.
+- **Customer Insights Card (Phase 9)** — 9 metrics, VIP tier derivation, `customerStatus` derivation, rollup persistence recommendation.
+- **Auto-Save Customers Setting (Phase 17)** — schema, placement, saveJob integration, UX when OFF, migration.
+- **Backfill Existing Jobs (Phase 3)** — function signature, algorithm, idempotency, dry-run, trigger UX, performance.
+- **Phase Mapping (user phases 1-18 → sub-projects SP1-SP7.5)** (before Ship Order) — the old-12 → new-18 mapping table.
+
+### Future-Ready Seams
+- Appended 5 new seam rows: per-vertical service catalogs, per-business OpenPhone toggle, referral tracking, per-vertical Vehicle sub-objects, per-business VIP thresholds.
+
+### Ship Order (Sub-Projects)
+- **SP1** scope expanded with: new Customer fields, new Vehicle fields, tire-fields-hoisting refactor, Settings schema fields, saveJob gate, updated `customerKey()` + `vehicleKey()`. UI surface unchanged (still schema-only).
+- **SP2** scope expanded with: confirmed 8-step AddJob order, `AddressAutofillInput`, `companyName` capture, vertical dispatch on step 6.
+- **SP3** scope dramatically expanded with: Global Search (component + helper + indexes + main-nav entry), Customer Insights card + helpers + Cloud Function trigger, Customer Directory Settings section + auto-save toggle UI, `backfillCustomers` Cloud Function + admin button, per-vertical service-catalog label lookup.
+- **SP4** scope re-emphasized: ships DISABLED by default (`QUO_WEBHOOK_ENABLED=false` + `settings.openphoneConnected=false`); activation is a config-only operation per user answer #1.
+- SP5, SP6, SP7, SP7.5 names and boundaries unchanged.
+
+### Out of Scope
+- Removed "No backfill of historical jobs" (now confirmed in scope).
+- Removed "Address capture in AddJob deferred to SP3" (now in scope in SP2).
+- Added "No outbound Quo API for Call/Text buttons in v1 — native `tel:` / `sms:` only" with SP7 deferral.
+- Added "No service-vertical-specific search filters in P5 global search."
+- Added "No client-side or server-side fuzzy/typo-tolerant search in v1."
+- Added "No per-business VIP threshold overrides in v1."
+- Added "No external address-autocomplete API in v1."
+
+### Open Questions
+- Marked questions 1, 3, 4, 6, 7, 8 RESOLVED with user's verbatim answer.
+- Added three new auto-confirmed entries (A, B, C) summarizing the three new requirements and their SP landings.
+- Added three new open questions (11, 12, 13) for backfill timing, VIP threshold configurability, and Settings accordion placement — all with recommended defaults.
+
+### Spec coverage summary
+- 18 marketed phases (was 12)
+- 7 sub-projects (unchanged: SP1, SP2, SP3, SP4, SP5, SP6, SP7, SP7.5)
+- 0 new sub-projects — all v2 additions fit cleanly into existing SP boundaries.
+- 0 backward-incompatible schema changes for already-shipped collections — the tire-field hoisting is gated by a fallback read path until the SP3 backfill runs.
+
+---
+
+## Review Pass 2 (Workflow-internal)
+
+This pass addressed two adversarial reviews against the v2 spec. Every critical issue called out by either reviewer was either fixed inline or recorded below as deferred-for-user-judgment. No new sub-projects, no scope changes, no headline-architecture changes — all edits are targeted contract refinements.
+
+### Critical issues addressed
+
+1. **Firestore prefix-query syntax bug (both reviews).** The `q + ''` upper bound in every prefix branch was an empty range — fix replaces every branch with `qHigh = q + ''` (`` Private Use Area sentinel) and the phoneKey suffix branch with `qDigits + ':'` (next ASCII after `'9'`). Added: explicit "Critical prefix-query contract" note, regression unit-test (`searching 'te' MUST return Tesla/Tetris/Terra`) committed as the SP3 merge gate, and a three-row ranking acceptance-test rubric. See *Global Customer Search → Algorithm + Critical prefix-query contract + Ranking acceptance tests*.
+
+2. **Scale tiers for global search (Review 2).** Removed the inconsistent "client-side fallback when `customers.length < 1000`" wording (it required loading the full collection to check the length). Replaced with an explicit four-tier table (T0 <1k client-cache; T1 1k-10k server-fan-out; T2 10k-50k paginated + capped; T3 >50k Algolia migration) keyed off a persisted `settings.customerCount` rollup. Documented migration trigger (p95 > 500ms over 24h OR count > 25k). See *Global Customer Search → Scale tiers*.
+
+3. **SP5 / SP6 phase numbering inconsistency (Review 1).** SP5 said "Phases covered: 8" and SP6 said "7, 9, 12" using old 12-phase numbering. Rewrote both to use the new P1-P18 names with parenthetical descriptions: SP5 = P13 (Missed Call framework) + P14 (Communication Logging — leads/send side); SP6 = P12 (Incoming Call Popup). Also clarified SP4 as P14 receive side and SP7 as P18 + P11/P14 extensions for full consistency. See *Ship Order → SP4/SP5/SP6/SP7*.
+
+4. **Auto-Save OFF→ON transition undocumented (Review 1).** Added explicit *OFF→ON transition behavior* subsection: (a) flipping ON does NOT retroactively upsert prior toggle-OFF jobs; (b) Settings panel shows a banner *"You have N jobs saved while auto-save was off. Run Backfill to add them"* scoped by `autoSaveDisabledAt`; (c) banner CTA re-uses the idempotent `backfillCustomers` function. Added Settings field `autoSaveDisabledAt`. See *Auto-Save Customers Setting → OFF→ON transition behavior*.
+
+5. **Manual customer creation path when toggle OFF (Review 2).** Toggle-OFF + new phone in AddJob previously had no explicit affordance — the operator only saw a post-save toast. Added: post-save *"Save this customer to your directory? [Save] [Skip]"* row that synchronously runs `upsertCustomerFromJob` and writes back the FK to the just-saved Job. Added a permanent **"+ New Customer"** button on the Customers page (gated by `canCreateJobs`). See *Auto-Save Customers Setting → Manual customer creation path*.
+
+6. **Backfill ↔ live-saveJob concurrency contract (both reviews).** Re-specified backfill to use the SAME transactional `upsertCustomerFromJob` helper as saveJob (per-job invocation in small parallel batches), NOT a pre-computed bulk-write. This serializes concurrent writes via `processedJobIds` + `runTransaction`. Added an explicit *Live-write concurrency* subsection; added the optional advisory `backfillCustomers.lockedAt` lock pattern; added a "Pause auto-save and run backfill" Settings affordance for very large backfills. See *Backfill Existing Jobs → Live-write concurrency*.
+
+7. **Backfill duplicate-merge conflict resolution undefined (Review 2).** Added explicit *Conflict resolution policy* table: name/email/addressLine/city/state/zipCode/companyName = most-recent-job-wins; firstJobAt = min; lastJobAt = max; tags/note = never-overwritten; backfill audit doc records `backfillConflictsResolved` counters per field. See *Backfill Existing Jobs → Conflict resolution policy*.
+
+8. **`lifetimeRevenue` must not be persisted on Customer doc (Review 1).** The `onJobWriteCustomerRollup` trigger spec previously said it "recomputes lifetimeRevenue + jobCount" without saying it should not persist `lifetimeRevenue`. Added explicit *Critical privacy contract* clause: `lifetimeRevenue`, `lifetimeProfit`, `expensesTotal` MUST NEVER be persisted on the Customer doc; computed in-memory only for deriving `averageTicket` / `vipTier`. Added a Firestore-rules negative check + PR code-review checklist item. See *Customer Insights Card → Rollup persistence + Trigger spec*.
+
+9. **Vehicle subdoc denormalization in `customersSnapshot` under-specified (Review 1).** Replaced the unspecified `Vehicle[]` shape with an explicit `VehicleSnapshotEntry` type listing exactly the fields snapshotted; rewrote the resolveAndWrite pseudocode to pick fields rather than spread the whole doc (drops `processedJobIds`, `createdAt`, etc. from the doc to keep IncomingCalls small). See *Data Model → IncomingCalls schema + Webhook resolveAndWrite pseudocode*.
+
+10. **Tire dual-write transition window (Review 2).** SP1 deploys before SP3 backfill — without dual-write, new tire-vertical reads would only find `vehicle.tire.size` and legacy unmigrated docs would be invisible. Added: SP1 `upsertCustomerFromJob` MUST dual-write tire data to BOTH `vehicle.tire.{size,brand,condition}` AND legacy root `vehicle.tireSize/tireBrand/tireCondition`. Global search runs a parallel legacy-branch query during SP3→SP4 window. Dual-write retired in SP4 once backfill audit confirms hoisting complete. Added explicit "no operator-visible regression at SP1 deploy" to SP1 ship-value. See *Concurrency Contract step 11, Backfill → Dual-write transition window, Global Search → Algorithm dual-read note, SP1 Ships value*.
+
+11. **AddressAutofillInput v1 implementation commitment (Review 2).** Previously vague "lightweight US ZIP → city/state lookup". Committed to Option A: bundled ~200 KB gzipped JSON dataset (~40k US ZIPs) shipped with the client; operator types ZIP first; city/state autofill; `addressLine` is free-text; no external API; no PII off-device. SP7 Google Places path documented as requiring `GOOGLE_PLACES_API_KEY` + per-tenant privacy-policy disclosure. See *AddJob Workflow Change → step 7 + Out of Scope*.
+
+12. **Read-time defaults for new Settings fields (Review 2).** Added explicit *Read-time default contract* subsection: `autoSaveCustomersFromJobs ?? true`, `openphoneConnected ?? false`, `outboundCommunicationProvider ?? 'native'`. TypeScript interface marks fields optional; no backfill of existing Settings docs required. See *Auto-Save Customers Setting → Read-time default contract*.
+
+13. **customerStatus + vipTier overlap (Review 2).** Previous derivation collapsed `'VIP'` into `customerStatus` and lost the signal when a Gold customer was also Fleet. Disambiguated: `customerStatus` is OPERATIONAL only (`'Active' | 'Inactive' | 'Fleet' | 'Archived'` — REMOVED `'VIP'`); `vipTier` is the SEPARATE revenue-tier signal. Both badges render side-by-side. Customers-page filter UX uses two independent filters. Parameterized `activeWindowMs` so SP7 can ship `settings.activeWindowMonths` per-business override. See *Data Model → Customer schema customerStatus + Customer Insights → deriveCustomerStatus*.
+
+14. **VIP tier progress-to-next-tier UX gap (Review 2).** A customer at $999 lifetime revenue had no signal that the next sale would tier them up. Added: CustomerInsightsCard renders a subline under the VIP badge — `"Gold tier in $X"`, `"Platinum tier in $X"`, or `"Top tier reached"` — computed live on the client from `lifetimeRevenue`. No schema change. Documented the 30s rollup-coalescing window as known acceptable lag with client-side fallback when `(lastJobAt - updatedAt) > 30s`. See *Customer Insights Card → Trigger spec + Stale-rollup display contract + Progress-to-next-tier UX*.
+
+15. **Insights computation cost on long-tail customers (Review 2).** Mode-over-all-jobs was unbounded for 500-job customers. Bounded the CustomerProfile jobs query to `orderBy('date', 'desc'), limit(100)`. Lifetime totals stay full-history via the trigger; only `mode()` insights use the bounded window. "See full history" affordance for pagination. Performance contract updated: p95 < 200ms on profile open up to 500 lifetime jobs. See *Customer Insights Card → Insights jobs-load bound*.
+
+### Minor issues addressed (mechanical)
+
+- **Minimum query length** for global search: short-circuits when `q.length < 2 AND qDigits.length < 2`. Documented in algorithm step 1.
+- **Mobile keyboard hints**: `inputmode='search'`, `autocapitalize='off'`, `autocorrect='off'`, `spellcheck='false'` on `GlobalSearchSheet` input.
+- **One-time-per-session toast** for auto-save-OFF: snippet uses `sessionStorage.getItem('autoSaveOffToastShown')` to fire once per session, not on every save. Mitigates nag-spam.
+- **Returning Customer card mock** hardcoded "Tire Replacement · $480 · Paid" replaced with `{label} · ${rev} · {paymentStatus}` template + a "Mock is vertical-agnostic" annotation pointing at `verticalConfig.services[lastJobSummary.service].label`.
+- **`activeWindowMs` parameterized** in `deriveCustomerStatus` so SP7 can per-business override the "Active" lookback window without touching the core helper.
+- **Trigger × backfill interaction**: documented that backfill flags each job batch-update with `metadata.backfillRun` and the trigger short-circuits when present, preventing N×30s coalescing churn during bulk import.
+- **Ranking acceptance tests**: three deterministic test cases (`'3058977030'`, `'7030'`, `'te'`) committed as the SP3 regression test suite for the field-priority order.
+
+### Deferred for user judgment
+
+The following minor issues from either review are judgment calls that the user (not the workflow) should decide on after reading the v2 + Review Pass 2 spec:
+
+- **`processedJobIds` array trim mechanism**: Review 2 flagged "cap at last 100 jobIds" as vaguely described. The current spec keeps it as `FieldValue.arrayUnion(jobId)` + out-of-band trim; the exact trim trigger (every N writes? scheduled cleanup?) is left for SP1 implementation per a code-review note. Pin precisely if you want the spec to commit.
+- **Lead conversion + re-miss behavior** (Review 2 minor): if a Lead converts and the same phone misses again, does the converted Lead re-open or a new Lead row get created? Spec is currently silent. Recommend: new Lead row per missed-call episode; converted Leads are immutable. Confirm if you'd like this committed.
+- **AddJob address update overwrites Customer doc** (Review 2 minor): when AddJob captures a new address for a returning customer, `upsertCustomerFromJob`'s last-write-wins behavior silently overwrites the Customer doc's previous address. Recommend: keep last-write-wins per the *Concurrency Contract* (operator typing fresh data wants it persisted). Confirm if you'd prefer a "Address changed — confirm update?" affordance instead.
+- **Settings accordion placement** for "Customer Directory" (existing OQ #13) — recommendation stands (new top-level section); confirm or override.
+- **VIP threshold configurability per-business** (existing OQ #12) — recommendation stands (hardcode v1; SP7 override). Confirm or override.
+- **Backfill execution timing** (existing OQ #11) — recommendation stands (run immediately on SP3 deploy). Confirm or override.
+
+### Strengths preserved (no edits)
+
+- OpenPhone-optional two-layer gating, Concurrency Contract on `upsertCustomerFromJob`, Webhook tenant-isolation invariants, Vertical-agnostic Vehicle sub-objects, Soft-delete vs. SP7.5 GDPR/CCPA split, Cross-device Accept/Decline race contract — all flagged as strengths by both reviewers; no changes.
