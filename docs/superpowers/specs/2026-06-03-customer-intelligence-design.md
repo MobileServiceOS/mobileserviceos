@@ -1,7 +1,15 @@
 # Twilio Integration + Customer Intelligence System — Design
 
 **Date:** 2026-06-03
-**Status:** v3 — Twilio pivot (OpenPhone/Quo removed), pending user approval
+**Status:** v3.1 — Twilio-deferred priority lock + dormant-popup contract, pending user approval
+
+> ### Priority lock (v3.1 — user-confirmed 2026-06-03)
+>
+> **Customer Directory + Customer Intelligence are THE primary work.** The user does not yet have a chosen Twilio number or call-forwarding configuration. Therefore:
+> - **SP1, SP2, SP3 ship complete operator-visible value with ZERO Twilio configuration.** Every feature in the spec EXCEPT the live incoming-call popup and outbound SMS works on day 1 without a Twilio number being chosen, registered, or connected.
+> - **SP4 (Twilio webhooks) and SP4-outbound (sendSMS) ship as fully dormant infrastructure.** Cloud Functions deploy disabled by default via `TWILIO_WEBHOOK_ENABLED=false`. No environment variable is required to ship SP4 code.
+> - **SP6 (Incoming Call Popup) decouples from SP4** — see SP6 below. The popup UI ships as part of the customer-intelligence work and is testable via a dev/admin Test Incoming Call action without any Twilio configuration. When SP4 webhooks are later activated, the popup pipeline begins firing automatically with no code change.
+> - **Twilio activation is a configuration-only operation** performed entirely through Settings → Communications. No code redeploy required.
 **Scope:** Full architecture for user phases 1-18. This spec defines the data model, integration points, security model, and sub-project shipping order. Each sub-project will get its own dedicated implementation plan after the user signs off on this architecture.
 
 **v3 framing:** Twilio is the primary (and only active) communications provider. The architecture introduces a thin **Provider Abstraction Layer** so future providers could be added without rewriting business logic — but Twilio is the only implementation that exists. Quo/OpenPhone references throughout v2 have been replaced. See *v3 Update Log* at the bottom for the full pivot diff.
@@ -2127,6 +2135,7 @@ Existing Wheel Rush tenants default to `autoSaveCustomersFromJobs: true` (via th
 6. **Enable missed-call auto text** — toggle bound to `settings.missedCallAutoTextEnabled`, default OFF. v1 reads only; SP7's `autoTextRules` engine consumes the flag.
 7. **Enable outbound SMS** — toggle bound to `settings.outboundSMSEnabled`, default ON. When OFF, the `sendSMS` callable refuses with `'outbound_sms_disabled'`.
 8. **"Auto-save customers from completed jobs"** — cross-link reference to the existing **Customer Directory** accordion's toggle (which stays where it is). Communications doesn't own this toggle — it just points at it so the operator can find it from either entry.
+9. **"Test Incoming Call" admin action (v3.1 NEW)** — owner-only button visible regardless of `twilioConnected` state. Opens a customer-picker sheet (typeahead over the same `searchCustomers` helper used by Global Search). On confirm, writes a synthetic `incomingCalls/{id}` doc with `provider: 'test'`, `status: 'ringing'`, `customersSnapshot[]` populated from the picked customer (or empty for the "Pick: New Caller" option), `createdAt: serverTimestamp()`, `assignedToUid: null` (rings every device). The SP6 listener fires the popup within 1-2s on every foregrounded device. The synthetic doc auto-deletes after 60s (TTL field) so it doesn't pollute the customer's communication history. **This action enables full SP6 dogfooding without Twilio being connected** — see SP6 dormant-popup contract.
 
 ### Per-business connected status verification
 
@@ -2141,9 +2150,12 @@ If the operator never makes a test call, `lastTwilioWebhookSuccessAt` stays unse
 
 Existing tenants have none of these fields populated; nullish-coalesce defaults apply per the *Read-time default contract* subsection (defined for v2 fields, extended to v3 fields with the defaults listed above).
 
-### Lands in SP4
+### Lands in SP3 + SP4 (v3.1 update)
 
-`CommunicationsSettingsSection.tsx` ships in SP4 alongside the webhook endpoints. Until SP4 deploys, the accordion is absent. Once SP4 deploys (with `TWILIO_WEBHOOK_ENABLED=false` still), the accordion appears with the "Connect Twilio" CTA; flipping any toggle has no effect until the operator completes the connect flow and MSOS ops flips the env flag.
+- **SP3 (priority slice):** `CommunicationsSettingsSection.tsx` ships with items 1, 2, 4-8, **and 9 (Test Incoming Call)**. The Connect form (item 3) is rendered with disabled inputs + a "Configuration available when Cloud Functions are deployed" hint. The Test Incoming Call button works immediately (writes directly to Firestore from the client — owner-only Firestore rule); SP6's listener picks it up. The accordion is FULLY VALUABLE at SP3 without SP4 being deployed.
+- **SP4:** Enables the Connect form (calls `adminConnectTwilioNumber`), enables real webhook telemetry on `lastTwilioWebhookSuccessAt`, and the four event-related toggles (items 4-7) gain effect. Items already shipped in SP3 do not move.
+
+This split exists because the user's v3.1 priority lock requires the Customer Directory + Intelligence priority work to deliver the popup UX surface (including the test-fire affordance) without waiting on Twilio configuration.
 
 ---
 
@@ -2372,13 +2384,14 @@ Each sub-project is shippable in isolation. The order minimizes risk and accumul
 - **Dependencies:** SP4
 - **Ships value when:** Every missed call to the business number creates a Lead row that any operator can act on. Known customers' missed calls show their name; unknown numbers are first-touch leads. The toast surfaces them in real time when the tab is foregrounded. Lead dedup contract: a missed call from the same `phoneKey` within 7d updates the existing lead's `lastMissedCallAt` and increments `missedCallCount` instead of creating a duplicate row.
 
-### SP6 — Incoming Call Popup (headline feature) + New Caller card
+### SP6 — Incoming Call Popup UI (ships dormant; auto-activates when SP4 is connected)
 
 - **Phases covered:** **P12 (Incoming Call Popup)**
-- **Scope:** `src/lib/useIncomingCallListener.ts`, `src/components/IncomingCallModal.tsx`, `src/App.tsx` listener attach + modal render, `/public/sounds/ringtone.mp3` asset. **Accept and Decline are Firestore transactions** with the "already answered by {name}" losing-device UX. Disambiguation sheet for shared-phone matches (renders `customersSnapshot[]` and writes the picked `customerId` back via the update-allowed field). **v3 NEW: New Caller card variant** — when `customersSnapshot.length === 0`, popup shows "NEW CALLER" with the formatted phone number and three buttons: **Create Customer** (opens CustomerProfile in new-customer mode with phone pre-filled), **Create Job** (opens AddJob with customerPhone pre-filled), **Text Back** (opens the inline send-SMS UI that calls `sendSMS` from SP4). Audio autoplay unlock via a one-time pointer listener on App mount.
-- **Rationale:** The headline. Ships last because it depends on Customer entity (SP1), CustomerProfile for "Open Profile" deep-link (SP3), and the webhook pipeline (SP4). The New Caller variant lands here (not SP3) because it's a popup-resident affordance triggered by webhook-driven state. Documents the backgrounded-tab gap and the SP5 toast-fallback compensating control.
-- **Dependencies:** SP1, SP3, SP4
-- **Ships value when:** Customer calls business number → within 1-2s on every foregrounded MSOS device a popup appears showing caller name, vehicle, last service, with Accept / Decline / Open Profile / Create Job and a ringtone. Unknown callers get the NEW CALLER card with the three quick actions. The full headline goal delivered.
+- **Scope:** `src/lib/useIncomingCallListener.ts`, `src/components/IncomingCallModal.tsx`, `src/App.tsx` listener attach + modal render, `/public/sounds/ringtone.mp3` asset. **Accept and Decline are Firestore transactions** with the "already answered by {name}" losing-device UX. Disambiguation sheet for shared-phone matches (renders `customersSnapshot[]` and writes the picked `customerId` back via the update-allowed field). **v3 NEW: New Caller card variant** — when `customersSnapshot.length === 0`, popup shows "NEW CALLER" with the formatted phone number and three buttons: **Create Customer** (opens CustomerProfile in new-customer mode with phone pre-filled), **Create Job** (opens AddJob with customerPhone pre-filled), **Text Back** (opens the inline send-SMS UI; when SP4 is unconnected this falls back to a `sms:` deep-link). Audio autoplay unlock via a one-time pointer listener on App mount.
+- **v3.1 dormant-popup contract:** SP6 ships **without requiring SP4 to be deployed or connected**. The Firestore listener is attached at app boot; if no `incomingCalls` doc ever lands, the modal never renders — zero overhead, zero noise. Verification path during SP6 development uses the **Test Incoming Call admin action** (Settings → Communications → "Test Incoming Call" button, owner-only) which writes a synthetic `incomingCalls` doc with a chosen customer's snapshot. The popup pipeline exercises end-to-end without any Twilio configuration. Once SP4 lands and Twilio webhooks begin writing real `incomingCalls` docs, the popup activates automatically — no code change.
+- **Rationale:** The headline UI lands as part of the customer-intelligence priority push, dormant until communications infrastructure activates. Decoupling from SP4 means: (a) the popup design is dogfooded and refined while Twilio number selection is still pending, (b) SP4 can ship/activate later without re-litigating the popup UX, (c) the operator sees a coherent CustomerProfile + Insights + popup UI surface in one ship without waiting on external configuration. The New Caller variant lands here (not SP3) because it's a popup-resident affordance — but its three buttons (Create Customer, Create Job, Text Back) all dispatch into already-existing SP1-SP3 surfaces, so SP6 introduces no new dependencies.
+- **Dependencies:** SP1, SP3. **SP4 is NOT a strict dependency** — the popup activates when `incomingCalls` docs appear, regardless of who writes them (Twilio webhook in SP4, or the Test Incoming Call admin action in this SP). SP5 (Leads/missed-call) remains gated on SP4 since it depends on real webhook events.
+- **Ships value when:** Operator opens MSOS, taps Settings → Communications → "Test Incoming Call" with a chosen customer; within 1-2s a popup appears showing caller name, vehicle, last service, with Accept / Decline / Open Profile / Create Job and a ringtone. Unknown-caller test fires the NEW CALLER card with three quick actions. The full popup UX is exercised and dogfooded without Twilio being connected. When SP4 lands later, the same popup begins firing on real calls automatically.
 
 ### SP7 — Future-ready seams (optional follow-up)
 
@@ -2470,9 +2483,9 @@ The v2 additions surfaced three follow-up decisions. v3 adds two more. None are 
 
 13. **Settings accordion placement for "Customer Directory" section.** Add as a new top-level accordion in Settings, or nest under the existing "Operations" section? **Recommendation:** new top-level section labeled "Customer Directory" — it's a coherent feature pile (auto-save toggle + backfill button + future retention-campaign opt-ins) and deserves its own surface.
 
-14. **(v3 NEW) Twilio number identification & registration.** The operator owns a Twilio account + provisioned number, but the spec needs the operator to (a) confirm which specific Twilio number is the business line, (b) provide the corresponding Twilio Phone Number SID (`PNxxxx`) for the connect form. **Operator action required** — no MSOS-side automation. The Settings → Communications → Connect form copy must include a "Find your Phone Number SID in the Twilio console at console.twilio.com/us1/develop/phone-numbers/manage/incoming" pointer.
+14. **(v3 NEW — v3.1 RESOLVED)** ~~Twilio number identification & registration.~~ **User confirmed 2026-06-03: no Twilio business number selected yet.** Number selection is deferred to whenever the operator chooses. SP1-SP3 ship without requiring a number. SP4 ships as dormant infrastructure (`TWILIO_WEBHOOK_ENABLED=false`). The Settings → Communications → Connect form remains in the spec but is exercised by the operator only when ready. **No blocker for the priority Customer Directory + Intelligence work.**
 
-15. **(v3 NEW) Twilio call forwarding confirmation.** The voice webhook's TwiML `<Pause length="1"/>` response works only when the operator has separately configured Twilio's number-level call forwarding to ring their mobile phone. **Operator action required** — confirm that the Twilio number's voice configuration includes a TwiML Bin or a SIP/PSTN forward to the operator's actual mobile. The SP4 connect-form UI should display a checklist confirming all four URL configurations (VoiceUrl → twilioIncomingCall, StatusCallback → twilioCallStatus, MessagingUrl → twilioIncomingSMS, plus the call-forwarding TwiML) and require an "I've configured these" acknowledgement before flipping `settings.twilioConnected = true`.
+15. **(v3 NEW — v3.1 RESOLVED)** ~~Twilio call forwarding confirmation.~~ **User confirmed 2026-06-03: no call forwarding configured yet.** Forwarding is a SP4 activation prerequisite, not a SP1-SP6 blocker. SP6 popup ships dormant and is testable via the **Test Incoming Call** admin action (see SP6 scope). When the operator later activates SP4, the Settings → Communications connect form will surface the four-URL checklist + forwarding-acknowledgement gate before flipping `settings.twilioConnected = true`. **No blocker for the priority Customer Directory + Intelligence work.**
 
 ---
 
@@ -2789,3 +2802,38 @@ This pass pivots the v2 communications layer from Quo (formerly OpenPhone) to Tw
 - 5 new Cloud Functions (`twilioIncomingCall`, `twilioIncomingSMS`, `twilioCallStatus`, `sendSMS`, `adminConnectTwilioNumber`). 1 new scheduled function (`reconcileTwilioCalls`). 2 new helper libraries (`communicationProvider`, `twilioClient`).
 - 1 architectural reversal vs v2: Vehicle tire fields are TOP-LEVEL again (not `vehicle.tire.*` sub-object).
 - 0 backward-incompatible changes to v2 customer/vehicle/job/search/insights/AddJob/RBAC architecture.
+
+---
+
+## v3.1 Update Log
+
+This pass locks in the **priority and dormancy contract** confirmed by the user on 2026-06-03 (Q14, Q15 answers):
+
+- **Q14 RESOLVED:** No Twilio business number selected yet. Customer Directory + Customer Intelligence are the priority. Build everything (including the incoming-call popup UI) independently of Twilio.
+- **Q15 RESOLVED:** No call forwarding configured yet. Communication provider architecture must assume Twilio may not be active initially.
+
+### Changes in v3.1
+
+1. **Status line** updated to `v3.1 — Twilio-deferred priority lock + dormant-popup contract, pending user approval`.
+2. **Priority lock callout** added immediately under the status header. Names SP1, SP2, SP3 as the priority slice that ships complete operator-visible value with ZERO Twilio configuration. Names SP4 and outbound SMS as fully dormant infrastructure deployable with no env vars set.
+3. **SP6 dependency relaxed** — removed strict SP4 dependency. SP6 now depends only on SP1 and SP3. SP6 ships dormant (the listener attaches and waits; no `incomingCalls` docs → no popup → zero noise). The popup activates when ANY writer produces an `incomingCalls` doc — Twilio webhook (SP4 when activated) OR the new Test Incoming Call admin action (added in SP3).
+4. **Test Incoming Call admin action** added to Communications Settings as item 9. Owner-only client-side write of a synthetic `incomingCalls` doc with `provider: 'test'` for end-to-end SP6 dogfooding without Twilio. 60s TTL so the synthetic doc doesn't pollute customer history.
+5. **Communications Settings accordion split between SP3 and SP4** (was SP4-only). SP3 ships items 1, 2, 4-9 with the Connect form rendered disabled. SP4 enables the Connect form and the event-related toggles' effects. This ensures the priority slice (SP3) delivers a fully usable Communications surface — including Test Incoming Call — without waiting on Twilio Cloud Functions to deploy.
+6. **Open Questions Q14 and Q15** marked resolved with strikethroughs and user-confirmation timestamps. No new open questions introduced.
+7. **SP6 ship order note:** SP6 can ship at any point after SP3; the marketed numbering keeps SP4 → SP5 → SP6 for clarity, but engineering can land SP6 before SP4 without breaking anything. SP5 (Leads / missed-call workflow) still requires SP4 since it consumes real Twilio webhook events.
+
+### Implementation impact summary
+
+| Question | Before v3.1 | After v3.1 |
+|---|---|---|
+| Can SP1, SP2, SP3 ship without a Twilio number? | Yes (intended, but SP6 popup felt blocked by SP4) | Yes (explicit, SP6 popup fully ships in dormant mode and is dogfoodable) |
+| Can the operator see the incoming-call popup UI before Twilio is connected? | No | Yes — via Settings → Communications → Test Incoming Call |
+| Does Twilio activation require a code deploy? | No (config + env flag flip) | No (unchanged) |
+| When can SP6 start? | After SP4 | After SP3 |
+
+### Scope unchanged in v3.1
+
+- v3 Twilio integration architecture (3 webhook endpoints, HMAC-SHA1 signature verification, sendSMS callable, Provider Abstraction Layer) — unchanged.
+- v2 customer/vehicle/search/insights/AddJob/RBAC architecture — unchanged.
+- v2 ship order (SP1 → SP2 → SP3 → SP4 → SP5 → SP6 → SP7 → SP7.5) — unchanged for marketing purposes; engineering execution can land SP6 between SP3 and SP4 without altering the spec.
+- Open Questions Q3 (backfill), Q4 (auto-text), Q5 (address autofill), Q6 (outbound provider), Q9 (entity ID), Q10 (toast), Q13 (provider abstraction) — all still resolved per their v2/v3 answers.
