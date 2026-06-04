@@ -25,6 +25,10 @@ const Help      = lazy(() => import('@/pages/Help').then((m)      => ({ default:
 // Lazy-loaded — same pattern as the page it wraps.
 const CustomerHub = lazy(() => import('@/pages/CustomerHub'));
 const CustomerProfile = lazy(() => import('@/pages/CustomerProfile'));
+// SP4B (task 14): top-level Leads tab. Lazy-loaded — only the operators
+// who actually open the queue pull in LeadDetailSheet + LeadCard + the
+// CustomerEnrichmentPanel bundle.
+const Leads = lazy(() => import('@/pages/Leads'));
 const Insights  = lazy(() => import('@/pages/Insights').then((m)  => ({ default: m.Insights })));
 const Payouts   = lazy(() => import('@/pages/Payouts').then((m)   => ({ default: m.Payouts })));
 const Expenses  = lazy(() => import('@/pages/Expenses').then((m)  => ({ default: m.Expenses })));
@@ -1455,6 +1459,26 @@ function AuthenticatedApp({ user }: { user: User }) {
         onDuplicate={handleDuplicate}
       />
     );
+    if (tab === 'leads' && businessId) return (
+      <Leads
+        businessId={businessId}
+        onOpenCustomer={(cid) => { setSelectedCustomerId(cid); setTab('customerProfile'); }}
+        onCreateJob={(draft, leadId) => {
+          // Carry leadId through the AddJob flow so the post-save effect
+          // can flip lead.status='Booked' + lead.jobId on the originating
+          // Lead. Task 16 implements the linkback by reading leadId off
+          // the in-memory jobDraft at save time.
+          //
+          // Job (src/types/index.ts) doesn't declare leadId — it's an
+          // in-memory-only carry that never reaches Firestore on Job
+          // documents. The `as unknown as Job` cast is the minimal way
+          // to thread it through without polluting the Job type. Task 16
+          // will reach for it via the same cast on the read side.
+          setJobDraft({ ...EMPTY_JOB(), ...draft, leadId } as unknown as Job);
+          setTab('add');
+        }}
+      />
+    );
     if (tab === 'customers') return (
       <CustomerHub
         businessId={businessId ?? ''}
@@ -1642,6 +1666,16 @@ function AuthenticatedApp({ user }: { user: User }) {
           onClick={() => setTab('history')}
         >
           <span className="nav-ico" aria-hidden="true">📋</span><span>Jobs</span>
+        </button>
+        {/* SP4B (task 14): top-level Leads nav route. Slotted between
+            Jobs and Customers so the funnel reads Home → Jobs → Leads →
+            Customers → +Log → Inv → More. */}
+        <button
+          className={'nav-btn' + (tab === 'leads' ? ' active' : '')}
+          aria-current={tab === 'leads' ? 'page' : undefined}
+          onClick={() => setTab('leads')}
+        >
+          <span className="nav-ico" aria-hidden="true">📞</span><span>Leads</span>
         </button>
         {/* SP1 (refinement #1): top-level Customers nav route. The
             skeleton CustomerHub page renders the existing Customers
