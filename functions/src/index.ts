@@ -85,6 +85,22 @@ export { drainReviewRequests }         from './drainReviewRequests';
 export { sendTestReviewSms }           from './sendTestReviewSms';
 export { sendManualReviewRequest }     from './sendManualReviewRequest';
 
+// SP4B: missed-call recovery. Four functions:
+//   - twilioVoiceStatus       Public HTTPS webhook; Twilio Console
+//                             points its Voice Status Callback URL here.
+//   - drainOutboundSms        Scheduled every 1 minute; sibling of
+//                             drainReviewRequests for the outboundSms
+//                             queue.
+//   - sendTestMissedCall      HTTPS callable; admin "Fire Test
+//                             Missed Call" button writes a synthetic
+//                             Lead + outboundSms (isTest=true).
+//   - sendManualOutboundSms   HTTPS callable; LeadDetailSheet composer
+//                             ad-hoc operator SMS sends.
+export { twilioVoiceStatus }     from './twilioVoiceStatus';
+export { drainOutboundSms }      from './drainOutboundSms';
+export { sendTestMissedCall }    from './sendTestMissedCall';
+export { sendManualOutboundSms } from './sendManualOutboundSms';
+
 // Supplementary Firestore triggers — defensive consistency layer.
 // Safe to deploy alongside onSubscriptionWrite; idempotent via the
 // _counterIncremented marker on referral docs.
