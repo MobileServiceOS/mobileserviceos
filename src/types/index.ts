@@ -1176,6 +1176,78 @@ export interface Settings {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+//  Review Automation (SP4A)
+//
+//  Two collections under businesses/{bid}/...:
+//    - reviewRequests/{requestId}    queue entries (one per trigger fire)
+//    - communicationEvents/{eventId} unified audit log; SP4B extends
+//
+//  Doc-id pattern for reviewRequests: req-{jobId}-{completedDateISO}
+//  Re-saving the same job same day = same id = no duplicate (idempotent).
+// ─────────────────────────────────────────────────────────────────────
+
+export type ReviewRequestStatus =
+  | 'pending'
+  | 'sending'
+  | 'sent'
+  | 'failed'
+  | 'cancelled';
+// Note: 'scheduled' is a UI-only filter (status === 'pending' AND
+// sendAfterAt > now). The stored status never takes that value.
+
+export interface ReviewRequest {
+  id: string;
+  // ─── Source refs ─────────────────────────────────────────────────
+  jobId: string;
+  customerId: string;
+  phoneE164: string;
+  // ─── Rendered content ────────────────────────────────────────────
+  templateUsed: string;       // raw template at enqueue time (audit)
+  templateRendered: string;   // final SMS body that ships
+  // ─── Scheduling ──────────────────────────────────────────────────
+  sendAfterAt: Timestamp;
+  status: ReviewRequestStatus;
+  retryCount: number;
+  // ─── Outcome ─────────────────────────────────────────────────────
+  createdAt: Timestamp;
+  sentAt?: Timestamp;
+  failedAt?: Timestamp;
+  errorMessage?: string;
+  // ─── Future-ready (addition #8) ──────────────────────────────────
+  twilioMessageSid?: string;
+  deliveryStatus?: string;    // Twilio lifecycle: queued|sending|sent|delivered|undelivered|failed
+  carrierResponse?: string;   // raw carrier error code/message
+  // ─── Flags ───────────────────────────────────────────────────────
+  isTest?: boolean;
+  isManual?: boolean;
+  invokedByUid?: string;      // 'system:reviewAutomation' or real uid
+}
+
+export type CommunicationEventType =
+  | 'review_request_sent'
+  | 'review_request_failed'
+  | 'review_request_skipped';
+  // SP4B extends with 'incoming_call' | 'incoming_sms' | 'missed_call'
+  // | 'auto_text_back_sent'.
+
+export interface CommunicationEvent {
+  id: string;
+  type: CommunicationEventType;
+  channel: 'sms' | 'call' | 'email';
+  direction: 'outbound' | 'inbound';
+  customerId: string;
+  jobId?: string;
+  reviewRequestId?: string;
+  content?: string;                 // rendered SMS body for sent events
+  status: 'sent' | 'failed' | 'queued' | 'skipped';
+  providerMessageId?: string;       // Twilio MessageSid
+  deliveryStatus?: string;
+  carrierResponse?: string;
+  sentAt: Timestamp;
+  createdByUid: string;             // 'system:reviewAutomation' | uid
+}
+
+// ─────────────────────────────────────────────────────────────────────
 //  Quote engine
 // ─────────────────────────────────────────────────────────────────────
 
