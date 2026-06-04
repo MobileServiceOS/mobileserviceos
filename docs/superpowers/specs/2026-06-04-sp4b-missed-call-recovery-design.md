@@ -305,12 +305,94 @@ Inline SMS bubble thread. Pulled from `communicationEvents where leadId == this.
 
 ### CustomerProfile integration
 
-Add a **Recent Leads** sub-section to `src/pages/CustomerProfile.tsx`, under the SP4A "Communication History" cluster (alongside Review Requests and Communication Events sub-sections).
+Add two new sub-sections to `src/pages/CustomerProfile.tsx`, under the SP4A "Communication History" cluster (alongside Review Requests and Communication Events sub-sections).
+
+**1. Missed Call Metrics card** (new for SP4B):
+
+A 3-cell summary at the top of the Communication History cluster, derived from the same `leads` subscription used by Recent Leads. Counts:
+
+- **Missed Calls** — total leads for this customer where `source === 'missed_call'`
+- **Recovered** — count where `status ∈ {'Booked', 'Closed'}` (operator successfully converted)
+- **Lost** — count where `status === 'Lost'`
+
+Layout: three side-by-side cells with large numbers and small labels. Open / in-flight leads (status ∈ {New, Contacted, Quoted}) are implied by `Missed Calls − Recovered − Lost`. Empty state: "No missed calls yet." Renders only when total > 0.
+
+Computed live at render time — no persisted counters. Same `leads` subscription as Recent Leads so no extra reads.
+
+**2. Recent Leads list**:
 
 - Subscribes to `leads where customerId == this.customerId ORDER BY receivedAt DESC, limit 5`
-- Each row: receivedAt date + status pill + source icon + first 60 chars of `lead.notes` (or "No notes" when empty)
+- Each row: receivedAt date + status pill + source icon + priority badges (see Priority Score section below) + first 60 chars of `lead.notes` (or "No notes" when empty)
 - Tap → opens `LeadDetailSheet`
 - Empty state: "No leads yet for this customer."
+
+---
+
+## Priority Score (new for SP4B)
+
+Pure derivation from joined Customer data — no Lead schema changes, no persisted priority field. The Leads tab and CustomerProfile already subscribe to customers; priority is computed on the same data.
+
+### Badge mapping
+
+| Badge | Condition | Score |
+|---|---|---|
+| VIP | `customer.vipTier === 'Platinum'` | 100 |
+| Fleet | `customer.kind === 'fleet'` | 80 |
+| High Value | `customer.vipTier === 'Gold'` | 60 |
+| Repeat Customer | `customer.vipTier === 'Standard' && customer.jobCount >= 2` | 40 |
+| New Lead | `lead.wasNewCustomer === true \|\| customer.jobCount === 0` | 20 |
+
+A customer can stack badges (e.g. Platinum fleet → VIP + Fleet → score 180). Mutually exclusive within the vipTier band — Standard/Gold/Platinum are exclusive, so VIP + High Value cannot co-occur. The `customer.vipTier` field is already persisted by SP3's rollup trigger, so this signal stays in sync with lifetime revenue without violating the SP3 privacy contract (lifetime revenue itself is never persisted).
+
+### Sort order
+
+Leads tab sorts by `priorityScore DESC, then receivedAt DESC`. Test leads (`outboundSms.isTest === true` → `lead.id` starts with `lead-test-`) sort to the bottom with a synthetic score of `-1` so test traffic doesn't pollute the live queue.
+
+Resulting natural ordering:
+
+```
+1. VIP + Fleet            (180)
+2. High Value + Fleet     (140)
+3. Repeat Customer + Fleet (120)
+4. VIP alone              (100)
+5. Fleet + New Lead       (100)
+6. High Value alone        (60)
+7. Repeat Customer         (40)
+8. New Lead alone          (20)
+9. Test leads              (-1)
+```
+
+### Display
+
+- **LeadCard:** badge row directly under the customer name. Show all applicable badges; max 3 visible at once on mobile-width cards (the rest collapse to a `+N` chip).
+- **LeadDetailSheet:** badges in the customer-enrichment header alongside the existing "New Customer" badge.
+- **CustomerProfile Recent Leads:** badges on each row of the Recent Leads list.
+
+Badge colors reuse the existing SP3 CustomerProfile palette (Platinum purple, Gold gold, Repeat green) plus two new colors (Fleet blue, New Lead orange).
+
+### Pure helper
+
+File: `src/lib/leadPriority.ts`
+
+```ts
+export interface LeadPriorityBadge {
+  key: 'vip' | 'fleet' | 'high_value' | 'repeat_customer' | 'new_lead';
+  label: 'VIP' | 'Fleet' | 'High Value' | 'Repeat Customer' | 'New Lead';
+  score: number;
+}
+
+export interface LeadPriority {
+  score: number;            // sum of badge scores; -1 for test leads
+  badges: LeadPriorityBadge[];
+}
+
+export function computeLeadPriority(
+  customer: Pick<Customer, 'vipTier' | 'kind' | 'jobCount'> | null | undefined,
+  lead: Pick<Lead, 'id' | 'wasNewCustomer'>,
+): LeadPriority;
+```
+
+Test coverage at `tests/leadPriority.test.ts` covers every combination cell in the table above plus the test-lead override.
 
 ---
 
@@ -496,18 +578,21 @@ Three states the operator might be in:
 
 ## Files
 
-**Create (13):**
+**Create (16):**
 
 - `functions/src/twilioVoiceStatus.ts` — public HTTP webhook handler
 - `functions/src/drainOutboundSms.ts` — scheduled drainer (sibling of `drainReviewRequests`)
 - `functions/src/sendTestMissedCall.ts` — HTTPS callable; owner+admin; writes test Lead + outboundSms
 - `functions/src/sendManualOutboundSms.ts` — HTTPS callable; owner+admin; LeadDetailSheet composer
 - `functions/src/lib/twilioSignatureValidator.ts` — signature-check helper wrapping `twilio.validateRequest`
+- `src/lib/leadPriority.ts` — pure helper: `computeLeadPriority(customer, lead) → { score, badges[] }`
 - `src/components/settings/MissedCallRecoverySection.tsx` — Settings accordion
 - `src/pages/Leads.tsx` — new top-level Leads tab
-- `src/components/leads/LeadCard.tsx` — list card for Leads tab + Recent Leads sub-sections
+- `src/components/leads/LeadCard.tsx` — list card for Leads tab + Recent Leads sub-sections (renders priority badges)
 - `src/components/leads/LeadDetailSheet.tsx` — full-screen Lead detail modal
 - `src/components/leads/CustomerEnrichmentPanel.tsx` — Wheel Rush customer-context block (extracted for reuse)
+- `src/components/leads/MissedCallMetricsCard.tsx` — 3-cell counter card on CustomerProfile
+- `tests/leadPriority.test.ts` — pure-helper test, covers all 9 combination cells + test-lead override
 - `tests/twilioVoiceStatus.test.ts`
 - `tests/drainOutboundSms.test.ts`
 - `tests/missedCallCallables.test.ts`
@@ -561,6 +646,10 @@ Three states the operator might be in:
 16. CustomerProfile shows a Recent Leads sub-section with the customer's last 5 leads.
 17. LeadDetailSheet composer can send a manual outbound SMS to the Lead — enqueued as `kind: 'manual_lead_reply'`, drains via the same pipeline.
 18. Closing a Lead as `Lost` prompts for and persists `closedReason`.
+19. LeadCard, LeadDetailSheet header, and CustomerProfile Recent Leads rows all render applicable priority badges (VIP / Fleet / High Value / Repeat Customer / New Lead) computed at render time from the joined Customer doc.
+20. Leads tab sorts by `priorityScore DESC, then receivedAt DESC`. Platinum-Fleet missed calls surface above same-day brand-new callers. Test leads (`id` starts with `lead-test-`) sort to the bottom with score `-1`.
+21. `computeLeadPriority` is a pure helper at `src/lib/leadPriority.ts`. Test coverage covers every combination cell in the badge mapping table plus the test-lead override.
+22. CustomerProfile shows a **Missed Call Metrics** card (Missed Calls / Recovered / Lost) at the top of the Communication History cluster. Recovered = `status ∈ {'Booked','Closed'}`. Lost = `status === 'Lost'`. Card hides when total = 0. Computed live from the same `leads` subscription as Recent Leads — no persisted counters.
 
 ---
 
@@ -577,5 +666,10 @@ Plus Wheel Rush enrichment requirements:
 - Existing-customer detection → LeadDetailSheet shows vehicle / tire size / last service / lifetime revenue / quick notes.
 - Unknown caller → Customer + Lead created automatically, `wasNewCustomer: true` flag drives the "New Customer" badge.
 - Auto-text default uses `{businessName}` only (firstName omitted for caller-anonymity tolerance).
+
+Plus the 2026-06-04 amendment for Priority Score + Missed Call Metrics:
+
+- 5-badge priority taxonomy (VIP / Fleet / High Value / Repeat Customer / New Lead) computed at render time. Sort the Lead queue by priority DESC so repeat customers and high-value callers surface above brand-new callers.
+- CustomerProfile shows a 3-cell Missed Call Metrics card (Missed Calls / Recovered / Lost) derived from the same `leads` subscription as Recent Leads.
 
 Implementation plan to be authored next via the `writing-plans` skill.
