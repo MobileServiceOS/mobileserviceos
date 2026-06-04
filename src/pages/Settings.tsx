@@ -9,6 +9,8 @@ import { BrandAccordion } from '@/components/settings/BrandSection';
 import { OperationsAccordion } from '@/components/settings/OperationsSection';
 import { ProfitTargetsAccordion } from '@/components/settings/ProfitTargetsSection';
 import { InvoicesAccordion } from '@/components/settings/InvoicesSection';
+import { CustomerDirectorySettingsSection } from '@/components/settings/CustomerDirectorySettingsSection';
+import { CommunicationsSettingsSection } from '@/components/settings/CommunicationsSettingsSection';
 import { OwnersAccordion } from '@/components/settings/OwnersSection';
 import { PricingAccordion } from '@/components/settings/PricingSection';
 import { VehicleAddonsAccordion } from '@/components/settings/VehiclePricingSection';
@@ -174,6 +176,32 @@ export function Settings({ settings, onSave }: Props) {
           onSave={onSave}
           open={openSection === 'invoices'}
           onToggle={() => setOpenSection(openSection === 'invoices' ? null : 'invoices')}
+        />
+      )}
+
+      {/* SP3 Task 11: Customer Directory — auto-save toggle +
+          owner-only Backfill admin button. */}
+      {canSeeBusinessSettings && businessId && (
+        <CustomerDirectorySettingsSection
+          businessId={businessId}
+          settings={settings}
+          open={openSection === 'customerDirectory'}
+          onToggle={() => setOpenSection(openSection === 'customerDirectory' ? null : 'customerDirectory')}
+          onSaveSettings={onSave}
+        />
+      )}
+
+      {/* SP3 Task 12: Communications — Twilio provider settings,
+          event toggles (lookup / SMS logging / auto-text / outbound),
+          and the owner-only Test Incoming Call admin action. Connect
+          form is disabled until SP4 deploys. */}
+      {canSeeBusinessSettings && businessId && (
+        <CommunicationsSettingsSection
+          businessId={businessId}
+          settings={settings}
+          open={openSection === 'communications'}
+          onToggle={() => setOpenSection(openSection === 'communications' ? null : 'communications')}
+          onSaveSettings={onSave}
         />
       )}
 
