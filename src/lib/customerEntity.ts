@@ -211,6 +211,7 @@ function _buildCustomerPatch(
     customerName?: string;
     customerPhone?: string;
     customerEmail?: string;
+    companyName?: string;
     city?: string;
     state?: string;
     addressLine?: string;
@@ -251,6 +252,7 @@ function _buildCustomerPatch(
     // Phone/email/address — set ONLY when valid/present; never write '' over an existing value
     ...(phone.valid ? { phoneE164: phone.e164, phoneKey: phone.digits } : {}),
     ...(job.customerEmail ? { email: String(job.customerEmail) } : {}),
+    ...(job.companyName ? { companyName: String(job.companyName), companyLower: String(job.companyName).toLowerCase() } : {}),
     ...(job.city ? { city: String(job.city), cityLower: String(job.city).toLowerCase() } : {}),
     ...(job.state ? { state: String(job.state) } : {}),
     ...(job.addressLine ? { addressLine: String(job.addressLine) } : {}),
@@ -345,6 +347,7 @@ export async function upsertCustomerFromJob(
     customerName?: string;
     customerPhone?: string;
     customerEmail?: string;
+    companyName?: string;
     city?: string;
     state?: string;
     addressLine?: string;

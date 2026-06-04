@@ -110,6 +110,42 @@ console.log('\n┌─ vehicle subdoc written + idempotent ───────�
   check('vehicle serviceCount = 2 after two distinct jobs', v?.serviceCount === 2);
 }
 
+console.log('\n┌─ SP2: email is persisted on Customer ───────────');
+{
+  const store = new Map<string, Record<string, unknown>>();
+  runUpsertWithShim(store, 'biz-1', makeJob({ customerEmail: 'maria@example.com' }));
+  const c = store.get('businesses/biz-1/customers/p_13058977030') as Record<string, unknown>;
+  check('email persisted', c?.email === 'maria@example.com');
+}
+
+console.log('\n┌─ SP2: empty email does NOT clobber existing ───');
+{
+  const store = new Map<string, Record<string, unknown>>();
+  runUpsertWithShim(store, 'biz-1', makeJob({ id: 'job-1', customerEmail: 'maria@example.com' }));
+  runUpsertWithShim(store, 'biz-1', makeJob({ id: 'job-2', customerEmail: '' }));
+  const c = store.get('businesses/biz-1/customers/p_13058977030') as Record<string, unknown>;
+  check('email preserved on second job with blank email', c?.email === 'maria@example.com');
+}
+
+console.log('\n┌─ SP2: companyName + companyLower for fleet ────');
+{
+  const store = new Map<string, Record<string, unknown>>();
+  runUpsertWithShim(store, 'biz-1', makeJob({ companyName: 'Uber Fleet LLC' }));
+  const c = store.get('businesses/biz-1/customers/p_13058977030') as Record<string, unknown>;
+  check('companyName persisted', c?.companyName === 'Uber Fleet LLC');
+  check('companyLower derived', c?.companyLower === 'uber fleet llc');
+}
+
+console.log('\n┌─ SP2: empty companyName does NOT clobber ──────');
+{
+  const store = new Map<string, Record<string, unknown>>();
+  runUpsertWithShim(store, 'biz-1', makeJob({ id: 'job-1', companyName: 'Uber Fleet LLC' }));
+  runUpsertWithShim(store, 'biz-1', makeJob({ id: 'job-2', companyName: '' }));
+  const c = store.get('businesses/biz-1/customers/p_13058977030') as Record<string, unknown>;
+  check('companyName preserved on second job with blank companyName', c?.companyName === 'Uber Fleet LLC');
+  check('companyLower preserved', c?.companyLower === 'uber fleet llc');
+}
+
 console.log('\n══════════════════════════════════════════════════');
 console.log(`  ${passed} passed, ${failed} failed`);
 console.log('══════════════════════════════════════════════════\n');
