@@ -35,6 +35,7 @@ import { CustomerNotesSection } from '@/components/customers/CustomerNotesSectio
 import { VehiclesSection } from '@/components/customers/VehiclesSection';
 import { ServiceTimeline } from '@/components/customers/ServiceTimeline';
 import { ServiceHistoryPhotos } from '@/components/customers/ServiceHistoryPhotos';
+import type { ReviewRequest, CommunicationEvent } from '@/types';
 
 interface Props {
   businessId: string;
@@ -73,6 +74,40 @@ export default function CustomerProfile(props: Props): JSX.Element {
       const rows: Job[] = [];
       snap.forEach(d => rows.push({ id: d.id, ...d.data() } as unknown as Job));
       setJobs(rows);
+    });
+    return () => unsub();
+  }, [businessId, customerId]);
+
+  const [reviewRequests, setReviewRequests] = useState<ReviewRequest[]>([]);
+  useEffect(() => {
+    if (!businessId || !customerId) return;
+    const q = query(
+      collection(_db as Firestore, 'businesses', businessId, 'reviewRequests'),
+      where('customerId', '==', customerId),
+      orderBy('createdAt', 'desc'),
+      limit(20),
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      const rows: ReviewRequest[] = [];
+      snap.forEach(d => rows.push({ id: d.id, ...d.data() } as ReviewRequest));
+      setReviewRequests(rows);
+    });
+    return () => unsub();
+  }, [businessId, customerId]);
+
+  const [commEvents, setCommEvents] = useState<CommunicationEvent[]>([]);
+  useEffect(() => {
+    if (!businessId || !customerId) return;
+    const q = query(
+      collection(_db as Firestore, 'businesses', businessId, 'communicationEvents'),
+      where('customerId', '==', customerId),
+      orderBy('sentAt', 'desc'),
+      limit(20),
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      const rows: CommunicationEvent[] = [];
+      snap.forEach(d => rows.push({ id: d.id, ...d.data() } as CommunicationEvent));
+      setCommEvents(rows);
     });
     return () => unsub();
   }, [businessId, customerId]);
@@ -237,15 +272,91 @@ export default function CustomerProfile(props: Props): JSX.Element {
         </section>
       )}
 
-      {/* 9. Communication log (SP4 placeholder) */}
+      {/* 9. Communication History */}
       <section className="form-group card-anim" aria-label="Communication History">
         <div className="form-group-title">Communication History</div>
-        <p style={{ margin: 0, color: 'var(--t3)', fontSize: 12 }}>
-          Calls and texts appear here once Twilio is connected.
-        </p>
+
+        {/* Review Requests sub-section */}
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--t2)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            Review Requests
+          </div>
+          {reviewRequests.length === 0 && (
+            <p style={{ fontSize: 12, color: 'var(--t3)', margin: 0 }}>None yet.</p>
+          )}
+          {reviewRequests.map(r => (
+            <div key={r.id} style={cpRowStyle}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12, color: 'var(--t1)', fontWeight: 600 }}>
+                  {(r as unknown as { createdAt?: { toMillis?: () => number } }).createdAt?.toMillis
+                    ? new Date(((r as unknown as { createdAt: { toMillis: () => number } }).createdAt).toMillis())
+                        .toLocaleString(undefined, { month: 'short', day: 'numeric' })
+                    : '—'}
+                </span>
+                <span style={{ ...cpPill(r.status) }}>{r.status}</span>
+                {r.isTest   && <span style={cpBadge('#facc15','#1a1a1a')}>TEST</span>}
+                {r.isManual && <span style={cpBadge('#a78bfa','#1a1a1a')}>MANUAL</span>}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 2, whiteSpace: 'pre-wrap' }}>
+                {r.templateRendered.length > 80 ? r.templateRendered.slice(0, 80) + '…' : r.templateRendered}
+              </div>
+              {r.errorMessage && (
+                <div style={{ fontSize: 11, color: 'var(--danger, #f87171)', marginTop: 2 }}>
+                  Error: {r.errorMessage}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Communication Events sub-section */}
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--t2)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            Communication Events
+          </div>
+          {commEvents.length === 0 && (
+            <p style={{ fontSize: 12, color: 'var(--t3)', margin: 0 }}>None yet.</p>
+          )}
+          {commEvents.map(e => (
+            <div key={e.id} style={cpRowStyle}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12, color: 'var(--t1)', fontWeight: 600 }}>{e.type.replace(/_/g, ' ')}</span>
+                <span style={{ ...cpPill(e.status) }}>{e.status}</span>
+              </div>
+              {e.content && (
+                <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 2, whiteSpace: 'pre-wrap' }}>
+                  {e.content.length > 80 ? e.content.slice(0, 80) + '…' : e.content}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       </section>
     </div>
   );
+}
+
+const cpRowStyle: React.CSSProperties = {
+  padding: '6px 0', borderBottom: '1px solid var(--border, #2a2a2a)',
+};
+function cpPill(status: string): React.CSSProperties {
+  const colorMap: Record<string, string> = {
+    pending: '#888', sending: '#3b82f6', sent: '#4ade80',
+    failed: '#f87171', cancelled: '#6b7280', skipped: '#888',
+    queued: '#888',
+  };
+  return {
+    fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 99,
+    color: '#fff', background: colorMap[status] ?? '#666',
+    textTransform: 'uppercase', letterSpacing: '0.4px',
+  };
+}
+function cpBadge(bg: string, fg: string): React.CSSProperties {
+  return {
+    fontSize: 9, fontWeight: 800, padding: '1px 5px', borderRadius: 99,
+    background: bg, color: fg,
+    textTransform: 'uppercase', letterSpacing: '0.5px',
+  };
 }
 
 const badgeStyle: React.CSSProperties = {
