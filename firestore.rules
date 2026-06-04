@@ -695,6 +695,24 @@ service cloud.firestore {
                         .hasOnly(['status','answeredByUid','callbackBookedJobId','customerId']);
         allow delete: if false;
       }
+
+      // ─── reviewRequests — SP4A queue (admin SDK writes only) ─────
+      // Cloud Functions enqueue + drain via admin SDK (bypasses rules).
+      // Manual / test sends go through HTTPS callables, never client
+      // writes. Reads gated to members of the business.
+      match /reviewRequests/{requestId} {
+        allow read:  if isMemberOfBusiness(businessId);
+        allow write: if false;
+      }
+
+      // ─── communicationEvents — SP4A audit log (admin SDK only) ───
+      // Trigger + drainer + callables log here. SP4B extends with
+      // inbound call/SMS events. No client writes ever.
+      match /communicationEvents/{eventId} {
+        allow read:  if isMemberOfBusiness(businessId);
+        allow write: if false;
+      }
+
       // Technicians collection: legacy collection (Phase 1 stub);
       // restrict writes to owner/admin.
       match /technicians/{docId} {
