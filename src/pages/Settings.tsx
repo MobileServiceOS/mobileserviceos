@@ -11,6 +11,7 @@ import { ProfitTargetsAccordion } from '@/components/settings/ProfitTargetsSecti
 import { InvoicesAccordion } from '@/components/settings/InvoicesSection';
 import { CustomerDirectorySettingsSection } from '@/components/settings/CustomerDirectorySettingsSection';
 import { CommunicationsSettingsSection } from '@/components/settings/CommunicationsSettingsSection';
+import { ReviewAutomationSection } from '@/components/settings/ReviewAutomationSection';
 import { OwnersAccordion } from '@/components/settings/OwnersSection';
 import { PricingAccordion } from '@/components/settings/PricingSection';
 import { VehicleAddonsAccordion } from '@/components/settings/VehiclePricingSection';
@@ -201,6 +202,20 @@ export function Settings({ settings, onSave }: Props) {
           settings={settings}
           open={openSection === 'communications'}
           onToggle={() => setOpenSection(openSection === 'communications' ? null : 'communications')}
+          onSaveSettings={onSave}
+        />
+      )}
+
+      {/* SP4A: Review Automation — toggle/delay/URL/template + history.
+          Ships OFF; operator enables to start queuing review SMS on
+          job completion. Drainer runs every 1min and is dormant until
+          Twilio env secrets land in SP4B. */}
+      {canSeeBusinessSettings && businessId && (
+        <ReviewAutomationSection
+          businessId={businessId}
+          settings={settings}
+          open={openSection === 'reviewAutomation'}
+          onToggle={() => setOpenSection(openSection === 'reviewAutomation' ? null : 'reviewAutomation')}
           onSaveSettings={onSave}
         />
       )}
