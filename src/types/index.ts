@@ -1267,3 +1267,10 @@ export interface ReferralDoc {
   /** Free-text admin notes — added via admin tools. */
   notes?: string;
 }
+
+// ─────────────────────────────────────────────────────────────────────
+//  Customer + Vehicle entities (SP1 — Customer Intelligence v3.2)
+//  Defined in src/lib/customerEntity.ts; re-exported here for
+//  ergonomic imports — `import type { Customer } from '@/types';`
+// ─────────────────────────────────────────────────────────────────────
+export type { Customer, Vehicle } from '@/lib/customerEntity';
