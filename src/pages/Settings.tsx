@@ -12,6 +12,7 @@ import { InvoicesAccordion } from '@/components/settings/InvoicesSection';
 import { CustomerDirectorySettingsSection } from '@/components/settings/CustomerDirectorySettingsSection';
 import { CommunicationsSettingsSection } from '@/components/settings/CommunicationsSettingsSection';
 import { ReviewAutomationSection } from '@/components/settings/ReviewAutomationSection';
+import { MissedCallRecoverySection } from '@/components/settings/MissedCallRecoverySection';
 import { OwnersAccordion } from '@/components/settings/OwnersSection';
 import { PricingAccordion } from '@/components/settings/PricingSection';
 import { VehicleAddonsAccordion } from '@/components/settings/VehiclePricingSection';
@@ -216,6 +217,19 @@ export function Settings({ settings, onSave }: Props) {
           settings={settings}
           open={openSection === 'reviewAutomation'}
           onToggle={() => setOpenSection(openSection === 'reviewAutomation' ? null : 'reviewAutomation')}
+          onSaveSettings={onSave}
+        />
+      )}
+
+      {/* SP4B: Missed Call Recovery — Twilio Voice Status webhook +
+          auto-text + Lead queue. Ships OFF (operator opts in). Drainer
+          runs every 1min and is dormant when Twilio env secrets unset. */}
+      {canSeeBusinessSettings && businessId && (
+        <MissedCallRecoverySection
+          businessId={businessId}
+          settings={settings}
+          open={openSection === 'missedCallRecovery'}
+          onToggle={() => setOpenSection(openSection === 'missedCallRecovery' ? null : 'missedCallRecovery')}
           onSaveSettings={onSave}
         />
       )}
