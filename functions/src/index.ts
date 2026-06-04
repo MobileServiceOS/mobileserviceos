@@ -68,6 +68,23 @@ export { backfillCustomers } from './backfillCustomers';
 // customerStatus / jobCount / lastJobAt / lastJobId are written.
 export { onJobWriteCustomerRollup } from './onJobWriteCustomerRollup';
 
+// SP4A: review automation. Four functions:
+//   - onJobCompletedReviewRequest  Firestore trigger on job writes;
+//                                  guards + transactional enqueue.
+//   - drainReviewRequests          Scheduled every 1 minute; flips
+//                                  pending → sent via twilioClient.
+//   - sendTestReviewSms            HTTPS callable; isTest:true.
+//   - sendManualReviewRequest      HTTPS callable; isManual:true.
+//
+// All four ship dormant when Twilio env secrets are missing: the
+// trigger still fires + queue still writes + drainer still polls,
+// but no SMS goes out until SP4B configures TWILIO_ACCOUNT_SID /
+// TWILIO_AUTH_TOKEN / TWILIO_PHONE_NUMBER.
+export { onJobCompletedReviewRequest } from './onJobCompletedReviewRequest';
+export { drainReviewRequests }         from './drainReviewRequests';
+export { sendTestReviewSms }           from './sendTestReviewSms';
+export { sendManualReviewRequest }     from './sendManualReviewRequest';
+
 // Supplementary Firestore triggers — defensive consistency layer.
 // Safe to deploy alongside onSubscriptionWrite; idempotent via the
 // _counterIncremented marker on referral docs.
