@@ -1107,6 +1107,35 @@ export interface Settings {
    *   - `advancedReports`    — advanced analytics dashboard
    */
   featureFlags?: Record<string, boolean>;
+
+  // ─── Customer Directory (SP1 schema — UI lands in SP3) ──────────
+  /**
+   * When true, every saveJob calls upsertCustomerFromJob to mirror
+   * the job into the businesses/{bid}/customers/{cid} entity.
+   * Default semantics: undefined === true. Read sites MUST
+   * nullish-coalesce: `settings.autoSaveCustomersFromJobs ?? true`.
+   * Spec §"Auto-Save Customers Setting (Phase 17)".
+   */
+  autoSaveCustomersFromJobs?: boolean;
+
+  // ─── Communications (SP1 schema — UI lands in SP4) ──────────────
+  /** Communication provider — v1 always 'twilio' (read-only label). */
+  communicationProvider?: 'twilio';
+  /** Per-business Twilio connect status. Default false. */
+  twilioConnected?: boolean;
+  /** Voice webhook customer-lookup gate. Default true. */
+  incomingCallLookupEnabled?: boolean;
+  /** SMS webhook logging gate. Default true. */
+  incomingSMSLoggingEnabled?: boolean;
+  /** SP7 future-ready flag. Default false. v1 reads only. */
+  missedCallAutoTextEnabled?: boolean;
+  /** sendSMS callable master switch. Default true. */
+  outboundSMSEnabled?: boolean;
+  /** Outbound SMS provider. v1 default 'native' (device handoff);
+   *  'twilio' enables in-app outbound. Read pattern:
+   *  `settings.outboundCommunicationProvider ?? 'native'`.
+   *  Spec line 2202 + line 2488. */
+  outboundCommunicationProvider?: 'native' | 'twilio';
 }
 
 // ─────────────────────────────────────────────────────────────────────

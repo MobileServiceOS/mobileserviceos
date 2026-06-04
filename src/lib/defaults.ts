@@ -109,6 +109,16 @@ export const DEFAULT_SETTINGS: Settings = {
   lowStockThreshold: 2,
   partsMarkupDefault: 1.5,
   warrantyPolicy: '',
+  // ─── Customer Directory (SP1 schema; UI in SP3) ──────────────────
+  autoSaveCustomersFromJobs: true,
+  // ─── Communications (SP1 schema; UI in SP4) ──────────────────────
+  communicationProvider: 'twilio',
+  twilioConnected: false,
+  incomingCallLookupEnabled: true,
+  incomingSMSLoggingEnabled: true,
+  missedCallAutoTextEnabled: false,
+  outboundSMSEnabled: true,
+  outboundCommunicationProvider: 'native',
 };
 
 export const SERVICE_PHRASES: Record<string, string> = {
