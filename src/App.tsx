@@ -43,6 +43,8 @@ import { shouldLockApp, isExistingCustomer } from '@/lib/planAccess';
 import { addToast, addActionToast } from '@/lib/toast';
 import { humanizeFirestoreError, logFirestoreError, isPermissionDenied } from '@/lib/firebaseErrors';
 import { applyBrandColors, planInventoryDeduction, r2, uid } from '@/lib/utils';
+import { upsertCustomerFromJob } from '@/lib/customerEntity';
+import { normalizePhone } from '@/lib/phone';
 import { refundJobDeductions, extractJobDeductions } from '@/lib/inventoryRefund';
 import { getBusinessTypeConfig } from '@/config/businessTypes/registry';
 import {
@@ -1074,6 +1076,77 @@ function AuthenticatedApp({ user }: { user: User }) {
           : j.partsCost,
         partsMarginSnapshot: mechanicMarginSnapshot,
       };
+
+      // ─── SP1: Customer + Vehicle auto-upsert ──────────────────────
+      // Spec: docs/superpowers/specs/2026-06-03-customer-intelligence-design.md
+      //       §"saveJob change", §"Concurrency contract — upsertCustomerFromJob"
+      //
+      // Gate: settings.autoSaveCustomersFromJobs (read-time default true).
+      // Failure: best-effort — Job write remains authoritative.
+      // CRITICAL: do NOT route the customer write through fbSetFast —
+      // upsertCustomerFromJob uses runTransaction internally.
+      //
+      // LATENCY BUDGET: fbSetFast caps job writes at 2.5s via Promise.race.
+      // runTransaction has no built-in timeout and requires connectivity.
+      // We mirror that pattern — race the upsert against a 2500ms sentinel
+      // so a stalled or offline network never delays saveJob beyond its
+      // existing budget. On sentinel-win we proceed without
+      // customerId/vehicleId/phoneKey on the job doc; SP3 reconciliation
+      // backfills via lookupCustomerByPhone.
+      //
+      // KNOWN PARTIAL-FAILURE WINDOW: the customer transaction commits
+      // BEFORE the job's fbSetFast write. If fbSetFast fails (network blip
+      // between the two writes), the customer doc's lastJobId /
+      // processedJobIds references a jobId that was never persisted —
+      // a "phantom job" reference. The reverse failure (upsert fails, job
+      // succeeds) is caught by the try/catch and toasted. SP3's
+      // reconciliation pass sweeps phantom-job refs by reconciling
+      // customer.processedJobIds against the jobs collection.
+      const autoSave = settings.autoSaveCustomersFromJobs ?? true;
+      if (autoSave) {
+        const upsertStart = performance.now();
+        try {
+          const UPSERT_TIMEOUT_MS = 2500;
+          const timeoutSentinel: { customerId: string; vehicleId: string; timedOut: true } = {
+            customerId: '', vehicleId: '', timedOut: true,
+          };
+          const raceResult = await Promise.race([
+            upsertCustomerFromJob(businessId, finalJob)
+              .then((r) => ({ ...r, timedOut: false as const })),
+            new Promise<typeof timeoutSentinel>((resolve) =>
+              setTimeout(() => resolve(timeoutSentinel), UPSERT_TIMEOUT_MS),
+            ),
+          ]);
+          const elapsedMs = performance.now() - upsertStart;
+          if (elapsedMs > 500) {
+            console.warn('[saveJob] upsertCustomerFromJob slow', { elapsedMs, timedOut: raceResult.timedOut });
+          }
+          if (raceResult.timedOut) {
+            addToast('Customer record sync deferred (slow network)', 'warn');
+            console.warn('[saveJob] upsertCustomerFromJob timed out @ 2500ms — proceeding without customerId stamp');
+          } else {
+            const { customerId, vehicleId } = raceResult;
+            if (customerId) (finalJob as { customerId?: string }).customerId = customerId;
+            if (vehicleId) (finalJob as { vehicleId?: string }).vehicleId = vehicleId;
+            const phone = normalizePhone(String(finalJob.customerPhone ?? ''));
+            if (phone.valid) (finalJob as { phoneKey?: string }).phoneKey = phone.digits;
+            // NEVER write phoneKey when invalid — '' and short codes would
+            // pollute the phoneKey index.
+          }
+        } catch (err) {
+          addToast('Customer record not updated (job saved anyway)', 'warn');
+          console.warn('[saveJob] upsertCustomerFromJob failed', err);
+        }
+      } else {
+        // Auto-save toggle OFF — operator manages Customer directory
+        // manually. One-time-per-session toast so the operator who
+        // intentionally disabled it isn't nag-spammed.
+        if (typeof sessionStorage !== 'undefined' && !sessionStorage.getItem('autoSaveOffToastShown')) {
+          addToast('Customer not auto-saved (toggle OFF) — Manage manually from Customers tab', 'info');
+          sessionStorage.setItem('autoSaveOffToastShown', '1');
+        }
+      }
+
       log('job-write-issued');
       await fbSetFast(jobsCol, finalJob.id, finalJob);
       log('job-write-acked');
