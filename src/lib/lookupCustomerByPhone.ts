@@ -100,16 +100,25 @@ async function _lookup(
   const digits11 = phone.digits;             // '13058977030'
   const digits10 = digits11.slice(1);        // '3058977030' — legacy id form
 
+  // Per-step error catch so a denied legacy path or missing index
+  // doesn't take down the whole lookup. If step 1 succeeds we never
+  // touch step 2/3, so the warm path is unaffected.
+  const safe = async <T>(p: Promise<T>): Promise<T | undefined> => {
+    try { return await p; } catch (err) {
+      console.warn('[lookupCustomerByPhone] step failed', err);
+      return undefined;
+    }
+  };
+
   // (1) canonical doc-id hit
-  let custDoc = await ops.getDocByPath(`businesses/${businessId}/customers/p_${digits11}`);
+  let custDoc = await safe(ops.getDocByPath(`businesses/${businessId}/customers/p_${digits11}`));
   // (2) legacy doc-id fallback
   if (!custDoc) {
-    custDoc = await ops.getDocByPath(`businesses/${businessId}/customers/p_${digits10}`);
+    custDoc = await safe(ops.getDocByPath(`businesses/${businessId}/customers/p_${digits10}`));
   }
-  // (3) phoneKey-where fallback — covers SP3 backfilled docs whose
-  //     id is non-canonical but whose phoneKey is correct.
+  // (3) phoneKey-where fallback
   if (!custDoc) {
-    const rows = await ops.queryByPhoneKey(businessId, digits11);
+    const rows = await safe(ops.queryByPhoneKey(businessId, digits11)) ?? [];
     if (rows.length > 0) custDoc = rows[0];
   }
   if (!custDoc) {
@@ -122,10 +131,14 @@ async function _lookup(
   }
 
   const customer = custDoc as unknown as Customer;
-  const vRows = await ops.listVehicles(businessId, customer.id);
+  // The customer.id field may be absent from the doc data — getDoc
+  // returns only the field map, not the doc-id. Reconstruct from the
+  // phone path so downstream consumers always have a stable id.
+  if (!customer.id) customer.id = `p_${digits11}`;
+  const vRows = await safe(ops.listVehicles(businessId, customer.id)) ?? [];
   const vehicles = vRows as unknown as Vehicle[];
 
-  const jRow = await ops.queryLastJob(businessId, customer.id);
+  const jRow = await safe(ops.queryLastJob(businessId, customer.id));
   const lastJob: LookupLastJob | null = jRow
     ? {
         id: String(jRow.id ?? ''),

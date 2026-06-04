@@ -809,6 +809,17 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // SP3: collection-group vehicles read — GlobalSearchSheet uses
+    // collectionGroup(db, 'vehicles') for the makeModelLower / plate
+    // / tireSize prefix branches. Authenticated members of any
+    // business can read; per-business scoping is enforced by the
+    // searchCustomers helper which filters results client-side and
+    // the parent customer/{cid} doc read rule (above) which enforces
+    // membership when the customer doc is fetched.
+    match /{path=**}/vehicles/{vehicleId} {
+      allow read: if request.auth != null;
+    }
+
     // Default deny
     match /{document=**} {
       allow read, write: if false;

@@ -94,20 +94,28 @@ async function _search(
 
   const qHigh = q + HIGH_SENTINEL;
 
+  // Each branch is wrapped in .catch(()=>[]) so a missing-index or
+  // rule-denial on one branch (e.g. vehicles collection-group when
+  // the top-level rule is absent) degrades gracefully rather than
+  // failing the entire search.
+  const safe = <T>(p: Promise<T[]>): Promise<T[]> => p.catch((err) => {
+    console.warn('[searchCustomers] branch failed', err);
+    return [];
+  });
   const [
     nameHits, companyHits, phoneHits, suffix4Hits,
     cityHits, zipHits, vehHits, plateHits, tireHits, tireLegacyHits,
   ] = await Promise.all([
-    q.length >= 2 ? ops.queryByNamePrefix(businessId, q, qHigh)        : Promise.resolve([]),
-    q.length >= 2 ? ops.queryByCompanyPrefix(businessId, q, qHigh)     : Promise.resolve([]),
-    qDigits.length >= 7 ? ops.queryByPhoneExact(businessId, qDigits.length === 10 ? '1' + qDigits : qDigits) : Promise.resolve([]),
-    qDigits.length === 4 ? ops.queryByPhoneSuffix4(businessId, qDigits) : Promise.resolve([]),
-    q.length >= 2 ? ops.queryByCityPrefix(businessId, q, qHigh)        : Promise.resolve([]),
-    qDigits.length === 5 ? ops.queryByZipExact(businessId, qDigits)    : Promise.resolve([]),
-    q.length >= 2 ? ops.queryByMakeModelPrefix(businessId, q, qHigh)   : Promise.resolve([]),
-    rawQuery.length >= 2 ? ops.queryByLicensePlate(businessId, rawQuery.toUpperCase()) : Promise.resolve([]),
-    rawQuery.length >= 2 ? ops.queryByTireSize(businessId, rawQuery)   : Promise.resolve([]),
-    rawQuery.length >= 2 ? ops.queryByTireSizeLegacy(businessId, rawQuery) : Promise.resolve([]),
+    q.length >= 2 ? safe(ops.queryByNamePrefix(businessId, q, qHigh))        : Promise.resolve([]),
+    q.length >= 2 ? safe(ops.queryByCompanyPrefix(businessId, q, qHigh))     : Promise.resolve([]),
+    qDigits.length >= 7 ? safe(ops.queryByPhoneExact(businessId, qDigits.length === 10 ? '1' + qDigits : qDigits)) : Promise.resolve([]),
+    qDigits.length === 4 ? safe(ops.queryByPhoneSuffix4(businessId, qDigits)) : Promise.resolve([]),
+    q.length >= 2 ? safe(ops.queryByCityPrefix(businessId, q, qHigh))        : Promise.resolve([]),
+    qDigits.length === 5 ? safe(ops.queryByZipExact(businessId, qDigits))    : Promise.resolve([]),
+    q.length >= 2 ? safe(ops.queryByMakeModelPrefix(businessId, q, qHigh))   : Promise.resolve([]),
+    rawQuery.length >= 2 ? safe(ops.queryByLicensePlate(businessId, rawQuery.toUpperCase())) : Promise.resolve([]),
+    rawQuery.length >= 2 ? safe(ops.queryByTireSize(businessId, rawQuery))   : Promise.resolve([]),
+    rawQuery.length >= 2 ? safe(ops.queryByTireSizeLegacy(businessId, rawQuery)) : Promise.resolve([]),
   ]);
 
   const byId = new Map<string, SearchResult>();
