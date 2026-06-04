@@ -20,7 +20,9 @@
 
 import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 import * as admin from 'firebase-admin';
+import { Timestamp } from 'firebase-admin/firestore';
 import { deriveVipTier, deriveCustomerStatus } from './lib/customerInsights';
+void admin;
 
 type JobLite = {
   id: string;
@@ -78,7 +80,7 @@ async function _runRollup(businessId: string, customerId: string): Promise<void>
   const jobs = snap.docs.map(d => ({ id: d.id, ...d.data() } as JobLite));
   const patch = _computeRollup(jobs);
   await db.doc(`businesses/${businessId}/customers/${customerId}`)
-    .set({ ...patch, updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+    .set({ ...patch, updatedAt: Timestamp.now() }, { merge: true });
 }
 
 export const onJobWriteCustomerRollup = onDocumentWritten(

@@ -22,8 +22,13 @@
 
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
+import { Timestamp, FieldValue } from 'firebase-admin/firestore';
 import { deriveVipTier, deriveCustomerStatus } from './lib/customerInsights';
 import { normalizePhone } from './lib/phone';
+// Suppress unused-import warnings for the namespace ref used in test
+// harness type inference + emulator runtime side-effects.
+void admin;
+void FieldValue;
 
 export interface BackfillResult {
   customerCount: number;
@@ -153,8 +158,8 @@ async function _runWalker(args: {
       lastJobAt:  lastJobAt  === '0000-01-01' ? undefined : lastJobAt,
       lastJobId:  lastJobId || undefined,
       jobCount, lifetimeRevenue, averageTicket, vipTier, customerStatus: status,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      lastEditedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: Timestamp.now(),
+      lastEditedAt: Timestamp.now(),
       lastEditedByUid: 'system:backfill',
     };
     if (phone.valid) {
@@ -198,7 +203,7 @@ async function _runWalker(args: {
           lastServiceDate: lastJobAt === '0000-01-01' ? undefined : lastJobAt,
           lastJobId: lastJobId || undefined,
           serviceCount: jobCount,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: Timestamp.now(),
         };
         if (firstVehicleSpec.vehicleMakeModel) {
           vehiclePatch.makeModelLower = String(firstVehicleSpec.vehicleMakeModel).toLowerCase();
@@ -247,8 +252,8 @@ export const backfillCustomers = onCall<
   if (!dryRun) {
     await db.doc(`businesses/${businessId}/maintenance/backfillCustomers`).set({
       ...result,
-      startedAt: admin.firestore.FieldValue.serverTimestamp(),
-      completedAt: admin.firestore.FieldValue.serverTimestamp(),
+      startedAt: Timestamp.now(),
+      completedAt: Timestamp.now(),
       invokedByUid: uid,
     }, { merge: true });
   }
