@@ -20,6 +20,25 @@ export const DEFAULT_REVIEW_TEMPLATE =
   'Hi {firstName}, thanks for choosing {businessName} for your {serviceType} in {city}. ' +
   'We’d appreciate a quick Google review: {reviewLink}';
 
+/**
+ * Default outbound SMS body sent on missed-call auto-text.
+ * Uses ONLY {businessName} — no {firstName} — because the caller
+ * may be an unknown customer at first touch; "Hi , thanks..." would
+ * read awkwardly. Operators who only serve repeat customers can edit
+ * to include {firstName} in Settings → Missed Call Recovery.
+ *
+ * Spec: docs/superpowers/specs/2026-06-04-sp4b-missed-call-recovery-design.md
+ *       §"Template engine — DEFAULT_MISSED_CALL_TEMPLATE"
+ */
+export const DEFAULT_MISSED_CALL_TEMPLATE =
+  'Hi, thanks for contacting {businessName}.\n\n' +
+  'Please reply with:\n\n' +
+  '1. Your location\n' +
+  '2. Vehicle\n' +
+  '3. Tire size (if known)\n' +
+  '4. Service needed\n\n' +
+  "We'll get back to you shortly.";
+
 export const DEFAULT_BRAND: Brand = {
   businessName: 'Mobile Service OS',
   logoUrl: '',
@@ -136,6 +155,11 @@ export const DEFAULT_SETTINGS: Settings = {
   reviewSmsTemplate: DEFAULT_REVIEW_TEMPLATE,
   reviewDelayMinutes: 0,
   googleReviewLink: '',
+  // ─── Missed Call Recovery (SP4B) ─ ships OFF, operator opts in ───
+  twilioPhoneNumber: '',
+  missedCallTemplate: DEFAULT_MISSED_CALL_TEMPLATE,
+  // missedCallAutoTextEnabled already defaulted false in SP1
+  // twilioPhoneNumberSid left undefined (optional debug field)
 };
 
 export const SERVICE_PHRASES: Record<string, string> = {
