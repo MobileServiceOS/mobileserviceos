@@ -24,6 +24,7 @@ const Help      = lazy(() => import('@/pages/Help').then((m)      => ({ default:
 // SP1 (task 8): CustomerHub is the new top-level Customers tab.
 // Lazy-loaded — same pattern as the page it wraps.
 const CustomerHub = lazy(() => import('@/pages/CustomerHub'));
+const CustomerProfile = lazy(() => import('@/pages/CustomerProfile'));
 const Insights  = lazy(() => import('@/pages/Insights').then((m)  => ({ default: m.Insights })));
 const Payouts   = lazy(() => import('@/pages/Payouts').then((m)   => ({ default: m.Payouts })));
 const Expenses  = lazy(() => import('@/pages/Expenses').then((m)  => ({ default: m.Expenses })));
@@ -389,6 +390,12 @@ function AuthenticatedApp({ user }: { user: User }) {
     [activeVertical],
   );
   const [tab, setTab] = useState<TabId>('dashboard');
+  // SP3 task 9: selected customer id for CustomerProfile drill-down.
+  // Set when a customer row is clicked; consumed by the
+  // tab === 'customerProfile' render branch below.
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
+  // SP3: permissions for the new Customer Hub + Profile RBAC gating.
+  const { canViewFinancials, canEditBusinessSettings } = usePermissions();
   // Bottom-sheet visibility for the "More" tab. Replaces the previous
   // behavior of routing the More button straight to Settings, since
   // owners also need access to Payouts, Expenses, and Customers —
@@ -1445,7 +1452,29 @@ function AuthenticatedApp({ user }: { user: User }) {
         onDuplicate={handleDuplicate}
       />
     );
-    if (tab === 'customers') return <CustomerHub jobs={jobs} settings={settings} onViewJob={handleViewJob} />;
+    if (tab === 'customers') return (
+      <CustomerHub
+        businessId={businessId ?? ''}
+        jobs={jobs}
+        settings={settings}
+        canViewFinancials={canViewFinancials}
+        onSelectCustomer={(id) => { setSelectedCustomerId(id); setTab('customerProfile'); }}
+      />
+    );
+    if (tab === 'customerProfile' && selectedCustomerId && businessId) return (
+      <CustomerProfile
+        businessId={businessId}
+        customerId={selectedCustomerId}
+        permissions={{ canViewFinancials, canEditBusinessSettings: canEditBusinessSettings }}
+        currentUserUid={user?.uid ?? ''}
+        onBack={() => { setSelectedCustomerId(null); setTab('customers'); }}
+        onViewJob={handleViewJob}
+        onCreateJob={(draft) => {
+          setJobDraft({ ...EMPTY_JOB(), ...draft } as Job);
+          setTab('add');
+        }}
+      />
+    );
     if (tab === 'insights') return <InsightsGate jobs={jobs} settings={settings} />;
     if (tab === 'payouts') return <PayoutsGate jobs={jobs} settings={settings} />;
     if (tab === 'expenses') return <ExpensesGate expenses={settings.expenses || []} jobs={jobs} settings={settings} onSave={persistExpenses} />;
