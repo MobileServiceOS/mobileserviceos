@@ -723,6 +723,20 @@ export interface Job {
   city?: string;
   state?: string;
   fullLocationLabel?: string;
+  /** SP2-additive customer/vehicle linkage fields. Stamped by saveJob's
+   *  upsertCustomerFromJob hook. SP3 reconciliation backfills them for
+   *  pre-SP1 jobs. */
+  customerId?: string;
+  vehicleId?: string;
+  phoneKey?: string;
+  /** SP2-additive location fields used by AddressAutofillInput. The
+   *  legacy `city` field remains the canonical city write; addressLine
+   *  + zipCode are net-new. */
+  addressLine?: string;
+  zipCode?: string;
+  /** SP2-additive fleet identifier. Optional; non-empty values tag the
+   *  customer record as a fleet customer via _buildCustomerPatch. */
+  companyName?: string;
   /** Auth uid of the user who created the job. Used for technician
    *  attribution on invoices and job cards, plus the role-based
    *  Dashboard filter (technicians see only their own jobs). */

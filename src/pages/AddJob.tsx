@@ -21,6 +21,8 @@ import { PartsSection } from '@/components/addJob/PartsSection';
 import { AssignmentPicker } from '@/components/addJob/AssignmentPicker';
 import { ServicePicker } from '@/components/addJob/ServicePicker';
 import { MemoInput, MemoTextarea, MemoSelect } from '@/components/addJob/MemoInput';
+import { CustomerLookupCard, type UseCustomerPatch } from '@/components/addJob/CustomerLookupCard';
+import { AddressAutofillInput, type AddressValue } from '@/components/addJob/AddressAutofillInput';
 import { useMembership } from '@/context/MembershipContext';
 import { useBusinessMembers } from '@/lib/useBusinessMembers';
 
@@ -234,6 +236,55 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
     materialCost:        (v: string) => set('materialCost', v),
   }), [set]);
 
+  // ─── SP2: Customer lookup patch handler ──────────────────────
+  // CustomerLookupCard's Use Customer / Repeat Last Service buttons
+  // dispatch a UseCustomerPatch — apply it to the job draft.
+  const applyCustomerPatch = useCallback((patch: UseCustomerPatch) => {
+    setJob((prev) => ({
+      ...prev,
+      ...(patch.customerId !== undefined       ? { customerId: patch.customerId }             : {}),
+      ...(patch.vehicleId  !== undefined       ? { vehicleId:  patch.vehicleId }              : {}),
+      ...(patch.customerName !== undefined     ? { customerName: patch.customerName }         : {}),
+      ...(patch.customerPhone !== undefined    ? { customerPhone: patch.customerPhone }       : {}),
+      ...(patch.customerEmail !== undefined    ? { customerEmail: patch.customerEmail }       : {}),
+      ...(patch.city           !== undefined   ? { city: patch.city }                         : {}),
+      ...(patch.state          !== undefined   ? { state: patch.state }                       : {}),
+      ...(patch.addressLine    !== undefined   ? { addressLine: patch.addressLine }           : {}),
+      ...(patch.zipCode        !== undefined   ? { zipCode: patch.zipCode }                   : {}),
+      ...(patch.vehicleType    !== undefined   ? { vehicleType: patch.vehicleType }           : {}),
+      ...(patch.vehicleMakeModel !== undefined ? { vehicleMakeModel: patch.vehicleMakeModel } : {}),
+      ...(patch.tireSize       !== undefined   ? { tireSize: patch.tireSize }                 : {}),
+      ...(patch.service        !== undefined   ? { service: patch.service }                   : {}),
+      ...(patch.vehicleSize    !== undefined   ? { vehicleSize: patch.vehicleSize }           : {}),
+      ...(patch.tireBrand      !== undefined   ? { tireBrand: patch.tireBrand }               : {}),
+      ...(patch.qty            !== undefined   ? { qty: patch.qty as Job['qty'] }             : {}),
+    } as Job));
+    addToast('Customer info applied', 'success');
+  }, [setJob]);
+
+  // ─── SP2: Address-value adapter ──────────────────────────────
+  const addressValue: AddressValue = useMemo(() => ({
+    addressLine: String(job.addressLine ?? ''),
+    city:        String(job.city ?? ''),
+    state:       String(job.state ?? ''),
+    zipCode:     String(job.zipCode ?? ''),
+  }), [job.addressLine, job.city, job.state, job.zipCode]);
+
+  const onAddressChange = useCallback((next: AddressValue) => {
+    setJob((prev) => ({
+      ...prev,
+      addressLine: next.addressLine,
+      city: next.city,
+      state: next.state,
+      zipCode: next.zipCode,
+      area: next.city || prev.area,
+      fullLocationLabel: next.city && next.state ? `${next.city}, ${next.state}` : next.city,
+    }));
+  }, [setJob]);
+
+  // ─── SP2: Step-2 phone-lookup glue ───────────────────────────
+  const phoneForLookup = String(job.customerPhone ?? '');
+
   // needsTireDetails: only relevant for verticals with
   // inventoryDeduction. Mechanic / detailing always evaluate to
   // false here, so the tire-details block stays hidden.
@@ -327,21 +378,9 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
 
   // City autocomplete state. Uses searchCities() against the brand's
   // home state so a tech in the field gets typeahead suggestions
-  // instead of typing the same city name dozens of times a day.
-  const [cityOpen, setCityOpen] = useState(false);
-  const cityWrapRef = useRef<HTMLDivElement | null>(null);
-  const citySuggestions = useMemo(
-    () => searchCities(brand.state || '', job.city || '', 6),
-    [brand.state, job.city],
-  );
-  useEffect(() => {
-    const onDoc = (e: MouseEvent) => {
-      if (!cityWrapRef.current) return;
-      if (!cityWrapRef.current.contains(e.target as Node)) setCityOpen(false);
-    };
-    document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
-  }, []);
+  // SP2: city autocomplete state removed — Step 7's
+  // AddressAutofillInput owns the entire ZIP/city/state/addressLine
+  // surface now via the bundled usZips dataset.
 
   /**
    * Live quote suggestion — same engine as the Dashboard's Quick Quote.
@@ -504,6 +543,85 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
         </div>
       </div>
 
+      {/* SP2: step badge style — inline so SP2 doesn't depend on
+          a CSS file edit that would conflict with parallel work. */}
+      <style>{`
+        .step-badge { display: inline-flex; align-items: center; justify-content: center;
+          min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px;
+          background: var(--brand-primary); color: var(--brand-on-primary, #1a1a1a);
+          font-size: 11px; font-weight: 700; margin-right: 8px;
+        }
+      `}</style>
+
+      {/* ─── SP2 Step 1: Phone ──────────────────────────────────
+          Operator's first keystroke. MemoInput + stable setter
+          per the P1-3 keystroke-storm contract. Triggers the
+          Step 2 CustomerLookupCard below. */}
+      <div className="form-group card-anim">
+        <div className="form-group-title"><span className="step-badge">1</span>Phone</div>
+        <div className="field">
+          <label htmlFor="addjob-customer-phone">Customer phone</label>
+          <MemoInput
+            id="addjob-customer-phone"
+            type="tel"
+            inputMode="tel"
+            autoComplete="tel"
+            value={job.customerPhone}
+            onChange={fieldSetters.customerPhonePartial}
+            onBlur={fieldSetters.customerPhoneBlur}
+            placeholder="(555) 123-4567"
+          />
+        </div>
+      </div>
+
+      {/* ─── SP2 Step 2: Customer Lookup ───────────────────────
+          Renders null in idle state; renders a Returning Customer
+          card on hit; renders a "no match" hint on miss. */}
+      {businessId && (
+        <CustomerLookupCard
+          businessId={businessId}
+          rawPhone={phoneForLookup}
+          onApplyPatch={applyCustomerPatch}
+        />
+      )}
+
+      {/* ─── SP2 Step 2 (continued): Customer details ─────────
+          Editable name + email + company name. */}
+      <div className="form-group card-anim">
+        <div className="form-group-title"><span className="step-badge">2</span>Customer details</div>
+        <div className="field-row">
+          <div className="field">
+            <label htmlFor="addjob-customer-name">Name</label>
+            <MemoInput
+              id="addjob-customer-name"
+              value={job.customerName}
+              onChange={fieldSetters.customerName}
+              placeholder="John D."
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="addjob-customer-email">Email <span style={{ fontWeight: 400, color: 'var(--t3)', fontSize: 11 }}>(optional)</span></label>
+            <MemoInput
+              id="addjob-customer-email"
+              type="email"
+              autoComplete="email"
+              value={String(job.customerEmail ?? '')}
+              onChange={(v: string) => set('customerEmail', v as Job['customerEmail'])}
+              placeholder="customer@example.com"
+            />
+          </div>
+        </div>
+        <div className="field">
+          <label htmlFor="addjob-company-name">Company / Fleet name <span style={{ fontWeight: 400, color: 'var(--t3)', fontSize: 11 }}>(optional)</span></label>
+          <MemoInput
+            id="addjob-company-name"
+            value={String(job.companyName ?? '')}
+            onChange={(v: string) => set('companyName', v as Job['companyName'])}
+            placeholder="Uber Fleet LLC"
+          />
+        </div>
+      </div>
+
       {/* ─── Revenue section — TOP of form ─────────────────────────
          Per the operator's request: revenue is the most important
          data on a job. Miles + tire cost + revenue charged all live
@@ -512,7 +630,7 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
          live pricing breakdown sits beneath the inputs so the
          technician sees how each value contributes to profit. */}
       <div className="form-group card-anim">
-        <div className="form-group-title">Revenue</div>
+        <div className="form-group-title"><span className="step-badge">4</span>Quick Pricing</div>
         <div className="field-row">
           <div className="field">
             <label htmlFor="addjob-miles">Miles to job</label>
@@ -698,7 +816,7 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
       )}
 
       <div className={'form-group card-anim'}>
-        <div className="form-group-title">{vertical.copy.packageLabel || 'Service'}</div>
+        <div className="form-group-title"><span className="step-badge">5</span>{vertical.copy.packageLabel || 'Service'}</div>
         <ServicePicker
           services={vertical.services}
           enabledIds={enabledPackages}
@@ -740,7 +858,7 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
       )}
 
       <div className={'form-group card-anim'}>
-        <div className="form-group-title">Vehicle</div>
+        <div className="form-group-title"><span className="step-badge">3</span>Vehicle</div>
         <div className="chip-grid">
           {rankedVehicles.map((v) => (
             <button key={v} className={'chip' + (job.vehicleType === v ? ' active' : '')}
@@ -749,94 +867,13 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
         </div>
       </div>
 
+      {/* ─── SP2 Step 7: Location ──────────────────────────────
+          AddressAutofillInput owns ZIP + city + state + addressLine
+          per spec §"AddJob Workflow Change → step 7". Replaces the
+          prior City-only Customer-card field. */}
       <div className="form-group card-anim">
-        <div className="form-group-title">Customer</div>
-        <div className="field-row">
-          <div className="field">
-            <label htmlFor="addjob-customer-name">Name</label>
-            <MemoInput id="addjob-customer-name" value={job.customerName} onChange={fieldSetters.customerName} placeholder="John D." />
-          </div>
-          <div className="field">
-            <label htmlFor="addjob-customer-phone">Phone</label>
-            <MemoInput
-              id="addjob-customer-phone"
-              type="tel"
-              inputMode="tel"
-              autoComplete="tel"
-              value={job.customerPhone}
-              onChange={fieldSetters.customerPhonePartial}
-              onBlur={fieldSetters.customerPhoneBlur}
-              placeholder="(555) 123-4567"
-            />
-          </div>
-        </div>
-        {/* City — state is implicit (brand.state, set during onboarding).
-            Technicians don't need a state picker; they're always serving
-            customers in the business's home state. Suggestions come from
-            searchCities() so common cities can be tapped instead of
-            typed every single job. */}
-        <div className={'field'} ref={cityWrapRef} style={{ position: 'relative' }}>
-          <label htmlFor="addjob-city">City</label>
-          <input
-            id="addjob-city"
-            value={job.city || ''}
-            onChange={(e) => {
-              const c = e.target.value;
-              const s = brand.state || job.state || '';
-              setJob((prev) => ({
-                ...prev,
-                city: c,
-                state: s,
-                area: c || prev.area,
-                fullLocationLabel: c && s ? `${c}, ${s}` : c,
-              }));
-              setCityOpen(true);
-            }}
-            onFocus={() => setCityOpen(true)}
-            placeholder="Start typing your city"
-            autoComplete="address-level2"
-          />
-          {cityOpen && citySuggestions.length > 0 && (
-            <div
-              role="listbox"
-              style={{
-                position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50,
-                marginTop: 4, background: 'var(--s2)',
-                border: '1px solid var(--border)', borderRadius: 9,
-                boxShadow: '0 6px 24px rgba(0,0,0,0.35)',
-                overflow: 'hidden',
-              }}
-            >
-              {citySuggestions.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  role="option"
-                  aria-selected={(job.city || '').toLowerCase() === c.toLowerCase()}
-                  onClick={() => {
-                    const s = brand.state || job.state || '';
-                    setJob((prev) => ({
-                      ...prev,
-                      city: c,
-                      state: s,
-                      area: c,
-                      fullLocationLabel: s ? `${c}, ${s}` : c,
-                    }));
-                    setCityOpen(false);
-                  }}
-                  style={{
-                    display: 'block', width: '100%', textAlign: 'left',
-                    padding: '11px 12px', background: 'transparent', border: 'none',
-                    color: 'var(--t1)', fontSize: 14, cursor: 'pointer',
-                    minHeight: 44,
-                  }}
-                >
-                  {c}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        <div className="form-group-title"><span className="step-badge">7</span>Location</div>
+        <AddressAutofillInput value={addressValue} onChange={onAddressChange} />
       </div>
 
       {canAssign && (
@@ -895,7 +932,7 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
           stays hidden for mechanic and detailing accounts. */}
       {needsTireDetails && (
         <div className="form-group card-anim">
-          <div className="form-group-title">Tire Details</div>
+          <div className="form-group-title"><span className="step-badge">6</span>Tire Details</div>
           <div className="field-row">
             <div className={'field'}>
               <label htmlFor="addjob-tire-size">Size</label>
@@ -1122,7 +1159,7 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
       </div>
 
       <div className="form-group card-anim">
-        <div className="form-group-title">Note</div>
+        <div className="form-group-title"><span className="step-badge">8</span>Notes</div>
         <div className={'field'}>
           <textarea
             value={job.note}
