@@ -1469,7 +1469,6 @@ function AuthenticatedApp({ user }: { user: User }) {
       <CustomerProfile
         businessId={businessId}
         customerId={selectedCustomerId}
-        permissions={{ canViewFinancials, canEditBusinessSettings: canEditBusinessSettings }}
         currentUserUid={user?.uid ?? ''}
         onBack={() => { setSelectedCustomerId(null); setTab('customers'); }}
         onViewJob={handleViewJob}

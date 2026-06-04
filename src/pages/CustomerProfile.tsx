@@ -27,6 +27,7 @@ import {
 } from 'firebase/firestore';
 import { _db } from '@/lib/firebase';
 import { formatPhoneForDisplay } from '@/lib/phone';
+import { usePermissions } from '@/context/MembershipContext';
 import type { Customer } from '@/lib/customerEntity';
 import type { Job } from '@/types';
 import { CustomerInsightsCard } from '@/components/customers/CustomerInsightsCard';
@@ -35,15 +36,9 @@ import { VehiclesSection } from '@/components/customers/VehiclesSection';
 import { ServiceTimeline } from '@/components/customers/ServiceTimeline';
 import { ServiceHistoryPhotos } from '@/components/customers/ServiceHistoryPhotos';
 
-interface Permissions {
-  canViewFinancials?: boolean;
-  canEditBusinessSettings?: boolean;
-}
-
 interface Props {
   businessId: string;
   customerId: string;
-  permissions: Permissions;
   currentUserUid: string;
   onBack: () => void;
   onViewJob?: (job: Job) => void;
@@ -87,9 +82,15 @@ export default function CustomerProfile(props: Props): JSX.Element {
     [customer?.phoneE164],
   );
 
+  // SP3: read permissions from MembershipContext directly so the
+  // values reflect the actual signed-in member's role. App.tsx's
+  // hook-level usePermissions sees the default ALL_FALSE because the
+  // provider mounts BELOW App's function body.
+  const perms = usePermissions();
+  const canViewFinancials = perms.canViewFinancials ?? false;
+  const canEdit = perms.canEditBusinessSettings ?? false;
+
   const lastJob = jobs[0] ?? null;
-  const canViewFinancials = props.permissions.canViewFinancials ?? false;
-  const canEdit = props.permissions.canEditBusinessSettings ?? false;
 
   if (loading) {
     return (

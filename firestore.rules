@@ -623,9 +623,22 @@ service cloud.firestore {
                                  'deletedAt','updatedAt','lastEditedByUid','lastEditedAt']);
 
         // Identity upsert from saveJob — allowed for any active member
-        // whose role canCreateJobs (owner/admin/technician). The allowlist
-        // matches the fields written by upsertCustomerFromJob exactly.
-        allow create, update: if isMemberOfBusiness(businessId)
+        // whose role canCreateJobs (owner/admin/technician). Split create
+        // vs update because diff(resource.data) errors on null resource.
+        allow create: if isMemberOfBusiness(businessId)
+                     && memberRole(businessId) in ['owner','admin','technician']
+                     && request.resource.data.keys()
+                        .hasOnly(['name','nameLower','kind','companyName','companyLower',
+                                 'phoneE164','phoneKey','email','addressLine',
+                                 'city','cityLower','state','zipCode',
+                                 'firstJobAt','lastJobAt','lastJobId',
+                                 'jobCount','lifetimeRevenue','averageTicket',
+                                 'customerStatus','vipTier','referralCount','photoCount',
+                                 'lastContactedAt','createdByUid','createdAt','updatedAt',
+                                 'processedJobIds','lastEditedByUid','lastEditedAt',
+                                 'note','tags','gateCode','apartmentNumber','wheelLockKeyLocation','tpmsNotes',
+                                 'preferredPaymentMethod','parkingInstructions','preferredContactMethod','generalNotes']);
+        allow update: if isMemberOfBusiness(businessId)
                      && memberRole(businessId) in ['owner','admin','technician']
                      && request.resource.data.diff(resource.data).affectedKeys()
                         .hasOnly(['name','nameLower','kind','companyName','companyLower',
@@ -639,10 +652,20 @@ service cloud.firestore {
 
         // Vehicles sub-collection — inherits parent read; writes allowed
         // for any active member with canCreateJobs (the upsert path).
-        // Allowlist matches _buildVehiclePatch in Task 4 EXACTLY.
+        // Split create vs update because diff(resource.data) fails when
+        // resource.data is null (the create case).
         match /vehicles/{vehicleId} {
           allow read: if isMemberOfBusiness(businessId);
-          allow create, update: if isMemberOfBusiness(businessId)
+          allow create: if isMemberOfBusiness(businessId)
+                       && memberRole(businessId) in ['owner','admin','technician']
+                       && request.resource.data.keys()
+                          .hasOnly(['year','make','model','trim','color',
+                                   'makeModelLower','vehicleMakeModel','vehicleType','vehicleSize',
+                                   'tireSize','alternateTireSize','tireBrand','tireCondition',
+                                   'tpmsNotes','wheelLockNotes','serviceNotes',
+                                   'lastServicedAt','lastServiceDate','lastJobId','serviceCount',
+                                   'createdAt','updatedAt','processedJobIds']);
+          allow update: if isMemberOfBusiness(businessId)
                        && memberRole(businessId) in ['owner','admin','technician']
                        && request.resource.data.diff(resource.data).affectedKeys()
                           .hasOnly(['year','make','model','trim','color',

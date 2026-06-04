@@ -19,6 +19,7 @@ import {
 } from 'firebase/firestore';
 import { _db } from '@/lib/firebase';
 import { formatPhoneForDisplay } from '@/lib/phone';
+import { usePermissions } from '@/context/MembershipContext';
 import type { Customer } from '@/lib/customerEntity';
 import type { Job, Settings } from '@/types';
 
@@ -85,7 +86,10 @@ export default function CustomerHub(props: Props): JSX.Element {
     return { count: customers.length, revenue: totalRevenue, repeat: repeatCount };
   }, [customers]);
 
-  const canView = props.canViewFinancials ?? false;
+  // Permissions read directly from MembershipContext; the prop is
+  // preserved for back-compat / test overrides but the context wins.
+  const ctxPerms = usePermissions();
+  const canView = ctxPerms.canViewFinancials ?? props.canViewFinancials ?? false;
 
   return (
     <div className="page page-enter">
