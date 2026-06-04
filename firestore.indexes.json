@@ -83,6 +83,14 @@
       ]
     },
     {
+      "collectionGroup": "leads",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "phoneE164",  "order": "ASCENDING" },
+        { "fieldPath": "receivedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "outboundSms",
       "queryScope": "COLLECTION",
       "fields": [
