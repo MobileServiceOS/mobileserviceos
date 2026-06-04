@@ -6,13 +6,16 @@
   "description": "Mobile Service OS — white-label PWA for mobile tire & roadside businesses",
   "scripts": {
     "dev": "vite",
+    "dev:emulator": "VITE_USE_FIREBASE_EMULATOR=1 vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test": "for f in tests/*.test.ts; do echo \"\\n\\u25b6 $f\"; tsx \"$f\" || exit 1; done",
     "test:ui": "vitest run",
-    "deploy:rules": "firebase deploy --only firestore:rules,storage"
+    "deploy:rules": "firebase deploy --only firestore:rules,storage",
+    "emulator:start": "firebase emulators:start --only auth,firestore,storage,functions --project mobile-service-os",
+    "emulator:seed": "tsx scripts/seed-emulator.ts"
   },
   "dependencies": {
     "firebase": "^10.13.0",

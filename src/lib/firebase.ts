@@ -3,6 +3,7 @@ import {
   getAuth,
   setPersistence,
   browserLocalPersistence,
+  connectAuthEmulator,
   type Auth,
 } from 'firebase/auth';
 import {
@@ -12,6 +13,7 @@ import {
   persistentMultipleTabManager,
   memoryLocalCache,
   collection,
+  connectFirestoreEmulator,
   doc,
   setDoc,
   deleteDoc,
@@ -25,6 +27,7 @@ import {
 } from 'firebase/firestore';
 import {
   getStorage,
+  connectStorageEmulator,
   ref as storageRef,
   uploadBytes,
   getDownloadURL,
@@ -134,6 +137,53 @@ try {
   _auth = getAuth(app);
   void setPersistence(_auth, browserLocalPersistence).catch((e) => console.warn('[firebase] auth persistence:', e));
   _storage = getStorage(app);
+
+  // ─── Firebase Emulator Suite connection (DEV + localhost only) ──
+  // Connects the Auth, Firestore, and Storage clients to the local
+  // Firebase Emulator Suite when:
+  //   - Vite DEV build (import.meta.env.DEV is true; production
+  //     builds get this replaced with the literal `false`, which
+  //     dead-code-eliminates this entire block via tree-shaking)
+  //   - Running on localhost / 127.0.0.1
+  //   - VITE_USE_FIREBASE_EMULATOR env flag set to '1' (default off
+  //     so a fresh `npm run dev` against the real dev Firebase
+  //     project keeps working)
+  //
+  // Activation: `VITE_USE_FIREBASE_EMULATOR=1 npm run dev` then
+  // `npm run emulator:start` in a second shell. The connect calls
+  // below are idempotent within a single page load but throw if
+  // the SDK has already issued any non-emulator request — which is
+  // why this block runs RIGHT AFTER the SDKs are initialized, before
+  // any auth state listeners or Firestore listeners are attached.
+  //
+  // Production safety:
+  //   - import.meta.env.DEV is statically replaced with `false` by
+  //     Vite in production builds → entire block is dead code.
+  //   - Even if it somehow ran in prod (it can't), the localhost
+  //     hostname check would fail on app.mobileserviceos.app.
+  //   - Even if BOTH gates somehow failed (they can't), the
+  //     VITE_USE_FIREBASE_EMULATOR flag is unset in .env.production.
+  const useEmulator =
+    import.meta.env.DEV &&
+    typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') &&
+    env.VITE_USE_FIREBASE_EMULATOR === '1';
+
+  if (useEmulator) {
+    try {
+      // Emulator default ports (firebase.json):
+      //   auth      9099
+      //   firestore 8080
+      //   storage   9199
+      //   functions 5001
+      connectAuthEmulator(_auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+      connectFirestoreEmulator(_db, '127.0.0.1', 8080);
+      if (_storage) connectStorageEmulator(_storage, '127.0.0.1', 9199);
+      console.info('[firebase] EMULATOR MODE — auth/firestore/storage routed to 127.0.0.1');
+    } catch (err) {
+      console.error('[firebase] emulator connect failed:', err);
+    }
+  }
 } catch (e) {
   console.error('[firebase] initialization failed:', e);
   initError = e as Error;
