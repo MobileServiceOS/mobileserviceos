@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { getFunctions, httpsCallable, connectFunctionsEmulator } from 'firebase/functions';
 import type { Job, Settings, InventoryDeduction, PaymentMethod } from '@/types';
 import { useFocusTrap } from '@/lib/useFocusTrap';
 import { PAYMENT_METHOD_LABELS } from '@/types';
@@ -9,6 +10,20 @@ import { useBrand } from '@/context/BrandContext';
 import { useMembersDirectory } from '@/lib/useMembersDirectory';
 import { JobTimer } from '@/components/JobDetailModal/JobTimer';
 import { JobPhotoCapture } from '@/components/JobPhotoCapture';
+
+function _getEmulatorAwareFunctions() {
+  const fns = getFunctions();
+  const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env ?? {};
+  const useEmu =
+    env.DEV &&
+    typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') &&
+    env.VITE_USE_FIREBASE_EMULATOR === '1';
+  if (useEmu) {
+    try { connectFunctionsEmulator(fns, '127.0.0.1', 5001); } catch { /* already connected */ }
+  }
+  return fns;
+}
 
 interface Props {
   job: Job;
@@ -63,6 +78,9 @@ export function JobDetailModal({
   // write path (paymentStatus stays 'Paid', paidAt preserved,
   // paymentMethod updated).
   const [editingMethod, setEditingMethod] = useState(false);
+  const [reviewSendInFlight, setReviewSendInFlight] = useState(false);
+  const [reviewSendError,    setReviewSendError]    = useState<string | null>(null);
+  const [reviewConfirmOpen,  setReviewConfirmOpen]  = useState(false);
   const { role, member, permissions } = useMembership();
   const myUid = member?.uid || null;
   // Technicians see revenue (they set the price) but never the
@@ -73,6 +91,42 @@ export function JobDetailModal({
   const invDeds: InventoryDeduction[] | null = Array.isArray(job.inventoryDeductions)
     ? job.inventoryDeductions
     : null;
+
+  // Manual "Send Review Request" gating. The button is shown only on
+  // Completed jobs. It's disabled when:
+  //   - reviewAutomationEnabled is OFF, OR
+  //   - googleReviewLink is empty, OR
+  //   - reviewRequestSent is already true (idempotency: the row exists)
+  type JobWithReview = Job & { reviewRequestSent?: boolean; reviewRequestId?: string };
+  const jobR = job as JobWithReview;
+  const reviewIsCompleted   = job.status === 'Completed';
+  const reviewIsConfigured  = (settings.reviewAutomationEnabled ?? false) && !!(settings.googleReviewLink?.trim());
+  const reviewAlreadySent   = jobR.reviewRequestSent === true;
+  const reviewBtnDisabled   = !reviewIsConfigured || reviewAlreadySent;
+  const reviewBtnTooltip    = reviewAlreadySent
+    ? 'Already requested — see Review history on the customer profile'
+    : !reviewIsConfigured
+      ? 'Enable Review Automation + set Review URL in Settings'
+      : '';
+
+  const onSendManualReview = async () => {
+    if (reviewBtnDisabled || reviewSendInFlight) return;
+    setReviewSendInFlight(true);
+    setReviewSendError(null);
+    try {
+      const fn = httpsCallable<
+        { businessId: string; jobId: string },
+        { requestId: string }
+      >(_getEmulatorAwareFunctions(), 'sendManualReviewRequest');
+      if (!businessId) throw new Error('businessId not resolved');
+      await fn({ businessId, jobId: job.id });
+      setReviewConfirmOpen(false);
+    } catch (err) {
+      setReviewSendError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setReviewSendInFlight(false);
+    }
+  };
 
   return (
     <div
@@ -397,13 +451,60 @@ export function JobDetailModal({
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 16 }}>
             <button className="btn secondary" onClick={onGenerateInvoice}>📄 Invoice</button>
             <button className="btn secondary" onClick={onSendInvoice}>📤 Send Invoice</button>
-            <button className="btn secondary" onClick={onSendReview}>⭐ Review</button>
+            {reviewIsCompleted ? (
+              <button
+                className={'btn ' + (reviewBtnDisabled ? 'secondary' : 'primary')}
+                disabled={reviewBtnDisabled || reviewSendInFlight}
+                onClick={() => setReviewConfirmOpen(true)}
+                title={reviewBtnTooltip}
+              >
+                {reviewAlreadySent ? '✓ Review Requested' : '⭐ Send Review Request'}
+              </button>
+            ) : (
+              <button className="btn secondary" onClick={onSendReview}>⭐ Review</button>
+            )}
             <button className="btn secondary" onClick={onDuplicate}>📋 Duplicate</button>
             <button className="btn secondary" onClick={onEdit}>✏️ Edit</button>
             <button className="btn danger" onClick={onDelete}>🗑 Delete</button>
           </div>
         </div>
       </div>
+      {reviewConfirmOpen && (
+        <div
+          className="modal-overlay"
+          onClick={(e) => { if (e.target === e.currentTarget) setReviewConfirmOpen(false); }}
+          style={{ zIndex: 200 }}
+        >
+          <div className="modal-card" style={{ maxWidth: 380 }}>
+            <h3 style={{ margin: 0, marginBottom: 8, fontSize: 16 }}>Send Review Request?</h3>
+            <p style={{ fontSize: 13, color: 'var(--t2)', marginBottom: 12 }}>
+              Send a review request SMS to <strong>{job.customerName || 'this customer'}</strong>
+              {job.customerPhone ? ` at ${job.customerPhone}` : ''}?
+            </p>
+            {reviewSendError && (
+              <p style={{ fontSize: 12, color: 'var(--danger, #f87171)', marginBottom: 12 }}>
+                {reviewSendError}
+              </p>
+            )}
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                className="btn sm secondary"
+                onClick={() => setReviewConfirmOpen(false)}
+                disabled={reviewSendInFlight}
+              >Cancel</button>
+              <button
+                type="button"
+                className="btn sm primary"
+                onClick={onSendManualReview}
+                disabled={reviewSendInFlight}
+              >
+                {reviewSendInFlight ? 'Sending…' : 'Send'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
