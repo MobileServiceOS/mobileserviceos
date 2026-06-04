@@ -30,6 +30,7 @@ const Payouts   = lazy(() => import('@/pages/Payouts').then((m)   => ({ default:
 const Expenses  = lazy(() => import('@/pages/Expenses').then((m)  => ({ default: m.Expenses })));
 const Settings  = lazy(() => import('@/pages/Settings').then((m)  => ({ default: m.Settings })));
 import { Header } from '@/components/Header';
+import { GlobalSearchSheet } from '@/components/GlobalSearchSheet';
 import { ToastHost } from '@/components/ToastHost';
 import { InstallBanner } from '@/components/InstallBanner';
 import { UpdateBanner } from '@/components/UpdateBanner';
@@ -394,6 +395,8 @@ function AuthenticatedApp({ user }: { user: User }) {
   // Set when a customer row is clicked; consumed by the
   // tab === 'customerProfile' render branch below.
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
+  // SP3 task 10: GlobalSearchSheet open state.
+  const [searchOpen, setSearchOpen] = useState(false);
   // SP3: permissions for the new Customer Hub + Profile RBAC gating.
   const { canViewFinancials, canEditBusinessSettings } = usePermissions();
   // Bottom-sheet visibility for the "More" tab. Replaces the previous
@@ -1459,6 +1462,7 @@ function AuthenticatedApp({ user }: { user: User }) {
         settings={settings}
         canViewFinancials={canViewFinancials}
         onSelectCustomer={(id) => { setSelectedCustomerId(id); setTab('customerProfile'); }}
+        onOpenSearch={() => setSearchOpen(true)}
       />
     );
     if (tab === 'customerProfile' && selectedCustomerId && businessId) return (
@@ -1705,6 +1709,18 @@ function AuthenticatedApp({ user }: { user: User }) {
       <InstallBanner />
       <UpdateBanner />
       <ToastHost />
+      {businessId && (
+        <GlobalSearchSheet
+          businessId={businessId}
+          open={searchOpen}
+          onClose={() => setSearchOpen(false)}
+          onSelectCustomer={(id) => {
+            setSelectedCustomerId(id);
+            setTab('customerProfile');
+            setSearchOpen(false);
+          }}
+        />
+      )}
       </BusinessSwitcherProvider>
     </MembershipProvider>
   );
