@@ -60,6 +60,7 @@ export type TabId =
   | 'add'
   | 'history'
   | 'customers'
+  | 'leads'
   | 'customerProfile'
   | 'insights'
   | 'payouts'
@@ -1173,6 +1174,21 @@ export interface Settings {
    *  the third fallback for {city} when job.city + job.area are both
    *  empty — see renderTemplate() consumers. Optional. */
   serviceArea?: string;
+
+  // ─── Missed Call Recovery (SP4B) ─────────────────────────────────
+  /** Operator-provided Twilio number that receives inbound calls.
+   *  E.164 format. Routing key for the twilioVoiceStatus webhook.
+   *  Default ''. Operator hand-configures the Twilio Console status
+   *  callback URL to point at the webhook. */
+  twilioPhoneNumber?: string;
+  /** Operator-provided Twilio Phone Number SID (PNxxx). Optional
+   *  debug field — surfaced in Settings for operator reference only.
+   *  Not consumed by any code path. */
+  twilioPhoneNumberSid?: string;
+  /** Operator-editable SMS body sent on missed-call auto-text.
+   *  7-placeholder template — see src/lib/reviewTemplate.ts. Default
+   *  DEFAULT_MISSED_CALL_TEMPLATE in src/lib/defaults.ts. */
+  missedCallTemplate?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -1224,11 +1240,15 @@ export interface ReviewRequest {
 }
 
 export type CommunicationEventType =
-  | 'review_request_sent'
-  | 'review_request_failed'
-  | 'review_request_skipped';
-  // SP4B extends with 'incoming_call' | 'incoming_sms' | 'missed_call'
-  // | 'auto_text_back_sent'.
+  | 'review_request_sent'             // SP4A
+  | 'review_request_failed'           // SP4A
+  | 'review_request_skipped'          // SP4A (reserved)
+  | 'missed_call_received'            // SP4B — webhook acknowledges receipt
+  | 'missed_call_auto_text_sent'      // SP4B — drainer success on missed_call_response
+  | 'missed_call_auto_text_failed'    // SP4B — drainer failure on missed_call_response
+  | 'outbound_sms_sent'               // SP4B — drainer success on manual_lead_reply
+  | 'outbound_sms_failed';            // SP4B — drainer failure on manual_lead_reply
+  // SP4C will add 'inbound_sms_received'.
 
 export interface CommunicationEvent {
   id: string;
@@ -1238,6 +1258,7 @@ export interface CommunicationEvent {
   customerId: string;
   jobId?: string;
   reviewRequestId?: string;
+  leadId?: string;                  // SP4B addition — back-ref to Lead
   content?: string;                 // rendered SMS body for sent events
   status: 'sent' | 'failed' | 'queued' | 'skipped';
   providerMessageId?: string;       // Twilio MessageSid
@@ -1245,6 +1266,99 @@ export interface CommunicationEvent {
   carrierResponse?: string;
   sentAt: Timestamp;
   createdByUid: string;             // 'system:reviewAutomation' | uid
+}
+
+// ─────────────────────────────────────────────────────────────────────
+//  Missed Call Recovery (SP4B)
+//
+//  Two collections under businesses/{bid}/...:
+//    - leads/{leadId}              — Lead queue; workflow state machine
+//    - outboundSms/{smsId}         — outbound SMS queue (sibling of SP4A
+//                                    reviewRequests; separate drainer)
+//
+//  Doc id pattern for leads: lead-{phoneDigits}-{dateISO}
+//  Same caller + same day = same id = silent dedup
+// ─────────────────────────────────────────────────────────────────────
+
+export type LeadStatus =
+  | 'New'
+  | 'Contacted'
+  | 'Quoted'
+  | 'Booked'
+  | 'Closed'
+  | 'Lost';
+
+export type LeadSource = 'missed_call' | 'inbound_sms' | 'manual';
+
+export type CallStatus = 'no-answer' | 'busy' | 'failed' | 'voicemail';
+
+export interface Lead {
+  id: string;
+  customerId: string;
+  phoneE164: string;
+  source: LeadSource;
+  status: LeadStatus;
+  wasNewCustomer: boolean;
+
+  // ── First-touch metadata ─────────────────────────────────────────
+  callSid?: string;
+  callStatus?: CallStatus;
+  receivedAt: Timestamp;
+
+  // ── Auto-text outcome ────────────────────────────────────────────
+  autoTextSent: boolean;
+  autoTextSentAt?: Timestamp;
+  outboundSmsId?: string;
+
+  // ── Operator workflow ────────────────────────────────────────────
+  notes?: string;
+  assignedToUid?: string;
+  jobId?: string;
+  closedAt?: Timestamp;
+  closedReason?: string;
+
+  // ── Audit ────────────────────────────────────────────────────────
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+  lastEditedByUid: string;
+}
+
+export type OutboundSmsKind = 'missed_call_response' | 'manual_lead_reply';
+
+export type OutboundSmsStatus =
+  | 'pending'
+  | 'sending'
+  | 'sent'
+  | 'failed'
+  | 'cancelled';
+
+export interface OutboundSms {
+  id: string;
+  kind: OutboundSmsKind;
+  // Source refs — leadId always present for SP4B
+  leadId: string;
+  customerId: string;
+  phoneE164: string;
+  // Rendered content
+  templateUsed: string;
+  templateRendered: string;
+  // Scheduling
+  sendAfterAt: Timestamp;
+  status: OutboundSmsStatus;
+  retryCount: number;
+  // Outcome
+  createdAt: Timestamp;
+  sentAt?: Timestamp;
+  failedAt?: Timestamp;
+  errorMessage?: string;
+  // Twilio outcome / future-ready
+  twilioMessageSid?: string;
+  deliveryStatus?: string;
+  carrierResponse?: string;
+  // Flags
+  isTest?: boolean;
+  isManual?: boolean;
+  invokedByUid: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────
