@@ -713,6 +713,28 @@ service cloud.firestore {
         allow write: if false;
       }
 
+      // ─── leads — SP4B Lead queue (admin SDK writes only) ─────────
+      // Webhook creates Leads via admin SDK (bypasses rules).
+      // Clients may UPDATE workflow fields only — status/notes/etc.
+      // Create + delete from client paths are blocked.
+      match /leads/{leadId} {
+        allow read:   if isMemberOfBusiness(businessId);
+        allow create: if false;
+        allow update: if isMemberOfBusiness(businessId)
+                     && request.resource.data.diff(resource.data).affectedKeys()
+                        .hasOnly(['status','notes','assignedToUid','jobId',
+                                  'closedAt','closedReason','updatedAt',
+                                  'lastEditedByUid']);
+        allow delete: if false;
+      }
+
+      // ─── outboundSms — SP4B outbound queue (admin SDK only) ──────
+      // Sibling to SP4A reviewRequests. Same access pattern.
+      match /outboundSms/{smsId} {
+        allow read:  if isMemberOfBusiness(businessId);
+        allow write: if false;
+      }
+
       // Technicians collection: legacy collection (Phase 1 stub);
       // restrict writes to owner/admin.
       match /technicians/{docId} {
