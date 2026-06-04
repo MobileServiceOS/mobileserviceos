@@ -35,7 +35,10 @@ import { CustomerNotesSection } from '@/components/customers/CustomerNotesSectio
 import { VehiclesSection } from '@/components/customers/VehiclesSection';
 import { ServiceTimeline } from '@/components/customers/ServiceTimeline';
 import { ServiceHistoryPhotos } from '@/components/customers/ServiceHistoryPhotos';
-import type { ReviewRequest, CommunicationEvent } from '@/types';
+import type { ReviewRequest, CommunicationEvent, Lead } from '@/types';
+import { LeadCard } from '@/components/leads/LeadCard';
+import { LeadDetailSheet } from '@/components/leads/LeadDetailSheet';
+import { MissedCallMetricsCard } from '@/components/leads/MissedCallMetricsCard';
 
 interface Props {
   businessId: string;
@@ -108,6 +111,24 @@ export default function CustomerProfile(props: Props): JSX.Element {
       const rows: CommunicationEvent[] = [];
       snap.forEach(d => rows.push({ id: d.id, ...d.data() } as CommunicationEvent));
       setCommEvents(rows);
+    });
+    return () => unsub();
+  }, [businessId, customerId]);
+
+  const [customerLeads, setCustomerLeads] = useState<Lead[]>([]);
+  const [openLeadId, setOpenLeadId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!businessId || !customerId) return;
+    const q = query(
+      collection(_db as Firestore, 'businesses', businessId, 'leads'),
+      where('customerId', '==', customerId),
+      orderBy('receivedAt', 'desc'),
+      limit(20),
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      const rows: Lead[] = [];
+      snap.forEach(d => rows.push({ id: d.id, ...d.data() } as Lead));
+      setCustomerLeads(rows);
     });
     return () => unsub();
   }, [businessId, customerId]);
@@ -276,6 +297,27 @@ export default function CustomerProfile(props: Props): JSX.Element {
       <section className="form-group card-anim" aria-label="Communication History">
         <div className="form-group-title">Communication History</div>
 
+        {/* SP4B: Missed Call Metrics card */}
+        <MissedCallMetricsCard leads={customerLeads} />
+
+        {/* SP4B: Recent Leads sub-section */}
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--t2)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            Recent Leads
+          </div>
+          {customerLeads.length === 0 && (
+            <p style={{ fontSize: 12, color: 'var(--t3)', margin: 0 }}>No leads yet for this customer.</p>
+          )}
+          {customerLeads.slice(0, 5).map(l => (
+            <LeadCard
+              key={l.id}
+              lead={l}
+              customer={customer}
+              onClick={() => setOpenLeadId(l.id)}
+            />
+          ))}
+        </div>
+
         {/* Review Requests sub-section */}
         <div style={{ marginBottom: 12 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--t2)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
@@ -332,6 +374,21 @@ export default function CustomerProfile(props: Props): JSX.Element {
           ))}
         </div>
       </section>
+
+      {openLeadId && (
+        <LeadDetailSheet
+          businessId={businessId}
+          leadId={openLeadId}
+          onClose={() => setOpenLeadId(null)}
+          onOpenCustomer={() => { /* no-op — we're already on this customer */ }}
+          // CustomerProfile doesn't host AddJob navigation; Create-Job-from-Lead
+          // here uses the same onCreateJob prop the existing Customer page uses.
+          onCreateJob={(draft, leadId) => {
+            props.onCreateJob?.({ ...draft, leadId } as never);
+            setOpenLeadId(null);
+          }}
+        />
+      )}
     </div>
   );
 }
