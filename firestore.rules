@@ -598,12 +598,79 @@ service cloud.firestore {
         allow delete: if isOwnerOrAdmin(businessId) ||
                          request.auth.uid == businessId;
       }
-      // Customers: restricted to owner/admin (tech sees customer
-      // info on visible jobs via job docs; doesn't browse the
-      // customer collection).
-      match /customers/{docId} {
-        allow write: if isOwnerOrAdmin(businessId) ||
-                        request.auth.uid == businessId;
+      // Customers + Vehicles (SP1): read access broadened to ALL
+      // active members (owner/admin/technician) — intentional policy
+      // change so technicians can browse the new Customers tab. Write
+      // access is gated separately by two allowlists below.
+      //
+      // ─── Customers + Vehicles (SP1) ─────────────────────────────
+      // Spec: docs/superpowers/specs/2026-06-03-customer-intelligence-design.md
+      //       §"businesses/{businessId}/customers/{customerId}"
+      //
+      // INTENTIONAL ACCESS POLICY CHANGE (SP1): customers/{customerId}
+      // read is now isMemberOfBusiness rather than owner/admin only.
+      // Technicians need to browse the new top-level Customers tab.
+      match /customers/{customerId} {
+        allow read: if isMemberOfBusiness(businessId);
+
+        // Meta-only writes (note, tags, Quick Notes, kind) — owner/admin only.
+        // Quick Notes are operator-edited per refinement #2; same gate as note/tags.
+        allow update: if isOwnerOrAdmin(businessId)
+                     && request.resource.data.diff(resource.data).affectedKeys()
+                        .hasOnly(['note','tags','kind',
+                                 'gateCode','apartmentNumber','wheelLockKeyLocation','tpmsNotes',
+                                 'preferredPaymentMethod','parkingInstructions','preferredContactMethod','generalNotes',
+                                 'deletedAt','updatedAt','lastEditedByUid','lastEditedAt']);
+
+        // Identity upsert from saveJob — allowed for any active member
+        // whose role canCreateJobs (owner/admin/technician). The allowlist
+        // matches the fields written by upsertCustomerFromJob exactly.
+        allow create, update: if isMemberOfBusiness(businessId)
+                     && memberRole(businessId) in ['owner','admin','technician']
+                     && request.resource.data.diff(resource.data).affectedKeys()
+                        .hasOnly(['name','nameLower','kind','companyName','companyLower',
+                                 'phoneE164','phoneKey','email','addressLine',
+                                 'city','cityLower','state','zipCode',
+                                 'firstJobAt','lastJobAt','lastJobId',
+                                 'jobCount','lifetimeRevenue','averageTicket',
+                                 'customerStatus','vipTier','referralCount','photoCount',
+                                 'lastContactedAt','createdByUid','createdAt','updatedAt',
+                                 'processedJobIds','lastEditedByUid','lastEditedAt']);
+
+        // Vehicles sub-collection — inherits parent read; writes allowed
+        // for any active member with canCreateJobs (the upsert path).
+        // Allowlist matches _buildVehiclePatch in Task 4 EXACTLY.
+        match /vehicles/{vehicleId} {
+          allow read: if isMemberOfBusiness(businessId);
+          allow create, update: if isMemberOfBusiness(businessId)
+                       && memberRole(businessId) in ['owner','admin','technician']
+                       && request.resource.data.diff(resource.data).affectedKeys()
+                          .hasOnly(['year','make','model','trim','color',
+                                   'makeModelLower','vehicleMakeModel','vehicleType','vehicleSize',
+                                   'tireSize','alternateTireSize','tireBrand','tireCondition',
+                                   'tpmsNotes','wheelLockNotes','serviceNotes',
+                                   'lastServicedAt','lastServiceDate','lastJobId','serviceCount',
+                                   'createdAt','updatedAt','processedJobIds']);
+          allow delete: if isOwnerOrAdmin(businessId);
+        }
+      }
+
+      // ─── incomingCalls — Test Incoming Call admin write (SP6 dogfood) ───
+      // Cloud Functions (SP4) bypass rules; this match block governs the
+      // SP6 client-side Test Incoming Call admin action which writes a
+      // synthetic ringing call. Allowed iff owner/admin AND provider == 'test'
+      // AND createdAt within ~60s of server time (clock skew tolerance).
+      // Real Twilio writes still come from Cloud Functions and bypass rules.
+      match /incomingCalls/{callId} {
+        allow read: if isMemberOfBusiness(businessId);
+        allow create: if isOwnerOrAdmin(businessId)
+                     && request.resource.data.provider == 'test'
+                     && request.resource.data.createdAt is timestamp
+                     && request.time - request.resource.data.createdAt < duration.value(60, 's');
+        allow update: if isMemberOfBusiness(businessId)
+                     && request.resource.data.diff(resource.data).affectedKeys()
+                        .hasOnly(['status','answeredByUid','callbackBookedJobId','customerId']);
+        allow delete: if false;
       }
       // Technicians collection: legacy collection (Phase 1 stub);
       // restrict writes to owner/admin.
