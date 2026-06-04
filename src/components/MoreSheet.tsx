@@ -80,13 +80,6 @@ export function MoreSheet({ onClose, onPick }: Props) {
       visible: permissions.canViewFinancials,
     },
     {
-      id: 'customers',
-      label: 'Customers',
-      icon: '👥',
-      hint: 'Customer list · repeat-customer count',
-      visible: true,
-    },
-    {
       id: 'help',
       label: 'Help & FAQ',
       icon: '❓',

@@ -21,7 +21,9 @@ import { Inventory } from '@/pages/Inventory';
 // Expenses / Customers / Settings / Help all live behind the More
 // sheet and are only loaded when the operator actually opens them.
 const Help      = lazy(() => import('@/pages/Help').then((m)      => ({ default: m.Help })));
-const Customers = lazy(() => import('@/pages/Customers').then((m) => ({ default: m.Customers })));
+// SP1 (task 8): CustomerHub is the new top-level Customers tab.
+// Lazy-loaded — same pattern as the page it wraps.
+const CustomerHub = lazy(() => import('@/pages/CustomerHub'));
 const Insights  = lazy(() => import('@/pages/Insights').then((m)  => ({ default: m.Insights })));
 const Payouts   = lazy(() => import('@/pages/Payouts').then((m)   => ({ default: m.Payouts })));
 const Expenses  = lazy(() => import('@/pages/Expenses').then((m)  => ({ default: m.Expenses })));
@@ -1443,7 +1445,7 @@ function AuthenticatedApp({ user }: { user: User }) {
         onDuplicate={handleDuplicate}
       />
     );
-    if (tab === 'customers') return <Customers jobs={jobs} settings={settings} onViewJob={handleViewJob} />;
+    if (tab === 'customers') return <CustomerHub jobs={jobs} settings={settings} onViewJob={handleViewJob} />;
     if (tab === 'insights') return <InsightsGate jobs={jobs} settings={settings} />;
     if (tab === 'payouts') return <PayoutsGate jobs={jobs} settings={settings} />;
     if (tab === 'expenses') return <ExpensesGate expenses={settings.expenses || []} jobs={jobs} settings={settings} onSave={persistExpenses} />;
@@ -1609,6 +1611,16 @@ function AuthenticatedApp({ user }: { user: User }) {
         >
           <span className="nav-ico" aria-hidden="true">📋</span><span>Jobs</span>
         </button>
+        {/* SP1 (refinement #1): top-level Customers nav route. The
+            skeleton CustomerHub page renders the existing Customers
+            list; full hub content lands in SP3. */}
+        <button
+          className={'nav-btn' + (tab === 'customers' ? ' active' : '')}
+          aria-current={tab === 'customers' ? 'page' : undefined}
+          onClick={() => setTab('customers')}
+        >
+          <span className="nav-ico" aria-hidden="true">👥</span><span>Customers</span>
+        </button>
         <button
           className={'nav-btn primary' + (tab === 'add' ? ' active' : '')}
           aria-current={tab === 'add' ? 'page' : undefined}
@@ -1624,7 +1636,7 @@ function AuthenticatedApp({ user }: { user: User }) {
           <span className="nav-ico" aria-hidden="true">🛞</span><span>Inv</span>
         </button>
         <button
-          className={'nav-btn' + ((tab === 'settings' || tab === 'payouts' || tab === 'expenses' || tab === 'customers' || tab === 'insights' || tab === 'help') ? ' active' : '')}
+          className={'nav-btn' + ((tab === 'settings' || tab === 'payouts' || tab === 'expenses' || tab === 'insights' || tab === 'help') ? ' active' : '')}
           aria-haspopup="dialog"
           aria-expanded={moreOpen}
           onClick={() => setMoreOpen(true)}
