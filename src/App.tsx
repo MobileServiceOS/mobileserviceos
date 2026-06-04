@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
-import { doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, Timestamp, type Firestore } from 'firebase/firestore';
 import { _auth, _db, scopedCol, fbDelete, fbListen, fbSet, fbSetFast, initError } from '@/lib/firebase';
 import { buildJobsListenerQuery } from '@/lib/jobsQuery';
 import { BrandProvider, useBrand } from '@/context/BrandContext';
@@ -77,7 +77,7 @@ import {
   stripRetiredServices,
 } from '@/lib/deserializers';
 import type {
-  Brand, Expense, InventoryItem, Job, PaymentMethod, QuoteForm, Settings as SettingsT, SyncStatus, TabId,
+  Brand, Expense, InventoryItem, Job, LeadStatus, PaymentMethod, QuoteForm, Settings as SettingsT, SyncStatus, TabId,
 } from '@/types';
 // CustomerMeta type no longer imported here — the Customers page
 // (src/pages/Customers.tsx) owns the listener + state directly.
@@ -1061,8 +1061,14 @@ function AuthenticatedApp({ user }: { user: User }) {
       }
 
       const currentUid = _auth?.currentUser?.uid || '';
+      // SP4B Task 16: pluck the UI-only leadId sentinel off the draft so it
+      // never reaches the Job doc. Carried in via Leads.tsx → onCreateJob
+      // (App.tsx setJobDraft cast at the 'leads' tab branch); the linkback
+      // below uses sourceLeadId to flip lead.status='Booked' + lead.jobId
+      // post-save.
+      const { leadId: sourceLeadId, ...jWithoutLeadId } = j as Job & { leadId?: string };
       const finalJob: Job = {
-        ...j,
+        ...jWithoutLeadId,
         id: j.id || uid(),
         tireCost: computedTireCost,
         inventoryDeductions: deductions,
@@ -1166,6 +1172,34 @@ function AuthenticatedApp({ user }: { user: User }) {
       log('job-write-issued');
       await fbSetFast(jobsCol, finalJob.id, finalJob);
       log('job-write-acked');
+
+      // ─── SP4B Task 16: Lead → Job linkback ────────────────────────
+      // When this Job originated from a Lead (Leads.tsx → onCreateJob
+      // threaded leadId onto the AddJob draft), flip the originating
+      // Lead to status='Booked' + lead.jobId = finalJob.id so the
+      // missed-call recovery funnel registers the conversion.
+      //
+      // NON-BLOCKING: the Job is already persisted. A Lead-update
+      // failure logs but does NOT abort the success path — operator
+      // can manually advance the Lead later via the LeadDetailSheet
+      // status dropdown if the linkback ever fails.
+      if (sourceLeadId) {
+        try {
+          await setDoc(
+            doc(_db as Firestore, 'businesses', businessId, 'leads', sourceLeadId),
+            {
+              status: 'Booked' as LeadStatus,
+              jobId: finalJob.id,
+              updatedAt: Timestamp.now(),
+              lastEditedByUid: _auth?.currentUser?.uid ?? 'unknown',
+            },
+            { merge: true },
+          );
+        } catch (err) {
+          console.error('[SP4B linkback] failed to update lead.status=Booked', err);
+        }
+      }
+
       addToast(isEditing ? 'Job updated' : 'Job saved', 'success');
       setSavedJob(finalJob);
       if (resetAfter) {
