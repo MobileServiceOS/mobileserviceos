@@ -56,6 +56,18 @@ export {
   adminRevokeReferralReward,
 } from './adminReferralTools';
 
+// SP3 task 13: Owner-only HTTPS callable that walks every job in a
+// business and creates/updates Customer + Vehicle docs. Used by the
+// Settings → Customer Directory → Backfill admin button.
+export { backfillCustomers } from './backfillCustomers';
+
+// SP3 task 14: Recompute Customer rollups when Jobs are written.
+// Debounced 30s in-process; skips when metadata.backfillRun is present.
+// CRITICAL PRIVACY: lifetimeRevenue is computed in-memory and never
+// persisted on the Customer doc — only averageTicket / vipTier /
+// customerStatus / jobCount / lastJobAt / lastJobId are written.
+export { onJobWriteCustomerRollup } from './onJobWriteCustomerRollup';
+
 // Supplementary Firestore triggers — defensive consistency layer.
 // Safe to deploy alongside onSubscriptionWrite; idempotent via the
 // _counterIncremented marker on referral docs.
