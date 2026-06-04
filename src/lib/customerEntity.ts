@@ -156,27 +156,10 @@ import {
 } from 'firebase/firestore';
 import { _db } from '@/lib/firebase';
 import { normalizePhone } from '@/lib/phone';
+import { deriveVipTier, deriveCustomerStatus } from '@/lib/customerInsights';
 
 /** Cap on processedJobIds array size before FIFO eviction. */
 const MAX_PROCESSED_JOB_IDS = 500;
-
-/** Inline revenue-tier helper. Formalized + tested in Task 5
- *  (src/lib/customerInsights.ts); upsert imports the canonical
- *  helper from there in Task 5's commit. */
-function _vipTierFromRevenue(rev: number): 'Standard' | 'Gold' | 'Platinum' {
-  if (rev >= 2500) return 'Platinum';
-  if (rev >= 1000) return 'Gold';
-  return 'Standard';
-}
-
-/** Inline status helper. Formalized in Task 5. */
-function _statusFromLastJobAt(lastJobAtIso: string | undefined): 'Active' | 'Inactive' {
-  if (!lastJobAtIso) return 'Active';
-  const last = Date.parse(lastJobAtIso);
-  if (!Number.isFinite(last)) return 'Active';
-  const twelveMonthsAgo = Date.now() - 365 * 24 * 60 * 60 * 1000;
-  return last >= twelveMonthsAgo ? 'Active' : 'Inactive';
-}
 
 function _slug(s: string): string {
   return s.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
@@ -279,8 +262,8 @@ function _buildCustomerPatch(
     jobCount: newJobCount,
     lifetimeRevenue: newRevenue,
     averageTicket: newAvg,
-    vipTier: _vipTierFromRevenue(newRevenue),
-    customerStatus: _statusFromLastJobAt(newLastJobAt),
+    vipTier: deriveVipTier(newRevenue),
+    customerStatus: deriveCustomerStatus({ lastJobAt: newLastJobAt }),
     // Audit
     createdByUid: (existing?.createdByUid as string | undefined) ?? actorUid,
     createdAt: (existing?.createdAt as string | undefined) ?? nowIso,
