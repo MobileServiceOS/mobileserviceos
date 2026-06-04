@@ -8,6 +8,18 @@ export const FALLBACK_LOGO_SVG = `data:image/svg+xml,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80"><rect width="80" height="80" rx="18" fill="#0a0a0f"/><circle cx="40" cy="40" r="22" fill="none" stroke="#f4b400" stroke-width="3"/><circle cx="40" cy="40" r="8" fill="#f4b400"/></svg>'
 )}`;
 
+/**
+ * Default outbound review-request SMS body. 7 placeholders, smart-empty
+ * stripped (see src/lib/reviewTemplate.ts). Operator can edit in
+ * Settings → Review Automation → Template editor.
+ *
+ * Spec: docs/superpowers/specs/2026-06-03-sp4a-review-automation-design.md
+ *       §"Template engine — Default template"
+ */
+export const DEFAULT_REVIEW_TEMPLATE =
+  'Hi {firstName}, thanks for choosing {businessName} for your {serviceType} in {city}. ' +
+  'We’d appreciate a quick Google review: {reviewLink}';
+
 export const DEFAULT_BRAND: Brand = {
   businessName: 'Mobile Service OS',
   logoUrl: '',
@@ -119,6 +131,11 @@ export const DEFAULT_SETTINGS: Settings = {
   missedCallAutoTextEnabled: false,
   outboundSMSEnabled: true,
   outboundCommunicationProvider: 'native',
+  // ─── Review Automation (SP4A) ─ ships OFF, operator opts in ──────
+  reviewAutomationEnabled: false,
+  reviewSmsTemplate: DEFAULT_REVIEW_TEMPLATE,
+  reviewDelayMinutes: 0,
+  googleReviewLink: '',
 };
 
 export const SERVICE_PHRASES: Record<string, string> = {

@@ -1151,6 +1151,28 @@ export interface Settings {
    *  `settings.outboundCommunicationProvider ?? 'native'`.
    *  Spec line 2202 + line 2488. */
   outboundCommunicationProvider?: 'native' | 'twilio';
+
+  // ─── Review Automation (SP4A) ────────────────────────────────────
+  /** Master switch. When false, the trigger refuses to enqueue and
+   *  the Settings → Review Automation section renders muted UI.
+   *  Default false — ships OFF, operator opts in.
+   *  Spec §"Settings schema additions". */
+  reviewAutomationEnabled?: boolean;
+  /** Operator-editable SMS body. 7-placeholder template — see
+   *  src/lib/reviewTemplate.ts for the supported variables. Default
+   *  DEFAULT_REVIEW_TEMPLATE in src/lib/defaults.ts. */
+  reviewSmsTemplate?: string;
+  /** Minutes between completedAt and sendAfterAt. The drainer runs
+   *  every 1 minute so the effective floor is ~1min even for value 0.
+   *  Allowed values: 0 | 5 | 15 | 60. */
+  reviewDelayMinutes?: 0 | 5 | 15 | 60;
+  /** Google Business Profile review URL. Required for the trigger to
+   *  enqueue — guard #5 in onJobCompletedReviewRequest. Default ''. */
+  googleReviewLink?: string;
+  /** Operator's primary service area (e.g. "South Florida"). Used as
+   *  the third fallback for {city} when job.city + job.area are both
+   *  empty — see renderTemplate() consumers. Optional. */
+  serviceArea?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────
