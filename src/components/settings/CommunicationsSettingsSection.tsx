@@ -39,7 +39,15 @@ function CommunicationsSettingsSectionImpl({
   const isOwner = role === 'owner';
   const canEdit = perms.canEditBusinessSettings ?? false;
 
-  const twilioConnected             = settings.twilioConnected ?? false;
+  // SP3 designed `settings.twilioConnected` as a manual flag to flip when
+  // "Connect (SP4)" shipped, but SP4 routed the active Connect flow into
+  // the separate Missed Call Recovery accordion — twilioConnected was
+  // never written and stayed permanently false, mis-rendering this badge
+  // for tenants who'd already saved a real twilioPhoneNumber. Derive it
+  // from the canonical signal instead. Mirrors the pattern landed in
+  // MissedCallRecoverySection.tsx (commit a903201).
+  const twilioPhoneNumber           = settings.twilioPhoneNumber?.trim() ?? '';
+  const twilioConnected             = !!twilioPhoneNumber;
   const incomingCallLookupEnabled   = settings.incomingCallLookupEnabled ?? true;
   const incomingSMSLoggingEnabled   = settings.incomingSMSLoggingEnabled ?? true;
   const missedCallAutoTextEnabled   = settings.missedCallAutoTextEnabled ?? false;
@@ -119,22 +127,29 @@ function CommunicationsSettingsSectionImpl({
         <div style={readOnlyStyle}>Twilio</div>
       </div>
 
-      {/* Item 2: connected status */}
+      {/* Item 2: connected status — derived from twilioPhoneNumber */}
       <div className="field" style={rowStyle}>
         <label>Status</label>
-        <div style={readOnlyStyle}>{twilioConnected ? '✓ Connected' : '— Not connected'}</div>
+        <div style={readOnlyStyle}>
+          {twilioConnected
+            ? `✓ Connected · ${twilioPhoneNumber}`
+            : '— Not connected'}
+        </div>
       </div>
 
-      {/* Item 3: Connect form (disabled in SP3 — SP4 enables) */}
+      {/* Item 3: Connect summary — SP4 moved the active Connect flow into
+          the Missed Call Recovery accordion. This row is now a pointer,
+          not a form. */}
       <div className="field" style={rowStyle}>
-        <label>Connect Twilio Number</label>
-        <p style={helpStyle}>Configuration available when Cloud Functions are deployed (SP4).</p>
-        <input type="text" placeholder="+1XXXXXXXXXX (E.164)" disabled style={disabledInputStyle} />
-        <input type="text" placeholder="PNxxxx (Phone Number SID)" disabled style={disabledInputStyle} />
-        <input type="text" placeholder="MGxxxx (Messaging Service SID, optional)" disabled style={disabledInputStyle} />
-        <button type="button" className="btn sm primary" disabled style={{ marginTop: 6 }}>
-          Connect (SP4)
-        </button>
+        <label>Twilio Number</label>
+        <div style={readOnlyStyle}>
+          {twilioConnected ? twilioPhoneNumber : 'Not set'}
+        </div>
+        <p style={helpStyle}>
+          {twilioConnected
+            ? 'Manage this number in the Missed Call Recovery section below.'
+            : 'Configure your Twilio number in the Missed Call Recovery section below.'}
+        </p>
       </div>
 
       {/* Items 4-7: event toggles */}
@@ -231,12 +246,6 @@ const readOnlyStyle: CSSProperties = {
   padding: '6px 8px', background: 'var(--s2, #1f1f1f)',
   border: '1px solid var(--border, #333)', borderRadius: 6,
   color: 'var(--t2)', fontSize: 13,
-};
-const disabledInputStyle: CSSProperties = {
-  width: '100%', padding: '6px 8px', marginBottom: 6, fontSize: 13,
-  background: 'var(--s2, #1f1f1f)', color: 'var(--t3, #888)',
-  border: '1px solid var(--border, #333)', borderRadius: 6,
-  opacity: 0.5,
 };
 const selectStyle: CSSProperties = {
   width: '100%', padding: '6px 8px', fontSize: 13,
