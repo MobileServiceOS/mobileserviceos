@@ -304,8 +304,12 @@ export function LeadDetailSheet({
               onChange={(e) => setComposerBody(e.target.value)}
               placeholder="Type a message to send via Twilio…"
               rows={3}
+              maxLength={1600}
               style={{ ...inputStyle, minHeight: 70, fontFamily: 'inherit' }}
             />
+            <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 2, textAlign: 'right' }}>
+              {composerBody.length}/1600
+            </div>
             <button
               type="button"
               className="btn sm primary"
