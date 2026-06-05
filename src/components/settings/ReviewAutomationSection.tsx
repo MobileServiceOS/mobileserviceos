@@ -182,13 +182,20 @@ function ReviewAutomationSectionImpl({
         phoneE164: testPhone || undefined,
         template:  templateLocal || undefined,
       });
-      setTestStatus(`Test enqueued (id ${data.requestId}). ${settings.twilioConnected ? 'Drainer will send within 1 min.' : 'Twilio not connected — request stays pending.'}`);
+      // Derive Twilio-connected status from the actual configured phone
+      // number instead of the stale settings.twilioConnected ghost field
+      // (same pattern as commits a903201 + caf5f4a for the sibling
+      // accordions). settings.twilioConnected is never written by any
+      // UI flow — the canonical signal is operator having saved
+      // twilioPhoneNumber in Missed Call Recovery.
+      const twilioConnected = !!settings.twilioPhoneNumber?.trim();
+      setTestStatus(`Test enqueued (id ${data.requestId}). ${twilioConnected ? 'Drainer will send within 1 min.' : 'Twilio not connected — request stays pending.'}`);
     } catch (err) {
       setTestError(err instanceof Error ? err.message : String(err));
     } finally {
       setTestInFlight(false);
     }
-  }, [businessId, testPhone, templateLocal, settings.twilioConnected]);
+  }, [businessId, testPhone, templateLocal, settings.twilioPhoneNumber]);
 
   const showWarning = enabled && !url.trim();
 
@@ -310,9 +317,9 @@ function ReviewAutomationSectionImpl({
           </button>
           {testStatus && <p style={{ ...helpStyle, color: 'var(--ok, #4ade80)', marginTop: 6 }}>{testStatus}</p>}
           {testError  && <p style={{ ...helpStyle, color: 'var(--danger, #f87171)', marginTop: 6 }}>Error: {testError}</p>}
-          {!settings.twilioConnected && (
+          {!settings.twilioPhoneNumber?.trim() && (
             <p style={helpStyle}>
-              Twilio is not connected. Test sends queue up; they'll deliver automatically once SP4B wires Twilio.
+              Twilio is not connected. Test sends queue up; they'll deliver automatically once you configure a Twilio number in Missed Call Recovery.
             </p>
           )}
         </div>
