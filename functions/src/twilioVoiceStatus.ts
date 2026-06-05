@@ -42,7 +42,7 @@ import {
 } from './lib/operationalSettings';
 void admin;
 
-const DEFAULT_TEMPLATE_FALLBACK = 'Hi, thanks for contacting {businessName}.';
+const DEFAULT_TEMPLATE_FALLBACK = `Thanks for contacting {businessName}. We missed your call. Reply with your location, tire size, and service needed and we'll get back to you as soon as possible.`;
 
 type SettingsLite = {
   missedCallAutoTextEnabled?: boolean;
