@@ -1487,6 +1487,7 @@ function AuthenticatedApp({ user }: { user: User }) {
           prefilledFromQuote={prefilledFromQuote}
           onSave={async () => { await saveJob(false); }}
           onSaveAndNew={async () => { await saveJob(true); }}
+          onCancel={() => { startNewJob(); setTab('dashboard'); }}
         />
       );
     }
@@ -1695,65 +1696,79 @@ function AuthenticatedApp({ user }: { user: User }) {
           emoji span stops "house emoji Home" / "single right-pointing
           angle quotation mark" from being read out. The More button
           uses aria-haspopup + aria-expanded so AT users know it opens
-          a popup dialog. */}
-      <nav className="bottom-nav" aria-label="Primary">
-        <button
-          className={'nav-btn' + (tab === 'dashboard' ? ' active' : '')}
-          aria-current={tab === 'dashboard' ? 'page' : undefined}
-          onClick={() => setTab('dashboard')}
-        >
-          <span className="nav-ico" aria-hidden="true">🏠</span><span>Home</span>
-        </button>
-        <button
-          className={'nav-btn' + (tab === 'history' ? ' active' : '')}
-          aria-current={tab === 'history' ? 'page' : undefined}
-          onClick={() => setTab('history')}
-        >
-          <span className="nav-ico" aria-hidden="true">📋</span><span>Jobs</span>
-        </button>
-        {/* SP4B (task 14): top-level Leads nav route. Slotted between
-            Jobs and Customers so the funnel reads Home → Jobs → Leads →
-            Customers → +Log → Inv → More. */}
-        <button
-          className={'nav-btn' + (tab === 'leads' ? ' active' : '')}
-          aria-current={tab === 'leads' ? 'page' : undefined}
-          onClick={() => setTab('leads')}
-        >
-          <span className="nav-ico" aria-hidden="true">📞</span><span>Leads</span>
-        </button>
-        {/* SP1 (refinement #1): top-level Customers nav route. The
-            skeleton CustomerHub page renders the existing Customers
-            list; full hub content lands in SP3. */}
-        <button
-          className={'nav-btn' + (tab === 'customers' ? ' active' : '')}
-          aria-current={tab === 'customers' ? 'page' : undefined}
-          onClick={() => setTab('customers')}
-        >
-          <span className="nav-ico" aria-hidden="true">👥</span><span>Customers</span>
-        </button>
-        <button
-          className={'nav-btn primary' + (tab === 'add' ? ' active' : '')}
-          aria-current={tab === 'add' ? 'page' : undefined}
-          onClick={startNewJob}
-        >
-          <span className="nav-ico" aria-hidden="true">＋</span><span>Log</span>
-        </button>
-        <button
-          className={'nav-btn' + (tab === 'inventory' ? ' active' : '')}
-          aria-current={tab === 'inventory' ? 'page' : undefined}
-          onClick={() => setTab('inventory')}
-        >
-          <span className="nav-ico" aria-hidden="true">🛞</span><span>Inv</span>
-        </button>
-        <button
-          className={'nav-btn' + ((tab === 'settings' || tab === 'payouts' || tab === 'expenses' || tab === 'insights' || tab === 'help') ? ' active' : '')}
-          aria-haspopup="dialog"
-          aria-expanded={moreOpen}
-          onClick={() => setMoreOpen(true)}
-        >
-          <span className="nav-ico" aria-hidden="true">⚙</span><span>More</span>
-        </button>
-      </nav>
+          a popup dialog.
+
+          Batch B (2026-06-05): nav hides while tab === 'add' so the
+          save-footer no longer fights the bottom-nav for vertical
+          space on the Add Job screen. The save-footer's new Cancel
+          button is the operator's escape route while the nav is
+          hidden — see AddJob.tsx onCancel prop. */}
+      {tab !== 'add' && (
+        <nav className="bottom-nav" aria-label="Primary">
+          <button
+            className={'nav-btn' + (tab === 'dashboard' ? ' active' : '')}
+            aria-current={tab === 'dashboard' ? 'page' : undefined}
+            onClick={() => setTab('dashboard')}
+          >
+            <span className="nav-ico" aria-hidden="true">🏠</span><span>Home</span>
+          </button>
+          <button
+            className={'nav-btn' + (tab === 'history' ? ' active' : '')}
+            aria-current={tab === 'history' ? 'page' : undefined}
+            onClick={() => setTab('history')}
+          >
+            <span className="nav-ico" aria-hidden="true">📋</span><span>Jobs</span>
+          </button>
+          {/* SP4B (task 14): top-level Leads nav route. Slotted between
+              Jobs and Customers so the funnel reads Home → Jobs → Leads →
+              Customers → +Log → Inv → More. */}
+          <button
+            className={'nav-btn' + (tab === 'leads' ? ' active' : '')}
+            aria-current={tab === 'leads' ? 'page' : undefined}
+            onClick={() => setTab('leads')}
+          >
+            <span className="nav-ico" aria-hidden="true">📞</span><span>Leads</span>
+          </button>
+          {/* SP1 (refinement #1): top-level Customers nav route. The
+              skeleton CustomerHub page renders the existing Customers
+              list; full hub content lands in SP3. */}
+          <button
+            className={'nav-btn' + (tab === 'customers' ? ' active' : '')}
+            aria-current={tab === 'customers' ? 'page' : undefined}
+            onClick={() => setTab('customers')}
+          >
+            <span className="nav-ico" aria-hidden="true">👥</span><span>Customers</span>
+          </button>
+          {/* Batch B (2026-06-05): the active/aria-current checks for
+              tab === 'add' are no longer reachable here — the whole
+              nav is hidden by the outer `tab !== 'add' &&` guard — so
+              the +Log button always renders in its inactive state.
+              The button is kept so the layout grid stays balanced and
+              startNewJob is still reachable from elsewhere in the
+              flow if a future tab is added that wants nav visible. */}
+          <button
+            className="nav-btn primary"
+            onClick={startNewJob}
+          >
+            <span className="nav-ico" aria-hidden="true">＋</span><span>Log</span>
+          </button>
+          <button
+            className={'nav-btn' + (tab === 'inventory' ? ' active' : '')}
+            aria-current={tab === 'inventory' ? 'page' : undefined}
+            onClick={() => setTab('inventory')}
+          >
+            <span className="nav-ico" aria-hidden="true">🛞</span><span>Inv</span>
+          </button>
+          <button
+            className={'nav-btn' + ((tab === 'settings' || tab === 'payouts' || tab === 'expenses' || tab === 'insights' || tab === 'help') ? ' active' : '')}
+            aria-haspopup="dialog"
+            aria-expanded={moreOpen}
+            onClick={() => setMoreOpen(true)}
+          >
+            <span className="nav-ico" aria-hidden="true">⚙</span><span>More</span>
+          </button>
+        </nav>
+      )}
       {moreOpen && (
         <MoreSheet
           onClose={() => setMoreOpen(false)}

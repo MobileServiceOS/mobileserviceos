@@ -1000,10 +1000,17 @@ a { color: var(--brand-primary); text-decoration: none; }
 .action-ico { font-size: 20px; }
 
 /* ── Save footer (sticky) ──────────────────────────────── */
-.save-footer-spacer { height: 96px; }
+/* Batch B (2026-06-05): bottom-nav is hidden while on the Add tab,
+   so the save-footer is the only fixed UI at the bottom of the
+   viewport. Spacer reserves footer height + safe-area inset (was
+   96px raw, which assumed both footer AND bottom-nav coexisted).
+   The footer itself docks to `bottom: var(--safe-bot)` instead of
+   `bottom: calc(54px + var(--safe-bot))` — the 54px was the nav
+   height that no longer exists in this context. */
+.save-footer-spacer { height: calc(96px + var(--safe-bot)); }
 .save-footer {
   position: fixed; left: 0; right: 0;
-  bottom: calc(54px + var(--safe-bot));
+  bottom: var(--safe-bot);
   background: linear-gradient(to top, var(--bg) 60%, rgba(6,7,10,0));
   padding: 12px calc(14px + var(--safe-r)) 12px calc(14px + var(--safe-l));
   z-index: 40;
@@ -1163,12 +1170,17 @@ a { color: var(--brand-primary); text-decoration: none; }
    Mobile breakpoints
    ────────────────────────────────────────────────────────── */
 
-/* iPhone SE / mini width (≤380px): Quick Quote tiles collapse to a
-   2-row layout so the Custom tile is never squeezed off-screen.
-   Suggested + Premium share row 1, Custom takes the full width of
-   row 2. Each tile keeps a comfortable tap target instead of being
-   crushed into a 100px-wide column. */
-@media (max-width: 380px) {
+/* iPhone SE / 13 mini / modern compact-width phones (≤420px):
+   Quick Quote tiles collapse to a 2-row layout so the Custom tile is
+   never squeezed off-screen. Suggested + Premium share row 1, Custom
+   takes the full width of row 2. Each tile keeps a comfortable tap
+   target instead of being crushed into a 100px-wide column.
+   Batch B (2026-06-05): breakpoint raised from 380px → 420px. At
+   ~380px the iPhone SE (375pt) just barely cleared the threshold;
+   anything from 381px-419px (iPhone 13 mini at 375pt, several Android
+   compact-width phones) was rendering field-row at 1fr/1fr which
+   cramped Customer Name + Email inputs to ~150px each. */
+@media (max-width: 420px) {
   .kpi-grid.three { grid-template-columns: 1fr 1fr; }
   .field-row { grid-template-columns: 1fr; }
 

@@ -120,9 +120,15 @@ interface Props {
   prefilledFromQuote: boolean;
   onSave: () => Promise<void> | void;
   onSaveAndNew: () => Promise<void> | void;
+  /** Batch B (2026-06-05): bottom-nav is hidden while tab === 'add'
+   *  so Cancel is the technician's only escape route off the form.
+   *  Wired in App.tsx to startNewJob() + setTab('dashboard') so the
+   *  draft is reset before navigating away — same behavior as a
+   *  successful save, minus the persistence call. */
+  onCancel: () => void;
 }
 
-export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, prefilledFromQuote, onSave, onSaveAndNew }: Props) {
+export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, prefilledFromQuote, onSave, onSaveAndNew, onCancel }: Props) {
   const { businessId } = useBrand();
   const permissions = usePermissions();
   // Active vertical drives which fields, services, breakdown panel,
@@ -482,66 +488,12 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
         </div>
       )}
 
-      {/* Live suggested-price preview — same engine as Dashboard's
-          Quick Quote. Sits at the top of the form so the technician
-          sees the recommended number BEFORE drilling into the rest
-          of the inputs. Updates live as service/vehicle/miles/tire
-          cost/surcharges change. When revenue is locked (technician
-          without override), this number IS what gets saved. */}
-      {/* Stick the suggested-price tile to the top of the scroll
-          viewport so the tech sees the live number while filling the
-          rest of the form. Without sticky, the tile scrolls away after
-          the first card and the live update becomes invisible — the
-          single biggest UX gap on the highest-friction screen. The
-          z-index keeps it above any in-flow content; the backdrop
-          blur + opaque bg keep content scrolling underneath from
-          showing through and looking noisy. The negative-margin
-          stretches it slightly so it sits flush with the page edges
-          and looks like a real header bar, not a floating chip. */}
-      <div
-        className="quote-box card-anim"
-        style={{
-          position: 'sticky',
-          top: 0,
-          zIndex: 10,
-          marginBottom: 12,
-          background: 'var(--s1)',
-          backdropFilter: 'blur(8px) saturate(140%)',
-          WebkitBackdropFilter: 'blur(8px) saturate(140%)',
-        }}
-      >
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          gap: 10, padding: '10px 12px',
-        }}>
-          <div style={{ minWidth: 0 }}>
-            <div style={{
-              fontSize: 9, fontWeight: 800,
-              color: 'var(--brand-primary)',
-              textTransform: 'uppercase', letterSpacing: 1.5,
-              marginBottom: 2,
-            }}>
-              Suggested
-            </div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--t1)', lineHeight: 1 }}>
-              {money(liveQuote.suggested)}
-              <span style={{ fontSize: 10, color: 'var(--t3)', marginLeft: 8, fontWeight: 500 }}>
-                · prem {money(liveQuote.premium)}
-              </span>
-            </div>
-          </div>
-          {!revenueLocked && (
-            <button
-              type="button"
-              className="btn sm primary"
-              onClick={() => set('revenue', String(liveQuote.suggested))}
-              style={{ flexShrink: 0, minHeight: 40, padding: '0 12px', fontSize: 13 }}
-            >
-              Use
-            </button>
-          )}
-        </div>
-      </div>
+      {/* Batch B (2026-06-05): sticky suggested-price tile removed per
+          operator decision D7. Quick Pricing card below carries the
+          suggested-price + breakdown panel, and the Android backdrop-
+          filter blur was a known compositor jank source on low-end
+          devices. liveQuote remains computed for the in-card Quick
+          Pricing "Suggested" hint and the revenue-divergence button. */}
 
       {/* SP2: step badge style — inline so SP2 doesn't depend on
           a CSS file edit that would conflict with parallel work. */}
@@ -622,241 +574,14 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
         </div>
       </div>
 
-      {/* ─── Revenue section — TOP of form ─────────────────────────
-         Per the operator's request: revenue is the most important
-         data on a job. Miles + tire cost + revenue charged all live
-         here at the top so the technician fills the numbers that
-         actually matter FIRST, then drills into details below. The
-         live pricing breakdown sits beneath the inputs so the
-         technician sees how each value contributes to profit. */}
-      <div className="form-group card-anim">
-        <div className="form-group-title"><span className="step-badge">4</span>Quick Pricing</div>
-        <div className="field-row">
-          <div className="field">
-            <label htmlFor="addjob-miles">Miles to job</label>
-            <input
-              id="addjob-miles"
-              type="number"
-              inputMode="decimal"
-              value={job.miles}
-              onChange={(e) => set('miles', e.target.value)}
-              placeholder="0"
-            />
-          </div>
-          {/* Tire cost is a tire-vertical concept (cost basis of the
-              tire stock used). Gated on needsTireDetails so it only
-              renders for tire-material services — Jump Start, Fuel
-              Delivery, Lockout, etc. in the tire vertical have no
-              tire cost and shouldn't show this field. */}
-          {needsTireDetails && (
-            <div className="field">
-              <label htmlFor="addjob-tire-cost">Tire cost ($)</label>
-              <input
-                id="addjob-tire-cost"
-                type="number"
-                inputMode="decimal"
-                value={job.tireCost}
-                onChange={(e) => set('tireCost', e.target.value)}
-                placeholder="0"
-                disabled={tireSource === 'Customer supplied'}
-              />
-              {tireSource === 'Customer supplied' && (
-                <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 4 }}>
-                  Customer-supplied · $0
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-        <div className={'field'}>
-          <label htmlFor="addjob-revenue">
-            Revenue charged ($)
-            {revenueLocked && (
-              <span style={{
-                marginLeft: 8, fontSize: 9, fontWeight: 800,
-                color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: 1,
-              }}>
-                · suggested price (locked)
-              </span>
-            )}
-          </label>
-          <input
-            id="addjob-revenue"
-            type="number"
-            inputMode="decimal"
-            value={job.revenue}
-            onChange={(e) => set('revenue', e.target.value)}
-            placeholder="0"
-            disabled={revenueLocked}
-            readOnly={revenueLocked}
-            style={revenueLocked ? { opacity: 0.7, cursor: 'not-allowed' } : undefined}
-          />
-          {revenueLocked && (
-            <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 4, lineHeight: 1.4 }}>
-              The system-suggested price is used. Ask an owner to enable
-              technician price overrides if a manual adjustment is needed.
-            </div>
-          )}
-          {revenueDiverges && (
-            <button
-              type="button"
-              onClick={() => set('revenue', String(liveQuote.suggested))}
-              style={{
-                marginTop: 6, display: 'inline-flex', alignItems: 'center', gap: 6,
-                padding: '4px 8px', borderRadius: 6,
-                background: 'transparent', border: '1px solid var(--border)',
-                color: 'var(--t2)', fontSize: 11, fontWeight: 600,
-                cursor: 'pointer',
-              }}
-              aria-label={`Reset revenue to suggested price ${money(liveQuote.suggested)}`}
-            >
-              <span aria-hidden="true">↻</span>
-              Suggested: {money(liveQuote.suggested)} · tap to apply
-            </button>
-          )}
-        </div>
-
-        {/* Pricing breakdown panel — vertical-aware, owner/admin
-            only. It exposes cost + profit, so technicians
-            (canViewProfit false) don't see it; they still get the
-            suggested-price tiles above to set revenue. */}
-        {permissions.canViewProfit && breakdown.model === 'flat' && (
-          <div className="pricing-breakdown">
-            <div className="pricing-breakdown-row"><span>Revenue</span><span className="num green">{money(breakdown.revenue)}</span></div>
-            <div className="pricing-breakdown-row"><span>Tire cost</span><span className="num red">-{money(breakdown.tireCost)}</span></div>
-            <div className="pricing-breakdown-row"><span>Material cost</span><span className="num red">-{money(breakdown.materialCost)}</span></div>
-            <div className="pricing-breakdown-row">
-              <span>Travel ({breakdown.travelMiles} mi{breakdown.freeMilesIncluded ? `, ${breakdown.freeMilesIncluded} free` : ''})</span>
-              <span className="num red">-{money(breakdown.travelCost)}</span>
-            </div>
-            <div className="pricing-breakdown-row total">
-              <span>Profit</span>
-              <span className={'num ' + (breakdown.profit >= 0 ? 'green' : 'red')}>{money(breakdown.profit)}</span>
-            </div>
-          </div>
-        )}
-        {permissions.canViewProfit && breakdown.model === 'labor_parts' && (
-          <div className="pricing-breakdown">
-            <div className="pricing-breakdown-row"><span>Revenue</span><span className="num green">{money(breakdown.revenue)}</span></div>
-            {breakdown.laborCost > 0 && (
-              <div className="pricing-breakdown-row">
-                <span>Labor ({breakdown.laborHours} hrs × ${breakdown.laborRate}/hr)</span>
-                <span className="num red">-{money(breakdown.laborCost)}</span>
-              </div>
-            )}
-            {breakdown.partsCost > 0 && (
-              <div className="pricing-breakdown-row">
-                <span>Parts</span>
-                <span className="num red">-{money(breakdown.partsCost)}</span>
-              </div>
-            )}
-            {breakdown.partsMarkupAmount > 0 && (
-              <div className="pricing-breakdown-row">
-                <span>Parts handling ({breakdown.partsMarkupPct}%)</span>
-                <span className="num red">-{money(breakdown.partsMarkupAmount)}</span>
-              </div>
-            )}
-            {breakdown.diagnosticFee > 0 && (
-              <div className="pricing-breakdown-row">
-                <span>Diagnostic fee</span>
-                <span className="num red">-{money(breakdown.diagnosticFee)}</span>
-              </div>
-            )}
-            {breakdown.travelCost > 0 && (
-              <div className="pricing-breakdown-row">
-                <span>Travel ({breakdown.travelMiles} mi{breakdown.freeMilesIncluded ? `, ${breakdown.freeMilesIncluded} free` : ''})</span>
-                <span className="num red">-{money(breakdown.travelCost)}</span>
-              </div>
-            )}
-            {breakdown.belowMinServiceCharge && (
-              <div className="pricing-breakdown-row" style={{ fontSize: 10, color: 'var(--t3)' }}>
-                <span>Min service charge</span>
-                <span>{money(breakdown.minServiceCharge)}</span>
-              </div>
-            )}
-            <div className="pricing-breakdown-row total">
-              <span>Profit</span>
-              <span className={'num ' + (breakdown.profit >= 0 ? 'green' : 'red')}>{money(breakdown.profit)}</span>
-            </div>
-          </div>
-        )}
-        {permissions.canViewProfit && breakdown.model === 'package_multiplier' && (
-          <div className="pricing-breakdown">
-            <div className="pricing-breakdown-row"><span>Revenue</span><span className="num green">{money(breakdown.revenue)}</span></div>
-            <div className="pricing-breakdown-row">
-              <span>Vehicle size</span>
-              <span>{breakdown.vehicleSize} (×{breakdown.vehicleSizeMultiplier})</span>
-            </div>
-            <div className="pricing-breakdown-row total">
-              <span>Profit</span>
-              <span className={'num ' + (breakdown.profit >= 0 ? 'green' : 'red')}>{money(breakdown.profit)}</span>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Phase 2.3: vehicle-size chip block for verticals using the
-          package_multiplier pricing model (detailing). Tire / mechanic
-          have features.vehicleSizeMultiplier === false; this block
-          short-circuits to null. */}
-      {vertical.features.vehicleSizeMultiplier && vehicleSizes.length > 0 && (
-        <div className="form-group card-anim">
-          <div className="form-group-title">Vehicle size</div>
-          <div className="chip-grid">
-            {vehicleSizes.map((sz) => (
-              <button
-                key={sz}
-                type="button"
-                className={'chip' + (job.vehicleSize === sz ? ' active' : '')}
-                onClick={() => set('vehicleSize', sz)}
-              >{sz}</button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className={'form-group card-anim'}>
-        <div className="form-group-title"><span className="step-badge">5</span>{vertical.copy.packageLabel || 'Service'}</div>
-        <ServicePicker
-          services={vertical.services}
-          enabledIds={enabledPackages}
-          selected={job.service}
-          onSelect={(id) => set('service', id)}
-          jobs={jobs}
-        />
-      </div>
-
-      {/* Phase 2.3: detailing add-ons multi-select. Renders only when
-          the active vertical declares add-on services. Other verticals
-          have enabledAddOns.length === 0 and this block is null. */}
-      {enabledAddOns.length > 0 && (
-        <div className="form-group card-anim">
-          <div className="form-group-title">
-            Add-ons{' '}
-            <span style={{ fontWeight: 400, color: 'var(--t3)', fontSize: 11 }}>
-              (tap any that apply)
-            </span>
-          </div>
-          <div className="chip-grid">
-            {enabledAddOns.map((id) => {
-              const selected = (job.detailingAddons ?? []).includes(id);
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  className={'chip' + (selected ? ' active' : '')}
-                  onClick={() => {
-                    const cur = job.detailingAddons ?? [];
-                    const next = selected ? cur.filter((x) => x !== id) : [...cur, id];
-                    set('detailingAddons', next as Job['detailingAddons']);
-                  }}
-                >{id}</button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
+      {/* ─── Step 3: Vehicle ────────────────────────────────────
+          Vehicle type chip-grid + detailing's vehicle-size chip
+          sub-block (when the active vertical's pricing model is
+          package_multiplier). Tire / mechanic verticals have
+          features.vehicleSizeMultiplier === false, so the sub-block
+          short-circuits to null. Batch B reorder: Vehicle moves up
+          from position 9 → 4 so the operator commits to the rig
+          before drilling into Service / pricing. */}
       <div className={'form-group card-anim'}>
         <div className="form-group-title"><span className="step-badge">3</span>Vehicle</div>
         <div className="chip-grid">
@@ -865,74 +590,80 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
               onClick={() => set('vehicleType', v)} type="button">{v}</button>
           ))}
         </div>
+        {vertical.features.vehicleSizeMultiplier && vehicleSizes.length > 0 && (
+          <div className="field" style={{ marginTop: 8 }}>
+            <label id="addjob-vehicle-size-label">Vehicle size</label>
+            <div className="chip-grid" role="group" aria-labelledby="addjob-vehicle-size-label">
+              {vehicleSizes.map((sz) => (
+                <button
+                  key={sz}
+                  type="button"
+                  className={'chip' + (job.vehicleSize === sz ? ' active' : '')}
+                  aria-pressed={job.vehicleSize === sz}
+                  onClick={() => set('vehicleSize', sz)}
+                >{sz}</button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* ─── SP2 Step 7: Location ──────────────────────────────
-          AddressAutofillInput owns ZIP + city + state + addressLine
-          per spec §"AddJob Workflow Change → step 7". Replaces the
-          prior City-only Customer-card field. */}
-      <div className="form-group card-anim">
-        <div className="form-group-title"><span className="step-badge">7</span>Location</div>
-        <AddressAutofillInput value={addressValue} onChange={onAddressChange} />
-      </div>
-
-      {canAssign && (
-        <AssignmentPicker
-          value={job.assignedToUid}
-          onChange={(uid) => setJob((prev) => ({ ...prev, assignedToUid: uid }))}
-          members={businessMembers}
-          currentUid={currentUid}
+      {/* ─── Step 4: Service ────────────────────────────────────
+          Primary package picker + detailing add-ons multi-select
+          (when the vertical declares add-on services). enabledAddOns
+          is empty for tire / mechanic so the add-ons sub-block is
+          null for them. */}
+      <div className={'form-group card-anim'}>
+        <div className="form-group-title"><span className="step-badge">4</span>{vertical.copy.packageLabel || 'Service'}</div>
+        <ServicePicker
+          services={vertical.services}
+          enabledIds={enabledPackages}
+          selected={job.service}
+          onSelect={(id) => set('service', id)}
+          jobs={jobs}
         />
-      )}
-
-      {/* Vertical-specific job fields, rendered for any vertical
-          whose UI is NOT the tire bespoke block. Mechanic gets
-          Vehicle Make/Model, Mileage, Diagnostic Code, Labor Hours,
-          Parts Cost. Detailing gets Vehicle Size (when populated in
-          2.3). Tire's jobFields (tireSize/tireCondition/wheelLock-
-          Removed) are already covered by the bespoke block below,
-          so we suppress the loop here for tire. */}
-      {!showTireBlock && vertical.jobFields.length > 0 && (
-        <div className={'form-group card-anim'}>
-          <div className="form-group-title">
-            {vertical.shortName} Details
+        {enabledAddOns.length > 0 && (
+          <div className="field" style={{ marginTop: 8 }}>
+            <label id="addjob-addons-label">
+              Add-ons{' '}
+              <span style={{ fontWeight: 400, color: 'var(--t3)', fontSize: 11 }}>
+                (tap any that apply)
+              </span>
+            </label>
+            <div className="chip-grid" role="group" aria-labelledby="addjob-addons-label">
+              {enabledAddOns.map((id) => {
+                const selected = (job.detailingAddons ?? []).includes(id);
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    className={'chip' + (selected ? ' active' : '')}
+                    aria-pressed={selected}
+                    onClick={() => {
+                      const cur = job.detailingAddons ?? [];
+                      const next = selected ? cur.filter((x) => x !== id) : [...cur, id];
+                      set('detailingAddons', next as Job['detailingAddons']);
+                    }}
+                  >{id}</button>
+                );
+              })}
+            </div>
           </div>
-          <div className="field-row">
-            {vertical.jobFields.map((field) => (
-              <DynamicJobField
-                key={field.key}
-                field={field}
-                value={(job as unknown as Record<string, unknown>)[field.key]}
-                onChange={(v) => setJob((prev) => ({ ...prev, [field.key]: v } as Job))}
-                disabled={isSaving}
-              />
-            ))}
-          </div>
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* Mechanic-specific structured parts entry. Lives here because
-          it's interaction-rich (autocomplete, source picker, soft-
-          warn at save) and would be awkward inside a DynamicJobField
-          loop. Tire / detailing skip this block. */}
-      {vertical.key === 'mechanic' && (
-        <div className="card-anim" style={{ marginBottom: 12 }}>
-          <PartsSection
-            parts={job.parts ?? []}
-            inventory={inventory}
-            onChange={(parts) => setJob((prev) => ({ ...prev, parts } as Job))}
-          />
-        </div>
-      )}
-
-      {/* Tire-specific bespoke block (size + qty + source picker +
-          purchase panel + inventory preview). Already feature-gated
-          via needsTireDetails which now also checks
-          vertical.features.inventoryDeduction, so this entire block
-          stays hidden for mechanic and detailing accounts. */}
+      {/* ─── Step 5: Job Details ────────────────────────────────
+          One badge covers a stack of vertical-aware sub-blocks:
+            - Tire Details bespoke block (when needsTireDetails)
+            - Vertical jobFields loop (when !showTireBlock && vertical
+              declares jobFields — mechanic / detailing)
+            - PartsSection (mechanic only)
+            - General Quantity + Material + Conditions block
+          Each sub-block keeps its existing conditional gate so the
+          render contract is unchanged. */}
       {needsTireDetails && (
         <div className="form-group card-anim">
-          <div className="form-group-title"><span className="step-badge">6</span>Tire Details</div>
+          <div className="form-group-title"><span className="step-badge">5</span>Tire Details</div>
           <div className="field-row">
             <div className={'field'}>
               <label htmlFor="addjob-tire-size">Size</label>
@@ -1069,8 +800,59 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
         </div>
       )}
 
+      {/* Vertical-specific job fields, rendered for any vertical
+          whose UI is NOT the tire bespoke block. Mechanic gets
+          Vehicle Make/Model, Mileage, Diagnostic Code, Labor Hours,
+          Parts Cost. Detailing gets Vehicle Size (when populated in
+          2.3). Tire's jobFields (tireSize/tireCondition/wheelLock-
+          Removed) are already covered by the bespoke block above,
+          so we suppress the loop here for tire. */}
+      {!showTireBlock && vertical.jobFields.length > 0 && (
+        <div className={'form-group card-anim'}>
+          <div className="form-group-title">
+            {!needsTireDetails && <span className="step-badge">5</span>}
+            {vertical.shortName} Details
+          </div>
+          <div className="field-row">
+            {vertical.jobFields.map((field) => (
+              <DynamicJobField
+                key={field.key}
+                field={field}
+                value={(job as unknown as Record<string, unknown>)[field.key]}
+                onChange={(v) => setJob((prev) => ({ ...prev, [field.key]: v } as Job))}
+                disabled={isSaving}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Mechanic-specific structured parts entry. Lives here because
+          it's interaction-rich (autocomplete, source picker, soft-
+          warn at save) and would be awkward inside a DynamicJobField
+          loop. Tire / detailing skip this block. */}
+      {vertical.key === 'mechanic' && (
+        <div className="card-anim" style={{ marginBottom: 12 }}>
+          <PartsSection
+            parts={job.parts ?? []}
+            inventory={inventory}
+            onChange={(parts) => setJob((prev) => ({ ...prev, parts } as Job))}
+          />
+        </div>
+      )}
+
+      {/* General Job Details: quantity (non-tire only) + material
+          cost + conditions chip-grid. The step badge here only fires
+          when neither needsTireDetails nor the vertical jobFields
+          block rendered above — otherwise the "5" badge already lives
+          on one of those earlier sub-blocks for this vertical. */}
       <div className="form-group card-anim">
-        <div className="form-group-title">Job Details</div>
+        <div className="form-group-title">
+          {!needsTireDetails && !(!showTireBlock && vertical.jobFields.length > 0) && (
+            <span className="step-badge">5</span>
+          )}
+          Job Details
+        </div>
         <div className="field-row">
           {/* Quantity here ONLY for non-tire services. Tire-material
               services have Qty in the Tire Details block above, so
@@ -1106,8 +888,199 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
         </div>
       </div>
 
+      {/* ─── Step 6: Location ──────────────────────────────────
+          AddressAutofillInput owns ZIP + city + state + addressLine
+          per spec §"AddJob Workflow Change → step 7". Replaces the
+          prior City-only Customer-card field. Batch B reorder moves
+          Location down from above Quick Pricing so the operator
+          locks in WHERE before they think about HOW MUCH. */}
       <div className="form-group card-anim">
-        <div className="form-group-title">Lead & Payment</div>
+        <div className="form-group-title"><span className="step-badge">6</span>Location</div>
+        <AddressAutofillInput value={addressValue} onChange={onAddressChange} />
+      </div>
+
+      {/* ─── Step 7: Quick Pricing ─────────────────────────────
+          Miles + tire cost + revenue + the vertical-aware breakdown
+          panel. Batch B reorder: moved from position 4 (just after
+          Customer details) to position 7 so the operator establishes
+          vehicle / service / job details / location FIRST — all the
+          inputs that drive the suggested price — and only then sees
+          the resulting number. Avoids the prior pattern of staring
+          at $0 while filling everything else in. */}
+      <div className="form-group card-anim">
+        <div className="form-group-title"><span className="step-badge">7</span>Quick Pricing</div>
+        <div className="field-row">
+          <div className="field">
+            <label htmlFor="addjob-miles">Miles to job</label>
+            <input
+              id="addjob-miles"
+              type="number"
+              inputMode="decimal"
+              value={job.miles}
+              onChange={(e) => set('miles', e.target.value)}
+              placeholder="0"
+            />
+          </div>
+          {/* Tire cost is a tire-vertical concept (cost basis of the
+              tire stock used). Gated on needsTireDetails so it only
+              renders for tire-material services — Jump Start, Fuel
+              Delivery, Lockout, etc. in the tire vertical have no
+              tire cost and shouldn't show this field. */}
+          {needsTireDetails && (
+            <div className="field">
+              <label htmlFor="addjob-tire-cost">Tire cost ($)</label>
+              <input
+                id="addjob-tire-cost"
+                type="number"
+                inputMode="decimal"
+                value={job.tireCost}
+                onChange={(e) => set('tireCost', e.target.value)}
+                placeholder="0"
+                disabled={tireSource === 'Customer supplied'}
+              />
+              {tireSource === 'Customer supplied' && (
+                <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 4 }}>
+                  Customer-supplied · $0
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        <div className={'field'}>
+          <label htmlFor="addjob-revenue">
+            Revenue charged ($)
+            {revenueLocked && (
+              <span style={{
+                marginLeft: 8, fontSize: 9, fontWeight: 800,
+                color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: 1,
+              }}>
+                · suggested price (locked)
+              </span>
+            )}
+          </label>
+          <input
+            id="addjob-revenue"
+            type="number"
+            inputMode="decimal"
+            value={job.revenue}
+            onChange={(e) => set('revenue', e.target.value)}
+            placeholder="0"
+            disabled={revenueLocked}
+            readOnly={revenueLocked}
+            style={revenueLocked ? { opacity: 0.7, cursor: 'not-allowed' } : undefined}
+          />
+          {revenueLocked && (
+            <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 4, lineHeight: 1.4 }}>
+              The system-suggested price is used. Ask an owner to enable
+              technician price overrides if a manual adjustment is needed.
+            </div>
+          )}
+          {revenueDiverges && (
+            <button
+              type="button"
+              onClick={() => set('revenue', String(liveQuote.suggested))}
+              style={{
+                marginTop: 6, display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '4px 8px', borderRadius: 6,
+                background: 'transparent', border: '1px solid var(--border)',
+                color: 'var(--t2)', fontSize: 11, fontWeight: 600,
+                cursor: 'pointer',
+              }}
+              aria-label={`Reset revenue to suggested price ${money(liveQuote.suggested)}`}
+            >
+              <span aria-hidden="true">↻</span>
+              Suggested: {money(liveQuote.suggested)} · tap to apply
+            </button>
+          )}
+        </div>
+
+        {/* Pricing breakdown panel — vertical-aware, owner/admin
+            only. It exposes cost + profit, so technicians
+            (canViewProfit false) don't see it; they still get the
+            revenue input above to set the price. */}
+        {permissions.canViewProfit && breakdown.model === 'flat' && (
+          <div className="pricing-breakdown">
+            <div className="pricing-breakdown-row"><span>Revenue</span><span className="num green">{money(breakdown.revenue)}</span></div>
+            <div className="pricing-breakdown-row"><span>Tire cost</span><span className="num red">-{money(breakdown.tireCost)}</span></div>
+            <div className="pricing-breakdown-row"><span>Material cost</span><span className="num red">-{money(breakdown.materialCost)}</span></div>
+            <div className="pricing-breakdown-row">
+              <span>Travel ({breakdown.travelMiles} mi{breakdown.freeMilesIncluded ? `, ${breakdown.freeMilesIncluded} free` : ''})</span>
+              <span className="num red">-{money(breakdown.travelCost)}</span>
+            </div>
+            <div className="pricing-breakdown-row total">
+              <span>Profit</span>
+              <span className={'num ' + (breakdown.profit >= 0 ? 'green' : 'red')}>{money(breakdown.profit)}</span>
+            </div>
+          </div>
+        )}
+        {permissions.canViewProfit && breakdown.model === 'labor_parts' && (
+          <div className="pricing-breakdown">
+            <div className="pricing-breakdown-row"><span>Revenue</span><span className="num green">{money(breakdown.revenue)}</span></div>
+            {breakdown.laborCost > 0 && (
+              <div className="pricing-breakdown-row">
+                <span>Labor ({breakdown.laborHours} hrs × ${breakdown.laborRate}/hr)</span>
+                <span className="num red">-{money(breakdown.laborCost)}</span>
+              </div>
+            )}
+            {breakdown.partsCost > 0 && (
+              <div className="pricing-breakdown-row">
+                <span>Parts</span>
+                <span className="num red">-{money(breakdown.partsCost)}</span>
+              </div>
+            )}
+            {breakdown.partsMarkupAmount > 0 && (
+              <div className="pricing-breakdown-row">
+                <span>Parts handling ({breakdown.partsMarkupPct}%)</span>
+                <span className="num red">-{money(breakdown.partsMarkupAmount)}</span>
+              </div>
+            )}
+            {breakdown.diagnosticFee > 0 && (
+              <div className="pricing-breakdown-row">
+                <span>Diagnostic fee</span>
+                <span className="num red">-{money(breakdown.diagnosticFee)}</span>
+              </div>
+            )}
+            {breakdown.travelCost > 0 && (
+              <div className="pricing-breakdown-row">
+                <span>Travel ({breakdown.travelMiles} mi{breakdown.freeMilesIncluded ? `, ${breakdown.freeMilesIncluded} free` : ''})</span>
+                <span className="num red">-{money(breakdown.travelCost)}</span>
+              </div>
+            )}
+            {breakdown.belowMinServiceCharge && (
+              <div className="pricing-breakdown-row" style={{ fontSize: 10, color: 'var(--t3)' }}>
+                <span>Min service charge</span>
+                <span>{money(breakdown.minServiceCharge)}</span>
+              </div>
+            )}
+            <div className="pricing-breakdown-row total">
+              <span>Profit</span>
+              <span className={'num ' + (breakdown.profit >= 0 ? 'green' : 'red')}>{money(breakdown.profit)}</span>
+            </div>
+          </div>
+        )}
+        {permissions.canViewProfit && breakdown.model === 'package_multiplier' && (
+          <div className="pricing-breakdown">
+            <div className="pricing-breakdown-row"><span>Revenue</span><span className="num green">{money(breakdown.revenue)}</span></div>
+            <div className="pricing-breakdown-row">
+              <span>Vehicle size</span>
+              <span>{breakdown.vehicleSize} (×{breakdown.vehicleSizeMultiplier})</span>
+            </div>
+            <div className="pricing-breakdown-row total">
+              <span>Profit</span>
+              <span className={'num ' + (breakdown.profit >= 0 ? 'green' : 'red')}>{money(breakdown.profit)}</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ─── Step 8: Lead & Payment + Assignment ────────────────
+          Lead source + payment method + job/payment status chips,
+          plus the AssignmentPicker at the bottom (when canAssign).
+          Batch B reorder moves AssignmentPicker into this block so
+          team management lives next to the rest of the post-completion
+          metadata instead of floating mid-form. */}
+      <div className="form-group card-anim">
+        <div className="form-group-title"><span className="step-badge">8</span>Lead & Payment</div>
         <div className="field">
           <label id="addjob-lead-source-label">Lead source</label>
           <div className="chip-grid" role="group" aria-labelledby="addjob-lead-source-label">
@@ -1156,10 +1129,18 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
             ))}
           </div>
         </div>
+        {canAssign && (
+          <AssignmentPicker
+            value={job.assignedToUid}
+            onChange={(uid) => setJob((prev) => ({ ...prev, assignedToUid: uid }))}
+            members={businessMembers}
+            currentUid={currentUid}
+          />
+        )}
       </div>
 
       <div className="form-group card-anim">
-        <div className="form-group-title"><span className="step-badge">8</span>Notes</div>
+        <div className="form-group-title"><span className="step-badge">9</span>Notes</div>
         <div className={'field'}>
           <textarea
             value={job.note}
@@ -1172,10 +1153,37 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
       <div className="save-footer-spacer" />
       <div className="save-footer">
         <div className="save-footer-inner">
-          <div className="save-footer-meta">
-            <div className="save-footer-label">Profit</div>
-            <div className={'save-footer-value ' + (breakdown.profit >= 0 ? 'green' : 'red')}>{money(breakdown.profit)}</div>
-          </div>
+          {/* Batch B (2026-06-05): Profit pill is now gated on
+              canViewProfit. Technicians (canViewProfit false) saw the
+              owner's profit number on every save before — a leak that
+              also pushed the save buttons into a cramped row on
+              narrow phones. With the pill hidden, Cancel / Another /
+              Save use the freed-up horizontal space cleanly. */}
+          {permissions.canViewProfit && (
+            <div className="save-footer-meta">
+              <div className="save-footer-label">Profit</div>
+              <div className={'save-footer-value ' + (breakdown.profit >= 0 ? 'green' : 'red')}>{money(breakdown.profit)}</div>
+            </div>
+          )}
+          {/* Batch B: Cancel button — bottom-nav is hidden on the Add
+              tab so this is the only escape route off the form. Calls
+              the onCancel prop wired in App.tsx to reset the draft +
+              setTab('dashboard'). */}
+          <button
+            className="btn secondary"
+            type="button"
+            disabled={isSaving}
+            onClick={() => { if (!isSaving) onCancel(); }}
+            style={{
+              minWidth: 80,
+              opacity: isSaving ? 0.5 : 1,
+              cursor: isSaving ? 'not-allowed' : 'pointer',
+              transition: 'opacity 120ms ease',
+            }}
+            aria-label="Cancel and return to dashboard"
+          >
+            Cancel
+          </button>
           {!isEditing && (
             <button
               className="btn secondary"
