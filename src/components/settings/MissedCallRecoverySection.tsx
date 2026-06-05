@@ -27,6 +27,7 @@ import { AccordionShell } from '@/components/settings/AccordionShell';
 import { renderTemplate } from '@/lib/reviewTemplate';
 import { DEFAULT_MISSED_CALL_TEMPLATE } from '@/lib/defaults';
 import { usePermissions, useMembership } from '@/context/MembershipContext';
+import { useBrand } from '@/context/BrandContext';
 import type { Lead, Settings } from '@/types';
 
 interface Props {
@@ -71,7 +72,17 @@ function MissedCallRecoverySectionImpl({
   const template = settings.missedCallTemplate ?? DEFAULT_MISSED_CALL_TEMPLATE;
   const phone    = settings.twilioPhoneNumber ?? '';
   const phoneSid = settings.twilioPhoneNumberSid ?? '';
-  const businessName = settings.businessName ?? '';
+  // businessName lives on the Brand doc (businesses/{bid}/settings/main),
+  // not on operational_settings/main. The App.tsx `settings` prop is
+  // hydrated from operational_settings, which historically carried a
+  // stale DEFAULT_SETTINGS.businessName='My Business' for accounts that
+  // pre-date the Brand/Settings split — reading it here would render
+  // "Hi, thanks for contacting My Business" in the Live Preview even
+  // when the operator's saved Brand name is "Wheel Rush". Pull from the
+  // Brand context, which mirrors the canonical settings/main value the
+  // server-side renderer also reads.
+  const { brand } = useBrand();
+  const businessName = brand.businessName ?? '';
 
   // Local-only state for save-on-blur inputs. The MemberDoc shape in
   // this codebase has no phone field (workaround carried from SP4A

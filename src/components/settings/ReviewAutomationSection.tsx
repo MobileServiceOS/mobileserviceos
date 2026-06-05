@@ -28,6 +28,7 @@ import { ReviewRequestHistoryTable } from '@/components/settings/ReviewRequestHi
 import { renderTemplate } from '@/lib/reviewTemplate';
 import { DEFAULT_REVIEW_TEMPLATE } from '@/lib/defaults';
 import { usePermissions, useMembership } from '@/context/MembershipContext';
+import { useBrand } from '@/context/BrandContext';
 import type { Job, Settings } from '@/types';
 
 interface Props {
@@ -78,7 +79,15 @@ function ReviewAutomationSectionImpl({
   const template = settings.reviewSmsTemplate ?? DEFAULT_REVIEW_TEMPLATE;
   const delay    = (settings.reviewDelayMinutes ?? 0) as 0 | 5 | 15 | 60;
   const url      = settings.googleReviewLink ?? '';
-  const businessName = settings.businessName ?? '';
+  // businessName lives on the Brand doc (businesses/{bid}/settings/main),
+  // not on operational_settings/main. The App.tsx `settings` prop is
+  // hydrated from operational_settings, which historically carried a
+  // stale DEFAULT_SETTINGS.businessName='My Business' for accounts that
+  // pre-date the Brand/Settings split. Pull from the Brand context so
+  // the preview matches the server-side renderer (which reads
+  // settings/main.businessName directly).
+  const { brand } = useBrand();
+  const businessName = brand.businessName ?? '';
 
   // Local-only state for inputs that save-on-blur. The MemberDoc shape
   // in this codebase has no phone field, so the test-SMS phone input

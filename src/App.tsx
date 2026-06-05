@@ -596,6 +596,15 @@ function AuthenticatedApp({ user }: { user: User }) {
           });
         }
 
+        // Strip stray Brand-owned fields that historically leaked into
+        // operational_settings/main via the legacy {...DEFAULT_SETTINGS,
+        // ...patch} merge pattern. The canonical home for businessName
+        // is settings/main (BrandContext); any value here is stale and
+        // would overwrite the correct Brand-context value in the
+        // React state. Wheel Rush hit this as a 'My Business' Live
+        // Preview in Missed Call Recovery — see
+        // src/components/settings/MissedCallRecoverySection.tsx.
+        delete (parsed as Record<string, unknown>).businessName;
         setSettingsRaw((p) => ({ ...p, ...parsed }));
       }
       markReady('ops');
