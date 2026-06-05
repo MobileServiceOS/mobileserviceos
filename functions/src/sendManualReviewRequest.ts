@@ -13,7 +13,7 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import { Timestamp } from 'firebase-admin/firestore';
-import { renderTemplate } from './lib/reviewTemplate';
+import { renderTemplate, pickReviewTemplate } from './lib/reviewTemplate';
 import { readBrandAndOperationalSettings } from './lib/operationalSettings';
 void admin;
 
@@ -50,7 +50,7 @@ function _lastName(name?: string): string {
 function _buildPatch(args: BuildPatchArgs): Record<string, unknown> {
   if (!args.phoneE164?.trim())            throw new Error('phoneE164 required');
   if (!args.settings.googleReviewLink?.trim()) throw new Error('googleReviewLink required in settings');
-  const template = args.settings.reviewSmsTemplate?.trim() || 'Hi {firstName}, leave a review: {reviewLink}';
+  const template = args.settings.reviewSmsTemplate?.trim() || pickReviewTemplate();
   const cityResolved = args.city?.trim() || args.settings.serviceArea?.trim() || '';
   const rendered = renderTemplate(template, {
     firstName:    _firstName(args.customerName),

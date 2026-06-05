@@ -16,7 +16,7 @@
 import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 import * as admin from 'firebase-admin';
 import { Timestamp } from 'firebase-admin/firestore';
-import { renderTemplate, type TemplateVars } from './lib/reviewTemplate';
+import { renderTemplate, pickReviewTemplate, type TemplateVars } from './lib/reviewTemplate';
 import { readBrandAndOperationalSettings } from './lib/operationalSettings';
 void admin;
 
@@ -71,8 +71,10 @@ interface DecisionSkip {
 }
 export type Decision = DecisionEnqueue | DecisionSkip;
 
-const DEFAULT_TEMPLATE_FALLBACK =
-  'Hi {firstName}, thanks for the service. Please leave a review: {reviewLink}';
+// Fallback path uses pickReviewTemplate() — rotates among 5 default
+// variations so consecutive auto-texts don't read byte-identical.
+// Operator's saved settings.reviewSmsTemplate (when non-empty) still
+// wins as a static override.
 
 function _firstName(name?: string): string {
   return (name ?? '').trim().split(/\s+/)[0] ?? '';
@@ -114,7 +116,7 @@ function _decide(
   // Guard 6: no phone to text.
   if (!customer.phoneE164?.trim()) return { action: 'skip', reason: 'no-phone' };
 
-  const template = settings.reviewSmsTemplate?.trim() || DEFAULT_TEMPLATE_FALLBACK;
+  const template = settings.reviewSmsTemplate?.trim() || pickReviewTemplate();
   const vars: TemplateVars = {
     firstName: _firstName(customer.name),
     lastName:  _lastName(customer.name),

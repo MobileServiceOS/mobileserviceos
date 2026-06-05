@@ -16,9 +16,18 @@ export const FALLBACK_LOGO_SVG = `data:image/svg+xml,${encodeURIComponent(
  * Spec: docs/superpowers/specs/2026-06-03-sp4a-review-automation-design.md
  *       §"Template engine — Default template"
  */
+// Seed value for new-tenant Settings + Review Automation preview pane.
+// Operators see this as the editable starter template. When the
+// reviewSmsTemplate field is LEFT EMPTY, the server picks at random
+// from DEFAULT_REVIEW_TEMPLATES (see reviewTemplate.ts) per send so
+// consecutive auto-texts don't read byte-identical. This constant
+// matches DEFAULT_REVIEW_TEMPLATES[0] — operator's V1.
 export const DEFAULT_REVIEW_TEMPLATE =
-  'Hi {firstName}, thanks for choosing {businessName} for your {serviceType} in {city}. ' +
-  'We’d appreciate a quick Google review: {reviewLink}';
+  `Hi {firstName}, thank you for choosing {businessName} for your {serviceType} service in {city}. If you were happy with the service today, we'd appreciate a quick Google review:
+
+{reviewLink}
+
+Your feedback helps other drivers find reliable mobile tire service when they need it most.`;
 
 /**
  * Default outbound SMS body sent on missed-call auto-text.

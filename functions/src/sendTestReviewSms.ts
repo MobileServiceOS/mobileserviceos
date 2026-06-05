@@ -14,7 +14,7 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import { Timestamp } from 'firebase-admin/firestore';
-import { renderTemplate } from './lib/reviewTemplate';
+import { renderTemplate, pickReviewTemplate } from './lib/reviewTemplate';
 import { readBrandAndOperationalSettings } from './lib/operationalSettings';
 void admin;
 
@@ -38,8 +38,11 @@ interface BuildPatchArgs {
 function _buildPatch(args: BuildPatchArgs): Record<string, unknown> {
   if (!args.phoneE164?.trim()) throw new Error('phoneE164 required');
   if (!args.settings.googleReviewLink?.trim()) throw new Error('googleReviewLink required in settings');
-  const template = args.template?.trim() || args.settings.reviewSmsTemplate?.trim() || '';
-  if (!template) throw new Error('template required');
+  // Order: explicit args.template > saved tenant template > rotation pool.
+  // The test path never errors on "no template" because the rotation pool
+  // always returns a non-empty default — gives operators a one-click
+  // smoke-test even before they save any custom template.
+  const template = args.template?.trim() || args.settings.reviewSmsTemplate?.trim() || pickReviewTemplate();
   const rendered = renderTemplate(template, {
     firstName: 'Test',
     lastName:  'Operator',
