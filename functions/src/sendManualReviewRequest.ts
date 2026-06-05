@@ -14,6 +14,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import { Timestamp } from 'firebase-admin/firestore';
 import { renderTemplate } from './lib/reviewTemplate';
+import { readBrandAndOperationalSettings } from './lib/operationalSettings';
 void admin;
 
 interface SendManualInput {
@@ -91,15 +92,18 @@ export const sendManualReviewRequest = onCall<SendManualInput, Promise<{ request
     throw new HttpsError('permission-denied', 'owner or admin only');
   }
 
-  const [jobSnap, settingsSnap] = await Promise.all([
+  // Brand fields (businessName) live on settings/main; operational fields
+  // (reviewSmsTemplate, googleReviewLink, serviceArea) live on
+  // operational_settings/main. Merge both via the shared helper.
+  const [jobSnap, settingsRead] = await Promise.all([
     db.doc(`businesses/${businessId}/jobs/${jobId}`).get(),
-    db.doc(`businesses/${businessId}/settings/main`).get(),
+    readBrandAndOperationalSettings(db, businessId),
   ]);
-  if (!jobSnap.exists)     throw new HttpsError('not-found', 'job not found');
-  if (!settingsSnap.exists) throw new HttpsError('failed-precondition', 'settings missing');
+  if (!jobSnap.exists)                  throw new HttpsError('not-found', 'job not found');
+  if (!settingsRead.operationalExists)  throw new HttpsError('failed-precondition', 'settings missing');
 
   const job      = jobSnap.data() ?? {};
-  const settings = settingsSnap.data() ?? {};
+  const settings = settingsRead.data;
   if (job.status !== 'Completed') {
     throw new HttpsError('failed-precondition', 'job must be Completed');
   }

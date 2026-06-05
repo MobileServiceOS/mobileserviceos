@@ -17,6 +17,7 @@ import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 import * as admin from 'firebase-admin';
 import { Timestamp } from 'firebase-admin/firestore';
 import { renderTemplate, type TemplateVars } from './lib/reviewTemplate';
+import { readBrandAndOperationalSettings } from './lib/operationalSettings';
 void admin;
 
 type JobLite = {
@@ -169,15 +170,19 @@ export const onJobCompletedReviewRequest = onDocumentWritten(
     if (after.reviewRequestSent === true) return;
     if (!after.customerId) return;  // can't enqueue without a customer
 
-    // Three parallel reads: customer, settings, primary vehicle.
-    const [custSnap, settingsSnap] = await Promise.all([
+    // Parallel reads: customer, brand+operational merged settings, primary vehicle.
+    // SP4A operational fields (reviewAutomationEnabled, reviewSmsTemplate,
+    // googleReviewLink, reviewDelayMinutes, serviceArea) live on
+    // operational_settings/main; businessName lives on settings/main (Brand).
+    // The merged read returns both — see functions/src/lib/operationalSettings.ts.
+    const [custSnap, settingsRead] = await Promise.all([
       db.doc(`businesses/${businessId}/customers/${after.customerId}`).get(),
-      db.doc(`businesses/${businessId}/settings/main`).get(),
+      readBrandAndOperationalSettings<SettingsLite>(db, businessId),
     ]);
-    if (!custSnap.exists)     return;
-    if (!settingsSnap.exists) return;
+    if (!custSnap.exists)            return;
+    if (!settingsRead.operationalExists) return;
     const customer: CustomerLite = { id: custSnap.id, ...(custSnap.data() as Omit<CustomerLite, 'id'>) };
-    const settings = settingsSnap.data() as SettingsLite;
+    const settings = settingsRead.data;
 
     // Vehicle is optional — read the FIRST vehicle subdoc if any, else skip.
     let vehicle: VehicleLite | undefined;

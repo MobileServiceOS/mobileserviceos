@@ -15,6 +15,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import { Timestamp } from 'firebase-admin/firestore';
 import { renderTemplate } from './lib/reviewTemplate';
+import { readBrandAndOperationalSettings } from './lib/operationalSettings';
 void admin;
 
 interface SendTestInput {
@@ -79,9 +80,12 @@ export const sendTestReviewSms = onCall<SendTestInput, Promise<{ requestId: stri
     throw new HttpsError('invalid-argument', 'phoneE164 required (caller member doc has none)');
   }
 
-  const settingsSnap = await db.doc(`businesses/${businessId}/settings/main`).get();
-  const settings = settingsSnap.data() ?? {};
-  if (!settings.googleReviewLink?.trim()) {
+  // googleReviewLink + reviewSmsTemplate are operational fields
+  // (operational_settings/main); businessName is a Brand field
+  // (settings/main). The helper merges both.
+  const settingsRead = await readBrandAndOperationalSettings(db, businessId);
+  const settings = settingsRead.data;
+  if (!settings.googleReviewLink || !String(settings.googleReviewLink).trim()) {
     throw new HttpsError('failed-precondition', 'set Google Review URL in Settings first');
   }
 
