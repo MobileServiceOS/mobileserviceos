@@ -101,7 +101,7 @@
   ],
   "fieldOverrides": [
     {
-      "collectionGroup": "settings",
+      "collectionGroup": "operational_settings",
       "fieldPath": "twilioPhoneNumber",
       "indexes": [
         { "queryScope": "COLLECTION_GROUP", "order": "ASCENDING" }

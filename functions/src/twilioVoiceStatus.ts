@@ -35,6 +35,10 @@ import * as admin from 'firebase-admin';
 import { Timestamp } from 'firebase-admin/firestore';
 import { renderTemplate } from './lib/reviewTemplate';
 import { assertValidTwilioSignature } from './lib/twilioSignatureValidator';
+import {
+  OPERATIONAL_SETTINGS_COLLECTION,
+  brandSettingsDocPath,
+} from './lib/operationalSettings';
 void admin;
 
 const DEFAULT_TEMPLATE_FALLBACK = 'Hi, thanks for contacting {businessName}.';
@@ -233,8 +237,11 @@ export const twilioVoiceStatus = onRequest(
     try {
       const db = admin.firestore();
 
-      // 2. Route to business via collection-group settings query
-      const bizSnap = await db.collectionGroup('settings')
+      // 2. Route to business via collection-group operational_settings query.
+      //    twilioPhoneNumber lives on operational_settings/main — written
+      //    by persistSettings (src/App.tsx). The collection-group index
+      //    is declared in firestore.indexes.json as a fieldOverride.
+      const bizSnap = await db.collectionGroup(OPERATIONAL_SETTINGS_COLLECTION)
         .where('twilioPhoneNumber', '==', form.To ?? '')
         .limit(1)
         .get();
@@ -243,16 +250,24 @@ export const twilioVoiceStatus = onRequest(
         res.status(200).send('ok');
         return;
       }
-      const settingsDoc = bizSnap.docs[0];
-      const businessId  = settingsDoc.ref.parent.parent?.id;
+      const opsDoc     = bizSnap.docs[0];
+      const businessId = opsDoc.ref.parent.parent?.id;
       if (!businessId) {
         console.warn('[twilioVoiceStatus] settings path missing parent business', {
-          path: settingsDoc.ref.path,
+          path: opsDoc.ref.path,
         });
         res.status(200).send('ok');
         return;
       }
-      const settings = settingsDoc.data() as SettingsLite;
+      // Merge brand fields (businessName for SMS rendering) onto operational
+      // fields (missedCallAutoTextEnabled / missedCallTemplate). Brand lives
+      // at settings/main; operational at operational_settings/main. Read the
+      // Brand doc directly here (we already have the operational doc from
+      // the routing query, so an additional .get() saves a redundant fetch).
+      const brandSnap = await db.doc(brandSettingsDocPath(businessId)).get();
+      const brandData = (brandSnap.exists ? brandSnap.data() ?? {} : {}) as Record<string, unknown>;
+      const opsData   = opsDoc.data() as Record<string, unknown>;
+      const settings: SettingsLite = { ...brandData, ...opsData } as SettingsLite;
 
       // 3. Look up existing customer by phone
       let existingCustomer: CustomerLite | null = null;
