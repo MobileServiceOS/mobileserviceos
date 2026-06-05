@@ -34,11 +34,28 @@ export interface BackfillResult {
   customerCount: number;
   vehicleCount: number;
   jobsUpdated: number;
+  jobsSkippedNoIdentity: number;
   mergesPerformed: number;
   legacyKeysRenamed: number;
   durationMs: number;
   auditDocPath: string;
   dryRun: boolean;
+}
+
+// Names that look like a customer label but carry no real identity. Jobs
+// whose `customerName` matches one of these (case-insensitive, trimmed) AND
+// whose `customerPhone` is not a valid E.164 are SKIPPED entirely — no
+// customer doc, no customerId stamp, no jobsUpdated increment. Without this,
+// every such job hashes to the same `n_unknown` group key and collapses
+// into one fake "(unknown)" customer doc. See commit message for prod
+// incident (Wheel Rush, 2026-06-05 — 85 jobs merged into one bucket).
+const SKIPPED_NAME_TOKENS = new Set([
+  '', 'unknown', 'walk-in', 'walkin', 'n/a', 'na', 'anonymous', 'guest',
+]);
+
+function _isMeaningfulName(name: string | undefined): boolean {
+  const trimmed = String(name ?? '').trim().toLowerCase();
+  return trimmed.length > 0 && !SKIPPED_NAME_TOKENS.has(trimmed);
 }
 
 type RawJob = Record<string, unknown> & {
@@ -92,13 +109,23 @@ async function _runWalker(args: {
   const t0 = Date.now();
   const { businessId, jobs, dryRun, onWrite } = args;
 
-  // Group jobs by phoneKey (or fallback name slug).
+  // Group jobs by phoneKey (or fallback name slug). Jobs with NO valid
+  // phone AND NO meaningful customerName are skipped entirely — they
+  // carry no identity to merge against, and forcing them all into a
+  // single `n_unknown` bucket collapses unrelated jobs into one fake
+  // customer (production bug, Wheel Rush, 2026-06-05).
   const groups = new Map<string, RawJob[]>();
+  let jobsSkippedNoIdentity = 0;
   for (const j of jobs) {
     const phone = normalizePhone(String(j.customerPhone ?? ''));
+    const hasName = _isMeaningfulName(j.customerName);
+    if (!phone.valid && !hasName) {
+      jobsSkippedNoIdentity += 1;
+      continue;
+    }
     const key = phone.valid
       ? `p_${phone.digits}`
-      : `n_${String(j.customerName ?? 'unknown').toLowerCase().replace(/\s+/g, '_')}`;
+      : `n_${String(j.customerName ?? '').trim().toLowerCase().replace(/\s+/g, '_')}`;
     const list = groups.get(key) ?? [];
     list.push(j);
     groups.set(key, list);
@@ -217,6 +244,7 @@ async function _runWalker(args: {
     customerCount,
     vehicleCount,
     jobsUpdated,
+    jobsSkippedNoIdentity,
     mergesPerformed,
     legacyKeysRenamed: 0,
     durationMs: Date.now() - t0,
