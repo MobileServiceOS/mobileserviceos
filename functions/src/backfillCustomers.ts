@@ -123,9 +123,23 @@ async function _runWalker(args: {
       jobsSkippedNoIdentity += 1;
       continue;
     }
+    // Slug rule for the name-based bucket: lowercase + collapse any
+    // non-alphanumeric run to a single underscore + trim leading/
+    // trailing underscores. The original implementation only replaced
+    // whitespace (\s+), which let slashes and other Firestore-reserved
+    // chars through. A name like "S Class / Davie" produced the slug
+    // "s_class/davie" — Firestore treats the embedded `/` as a path
+    // separator, so doc("customers/n_s_class/davie") becomes a
+    // subcollection ref and set() throws "path does not contain an
+    // even number of components". Discovered in prod on 2026-06-05
+    // when Wheel Rush's Run Backfill failed on a Mercedes job.
+    const nameSlug = String(j.customerName ?? '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
     const key = phone.valid
       ? `p_${phone.digits}`
-      : `n_${String(j.customerName ?? '').trim().toLowerCase().replace(/\s+/g, '_')}`;
+      : `n_${nameSlug || 'noname'}`;
     const list = groups.get(key) ?? [];
     list.push(j);
     groups.set(key, list);
