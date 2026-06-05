@@ -28,6 +28,10 @@ export interface ValidationInput {
   params: Record<string, string>;           // parsed form body
 }
 
+// Module-scoped throttle so the dev-mode warning fires at most once
+// per Cloud Function instance instead of on every webhook invocation.
+let warnedTokenMissing = false;
+
 /**
  * Throws Error('TWILIO_SIGNATURE_INVALID') on a forged signature.
  * Silently returns when TWILIO_AUTH_TOKEN is unset (with a warning).
@@ -35,8 +39,11 @@ export interface ValidationInput {
 export function assertValidTwilioSignature(input: ValidationInput): void {
   const token = process.env.TWILIO_AUTH_TOKEN;
   if (!token) {
-    // eslint-disable-next-line no-console
-    console.warn('[twilioSignatureValidator] TWILIO_AUTH_TOKEN unset — signature validation DISABLED. Do not deploy to production in this state.');
+    if (!warnedTokenMissing) {
+      warnedTokenMissing = true;
+      // eslint-disable-next-line no-console
+      console.warn('[twilioSignatureValidator] TWILIO_AUTH_TOKEN unset — signature validation DISABLED. Do not deploy to production in this state.');
+    }
     return;
   }
   const sig = input.signatureHeader ?? '';
