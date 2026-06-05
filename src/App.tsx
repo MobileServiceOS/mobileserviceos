@@ -39,6 +39,7 @@ import { ToastHost } from '@/components/ToastHost';
 import { InstallBanner } from '@/components/InstallBanner';
 import { UpdateBanner } from '@/components/UpdateBanner';
 import { MoreSheet } from '@/components/MoreSheet';
+import { IncomingCallNotification } from '@/components/IncomingCallNotification';
 import { EmailVerificationBanner } from '@/components/EmailVerificationBanner';
 import { TrialCountdownBanner } from '@/components/TrialCountdownBanner';
 import { JobSuccessPanel } from '@/components/JobSuccessPanel';
@@ -1776,6 +1777,13 @@ function AuthenticatedApp({ user }: { user: User }) {
       <InstallBanner />
       <UpdateBanner />
       <ToastHost />
+      {businessId && (
+        <IncomingCallNotification
+          onOpenLead={() => { setTab('leads'); }}
+          onOpenCustomer={(cid) => { setSelectedCustomerId(cid); setTab('customerProfile'); }}
+          onCreateCustomer={() => { setTab('add'); }}
+        />
+      )}
       {businessId && (
         <GlobalSearchSheet
           businessId={businessId}
