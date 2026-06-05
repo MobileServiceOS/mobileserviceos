@@ -8,14 +8,19 @@
 
 ## 0. Heads-up before you start
 
-This runbook is the FIRST live Twilio cutover for this codebase. Two things to know up front:
+This runbook is the FIRST live Twilio cutover for this codebase. One thing to know up front:
 
-1. **Twilio credentials are not yet declared as Firebase secrets in the function options.**
-   The Twilio code (`functions/src/lib/twilioClient.ts`, `functions/src/lib/twilioSignatureValidator.ts`) reads `process.env.TWILIO_*` directly, but the consuming functions (`drainReviewRequests`, `drainOutboundSms`, `twilioVoiceStatus`, the two callables) do NOT declare `secrets: ['TWILIO_AUTH_TOKEN', …]` in their `onSchedule` / `onRequest` / `onCall` options. That means `firebase functions:secrets:set TWILIO_AUTH_TOKEN` will store the value in Secret Manager but it WILL NOT be injected into the runtime env at function startup.
+**Webhook signature validation is silently disabled while `TWILIO_AUTH_TOKEN` is unset.** Don't expose the `twilioVoiceStatus` URL to the public internet before completing Step 2.
 
-   The supported path until that small refactor lands is `functions/.env` (Firebase Functions v2 reads it and exposes the values as `process.env.*`). This is acceptable for a single-tenant cutover; secret-grade rotation should land as a follow-up before the second operator goes live.
+### Status of code-side prerequisites
 
-2. **Webhook signature validation is silently disabled while `TWILIO_AUTH_TOKEN` is unset.** Don't expose the `twilioVoiceStatus` URL to the public internet before completing Step 2.
+All three code-side prerequisites for a Secret Manager-backed cutover are in place on `main`:
+
+- **Signature validation** — `functions/src/lib/twilioSignatureValidator.ts` validates inbound webhooks against `TWILIO_AUTH_TOKEN` and rejects forgeries (skipped only when the token is unset; see Section 9).
+- **Secret declarations** — commit `6bb5319` added `secrets: [...]` to the function options for `drainReviewRequests`, `drainOutboundSms`, and `twilioVoiceStatus`. `firebase functions:secrets:set` now actually injects values into `process.env` at runtime (matches the Stripe pattern at `onSubscriptionWrite.ts`).
+- **Day-boundary dedup index** — the `(phoneE164, receivedAt)` composite index on `leads` shipped in commit `06ed91c` (see Section 9 for the residual ~1ms clock-skew caveat).
+
+The four callables (`sendTestReviewSms`, `sendManualReviewRequest`, `sendTestMissedCall`, `sendManualOutboundSms`) do NOT declare Twilio secrets because they only enqueue to Firestore — the drainers do the actual Twilio call.
 
 ---
 
@@ -34,9 +39,47 @@ This runbook is the FIRST live Twilio cutover for this codebase. Two things to k
 
 ## 2. Configure Twilio credentials on Cloud Functions
 
-Pick ONE path. Path A is what works with the code as-shipped today. Path B is the future-state secret-grade path that requires a small code change first.
+Pick ONE path. **Path B (Secret Manager) is now PREFERRED for production cutover** since commit `6bb5319` wired up the `secrets: [...]` declarations on the three Twilio-consuming functions. Path A (`functions/.env`) remains the simplest single-tenant / dev-loop fallback.
 
-### Path A — `.env` file (works today, recommended for this cutover)
+### Path B — Firebase Secret Manager (PREFERRED, applied in commit `6bb5319`)
+
+The function options on `drainReviewRequests`, `drainOutboundSms`, and `twilioVoiceStatus` already declare their Twilio secret dependencies, so `firebase functions:secrets:set` will inject the values into the function runtime env at startup. No code change required.
+
+1. Set each secret (CLI will prompt you to paste the value; values are stored in Google Secret Manager, not in git):
+
+   ```bash
+   firebase functions:secrets:set TWILIO_ACCOUNT_SID
+   firebase functions:secrets:set TWILIO_AUTH_TOKEN
+   firebase functions:secrets:set TWILIO_PHONE_NUMBER
+   ```
+
+2. Deploy the functions to pick up the new secret bindings:
+
+   ```bash
+   cd functions
+   npm run deploy
+   ```
+
+   Equivalent to `firebase deploy --only functions` from the repo root. The pre-deploy hook in `firebase.json` runs `npm run build` first.
+
+3. After deploy completes, verify the secret bindings are live on the function runtime:
+
+   ```bash
+   gcloud functions describe drainReviewRequests --region us-central1 --gen2 \
+     --format='value(serviceConfig.secretEnvironmentVariables)'
+   gcloud functions describe drainOutboundSms --region us-central1 --gen2 \
+     --format='value(serviceConfig.secretEnvironmentVariables)'
+   gcloud functions describe twilioVoiceStatus --region us-central1 --gen2 \
+     --format='value(serviceConfig.secretEnvironmentVariables)'
+   ```
+
+   `drainReviewRequests` and `drainOutboundSms` should list all three Twilio vars; `twilioVoiceStatus` should list `TWILIO_AUTH_TOKEN` (the webhook only needs the token for signature validation, not the SID/phone number).
+
+To rotate a secret later: `firebase functions:secrets:set TWILIO_AUTH_TOKEN` then redeploy. To inspect access history: `firebase functions:secrets:access TWILIO_AUTH_TOKEN`.
+
+### Path A — `.env` file (dev-only fallback)
+
+Acceptable for local emulation or a fast single-tenant cutover when Secret Manager access is unavailable. Values land in `process.env.*` the same way as Path B, so the application code is identical.
 
 1. In the repo root, create `functions/.env` (the file is already gitignored via the parent `.gitignore`):
 
@@ -62,47 +105,16 @@ Pick ONE path. Path A is what works with the code as-shipped today. Path B is th
    npm run deploy
    ```
 
-   Equivalent to `firebase deploy --only functions` from the repo root. The pre-deploy hook in `firebase.json` runs `npm run build` first.
-
 4. After deploy completes, verify the env vars are live on the function runtime:
 
    ```bash
-   firebase functions:config:get
    gcloud functions describe drainReviewRequests --region us-central1 --gen2 \
      --format='value(serviceConfig.environmentVariables)'
    ```
 
    You should see `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER` listed.
 
-### Path B — Firebase Secret Manager (requires code change first)
-
-DO NOT use this path until the following one-line change ships:
-
-```ts
-// functions/src/drainReviewRequests.ts (and drainOutboundSms.ts, twilioVoiceStatus.ts,
-// sendTestReviewSms.ts, sendManualReviewRequest.ts, sendTestMissedCall.ts,
-// sendManualOutboundSms.ts)
-export const drainReviewRequests = onSchedule(
-  {
-    schedule: 'every 1 minutes',
-    timeoutSeconds: 540,
-    memory: '512MiB',
-    secrets: ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_PHONE_NUMBER'], // ← add
-  },
-  // ...
-);
-```
-
-Once that ships, the operator-side becomes:
-
-```bash
-firebase functions:secrets:set TWILIO_ACCOUNT_SID
-firebase functions:secrets:set TWILIO_AUTH_TOKEN
-firebase functions:secrets:set TWILIO_PHONE_NUMBER
-cd functions && npm run deploy
-```
-
-Tracked as a follow-up before second-tenant rollout.
+Do not mix Path A and Path B for the same variable — Path B's secret binding takes precedence over Path A's `.env` value, which leads to confusing rotation behavior. Pick one path per environment.
 
 ---
 
@@ -238,7 +250,9 @@ If anything misbehaves and you need to return the system to dormant:
 
 ### Fast rollback (keeps function deployed; turns Twilio off)
 
-1. Delete the three env values from `functions/.env`.
+1. Clear the credentials by whichever path is live:
+   - **Path B (Secret Manager):** `firebase functions:secrets:destroy TWILIO_ACCOUNT_SID TWILIO_AUTH_TOKEN TWILIO_PHONE_NUMBER` (CLI will confirm each).
+   - **Path A (.env):** delete the three lines from `functions/.env`.
 2. `cd functions && npm run deploy`
 3. After deploy:
    - `sendSms()` throws `TWILIO_NOT_CONFIGURED`; drainers catch this and leave queue entries at `pending` (no retry counter bump, no `failed` transition).
@@ -270,7 +284,7 @@ Pending queue entries persist; they'll drain on the next live cutover. There is 
 
 - **Signature validation silently disabled when `TWILIO_AUTH_TOKEN` unset.** Must be set before the webhook URL is exposed (see Step 0). The validator logs a single warning per cold start (`[twilioSignatureValidator] TWILIO_AUTH_TOKEN unset — signature validation DISABLED`) but does NOT block the function from running.
 
-- **Env-var injection vs. Secret Manager.** Current code path is plain `process.env`, not declared as `defineSecret`. See Step 2, Path A vs B.
+- **Env-var injection vs. Secret Manager.** Both paths populate `process.env.TWILIO_*` at function startup. The application code does not call `defineSecret(...).value()`; it reads `process.env` directly. This is intentional — it keeps Path A (`.env`) and Path B (Secret Manager) behaviorally identical from the function's perspective. See Step 2.
 
 - **10DLC registration.** Untagged US long codes are increasingly filtered. If outbound SMS deliverability is poor, the long code likely needs to be registered with The Campaign Registry and attached to a Messaging Service. Toll-free numbers don't need this.
 
