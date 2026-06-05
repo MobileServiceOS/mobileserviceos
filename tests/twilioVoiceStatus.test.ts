@@ -159,5 +159,23 @@ console.log('\n── computeLeadId stability ──');
   check('different date → different id', a !== c);
 }
 
+console.log('\n── DialCallStatus is honored when present ──');
+{
+  const out = decide(form({ DialCallStatus: 'no-answer', CallStatus: 'completed' }), baseSettings, null, null);
+  check('proceeds on DialCallStatus=no-answer even when CallStatus=completed', out.action === 'enqueue');
+}
+
+console.log('\n── falls back to CallStatus when DialCallStatus absent ──');
+{
+  const out = decide(form({ CallStatus: 'no-answer' }), baseSettings, null, null);
+  check('proceeds on CallStatus=no-answer when DialCallStatus undefined', out.action === 'enqueue');
+}
+
+console.log('\n── DialCallStatus=completed → still skip ──');
+{
+  const out = decide(form({ DialCallStatus: 'completed' }), baseSettings, null, null);
+  check('skips when DialCallStatus=completed (call was answered)', out.action === 'skip');
+}
+
 console.log(`\n── ${passed} passed, ${failed} failed ──\n`);
 process.exit(failed > 0 ? 1 : 0);

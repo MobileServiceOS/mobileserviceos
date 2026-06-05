@@ -120,7 +120,7 @@ function _decide(
     return { action: 'skip', reason: 'not-inbound' };
   }
   // Guard 2: missed-call statuses only
-  const status = _mapCallStatus(form.CallStatus);
+  const status = _mapCallStatus(form.DialCallStatus || form.CallStatus);
   if (!status) {
     return { action: 'skip', reason: 'not-missed' };
   }
