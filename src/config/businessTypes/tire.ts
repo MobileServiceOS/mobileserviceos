@@ -131,7 +131,7 @@ export const TIRE_CONFIG: BusinessTypeConfig = {
   conditions: [
     { key: 'emergency', label: '🚨 Emergency' },
     { key: 'lateNight', label: '🌙 Late Night' },
-    { key: 'highway',   label: '🛣 Highway' },
+    { key: 'highway',   label: '🛣️ Highway' },
     { key: 'weekend',   label: '📅 Weekend' },
   ],
 };

@@ -588,6 +588,12 @@ a { color: var(--brand-primary); text-decoration: none; }
      the focused field never lands underneath either of them. Pages
      without the price tile waste ~20px of buffer; acceptable. */
   scroll-margin-top: 100px;
+  /* Reserve buffer BELOW focused inputs too. AddJob's sticky save-footer
+     (~96px) + bottom-nav (~56px) + safe-bot can hide a focused Notes
+     textarea or final field on iOS. 140px clears both bars + home
+     indicator. Pages without a sticky footer waste this buffer on
+     scrollIntoView calls; acceptable for the worst-case fix. */
+  scroll-margin-bottom: calc(140px + var(--safe-bot));
 }
 /* iOS Safari forces input zoom when font-size < 16px on focus. The
    field at 14px would trigger that zoom on every form tap inside the
@@ -625,6 +631,11 @@ a { color: var(--brand-primary); text-decoration: none; }
   min-height: 44px;
   display: inline-flex;
   align-items: center;
+  /* Long chip labels (e.g. "Heavy-Duty Tire Service", "Roadside Tire
+     Assistance") can push the flex grid wider than its container on
+     narrow phones — min-width:0 lets them shrink-wrap to viewport. */
+  min-width: 0;
+  max-width: 100%;
   transition: background .13s ease, border-color .13s ease,
               color .13s ease, transform .07s ease;
 }

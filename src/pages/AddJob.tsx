@@ -1097,7 +1097,7 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
             {(vertical.conditions ?? [
               { key: 'emergency' as const, label: '🚨 Emergency' },
               { key: 'lateNight' as const, label: '🌙 Late Night' },
-              { key: 'highway' as const,   label: '🛣 Highway' },
+              { key: 'highway' as const,   label: '🛣️ Highway' },
               { key: 'weekend' as const,   label: '📅 Weekend' },
             ]).map(({ key: k, label: l }) => (
               <button key={k} type="button" className={'chip' + (job[k] ? ' active' : '')} aria-pressed={!!job[k]} onClick={() => set(k, !job[k])}>{l}</button>

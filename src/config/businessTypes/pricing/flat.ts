@@ -73,17 +73,22 @@ export function computeFlatPrice(
   s: Settings,
 ): FlatBreakdown {
   const revenue = Number(j.revenue || 0);
-  const tireCost = Number(j.tireCost || 0);
+  const tireCostPerUnit = Number(j.tireCost || 0);
   const materialCost = Number(j.materialCost || j.miscCost || 0);
   const miles = Number(j.miles || 0);
   const freeMiles = Number(s.freeMilesIncluded || 0);
   const chargeable = Math.max(0, miles - freeMiles);
   const travelCost = r2(chargeable * Number(s.costPerMile || 0.65));
-  const directCost = r2(tireCost + materialCost + travelCost);
+  const qty = Math.max(1, Math.floor(Number(j.qty) || 1));
+  // tireCost stored on the job is PER-UNIT. Direct cost must scale by qty
+  // to match calcFlatQuote (flat.ts:50) — the suggested-price engine.
+  // Pre-fix, multi-tire profit was overstated by tireCostPerUnit * (qty - 1).
+  const tireCostTotal = r2(tireCostPerUnit * qty);
+  const directCost = r2(tireCostTotal + materialCost + travelCost);
   const profit = r2(revenue - directCost);
   return {
     revenue: r2(revenue),
-    tireCost: r2(tireCost),
+    tireCost: tireCostTotal,
     materialCost: r2(materialCost),
     travelCost,
     travelMiles: miles,
@@ -92,6 +97,6 @@ export function computeFlatPrice(
     directCost,
     profit,
     profitMargin: revenue > 0 ? profit / revenue : 0,
-    quantity: Math.max(1, Math.floor(Number(j.qty) || 1)),
+    quantity: qty,
   };
 }

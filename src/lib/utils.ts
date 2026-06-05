@@ -18,7 +18,14 @@ export { r2 };
 
 export const money = (n: number | string | null | undefined): string => {
   const v = Number(n || 0);
-  return '$' + Math.round(v).toLocaleString();
+  // Sign before $ — "-$50" reads as "negative fifty" at a glance.
+  // The previous "$-50" format read as "$50" outdoors in sunlight,
+  // hiding negative-profit jobs from the technician's quick scan.
+  const rounded = Math.round(Math.abs(v));
+  // Drop the sign when the absolute value rounds to 0 (e.g. -0.4 → "$0",
+  // not "-$0" which reads as a glitch).
+  const sign = v < 0 && rounded > 0 ? '-' : '';
+  return sign + '$' + rounded.toLocaleString();
 };
 
 export const uid = (): string =>
