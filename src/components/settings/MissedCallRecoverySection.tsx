@@ -152,13 +152,14 @@ function MissedCallRecoverySectionImpl({
         { leadId: string }
       >(_getEmulatorAwareFunctions(), 'sendTestMissedCall');
       const { data } = await fn({ businessId, phoneE164: testPhone });
-      setTestStatus(`Test lead created (${data.leadId}). ${settings.twilioConnected ? 'Drainer will send within 1 min.' : 'Twilio not connected — auto-text stays pending.'}`);
+      const twilioConnected = !!settings.twilioPhoneNumber?.trim();
+      setTestStatus(`Test lead created (${data.leadId}). ${twilioConnected ? 'Drainer will send within 1 min.' : 'Twilio not connected — auto-text stays pending.'}`);
     } catch (err) {
       setTestError(err instanceof Error ? err.message : String(err));
     } finally {
       setTestInFlight(false);
     }
-  }, [businessId, testPhone, settings.twilioConnected]);
+  }, [businessId, testPhone, settings.twilioPhoneNumber]);
 
   const showWarning = enabled && !phone.trim();
 
