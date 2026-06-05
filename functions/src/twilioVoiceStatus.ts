@@ -215,7 +215,12 @@ export const twilioVoiceStatus = onRequest(
 
     // 1. Signature validation
     try {
-      const url = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
+      // Cloud Functions v2 (Cloud Run) terminates TLS at the GCP load
+      // balancer; req.protocol returns 'http' but Twilio signs with the
+      // original 'https://' URL it called. Trust x-forwarded-proto, fall
+      // back to https — emulator/local can still override via the header.
+      const proto = (req.headers['x-forwarded-proto'] as string)?.split(',')[0]?.trim() || 'https';
+      const url = `${proto}://${req.get('host')}${req.originalUrl}`;
       assertValidTwilioSignature({
         signatureHeader: req.header('x-twilio-signature') ?? undefined,
         url,
