@@ -215,12 +215,14 @@ export const twilioVoiceStatus = onRequest(
 
     // 1. Signature validation
     try {
-      // Cloud Functions v2 (Cloud Run) terminates TLS at the GCP load
-      // balancer; req.protocol returns 'http' but Twilio signs with the
-      // original 'https://' URL it called. Trust x-forwarded-proto, fall
-      // back to https — emulator/local can still override via the header.
-      const proto = (req.headers['x-forwarded-proto'] as string)?.split(',')[0]?.trim() || 'https';
-      const url = `${proto}://${req.get('host')}${req.originalUrl}`;
+      // Twilio signs the URL configured in Twilio Console — for SP4B
+      // that's the canonical cloudfunctions.net public URL. Cloud Run's
+      // container receives the request via a GCP proxy that rewrites
+      // both Host (→ *.a.run.app) and Path (→ /), so reconstructing the
+      // URL from req.* always mismatches. Use the canonical URL the
+      // operator configured. Override via env for emulator/multi-tenant.
+      const url = process.env.TWILIO_WEBHOOK_URL
+        || 'https://us-central1-mobile-service-os.cloudfunctions.net/twilioVoiceStatus';
       assertValidTwilioSignature({
         signatureHeader: req.header('x-twilio-signature') ?? undefined,
         url,
