@@ -245,7 +245,21 @@ export const backfillCustomers = onCall<
   const result = await _runWalker({
     businessId, jobs, dryRun,
     onWrite: async (path, patch) => {
-      await db.doc(path).set(patch, { merge: true });
+      // Strip undefined keys before writing — Firestore admin SDK rejects
+      // them unless `ignoreUndefinedProperties: true` is set globally on
+      // the SDK init. Setting it globally would affect every other function
+      // in this codebase; safer to strip locally here. The undefined values
+      // come from the conditional `firstJobAt === '9999-12-31' ? undefined`
+      // and from `firstVehicleSpec.vehicleMakeModel` when only `tireSize`
+      // was populated on the source job (or any other partial-field combo).
+      // Discovered in production on 2026-06-05 when the operator's first
+      // backfill attempt threw INTERNAL on a job with tireSize but no
+      // vehicleMakeModel.
+      const cleaned: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(patch)) {
+        if (v !== undefined) cleaned[k] = v;
+      }
+      await db.doc(path).set(cleaned, { merge: true });
     },
   });
 
