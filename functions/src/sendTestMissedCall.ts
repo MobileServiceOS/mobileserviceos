@@ -19,6 +19,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import { Timestamp } from 'firebase-admin/firestore';
 import { renderTemplate } from './lib/reviewTemplate';
+import { readBrandAndOperationalSettings } from './lib/operationalSettings';
 void admin;
 
 interface Input {
@@ -132,11 +133,14 @@ export const sendTestMissedCall = onCall<Input, Promise<{ leadId: string }>>(
       throw new HttpsError('permission-denied', 'owner or admin only');
     }
 
-    const settingsSnap = await db.doc(`businesses/${businessId}/settings/main`).get();
-    if (!settingsSnap.exists) {
+    // SP4B operational fields (missedCallTemplate, twilioPhoneNumber) live
+    // on operational_settings/main; businessName lives on settings/main
+    // (Brand). The merged read returns both.
+    const settingsRead = await readBrandAndOperationalSettings<SettingsLite>(db, businessId);
+    if (!settingsRead.operationalExists) {
       throw new HttpsError('failed-precondition', 'settings missing');
     }
-    const settings = settingsSnap.data() as SettingsLite;
+    const settings = settingsRead.data;
     if (!settings.twilioPhoneNumber?.trim()) {
       throw new HttpsError('failed-precondition', 'set Twilio number in Settings first');
     }

@@ -15,6 +15,7 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import { Timestamp } from 'firebase-admin/firestore';
+import { readOperationalSettings } from './lib/operationalSettings';
 void admin;
 
 interface Input {
@@ -77,9 +78,10 @@ export const sendManualOutboundSms = onCall<Input, Promise<{ smsId: string }>>(
       throw new HttpsError('failed-precondition', 'lead missing phoneE164 or customerId');
     }
 
-    const settingsSnap = await db.doc(`businesses/${businessId}/settings/main`).get();
-    const settings = settingsSnap.data() ?? {};
-    if (!settings.twilioPhoneNumber?.trim()) {
+    // twilioPhoneNumber is an operational field (operational_settings/main),
+    // not a Brand field. This gate only needs the operational doc.
+    const settingsRead = await readOperationalSettings<{ twilioPhoneNumber?: string }>(db, businessId);
+    if (!settingsRead.data.twilioPhoneNumber?.trim()) {
       throw new HttpsError('failed-precondition', 'set Twilio number in Settings first');
     }
 
