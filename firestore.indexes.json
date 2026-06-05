@@ -97,14 +97,15 @@
         { "fieldPath": "status",      "order": "ASCENDING" },
         { "fieldPath": "sendAfterAt", "order": "ASCENDING" }
       ]
-    },
-    {
-      "collectionGroup": "settings",
-      "queryScope": "COLLECTION_GROUP",
-      "fields": [
-        { "fieldPath": "twilioPhoneNumber", "order": "ASCENDING" }
-      ]
     }
   ],
-  "fieldOverrides": []
+  "fieldOverrides": [
+    {
+      "collectionGroup": "settings",
+      "fieldPath": "twilioPhoneNumber",
+      "indexes": [
+        { "queryScope": "COLLECTION_GROUP", "order": "ASCENDING" }
+      ]
+    }
+  ]
 }
