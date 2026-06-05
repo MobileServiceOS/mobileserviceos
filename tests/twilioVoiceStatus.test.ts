@@ -48,16 +48,21 @@ console.log('\n── guard: Direction outbound ──');
   check('skips when outbound', out.action === 'skip' && out.reason === 'not-inbound');
 }
 
-console.log('\n── guard: CallStatus completed ──');
+console.log('\n── carrier-forwarding architecture: CallStatus=completed proceeds ──');
 {
   const out = decide(form({ CallStatus: 'completed' }), baseSettings, null, null);
-  check('skips when completed', out.action === 'skip' && out.reason === 'not-missed');
+  check('proceeds on CallStatus=completed (every inbound is a missed call under carrier forwarding)',
+    out.action === 'enqueue');
+  if (out.action === 'enqueue') {
+    check('default callStatus is no-answer when Twilio reports completed',
+      out.lead.callStatus === 'no-answer');
+  }
 }
 
-console.log('\n── guard: CallStatus in-progress ──');
+console.log('\n── carrier-forwarding: CallStatus=in-progress also proceeds ──');
 {
   const out = decide(form({ CallStatus: 'in-progress' }), baseSettings, null, null);
-  check('skips when in-progress', out.action === 'skip');
+  check('proceeds on CallStatus=in-progress', out.action === 'enqueue');
 }
 
 console.log('\n── guard: From invalid ──');
@@ -171,10 +176,11 @@ console.log('\n── falls back to CallStatus when DialCallStatus absent ──
   check('proceeds on CallStatus=no-answer when DialCallStatus undefined', out.action === 'enqueue');
 }
 
-console.log('\n── DialCallStatus=completed → still skip ──');
+console.log('\n── DialCallStatus=completed → also proceeds (carrier-forwarding) ──');
 {
   const out = decide(form({ DialCallStatus: 'completed' }), baseSettings, null, null);
-  check('skips when DialCallStatus=completed (call was answered)', out.action === 'skip');
+  check('proceeds when DialCallStatus=completed (under carrier-forwarding architecture)',
+    out.action === 'enqueue');
 }
 
 console.log(`\n── ${passed} passed, ${failed} failed ──\n`);

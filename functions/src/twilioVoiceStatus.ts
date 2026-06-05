@@ -17,6 +17,17 @@
 //  Returns 200 OK for all internal failures (with loud console.error)
 //  so Twilio doesn't initiate a retry storm. 403 is reserved for
 //  forged signature failures only.
+//
+//  Architecture note (added 2026-06-05): this webhook assumes the
+//  Twilio number is the TARGET of upstream conditional call forwarding
+//  (e.g., carrier-level no-answer/busy/missed forwarding from the
+//  operator's public business line). Every inbound POST to this
+//  endpoint represents a missed call. The CallStatus filter that
+//  originally gated enqueue has been removed; the only gates now
+//  are (1) Direction='inbound', (2) valid E.164 From, (3) 24h
+//  per-phone dedup. If a future tenant uses Twilio as the PRIMARY
+//  receiver instead of a forward target, restore the CallStatus
+//  filter by reverting to `if (!status) return skip('not-missed')`.
 // ═══════════════════════════════════════════════════════════════════
 
 import { onRequest } from 'firebase-functions/v2/https';
@@ -119,11 +130,12 @@ function _decide(
   if (form.Direction !== 'inbound') {
     return { action: 'skip', reason: 'not-inbound' };
   }
-  // Guard 2: missed-call statuses only
-  const status = _mapCallStatus(form.DialCallStatus || form.CallStatus);
-  if (!status) {
-    return { action: 'skip', reason: 'not-missed' };
-  }
+  // Architecture: Twilio number only receives carrier-forwarded missed calls
+  // (per operator T-Mobile conditional-forwarding config). Status field is
+  // captured as metadata only — no longer gates the enqueue. The Direction
+  // filter above (inbound only) + the 24h dedup + valid-phone check are the
+  // real safety gates.
+  const status = _mapCallStatus(form.DialCallStatus || form.CallStatus) ?? 'no-answer';
   // Guard 3: valid phone
   if (!_isValidE164(form.From)) {
     return { action: 'skip', reason: 'invalid-phone' };
