@@ -187,7 +187,12 @@ async function _processOne(
 }
 
 export const drainOutboundSms = onSchedule(
-  { schedule: 'every 1 minutes', timeoutSeconds: 540, memory: '512MiB' },
+  {
+    schedule: 'every 1 minutes',
+    timeoutSeconds: 540,
+    memory: '512MiB',
+    secrets: ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_PHONE_NUMBER'],
+  },
   async () => {
     const db = admin.firestore();
     const now = Timestamp.now();

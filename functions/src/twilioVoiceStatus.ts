@@ -184,7 +184,10 @@ function _decide(
 // ─── Wrapper ───────────────────────────────────────────────────────
 
 export const twilioVoiceStatus = onRequest(
-  { cors: false },
+  {
+    cors: false,
+    secrets: ['TWILIO_AUTH_TOKEN'],
+  },
   async (req, res) => {
     if (req.method !== 'POST') {
       res.status(405).send('method not allowed');
