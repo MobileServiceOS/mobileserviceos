@@ -38,6 +38,7 @@ import { assertValidTwilioSignature } from './lib/twilioSignatureValidator';
 import {
   OPERATIONAL_SETTINGS_COLLECTION,
   brandSettingsDocPath,
+  BRAND_CANONICAL_FIELDS,
 } from './lib/operationalSettings';
 void admin;
 
@@ -274,6 +275,11 @@ export const twilioVoiceStatus = onRequest(
       const brandSnap = await db.doc(brandSettingsDocPath(businessId)).get();
       const brandData = (brandSnap.exists ? brandSnap.data() ?? {} : {}) as Record<string, unknown>;
       const opsData   = opsDoc.data() as Record<string, unknown>;
+      // Strip Brand-canonical fields from ops so Brand always wins on them
+      // (e.g. businessName — operator's BrandContext is the source of truth).
+      for (const field of BRAND_CANONICAL_FIELDS) {
+        delete opsData[field];
+      }
       const settings: SettingsLite = { ...brandData, ...opsData } as SettingsLite;
 
       // 3. Look up existing customer by phone

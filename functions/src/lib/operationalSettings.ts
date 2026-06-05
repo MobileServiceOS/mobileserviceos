@@ -43,6 +43,12 @@ export const OPERATIONAL_SETTINGS_DOC_ID     = 'main' as const;
 export const BRAND_SETTINGS_COLLECTION       = 'settings' as const;
 export const BRAND_SETTINGS_DOC_ID           = 'main' as const;
 
+// Brand-canonical fields. These live on the Brand doc (settings/main)
+// as the source of truth. Operational doc copies of these are stale and
+// must be stripped before merging — see readBrandAndOperationalSettings
+// below and the inline merge in twilioVoiceStatus.ts.
+export const BRAND_CANONICAL_FIELDS = ['businessName'] as const;
+
 export function operationalSettingsDocPath(businessId: string): string {
   return `businesses/${businessId}/${OPERATIONAL_SETTINGS_COLLECTION}/${OPERATIONAL_SETTINGS_DOC_ID}`;
 }
@@ -104,6 +110,15 @@ export async function readBrandAndOperationalSettings<T extends object = Record<
   // for SP4A/SP4B operational data. Brand fields (businessName,
   // serviceArea-as-Brand-default, etc.) fill in where operational is
   // absent.
+  //
+  // Exception: BRAND_CANONICAL_FIELDS. These fields live on the Brand
+  // doc as the source of truth. The operational doc historically captured
+  // stale copies (e.g. "My Business" leaking into operational/main on
+  // first-run before BrandContext was ready) — strip them from ops
+  // before merging so Brand always wins.
+  for (const field of BRAND_CANONICAL_FIELDS) {
+    delete (ops as Record<string, unknown>)[field];
+  }
   const merged = { ...brand, ...ops } as T;
   return {
     exists: brandSnap.exists && opsSnap.exists,
