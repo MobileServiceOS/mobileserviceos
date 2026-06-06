@@ -646,6 +646,35 @@ a { color: var(--brand-primary); text-decoration: none; }
 .chip:active { transform: scale(.96); }
 .chip.active { background: rgba(244,180,0,.14); border-color: var(--brand-primary); color: var(--brand-primary); font-weight: 700; }
 
+/* ── AddressAutofillInput GPS chip (Batch D) ───────────────
+   The "📍 Use my location" chip sits above the Street field so
+   roadside techs can skip typing entirely when they're on-site.
+   Width caps at 280px so it doesn't span the whole row on tablet
+   but still presents a comfortable 44px+ tap target on phone. */
+.addr-gps-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.addr-gps-chip {
+  width: 100%;
+  max-width: 280px;
+  justify-content: center;
+  font-weight: 700;
+}
+.addr-gps-chip[aria-busy="true"] {
+  opacity: .7;
+  pointer-events: none;
+  animation: addrGpsPulse 1.1s ease-in-out infinite;
+}
+.addr-gps-chip:disabled { opacity: .55; cursor: not-allowed; }
+.addr-gps-error {
+  /* Inline failure ribbon — quieter than the brand-yellow info-banner
+     default by overriding background/border/color to a neutral tone.
+     We still re-use .info-banner for the radius/padding/font baseline. */
+  background: rgba(239, 68, 68, .08);
+  border-color: rgba(239, 68, 68, .22);
+  color: #f87171;
+  max-width: 280px;
+}
+@keyframes addrGpsPulse { 0%, 100% { opacity: .7; } 50% { opacity: 1; } }
+
 /* ── Service picker (AddJob grouped mode) ──────────────────
    Mechanic accounts have 20+ services. A flat chip wall is a
    crowded scan. The grouped picker: search + a compact Popular
