@@ -2,11 +2,19 @@
 //  tests/incomingCallNotification.test.ts
 //  Run: npx tsx tests/incomingCallNotification.test.ts
 //
-//  Pure logic tests for the IncomingCallNotification badge thresholds
-//  and the should-show filter.
+//  Pure logic tests for the IncomingCallNotification component:
+//    - computeBadgeState (badge thresholds)
+//    - shouldShowLead (missed-call filter)
+//    - shouldShowIncomingCall (Phase 1 real-time filter)
+//    - computeBalanceDisplay (outstanding-balance pill)
 // ═══════════════════════════════════════════════════════════════════
 
-import { computeBadgeState, shouldShowLead } from '../src/components/IncomingCallNotification';
+import {
+  computeBadgeState,
+  shouldShowLead,
+  shouldShowIncomingCall,
+  computeBalanceDisplay,
+} from '../src/components/IncomingCallNotification';
 
 let passed = 0, failed = 0;
 function check(name: string, cond: boolean, detail?: string): void {
@@ -51,6 +59,69 @@ console.log('\n── shouldShowLead filters ──');
     !shouldShowLead(okLead, mountMs, mountMs));
   check('happy path: true',
     shouldShowLead(okLead, mountMs, mountMs + 1));
+}
+
+console.log('\n── shouldShowIncomingCall filters ──');
+{
+  const mountMs = 1_000_000;
+  const okCall = { id: 'CA_abc123', from: '+13055551234' };
+
+  check('null call: false',
+    !shouldShowIncomingCall(null, mountMs, mountMs + 1));
+  check('missing from: false',
+    !shouldShowIncomingCall({ id: 'CA_abc', from: '' }, mountMs, mountMs + 1));
+  check('test call: false (call-test- prefix)',
+    !shouldShowIncomingCall({ id: 'call-test-abc', from: '+13055551234' }, mountMs, mountMs + 1));
+  check('receivedAt == mountTime: false (boundary)',
+    !shouldShowIncomingCall(okCall, mountMs, mountMs));
+  check('receivedAt < mountTime: false (historical)',
+    !shouldShowIncomingCall(okCall, mountMs, mountMs - 1));
+  check('receivedAt > mountTime: true (happy path)',
+    shouldShowIncomingCall(okCall, mountMs, mountMs + 1));
+}
+
+console.log('\n── computeBalanceDisplay ──');
+{
+  // No balance and no open invoices → not shown.
+  const r1 = computeBalanceDisplay(null, 0);
+  check('null customer + 0 invoices: not shown',
+    r1.showBalance === false && r1.amount === 0 && r1.label === '');
+
+  const r2 = computeBalanceDisplay({ balance: 0 }, 0);
+  check('zero customer balance + 0 invoices: not shown',
+    r2.showBalance === false);
+
+  // Positive balance via customer field.
+  const r3 = computeBalanceDisplay({ balance: 125.5 }, 0);
+  check('positive customer balance: shown',
+    r3.showBalance === true && r3.amount === 125.5);
+  check('positive balance: label includes money format',
+    r3.label.includes('$126') || r3.label.includes('$125'));
+
+  // Positive balance via open invoices only.
+  const r4 = computeBalanceDisplay({ balance: 0 }, 90);
+  check('positive open invoices, zero customer balance: shown',
+    r4.showBalance === true && r4.amount === 90);
+
+  // Both signals — take the max, don't double-count.
+  const r5 = computeBalanceDisplay({ balance: 50 }, 200);
+  check('both signals: take max (no double-count)',
+    r5.showBalance === true && r5.amount === 200);
+
+  // Negative balance → not shown (credit, not debt).
+  const r6 = computeBalanceDisplay({ balance: -20 }, 0);
+  check('negative customer balance (credit): not shown',
+    r6.showBalance === false);
+
+  // Negative balance + positive open invoices → invoice signal wins.
+  const r7 = computeBalanceDisplay({ balance: -20 }, 75);
+  check('negative balance + positive invoices: shown with invoice amount',
+    r7.showBalance === true && r7.amount === 75);
+
+  // Undefined / missing field is treated as zero.
+  const r8 = computeBalanceDisplay({}, 0);
+  check('undefined balance field: not shown',
+    r8.showBalance === false);
 }
 
 console.log(`\n── ${passed} passed, ${failed} failed ──\n`);

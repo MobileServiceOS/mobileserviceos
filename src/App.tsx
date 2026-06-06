@@ -1803,9 +1803,39 @@ function AuthenticatedApp({ user }: { user: User }) {
       <ToastHost />
       {businessId && (
         <IncomingCallNotification
-          onOpenLead={() => { setTab('leads'); }}
           onOpenCustomer={(cid) => { setSelectedCustomerId(cid); setTab('customerProfile'); }}
-          onCreateCustomer={() => { setTab('add'); }}
+          // CustomerProfile is a single-page view (Service History is a
+          // section, not a tab). Open Customer + Open History resolve
+          // to the same route today — the latter scrolls/focuses into
+          // the history section once tab-aware navigation lands. The
+          // separation is preserved at the API boundary so a future
+          // CustomerProfile refactor can implement deep-link behavior
+          // without re-touching this callsite.
+          onOpenCustomerHistory={(cid) => { setSelectedCustomerId(cid); setTab('customerProfile'); }}
+          onCreateNewJob={(phoneE164) => {
+            // Pre-fill the AddJob phone field. CustomerLookupCard
+            // detects the populated phone on mount and auto-resolves
+            // the customer if one exists — same path Leads → Create
+            // Job uses.
+            setJobDraft({ ...EMPTY_JOB(), customerPhone: phoneE164 } as Job);
+            setTab('add');
+          }}
+          onCreateCustomer={(phoneE164) => {
+            // Same path as "no record on file" — Add Job is the
+            // customer-creation surface (saveJob upserts the Customer
+            // doc). Pre-fill phone so the operator types name first.
+            setJobDraft({ ...EMPTY_JOB(), customerPhone: phoneE164 } as Job);
+            setTab('add');
+          }}
+          onCreateLead={(_phoneE164) => {
+            // Leads list is the create-lead surface today. The
+            // missed-call lead-creation path (twilioVoiceStatus
+            // webhook) is operator-automated; manual lead capture
+            // routes through the Leads tab where the operator can
+            // pick an existing draft or create one. Future: deep-link
+            // a lead-create modal with phone pre-filled.
+            setTab('leads');
+          }}
         />
       )}
       {businessId && (

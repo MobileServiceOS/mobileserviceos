@@ -696,6 +696,32 @@ service cloud.firestore {
         allow delete: if false;
       }
 
+      // ─── incoming_calls — Phase 1 real-time screen-pop ──────────
+      // Spec: docs/superpowers/specs/2026-06-05-incoming-call-screenpop-design.md
+      //
+      // Twilio voice-URL webhook (twilioIncomingCall Cloud Function)
+      // writes docs here via the Admin SDK on every inbound ring
+      // (DORMANT until operator activates SimRing). The component
+      // subscribes to this collection and pops on doc arrival.
+      //
+      // Client access:
+      //   - READ: any member of the business so every connected
+      //           device pops on the ring.
+      //   - WRITE: blocked. Only the Cloud Function writes via Admin
+      //           SDK (which bypasses rules). Clients never enqueue
+      //           ringing calls directly.
+      //
+      // Distinct from the SP6 `incomingCalls` collection (camelCase)
+      // above, which governs the test-call admin write path. Phase 1
+      // intentionally uses snake_case `incoming_calls` to keep the
+      // two collections separate — different lifecycle (TTL ~60s here
+      // vs operator-managed there) and different sources (Twilio
+      // webhook here vs client admin write there).
+      match /incoming_calls/{callId} {
+        allow read:  if isMemberOfBusiness(businessId);
+        allow write: if false;
+      }
+
       // ─── reviewRequests — SP4A queue (admin SDK writes only) ─────
       // Cloud Functions enqueue + drain via admin SDK (bypasses rules).
       // Manual / test sends go through HTTPS callables, never client

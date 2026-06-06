@@ -101,6 +101,17 @@ export { drainOutboundSms }      from './drainOutboundSms';
 export { sendTestMissedCall }    from './sendTestMissedCall';
 export { sendManualOutboundSms } from './sendManualOutboundSms';
 
+// Phase 1 real-time caller-ID screen-pop. Ships DORMANT — only fires
+// when the operator points the Twilio Voice URL (Phone Numbers →
+// [Number] → Voice & Fax → "A Call Comes In" → Webhook) at this
+// endpoint AFTER configuring T-Mobile SimRing to ring Twilio in
+// parallel with their cell. See twilioIncomingCall.ts header for the
+// full activation path. No client/server work required to activate —
+// it's a Twilio Console + T-Mobile portal change.
+//
+// Spec: docs/superpowers/specs/2026-06-05-incoming-call-screenpop-design.md
+export { twilioIncomingCall }    from './twilioIncomingCall';
+
 // Supplementary Firestore triggers — defensive consistency layer.
 // Safe to deploy alongside onSubscriptionWrite; idempotent via the
 // _counterIncremented marker on referral docs.
