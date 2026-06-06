@@ -95,6 +95,9 @@ export interface Customer {
 /** Vehicle subdoc under a Customer. */
 export interface Vehicle {
   id: string;
+  /** Denormalized tenant id — gates the collection-group read rule and
+   *  scopes the searchCustomers collection-group queries. */
+  businessId?: string;
   // Universal core
   year?: number;
   make?: string;
@@ -278,6 +281,7 @@ function _buildCustomerPatch(
 }
 
 function _buildVehiclePatch(
+  businessId: string,
   existing: Record<string, unknown> | undefined,
   job: {
     id: string;
@@ -315,6 +319,12 @@ function _buildVehiclePatch(
     : (job.vehicleMakeModel ?? '').toLowerCase() || undefined;
 
   const patch: Record<string, unknown> = {
+    // Denormalized tenant id. Required by the firestore.rules
+    // collection-group read rule for `vehicles` and by the
+    // searchCustomers collection-group queries (both filter on
+    // businessId) so cross-tenant reads are impossible. See the
+    // 2026-06-05 security audit (cross-tenant vehicle leak).
+    businessId,
     ...(job.year !== undefined ? { year: job.year } : {}),
     ...(job.make ? { make: job.make } : {}),
     ...(job.model ? { model: job.model } : {}),
@@ -384,7 +394,7 @@ export async function upsertCustomerFromJob(
     const vExisting = vSnap.exists() ? (vSnap.data() as Record<string, unknown>) : undefined;
 
     const { patch: cPatch } = _buildCustomerPatch(cExisting, job, nowIso, actorUid);
-    const { patch: vPatch } = _buildVehiclePatch(vExisting, job, nowIso);
+    const { patch: vPatch } = _buildVehiclePatch(businessId, vExisting, job, nowIso);
 
     tx.set(customerRef, cPatch, { merge: true });
     tx.set(vehicleRef, vPatch, { merge: true });
@@ -414,7 +424,7 @@ export const __testHooks = {
     const cExisting = store.get(cPath);
     const vExisting = store.get(vPath);
     const { patch: cPatch } = _buildCustomerPatch(cExisting, job, nowIso, actorUid);
-    const { patch: vPatch } = _buildVehiclePatch(vExisting, job, nowIso);
+    const { patch: vPatch } = _buildVehiclePatch(businessId, vExisting, job, nowIso);
     store.set(cPath, { ...(cExisting ?? {}), ...cPatch });
     store.set(vPath, { ...(vExisting ?? {}), ...vPatch });
     return { customerId, vehicleId };

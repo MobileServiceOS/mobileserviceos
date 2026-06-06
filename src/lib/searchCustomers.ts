@@ -224,31 +224,40 @@ const _realOps: SearchOps = {
     ));
     return snap.docs.map(d => ({ id: d.id, ...d.data() }));
   },
-  queryByMakeModelPrefix: async (_bid, lo, hi) => {
+  // Collection-group vehicle queries MUST constrain businessId — the
+  // `vehicles` subcollection spans all tenants, and the firestore.rules
+  // read rule now requires resource.data.businessId membership. Without
+  // the filter these would read (and leak) other tenants' vehicles.
+  // See 2026-06-05 security audit (cross-tenant vehicle leak).
+  queryByMakeModelPrefix: async (bid, lo, hi) => {
     const snap = await getDocs(query(
       collectionGroup(_db as Firestore, 'vehicles'),
+      where('businessId', '==', bid),
       where('makeModelLower', '>=', lo), where('makeModelLower', '<', hi),
       orderBy('makeModelLower'), limit(20),
     ));
     return snap.docs.map(d => ({ id: d.id, customerId: d.ref.parent.parent!.id, ...d.data() }));
   },
-  queryByLicensePlate: async (_bid, plate) => {
+  queryByLicensePlate: async (bid, plate) => {
     const snap = await getDocs(query(
       collectionGroup(_db as Firestore, 'vehicles'),
+      where('businessId', '==', bid),
       where('licensePlate', '==', plate), limit(20),
     ));
     return snap.docs.map(d => ({ id: d.id, customerId: d.ref.parent.parent!.id, ...d.data() }));
   },
-  queryByTireSize: async (_bid, size) => {
+  queryByTireSize: async (bid, size) => {
     const snap = await getDocs(query(
       collectionGroup(_db as Firestore, 'vehicles'),
+      where('businessId', '==', bid),
       where('tire.size', '==', size), limit(20),
     ));
     return snap.docs.map(d => ({ id: d.id, customerId: d.ref.parent.parent!.id, ...d.data() }));
   },
-  queryByTireSizeLegacy: async (_bid, size) => {
+  queryByTireSizeLegacy: async (bid, size) => {
     const snap = await getDocs(query(
       collectionGroup(_db as Firestore, 'vehicles'),
+      where('businessId', '==', bid),
       where('tireSize', '==', size), limit(20),
     ));
     return snap.docs.map(d => ({ id: d.id, customerId: d.ref.parent.parent!.id, ...d.data() }));

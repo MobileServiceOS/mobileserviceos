@@ -656,10 +656,16 @@ service cloud.firestore {
         // resource.data is null (the create case).
         match /vehicles/{vehicleId} {
           allow read: if isMemberOfBusiness(businessId);
+          // `businessId` is the denormalized tenant id (2026-06-05
+          // cross-tenant-leak fix). It must equal the path tenant so it
+          // can't be spoofed to another business (which would expose the
+          // doc to that tenant via the collection-group read rule).
           allow create: if isMemberOfBusiness(businessId)
                        && memberRole(businessId) in ['owner','admin','technician']
+                       && request.resource.data.businessId == businessId
                        && request.resource.data.keys()
-                          .hasOnly(['year','make','model','trim','color',
+                          .hasOnly(['businessId',
+                                   'year','make','model','trim','color',
                                    'makeModelLower','vehicleMakeModel','vehicleType','vehicleSize',
                                    'tireSize','alternateTireSize','tireBrand','tireCondition',
                                    'tpmsNotes','wheelLockNotes','serviceNotes',
@@ -667,8 +673,10 @@ service cloud.firestore {
                                    'createdAt','updatedAt','processedJobIds']);
           allow update: if isMemberOfBusiness(businessId)
                        && memberRole(businessId) in ['owner','admin','technician']
+                       && request.resource.data.businessId == businessId
                        && request.resource.data.diff(resource.data).affectedKeys()
-                          .hasOnly(['year','make','model','trim','color',
+                          .hasOnly(['businessId',
+                                   'year','make','model','trim','color',
                                    'makeModelLower','vehicleMakeModel','vehicleType','vehicleSize',
                                    'tireSize','alternateTireSize','tireBrand','tireCondition',
                                    'tpmsNotes','wheelLockNotes','serviceNotes',
@@ -900,13 +908,14 @@ service cloud.firestore {
 
     // SP3: collection-group vehicles read — GlobalSearchSheet uses
     // collectionGroup(db, 'vehicles') for the makeModelLower / plate
-    // / tireSize prefix branches. Authenticated members of any
-    // business can read; per-business scoping is enforced by the
-    // searchCustomers helper which filters results client-side and
-    // the parent customer/{cid} doc read rule (above) which enforces
-    // membership when the customer doc is fetched.
+    // / tireSize prefix branches. Scoping is enforced server-side here:
+    // the requester must be a member of the vehicle's own business
+    // (denormalized onto the doc as `businessId` by _buildVehiclePatch).
+    // The searchCustomers queries always constrain `where('businessId','==',bid)`
+    // to match. (2026-06-05 security audit: previously `request.auth != null`
+    // alone, which let any signed-in user read every tenant's vehicles.)
     match /{path=**}/vehicles/{vehicleId} {
-      allow read: if request.auth != null;
+      allow read: if isMemberOfBusiness(resource.data.businessId);
     }
 
     // Default deny

@@ -237,6 +237,12 @@ async function _runWalker(args: {
       const vid = `vehicle-${customerId}`;
       if (!dryRun) {
         const vehiclePatch: Record<string, unknown> = {
+          // Denormalized tenant id — required by the firestore.rules
+          // collection-group read rule and the searchCustomers
+          // collection-group queries (both filter on businessId).
+          // Re-running this backfill repairs pre-existing vehicle docs
+          // that predate the 2026-06-05 cross-tenant-leak fix.
+          businessId,
           vehicleMakeModel: firstVehicleSpec.vehicleMakeModel,
           vehicleType: firstVehicleSpec.vehicleType,
           tireSize: firstVehicleSpec.tireSize,
