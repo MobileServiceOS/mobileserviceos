@@ -14,8 +14,11 @@
 //  metrics are computed live on CustomerProfile from the same 100-job
 //  window.
 //
-//  30s in-process coalescing per customerId. Short-circuits when
-//  job.metadata.backfillRun is present (backfill writes rollups itself).
+//  Runs synchronously (awaited) — Cloud Functions v2 freezes the
+//  instance after return, so deferred work is unreliable. Refreshes
+//  both the new and prior customer on delete / reassignment.
+//  Short-circuits when job.metadata.backfillRun is present (backfill
+//  writes rollups itself).
 // ═══════════════════════════════════════════════════════════════════
 
 import { onDocumentWritten } from 'firebase-functions/v2/firestore';
@@ -68,10 +71,6 @@ function _computeRollup(jobs: JobLite[]): RollupPatch {
   };
 }
 
-// ─── 30s in-process coalescing ─────────────────────────────────────
-const COALESCE_MS = 30_000;
-const pending = new Map<string, NodeJS.Timeout>();
-
 async function _runRollup(businessId: string, customerId: string): Promise<void> {
   const db = admin.firestore();
   const snap = await db.collection(`businesses/${businessId}/jobs`)
@@ -88,21 +87,34 @@ export const onJobWriteCustomerRollup = onDocumentWritten(
   async (event) => {
     const after = event.data?.after?.data() as JobLite | undefined;
     const before = event.data?.before?.data() as JobLite | undefined;
-    const job = after ?? before;
-    if (_shouldSkip(after)) return;
-    const customerId = (job as unknown as { customerId?: string })?.customerId;
-    if (!customerId) return;
+
+    // Skip only backfill-originated writes — backfill writes rollups
+    // itself. A delete has no `after`, so it is never a backfill write
+    // and must still refresh the (now smaller) rollup.
+    if (after && _shouldSkip(after)) return;
+
     const businessId = event.params.businessId;
-    const key = `${businessId}:${customerId}`;
-    const existing = pending.get(key);
-    if (existing) clearTimeout(existing);
-    const timer = setTimeout(() => {
-      pending.delete(key);
-      _runRollup(businessId, customerId).catch((err) => {
-        console.error('[onJobWriteCustomerRollup] failed', { businessId, customerId, err });
-      });
-    }, COALESCE_MS);
-    pending.set(key, timer);
+
+    // Refresh every customer whose job set changed: the current owner
+    // (create/update) and, on delete or a customer reassignment, the
+    // prior owner too.
+    const customerIds = new Set<string>();
+    if (after?.customerId) customerIds.add(after.customerId);
+    if (before?.customerId) customerIds.add(before.customerId);
+    if (customerIds.size === 0) return;
+
+    // Run synchronously and AWAIT. Cloud Functions v2 freezes the
+    // instance CPU after the handler returns, so the previous post-return
+    // setTimeout coalescer frequently never fired and rollups
+    // (jobCount / averageTicket / vipTier / lastJobAt) silently went
+    // stale — including never shrinking on delete (2026-06-05 audit).
+    await Promise.all(
+      Array.from(customerIds).map((customerId) =>
+        _runRollup(businessId, customerId).catch((err) => {
+          console.error('[onJobWriteCustomerRollup] failed', { businessId, customerId, err });
+        }),
+      ),
+    );
   },
 );
 

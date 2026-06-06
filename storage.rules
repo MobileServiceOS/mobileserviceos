@@ -54,8 +54,14 @@ service firebase.storage {
     }
 
     // Any other business-scoped path — same access model, same size cap.
+    // The size cap is required (2026-06-05 audit): without it any member
+    // (incl. a technician) could upload unbounded / arbitrary-type files
+    // here, enabling storage-cost abuse and hosting arbitrary content on
+    // a project-domain URL. `request.resource == null` permits deletes.
     match /businesses/{businessId}/{path=**} {
-      allow read, write: if canAccessBusiness(businessId);
+      allow read: if canAccessBusiness(businessId);
+      allow write: if canAccessBusiness(businessId)
+                      && (request.resource == null || request.resource.size < 8 * 1024 * 1024);
     }
 
     // Default deny everything else.

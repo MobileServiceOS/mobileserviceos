@@ -118,9 +118,8 @@
       "collectionGroup": "jobs",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "customerId", "order": "ASCENDING" },
-        { "fieldPath": "status",     "order": "ASCENDING" },
-        { "fieldPath": "date",       "order": "DESCENDING" }
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "date",   "order": "DESCENDING" }
       ]
     },
     {

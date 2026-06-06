@@ -56,7 +56,7 @@ import {
 } from 'firebase/firestore';
 import { _db } from '@/lib/firebase';
 import { formatPhoneForDisplay } from '@/lib/phone';
-import { money } from '@/lib/utils';
+import { money, resolvePaymentStatus } from '@/lib/utils';
 import { useBrand } from '@/context/BrandContext';
 import { useFocusTrap } from '@/lib/useFocusTrap';
 import type { Customer, Vehicle } from '@/lib/customerEntity';
@@ -194,10 +194,21 @@ function sumRevenue(jobs: Job[]): number {
   return jobs.reduce((acc, j) => acc + (Number(j.revenue ?? 0) || 0), 0);
 }
 
-/** Sum of unpaid completed jobs' revenue (Pending/Partial counts). */
+/**
+ * Sum of unpaid jobs' revenue (outstanding balance). Uses
+ * resolvePaymentStatus so Pending-status jobs (the most common unpaid
+ * case — paymentStatus may be unset) are counted, and Cancelled jobs are
+ * excluded. (2026-06-05 audit: the old check only matched the
+ * paymentStatus field, missing Pending-status unpaid jobs entirely.)
+ *
+ * Note: "Partial Payment" jobs contribute their FULL revenue — the app
+ * stores no captured partial amount, so the full ticket is the only
+ * available proxy for what's still owed.
+ */
 function sumOpenInvoices(jobs: Job[]): number {
   return jobs.reduce((acc, j) => {
-    if (j.paymentStatus === 'Pending Payment' || j.paymentStatus === 'Partial Payment') {
+    const ps = resolvePaymentStatus(j);
+    if (ps === 'Pending Payment' || ps === 'Partial Payment') {
       return acc + (Number(j.revenue ?? 0) || 0);
     }
     return acc;
@@ -239,7 +250,7 @@ function IncomingCallNotificationImpl({
   const [expanded, setExpanded] = useState(false);
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
-  const [completedJobs, setCompletedJobs] = useState<Job[]>([]);
+  const [recentJobs, setRecentJobs] = useState<Job[]>([]);
   const [dismissedSourceId, setDismissedSourceId] = useState<string | null>(null);
   // Per-session dedup — once a phone has popped via EITHER source it
   // won't re-pop via the OTHER source for this page session. Stable
@@ -326,23 +337,26 @@ function IncomingCallNotificationImpl({
     return () => unsub();
   }, [businessId, activeSource]);
 
-  // Resolve completed jobs (drives last-service, lifetime-spend, count,
-  // outstanding-balance via paymentStatus filter)
+  // Resolve recent jobs for this customer (drives last-service,
+  // lifetime-spend, completed-count, and outstanding-balance). Fetches
+  // ALL statuses by date so outstanding balance can include unpaid
+  // Pending-status jobs — completed-only metrics are derived below.
+  // (2026-06-05 audit: the prior status=='Completed' filter excluded
+  // Pending unpaid jobs from the outstanding total.)
   useEffect(() => {
-    if (!businessId || !activeSource) { setCompletedJobs([]); return; }
+    if (!businessId || !activeSource) { setRecentJobs([]); return; }
     const cid = sourceCustomerId(activeSource);
-    if (!cid) { setCompletedJobs([]); return; }
+    if (!cid) { setRecentJobs([]); return; }
     const q = query(
       collection(_db as Firestore, 'businesses', businessId, 'jobs'),
       where('customerId', '==', cid),
-      where('status', '==', 'Completed'),
       orderBy('date', 'desc'),
       limit(100),
     );
     const unsub = onSnapshot(q, (snap) => {
       const next: Job[] = [];
       snap.forEach(d => next.push({ id: d.id, ...d.data() } as unknown as Job));
-      setCompletedJobs(next);
+      setRecentJobs(next);
     });
     return () => unsub();
   }, [businessId, activeSource]);
@@ -386,7 +400,7 @@ function IncomingCallNotificationImpl({
       setDismissedSourceId(null);
       setCustomer(null);
       setVehicle(null);
-      setCompletedJobs([]);
+      setRecentJobs([]);
     }, 250);
     return () => clearTimeout(t);
   }, [activeSource, dismissedSourceId]);
@@ -395,10 +409,14 @@ function IncomingCallNotificationImpl({
   const trapRef = useFocusTrap<HTMLDivElement>(isVisible && expanded);
 
   // ── Derived display state ─────────────────────────────────────
+  // Completed-only metrics (badges, last service, lifetime spend, count)
+  // derive from the completed subset; outstanding balance spans all
+  // statuses so unpaid Pending jobs are included.
+  const completedJobs = useMemo(() => recentJobs.filter(j => j.status === 'Completed'), [recentJobs]);
   const { isRepeat, isVIP } = computeBadgeState(completedJobs.length);
   const lastJob = completedJobs[0] ?? null;
   const lifetimeSpend = useMemo(() => sumRevenue(completedJobs), [completedJobs]);
-  const openInvoiceTotal = useMemo(() => sumOpenInvoices(completedJobs), [completedJobs]);
+  const openInvoiceTotal = useMemo(() => sumOpenInvoices(recentJobs), [recentJobs]);
   const balance = useMemo(
     () => computeBalanceDisplay(customer as { balance?: number } | null, openInvoiceTotal),
     [customer, openInvoiceTotal],
