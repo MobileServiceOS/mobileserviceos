@@ -368,20 +368,26 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
 
   // Mirror purchase price → tireCost when bought-for-this-job.
   //
+  // tireCost is stored/consumed as the TOTAL tire cost (qty baked in;
+  // see flat.ts computeFlatPrice + App.tsx saveJob). "Purchase price ($)"
+  // is PER-UNIT, so the mirror is purchasePrice × qty — keeping the live
+  // breakdown consistent with the saved value. (2026-06-05 audit.)
+  //
   // Batch E (2026-06-05): job.tireCost is omitted from deps for the
   // same loop-prevention reason as the customer-supplied effect
   // above — body reads it only to gate the write. `set` is omitted
   // because the setter is functionally stable (closes over setJob
-  // with the (prev) => updater shape). Re-firing only on the two
-  // INPUTS that decide the mirror — the source picker and the
-  // purchase-price field — is correct.
+  // with the (prev) => updater shape). job.qty IS a dep so changing
+  // quantity after the price re-scales the mirrored total.
   useEffect(() => {
     if (tireSource === 'Bought for this job') {
       const pp = Number(job.tirePurchasePrice || 0);
-      if (pp && Number(job.tireCost || 0) !== pp) set('tireCost', pp);
+      const qty = Math.max(1, Math.floor(Number(job.qty) || 1));
+      const total = pp * qty;
+      if (pp && Number(job.tireCost || 0) !== total) set('tireCost', total);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [job.tirePurchasePrice, tireSource]);
+  }, [job.tirePurchasePrice, job.qty, tireSource]);
 
   // Default state to brand state on new jobs.
   //

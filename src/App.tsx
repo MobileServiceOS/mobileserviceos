@@ -1007,7 +1007,16 @@ function AuthenticatedApp({ user }: { user: User }) {
         log('inv-writes-acked');
         if (plan.shortfall > 0) addToast(`Logged with shortfall of ${plan.shortfall} tire(s)`, 'warn');
       } else if (j.tireSource === 'Bought for this job') {
-        computedTireCost = Number(j.tirePurchasePrice || j.tireCost || 0);
+        // Store the TOTAL tire cost (qty baked in), matching the
+        // inventory branch above and the TOTAL convention consumed by
+        // computeFlatPrice / jobCOGS / weekSummary. tirePurchasePrice is
+        // PER-UNIT (the "Purchase price ($)" field), so scale by qty.
+        // (2026-06-05 audit: previously stored per-unit, which made
+        // jobCOGS/payouts undercount multi-tire "bought" jobs.)
+        const tireQty = Math.max(1, Math.floor(Number(j.qty) || 1));
+        computedTireCost = Number(j.tirePurchasePrice)
+          ? r2(Number(j.tirePurchasePrice) * tireQty)
+          : Number(j.tireCost || 0);
       } else if (j.tireSource === 'Customer supplied') {
         computedTireCost = 0;
       }

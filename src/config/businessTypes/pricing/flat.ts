@@ -73,17 +73,24 @@ export function computeFlatPrice(
   s: Settings,
 ): FlatBreakdown {
   const revenue = Number(j.revenue || 0);
-  const tireCostPerUnit = Number(j.tireCost || 0);
+  // tireCost on a Job is the TOTAL tire cost for all units (qty already
+  // baked in) — that is how it is persisted: inventory jobs store the FIFO
+  // plan total (App.tsx) and "bought" jobs store tirePurchasePrice × qty.
+  // So computeFlatPrice MUST NOT re-multiply by qty here. This differs
+  // deliberately from calcFlatQuote (flat.ts:50), which takes a live
+  // QuoteForm whose tireCost is the user's PER-UNIT input and therefore
+  // does scale by qty. (2026-06-05 audit: Batch A had made this multiply,
+  // which double-counted every inventory job — the dominant, total-stored
+  // path — while only "fixing" the per-unit "bought" path. Aligning on
+  // TOTAL keeps both engines and the rollups in jobCOGS/weekSummary
+  // consistent without a historical data migration.)
+  const tireCostTotal = r2(Number(j.tireCost || 0));
   const materialCost = Number(j.materialCost || j.miscCost || 0);
   const miles = Number(j.miles || 0);
   const freeMiles = Number(s.freeMilesIncluded || 0);
   const chargeable = Math.max(0, miles - freeMiles);
   const travelCost = r2(chargeable * Number(s.costPerMile || 0.65));
   const qty = Math.max(1, Math.floor(Number(j.qty) || 1));
-  // tireCost stored on the job is PER-UNIT. Direct cost must scale by qty
-  // to match calcFlatQuote (flat.ts:50) — the suggested-price engine.
-  // Pre-fix, multi-tire profit was overstated by tireCostPerUnit * (qty - 1).
-  const tireCostTotal = r2(tireCostPerUnit * qty);
   const directCost = r2(tireCostTotal + materialCost + travelCost);
   const profit = r2(revenue - directCost);
   return {

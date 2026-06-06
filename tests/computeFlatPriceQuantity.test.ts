@@ -1,13 +1,21 @@
 // tests/computeFlatPriceQuantity.test.ts
 // Run: npx tsx tests/computeFlatPriceQuantity.test.ts
 //
-// Pin tireCost × qty inside computeFlatPrice. Pre-fix (flat.ts:82) the
-// direct cost summed `tireCost + materialCost + travelCost` where
-// tireCost was the PER-UNIT value from the job — so multi-tire profit
-// was overstated by tireCost × (qty - 1). Production example: a 4-tire
-// $80 job reported $640 profit on a $1000 invoice; correct value is
-// $400. Bug propagated to Quick Pricing breakdown, AddJob footer, and
-// the suggested-price cross-check.
+// Pins the tireCost convention inside computeFlatPrice: tireCost on a
+// SAVED Job is the TOTAL tire cost (qty already baked in), so
+// computeFlatPrice MUST NOT multiply by qty.
+//
+// History (2026-06-05 audit): Batch A had made computeFlatPrice multiply
+// tireCost × qty, on the assumption tireCost was per-unit. But the
+// dominant path — inventory jobs — persists the FIFO plan TOTAL
+// (App.tsx), and the rollups (jobCOGS / weekSummary) consume tireCost as
+// a total. So the multiply double-counted every inventory job while the
+// rollups under-counted "bought" jobs (stored per-unit). The fix aligns
+// everything on TOTAL: saveJob now stores "bought" as tirePurchasePrice ×
+// qty, the AddJob mirror sets the total, and computeFlatPrice reads it
+// straight. calcFlatQuote (the live suggested-price estimator) is the one
+// place that stays per-unit — it takes a QuoteForm whose tireCost is the
+// user's per-tire input.
 
 import { computeFlatPrice } from '@/config/businessTypes/pricing/flat';
 import type { Job, Settings } from '@/types';
@@ -48,23 +56,31 @@ function check(name: string, cond: boolean, detail?: string): void {
   else      { failed++; console.error(`  ✗ ${name}${detail ? `  — ${detail}` : ''}`); }
 }
 
-console.log('\n── REGRESSION: tireCost is per-unit, not total ──');
+console.log('\n── tireCost is the TOTAL — computeFlatPrice does NOT multiply by qty ──');
 {
+  // Stored total for a 4-tire job: 4 × $80 = $320.
+  const j = mkJob({ revenue: 1000, tireCost: 320, qty: 4, miles: 0 });
+  const r = computeFlatPrice(j, settings);
+  check('total $320 → directCost = $320', r.directCost === 320, `got ${r.directCost}`);
+  check('total $320 → profit = $680',     r.profit === 680,     `got ${r.profit}`);
+}
+
+console.log('\n── qty does NOT scale tireCost (regression guard) ──');
+{
+  // tireCost is already total; qty>1 must not re-multiply it.
   const j = mkJob({ revenue: 1000, tireCost: 80, qty: 4, miles: 0 });
   const r = computeFlatPrice(j, settings);
-  // Correct: 4 tires × $80 = $320 direct → $1000 - $320 = $680 profit
-  check('4×$80 directCost = $320', r.directCost === 320, `got ${r.directCost}`);
-  check('4×$80 profit = $680',    r.profit === 680,     `got ${r.profit}`);
-  // Pre-fix bug would have reported directCost=80, profit=920.
-  check('NOT pre-fix overstated profit ($920)', r.profit !== 920);
+  check('tireCost=80,qty=4 → directCost = $80 (NOT $320)', r.directCost === 80, `got ${r.directCost}`);
+  check('tireCost=80,qty=4 → profit = $920',               r.profit === 920,   `got ${r.profit}`);
+  check('quantity still reported as 4',                    r.quantity === 4,   `got ${r.quantity}`);
 }
 
 console.log('\n── qty=1 path unchanged ──');
 {
   const j = mkJob({ revenue: 200, tireCost: 80, qty: 1, miles: 0 });
   const r = computeFlatPrice(j, settings);
-  check('1×$80 directCost = $80', r.directCost === 80);
-  check('1×$80 profit = $120',    r.profit === 120);
+  check('directCost = $80', r.directCost === 80);
+  check('profit = $120',    r.profit === 120);
 }
 
 console.log('\n── qty defaults to 1 when missing/zero ──');
@@ -77,10 +93,9 @@ console.log('\n── qty defaults to 1 when missing/zero ──');
 
 console.log('\n── materialCost + travelCost still added ──');
 {
-  const j = mkJob({ revenue: 500, tireCost: 50, qty: 2, materialCost: 25, miles: 10 });
+  // tires total $100; material $25; travel 10mi × 0.65 = 6.50
+  const j = mkJob({ revenue: 500, tireCost: 100, qty: 2, materialCost: 25, miles: 10 });
   const r = computeFlatPrice(j, settings);
-  // tires: 2 × 50 = 100; material: 25; travel: 10 mi × 0.65 = 6.50
-  // direct: 100 + 25 + 6.50 = 131.50; profit: 500 - 131.50 = 368.50
   check('direct = 131.50', r.directCost === 131.5, `got ${r.directCost}`);
   check('profit = 368.50',  r.profit === 368.5,    `got ${r.profit}`);
 }
@@ -95,11 +110,11 @@ console.log('\n── travel: freeMiles applied before charge ──');
   check('profit = $93', r.profit === 93,   `got ${r.profit}`);
 }
 
-console.log('\n── breakdown.tireCost reflects total, not per-unit ──');
+console.log('\n── breakdown.tireCost echoes the stored total ──');
 {
-  const j = mkJob({ revenue: 1000, tireCost: 80, qty: 4 });
+  const j = mkJob({ revenue: 1000, tireCost: 320, qty: 4 });
   const r = computeFlatPrice(j, settings);
-  check('breakdown.tireCost = $320 (total, displayed)', r.tireCost === 320, `got ${r.tireCost}`);
+  check('breakdown.tireCost = $320', r.tireCost === 320, `got ${r.tireCost}`);
 }
 
 console.log(`\n── DONE: ${passed} passed, ${failed} failed ──`);
