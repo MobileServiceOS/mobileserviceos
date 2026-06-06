@@ -25,6 +25,7 @@ import { CustomerLookupCard, type UseCustomerPatch } from '@/components/addJob/C
 import { AddressAutofillInput, type AddressValue } from '@/components/addJob/AddressAutofillInput';
 import { useMembership } from '@/context/MembershipContext';
 import { useBusinessMembers } from '@/lib/useBusinessMembers';
+import { validateAddJob } from '@/lib/addJobValidation';
 
 // ─── DynamicJobField: shared renderer for vertical.jobFields ──────────
 // Renders a single Job field declared by a vertical config. Mechanic
@@ -150,6 +151,29 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
   // job. Cleared in the finally block of the click handler.
   const [savingMode, setSavingMode] = useState<null | 'save' | 'saveAndNew'>(null);
   const isSaving = savingMode !== null;
+
+  // Batch C (2026-06-05): collapsible UI state.
+  // - statusExpanded: Lead & Payment's Job Status + Payment Status
+  //   chip-grids collapse to a single "Status: X · Y · tap to edit"
+  //   row when this is false. Expansion is per-session — once the
+  //   operator opens the editors, they stay open until the next form
+  //   mount (a save/cancel resets the draft and re-mounts).
+  // - notesExpanded: the Notes textarea collapses behind a "+ Add
+  //   notes" button by default. When editing a job that already has
+  //   notes, we initialize to expanded so the operator doesn't have
+  //   to tap through to see content they're already authoring.
+  const [statusExpanded, setStatusExpanded] = useState(false);
+  const [notesExpanded, setNotesExpanded] = useState(() => Boolean(job.note && String(job.note).trim()));
+
+  // Batch C (2026-06-05): negative-profit confirm modal.
+  // When canViewProfit is true (owner/admin) AND breakdown.profit
+  // is negative at save time, intercept the save and surface a
+  // confirm modal. The pending-mode (save vs saveAndNew) is stashed
+  // so the "Save anyway" branch resumes the correct path.
+  // Technicians (canViewProfit false) never see this modal —
+  // they don't see the breakdown panel either, so the check is
+  // gated on the same permission.
+  const [negProfitMode, setNegProfitMode] = useState<null | 'save' | 'saveAndNew'>(null);
   // Revenue lock: when the actor does NOT have canOverrideJobPrice
   // (technician with allowTechnicianPriceOverride === false), the
   // suggested price is used as-is and the input is read-only.
@@ -353,6 +377,17 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
   // consumes plus the tire-specific inputs that flow into the
   // tire pricing path. Adding a new pricing-relevant Job field
   // requires extending this list.
+  // Batch C (2026-06-05): narrowed settings deps from the full
+  // `settings` object to the four fields the pricing engines actually
+  // read (servicePricing, vehiclePricing, freeMilesIncluded,
+  // costPerMile). Prior shape recomputed on every settings mutation —
+  // including unrelated changes like missedCallTemplate or
+  // reviewSmsTemplate edited from another tab — which jittered the
+  // breakdown panel for no visible reason. Engines verified via
+  // src/config/businessTypes/pricing/{flat,laborParts,packageMult}.ts;
+  // none read taxRate, so it stays out. resolveVertical reads
+  // settings.businessType but that field cannot change without a full
+  // page remount (BrandContext re-bootstrap), so it's safe to omit.
   const breakdown = useMemo(
     () => computeBreakdownTagged(job, settings),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -363,7 +398,8 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
       job.laborHours, job.partsCost, job.diagnosticFee, job.vehicleSize,
       job.revenue,
       job.tireSize, job.tireSource, job.tirePurchasePrice, job.tireCondition,
-      settings,
+      settings.servicePricing, settings.vehiclePricing,
+      settings.freeMilesIncluded, settings.costPerMile,
     ],
   );
 
@@ -378,6 +414,60 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
     const t = normalizeTireSize(job.tireSize);
     return inventory.filter((i) => normalizeTireSize(i.size) === t).reduce((s, i) => s + Number(i.qty || 0), 0);
   }, [inventory, job.tireSize]);
+
+  // Batch C (2026-06-05): required-field gating. Pure validator lives
+  // in src/lib/addJobValidation.ts and is pinned by
+  // tests/addJobValidation.test.ts. Memoized on the three fields the
+  // validator reads so unrelated keystrokes (customerName, note,
+  // city, etc.) don't churn this object. The validator's `missing`
+  // list drives the inline hint above the footer; canSave drives the
+  // Save Job button's disabled state.
+  const validation = useMemo(
+    () => validateAddJob({
+      customerPhone: job.customerPhone,
+      service: job.service,
+      revenue: job.revenue,
+    }),
+    [job.customerPhone, job.service, job.revenue],
+  );
+
+  // Batch C (2026-06-05): unified save-attempt path.
+  // Both Save Job and + Another route through this so a) the
+  // negative-profit confirm modal intercepts both, b) the in-flight
+  // savingMode flag stays in lockstep with the actual save being
+  // performed, and c) Save Job's disabled gate (validation.canSave)
+  // applies before any of the modal/save plumbing fires.
+  //
+  // The neg-profit gate is only armed when canViewProfit is true —
+  // technicians don't see profit numbers anywhere on this form, so
+  // they don't see the modal either. They still save the job, the
+  // owner just won't be warned at the technician's tap.
+  const runSave = useCallback(async (mode: 'save' | 'saveAndNew') => {
+    if (isSaving) return;
+    setSavingMode(mode);
+    try {
+      if (mode === 'save') await onSave();
+      else await onSaveAndNew();
+    } finally {
+      setSavingMode(null);
+    }
+  }, [isSaving, onSave, onSaveAndNew]);
+
+  const attemptSave = useCallback((mode: 'save' | 'saveAndNew') => {
+    if (isSaving) return;
+    // Save Job (mode === 'save') is the primary CTA — block it unless
+    // the required-field validation passes. + Another stays
+    // permissive per spec: operators routinely swap drafts before all
+    // required fields are filled.
+    if (mode === 'save' && !validation.canSave) return;
+    if (permissions.canViewProfit && breakdown.profit < 0) {
+      // Show the modal; the actual save will fire from the
+      // "Save anyway" branch in the modal's onClick.
+      setNegProfitMode(mode);
+      return;
+    }
+    void runSave(mode);
+  }, [isSaving, validation.canSave, permissions.canViewProfit, breakdown.profit, runSave]);
 
   const receiptInputRef = useRef<HTMLInputElement | null>(null);
   const [receiptUploading, setReceiptUploading] = useState(false);
@@ -414,11 +504,18 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
     diagnosticFee: job.diagnosticFee,
     // Detailing-vertical input; stub engine reads it in 2.3.
     vehicleSize: job.vehicleSize,
-  }, settings), [
+  }, settings),
+  // Batch C (2026-06-05): same dep-narrowing as breakdown above.
+  // calcQuote reads only servicePricing / vehiclePricing /
+  // freeMilesIncluded / costPerMile from settings — verified against
+  // src/lib/utils.ts::calcQuote and the pricing engine entry points.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [
     job.service, job.vehicleType, job.miles, job.tireCost, job.materialCost,
     job.qty, job.emergency, job.lateNight, job.highway, job.weekend,
     job.laborHours, job.partsCost, job.diagnosticFee, job.vehicleSize,
-    settings,
+    settings.servicePricing, settings.vehiclePricing,
+    settings.freeMilesIncluded, settings.costPerMile,
   ]);
 
   /**
@@ -664,49 +761,47 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
       {needsTireDetails && (
         <div className="form-group card-anim">
           <div className="form-group-title"><span className="step-badge">5</span>Tire Details</div>
-          <div className="field-row">
-            <div className={'field'}>
-              <label htmlFor="addjob-tire-size">Size</label>
-              <MemoInput id="addjob-tire-size" value={job.tireSize} onChange={fieldSetters.tireSize} placeholder="225/65R17" />
-              {(() => {
-                const typed = (job.tireSize || '').trim();
-                if (!typed) return null;
-                const target = normalizeTireSize(typed);
-                if (!target) return null;
-                const match = inventory.find(
-                  (it) => normalizeTireSize(it.size || '') === target,
-                );
-                if (!match) return null;
-                const total = Number(match.qty || 0);
-                const avail = availableQty(match);
-                const reserved = reservedQty(match);
-                const needed = Number(job.qty || 0);
-                const low = needed > 0 && needed > avail;
-                if (reserved > 0 && low) {
-                  return (
-                    <div className="inv-match-badge warn">
-                      ⚠ Low availability: {total} in stock, {reserved} reserved
-                    </div>
-                  );
-                }
-                if (reserved > 0) {
-                  return (
-                    <div className="inv-match-badge">
-                      ✓ In stock: {total} × {match.size} · available {avail}
-                    </div>
-                  );
-                }
+          {/* Batch C (2026-06-05): Qty removed from this block — it
+              now lives in Job Details below as the sole source of
+              truth. Same MemoInput + fieldSetters.qty so behavior is
+              unchanged; just one field instead of two-in-sync. */}
+          <div className="field">
+            <label htmlFor="addjob-tire-size">Size</label>
+            <MemoInput id="addjob-tire-size" value={job.tireSize} onChange={fieldSetters.tireSize} placeholder="225/65R17" />
+            {(() => {
+              const typed = (job.tireSize || '').trim();
+              if (!typed) return null;
+              const target = normalizeTireSize(typed);
+              if (!target) return null;
+              const match = inventory.find(
+                (it) => normalizeTireSize(it.size || '') === target,
+              );
+              if (!match) return null;
+              const total = Number(match.qty || 0);
+              const avail = availableQty(match);
+              const reserved = reservedQty(match);
+              const needed = Number(job.qty || 0);
+              const low = needed > 0 && needed > avail;
+              if (reserved > 0 && low) {
                 return (
-                  <div className="inv-match-badge">
-                    ✓ In stock: {total} × {match.size}
+                  <div className="inv-match-badge warn">
+                    ⚠ Low availability: {total} in stock, {reserved} reserved
                   </div>
                 );
-              })()}
-            </div>
-            <div className={'field'}>
-              <label htmlFor="addjob-qty">Qty</label>
-              <MemoInput id="addjob-qty" type="number" inputMode="numeric" value={job.qty} onChange={fieldSetters.qty} />
-            </div>
+              }
+              if (reserved > 0) {
+                return (
+                  <div className="inv-match-badge">
+                    ✓ In stock: {total} × {match.size} · available {avail}
+                  </div>
+                );
+              }
+              return (
+                <div className="inv-match-badge">
+                  ✓ In stock: {total} × {match.size}
+                </div>
+              );
+            })()}
           </div>
           <div className="field">
             <label id="addjob-tire-source-label">Tire source</label>
@@ -854,16 +949,16 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
           Job Details
         </div>
         <div className="field-row">
-          {/* Quantity here ONLY for non-tire services. Tire-material
-              services have Qty in the Tire Details block above, so
-              showing it here too would duplicate the field and let
-              the two inputs drift out of sync. */}
-          {!needsTireDetails && (
-            <div className={'field'}>
-              <label htmlFor="addjob-qty-mech">Quantity</label>
-              <MemoInput id="addjob-qty-mech" type="number" inputMode="numeric" value={job.qty} onChange={fieldSetters.qty} placeholder="1" />
-            </div>
-          )}
+          {/* Batch C (2026-06-05): Quantity is now ALWAYS rendered
+              here as the single source of truth for `qty`. Prior
+              code split it across two locations (Tire Details +
+              this block) gated by needsTireDetails, which made the
+              two inputs drift out of sync if a service flipped
+              mid-edit. */}
+          <div className={'field'}>
+            <label htmlFor="addjob-qty">Quantity</label>
+            <MemoInput id="addjob-qty" type="number" inputMode="numeric" value={job.qty} onChange={fieldSetters.qty} placeholder="1" />
+          </div>
           <div className="field">
             <label htmlFor="addjob-material-cost">Material $</label>
             <MemoInput id="addjob-material-cost" type="number" inputMode="decimal" value={job.materialCost} onChange={fieldSetters.materialCost} placeholder="0" />
@@ -1097,38 +1192,66 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
             ))}
           </div>
         </div>
-        <div className="field">
-          <label id="addjob-job-status-label">Job status</label>
-          <div className="chip-grid" role="group" aria-labelledby="addjob-job-status-label">
-            {JOB_STATUSES.map((s) => (
-              <button
-                key={s}
-                type="button"
-                className={'chip' + (job.status === s ? ' active' : '')}
-                aria-pressed={job.status === s}
-                onClick={() => set('status', s)}
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="field">
-          <label id="addjob-payment-status-label">Payment status</label>
-          <div className="chip-grid" role="group" aria-labelledby="addjob-payment-status-label">
-            {PAYMENT_STATUSES.map((p) => (
-              <button
-                key={p}
-                type="button"
-                className={'chip' + (job.paymentStatus === p ? ' active' : '')}
-                aria-pressed={job.paymentStatus === p}
-                onClick={() => set('paymentStatus', p)}
-              >
-                {p}
-              </button>
-            ))}
-          </div>
-        </div>
+        {/* Batch C (2026-06-05): Job Status + Payment Status default
+            collapsed. The vast majority of jobs are logged as
+            "Completed · Paid" (the EMPTY_JOB defaults), so showing a
+            7-chip stack at all times wasted scroll on the rare edit.
+            Tap the summary row to expand both editors inline. Once
+            expanded, they stay open for the form's lifetime. */}
+        {!statusExpanded ? (
+          <button
+            type="button"
+            className="field"
+            onClick={() => setStatusExpanded(true)}
+            aria-label="Edit job status and payment status"
+            style={{
+              display: 'block', width: '100%', textAlign: 'left',
+              background: 'transparent', border: 'none', padding: '8px 0',
+              color: 'var(--t2)', fontSize: 12, cursor: 'pointer',
+            }}
+          >
+            <span style={{ color: 'var(--t3)', fontWeight: 600 }}>Status: </span>
+            <span style={{ color: 'var(--t1)', fontWeight: 600 }}>{job.status}</span>
+            <span style={{ color: 'var(--t3)' }}> · </span>
+            <span style={{ color: 'var(--t1)', fontWeight: 600 }}>{job.paymentStatus}</span>
+            <span style={{ color: 'var(--t3)', marginLeft: 8 }}>tap to edit</span>
+          </button>
+        ) : (
+          <>
+            <div className="field">
+              <label id="addjob-job-status-label">Job status</label>
+              <div className="chip-grid" role="group" aria-labelledby="addjob-job-status-label">
+                {JOB_STATUSES.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    className={'chip' + (job.status === s ? ' active' : '')}
+                    aria-pressed={job.status === s}
+                    onClick={() => set('status', s)}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="field">
+              <label id="addjob-payment-status-label">Payment status</label>
+              <div className="chip-grid" role="group" aria-labelledby="addjob-payment-status-label">
+                {PAYMENT_STATUSES.map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    className={'chip' + (job.paymentStatus === p ? ' active' : '')}
+                    aria-pressed={job.paymentStatus === p}
+                    onClick={() => set('paymentStatus', p)}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
         {canAssign && (
           <AssignmentPicker
             value={job.assignedToUid}
@@ -1139,18 +1262,71 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
         )}
       </div>
 
+      {/* Batch C (2026-06-05): Notes textarea collapsed behind a
+          "+ Add notes" button by default. Used on a minority of jobs;
+          previously cost ~110px of scroll regardless of use. When
+          editing an existing job that already has notes, we
+          initialize `notesExpanded` to true in state so the operator
+          doesn't have to tap through to see content. */}
       <div className="form-group card-anim">
         <div className="form-group-title"><span className="step-badge">9</span>Notes</div>
-        <div className={'field'}>
-          <textarea
-            value={job.note}
-            onChange={(e) => set('note', e.target.value)}
-            placeholder="Any special details for this job…"
-          />
-        </div>
+        {notesExpanded ? (
+          <div className={'field'}>
+            <textarea
+              value={job.note}
+              onChange={(e) => set('note', e.target.value)}
+              placeholder="Any special details for this job…"
+              autoFocus
+            />
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setNotesExpanded(true)}
+            aria-label="Add notes to this job"
+            style={{
+              display: 'block', width: '100%', padding: '12px',
+              background: 'transparent',
+              border: '1px dashed var(--border2)',
+              borderRadius: 10,
+              color: 'var(--t2)', fontSize: 13, fontWeight: 600,
+              cursor: 'pointer',
+              textAlign: 'center',
+            }}
+          >
+            ＋ Add notes
+          </button>
+        )}
       </div>
 
       <div className="save-footer-spacer" />
+      {/* Batch C (2026-06-05): Inline "Missing: …" hint sits above the
+          footer when the required-field validation fails. Renders
+          nothing when the form is complete. Terse to keep it under
+          50 chars on a phone — phone/service/revenue. */}
+      {!validation.canSave && (
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
+            position: 'fixed',
+            left: 0, right: 0,
+            // Sit just above the save-footer bar (which docks to
+            // var(--safe-bot) and is ~68px tall including padding).
+            bottom: 'calc(68px + var(--safe-bot))',
+            padding: '6px 16px',
+            background: 'var(--s2)',
+            borderTop: '1px solid var(--border)',
+            color: 'var(--t3)',
+            fontSize: 11,
+            fontWeight: 600,
+            textAlign: 'center',
+            zIndex: 39,
+          }}
+        >
+          Missing: {validation.missing.join(', ')}
+        </div>
+      )}
       <div className="save-footer">
         <div className="save-footer-inner">
           {/* Batch B (2026-06-05): Profit pill is now gated on
@@ -1189,11 +1365,7 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
               className="btn secondary"
               disabled={isSaving}
               aria-busy={savingMode === 'saveAndNew'}
-              onClick={async () => {
-                if (isSaving) return;
-                setSavingMode('saveAndNew');
-                try { await onSaveAndNew(); } finally { setSavingMode(null); }
-              }}
+              onClick={() => attemptSave('saveAndNew')}
               style={{
                 minWidth: 96,
                 opacity: isSaving && savingMode !== 'saveAndNew' ? 0.5 : 1,
@@ -1204,19 +1376,21 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
               {savingMode === 'saveAndNew' ? 'Saving…' : '＋ Another'}
             </button>
           )}
+          {/* Batch C (2026-06-05): Save Job disabled until validation
+              passes. The de-emphasized opacity + cursor mirrors the
+              .btn.primary:disabled rule in app.css (opacity: .5) so
+              the button reads as unavailable even on browsers where
+              the disabled attribute alone isn't visually obvious. */}
           <button
             className="btn primary"
-            disabled={isSaving}
+            disabled={isSaving || !validation.canSave}
             aria-busy={savingMode === 'save'}
-            onClick={async () => {
-              if (isSaving) return;
-              setSavingMode('save');
-              try { await onSave(); } finally { setSavingMode(null); }
-            }}
+            aria-disabled={!validation.canSave || isSaving}
+            onClick={() => attemptSave('save')}
             style={{
               minWidth: 120,
-              opacity: isSaving && savingMode !== 'save' ? 0.5 : 1,
-              cursor: isSaving ? 'not-allowed' : 'pointer',
+              opacity: (isSaving && savingMode !== 'save') || !validation.canSave ? 0.55 : 1,
+              cursor: isSaving || !validation.canSave ? 'not-allowed' : 'pointer',
               transition: 'opacity 120ms ease',
             }}
           >
@@ -1224,6 +1398,82 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
           </button>
         </div>
       </div>
+
+      {/* Batch C (2026-06-05): Negative-profit confirm modal.
+          Owner/admin tapping Save (or + Another) on a job whose
+          breakdown.profit is negative get a one-tap confirm before
+          the save fires. Backdrop blocks clicks; the modal itself
+          sits above the save-footer (z-index 60 vs the footer's
+          40). Cancel routes back to the form unchanged; Save anyway
+          resumes the original save mode. Technicians (canViewProfit
+          false) never see this — they don't see the breakdown panel
+          either, so the gating is consistent. */}
+      {negProfitMode !== null && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="neg-profit-title"
+          aria-describedby="neg-profit-body"
+          style={{
+            position: 'fixed', inset: 0,
+            background: 'rgba(0,0,0,0.5)',
+            zIndex: 60,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: 16,
+          }}
+          onClick={(e) => { if (e.target === e.currentTarget && !isSaving) setNegProfitMode(null); }}
+        >
+          <div
+            style={{
+              background: 'var(--s1)',
+              border: '1px solid var(--border)',
+              borderRadius: 12,
+              padding: 20,
+              maxWidth: 320,
+              width: '100%',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+              color: 'var(--t1)',
+            }}
+          >
+            <div
+              id="neg-profit-title"
+              style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}
+            >
+              Save at a loss?
+            </div>
+            <div
+              id="neg-profit-body"
+              style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.5, marginBottom: 16 }}
+            >
+              This job's profit is <span style={{ color: 'var(--red, #ef4444)', fontWeight: 700 }}>{money(breakdown.profit)}</span>.
+              Confirm you want to save it?
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                className="btn secondary"
+                disabled={isSaving}
+                onClick={() => setNegProfitMode(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn primary"
+                disabled={isSaving}
+                aria-busy={isSaving}
+                onClick={async () => {
+                  const mode = negProfitMode;
+                  setNegProfitMode(null);
+                  if (mode) await runSave(mode);
+                }}
+              >
+                Save anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

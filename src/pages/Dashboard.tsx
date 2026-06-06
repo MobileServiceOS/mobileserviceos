@@ -194,7 +194,9 @@ export function Dashboard({
 
   const [qqForm, setQqForm] = useState<QuoteForm>(() => ({
     service: enabledServices[0] || 'Flat Tire Repair',
-    vehicleType: 'Car',
+    // Batch C (2026-06-05): match the new DEFAULT_VEHICLE_PRICING seed
+    // top key. Existing tenants override via settings.vehiclePricing.
+    vehicleType: 'Sedan',
     miles: '', tireCost: '', materialCost: '',
     qty: 1, revenue: '',
     emergency: false, lateNight: false, highway: false, weekend: false,

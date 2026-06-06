@@ -114,9 +114,19 @@ export const DEFAULT_SERVICE_PRICING: Record<string, ServicePricing> =
  *
  *   Slated for relocation onto FlatPricingModel in a future phase.
  */
+// Batch C (2026-06-05): seed order is Sedan → SUV → Truck → Van first,
+// then heavier rigs in capacity order, per the Add Job audit (D5).
+// Existing tenants keep whatever order they've already persisted to
+// settings.vehiclePricing — only fresh-deploy tenants see this seed.
+//
+// Key change vs. the prior seed: 'Car' renamed to 'Sedan', and the
+// combined 'SUV / Truck' split into 'SUV' + 'Truck' so the top of the
+// chip-grid matches the spec exactly. AddOn profits are kept aligned
+// (Truck/SUV stay at the prior $20 SUV/Truck shared rate).
 export const DEFAULT_VEHICLE_PRICING: Record<string, VehiclePricing> = {
-  'Car':             { addOnProfit: 0 },
-  'SUV / Truck':     { addOnProfit: 20 },
+  'Sedan':           { addOnProfit: 0 },
+  'SUV':             { addOnProfit: 20 },
+  'Truck':           { addOnProfit: 20 },
   'Van':             { addOnProfit: 20 },
   'Commercial Van':  { addOnProfit: 40 },
   'Box Truck':       { addOnProfit: 60 },
@@ -230,7 +240,10 @@ export const EMPTY_JOB = (): Job => ({
   id: '',
   date: TODAY(),
   service: 'Flat Tire Repair',
-  vehicleType: 'Car',
+  // Batch C (2026-06-05): EMPTY_JOB.vehicleType matches the new
+  // DEFAULT_VEHICLE_PRICING top key (was 'Car'). Tenants that don't
+  // touch vehicle pricing get a 'Sedan'-defaulted draft.
+  vehicleType: 'Sedan',
   area: '',
   payment: 'Cash',
   status: 'Completed',

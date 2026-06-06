@@ -58,9 +58,14 @@ export const TIRE_CONFIG: BusinessTypeConfig = {
   pricingModel: { kind: 'flat' },
 
   // ─── services: VERBATIM from src/lib/verticals.ts:233-249 ────────
+  // Batch C (2026-06-05): top-three reordered to Tire Replacement →
+  // Flat Tire Repair → Tire Installation per the Add Job audit (D1).
+  // ServicePicker's rank-by-usage will rerank once a tenant
+  // accumulates job history; on greenfield installs this order is
+  // what the operator sees first.
   services: [
-    { id: 'Flat Tire Repair',         label: 'Flat Tire Repair',         defaultBasePrice: 90,  defaultMinProfit: 90,  enabledByDefault: true },
     { id: 'Tire Replacement',         label: 'Tire Replacement',         defaultBasePrice: 120, defaultMinProfit: 110, enabledByDefault: true },
+    { id: 'Flat Tire Repair',         label: 'Flat Tire Repair',         defaultBasePrice: 90,  defaultMinProfit: 90,  enabledByDefault: true },
     { id: 'Tire Installation',        label: 'Tire Installation',        defaultBasePrice: 120, defaultMinProfit: 110, enabledByDefault: true },
     { id: 'Mounting & Balancing',     label: 'Mounting & Balancing',     defaultBasePrice: 100, defaultMinProfit: 80,  enabledByDefault: true },
     { id: 'Spare Tire Installation',  label: 'Spare Tire Installation',  defaultBasePrice: 95,  defaultMinProfit: 70,  enabledByDefault: true },
