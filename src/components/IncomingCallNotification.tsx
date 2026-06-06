@@ -48,13 +48,24 @@
 //    - computeBalanceDisplay(customer, openInvoices)
 // ═══════════════════════════════════════════════════════════════════
 
-import { memo, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
-  collection, doc, limit, onSnapshot, orderBy, query, where,
+  memo,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties } from 'react';
+import {
+  collection,
+  doc,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
+  where,
   Timestamp,
-  type Firestore,
 } from 'firebase/firestore';
-import { _db } from '@/lib/firebase';
+import { requireDb } from '@/lib/firebase';
 import { formatPhoneForDisplay } from '@/lib/phone';
 import { money, resolvePaymentStatus } from '@/lib/utils';
 import { useBrand } from '@/context/BrandContext';
@@ -264,7 +275,7 @@ function IncomingCallNotificationImpl({
     const mountTime = Timestamp.now();
     mountTimeRef.current = mountTime;
     const q = query(
-      collection(_db as Firestore, 'businesses', businessId, 'leads'),
+      collection(requireDb(), 'businesses', businessId, 'leads'),
       where('source', '==', 'missed_call'),
       where('receivedAt', '>', mountTime),
       orderBy('receivedAt', 'desc'),
@@ -289,7 +300,7 @@ function IncomingCallNotificationImpl({
     if (!businessId) return;
     const mountTime = mountTimeRef.current;
     const q = query(
-      collection(_db as Firestore, 'businesses', businessId, 'incoming_calls'),
+      collection(requireDb(), 'businesses', businessId, 'incoming_calls'),
       where('receivedAt', '>', mountTime),
       orderBy('receivedAt', 'desc'),
       limit(1),
@@ -312,7 +323,7 @@ function IncomingCallNotificationImpl({
     if (!businessId || !activeSource) { setCustomer(null); return; }
     const cid = sourceCustomerId(activeSource);
     if (!cid) { setCustomer(null); return; }
-    const ref = doc(_db as Firestore, 'businesses', businessId, 'customers', cid);
+    const ref = doc(requireDb(), 'businesses', businessId, 'customers', cid);
     const unsub = onSnapshot(ref, (snap) => {
       setCustomer(snap.exists() ? ({ id: snap.id, ...snap.data() } as Customer) : null);
     });
@@ -325,7 +336,7 @@ function IncomingCallNotificationImpl({
     const cid = sourceCustomerId(activeSource);
     if (!cid) { setVehicle(null); return; }
     const q = query(
-      collection(_db as Firestore, 'businesses', businessId, 'customers', cid, 'vehicles'),
+      collection(requireDb(), 'businesses', businessId, 'customers', cid, 'vehicles'),
       orderBy('lastServicedAt', 'desc'),
       limit(1),
     );
@@ -348,7 +359,7 @@ function IncomingCallNotificationImpl({
     const cid = sourceCustomerId(activeSource);
     if (!cid) { setRecentJobs([]); return; }
     const q = query(
-      collection(_db as Firestore, 'businesses', businessId, 'jobs'),
+      collection(requireDb(), 'businesses', businessId, 'jobs'),
       where('customerId', '==', cid),
       orderBy('date', 'desc'),
       limit(100),

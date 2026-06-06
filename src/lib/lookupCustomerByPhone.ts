@@ -33,9 +33,8 @@ import {
   orderBy,
   query,
   where,
-  type Firestore,
 } from 'firebase/firestore';
-import { _db } from '@/lib/firebase';
+import { requireDb } from '@/lib/firebase';
 import { normalizePhone } from '@/lib/phone';
 import type { Customer, Vehicle } from '@/lib/customerEntity';
 
@@ -174,24 +173,24 @@ const _realOps: LookupOps = {
   async getDocByPath(path: string): Promise<Record<string, unknown> | undefined> {
     const segs = path.split('/').filter(Boolean);
     const [first, ...rest] = segs;
-    const ref = doc(_db as Firestore, first, ...rest);
+    const ref = doc(requireDb(), first, ...rest);
     const snap = await getDoc(ref);
     return snap.exists() ? (snap.data() as Record<string, unknown>) : undefined;
   },
   async queryByPhoneKey(businessId, phoneKey) {
-    const col = collection(_db as Firestore, `businesses/${businessId}/customers`);
+    const col = collection(requireDb(), `businesses/${businessId}/customers`);
     const q = query(col, where('phoneKey', '==', phoneKey), orderBy('lastJobAt', 'desc'), limit(1));
     const snap = await getDocs(q);
     return snap.docs.map((d) => d.data() as Record<string, unknown>);
   },
   async listVehicles(businessId, customerId) {
-    const col = collection(_db as Firestore, `businesses/${businessId}/customers/${customerId}/vehicles`);
+    const col = collection(requireDb(), `businesses/${businessId}/customers/${customerId}/vehicles`);
     const q = query(col, orderBy('lastServicedAt', 'desc'), limit(3));
     const snap = await getDocs(q);
     return snap.docs.map((d) => d.data() as Record<string, unknown>);
   },
   async queryLastJob(businessId, customerId) {
-    const col = collection(_db as Firestore, `businesses/${businessId}/jobs`);
+    const col = collection(requireDb(), `businesses/${businessId}/jobs`);
     const q = query(col, where('customerId', '==', customerId), orderBy('date', 'desc'), limit(1));
     const snap = await getDocs(q);
     const d = snap.docs[0];

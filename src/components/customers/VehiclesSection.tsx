@@ -7,11 +7,19 @@
 //  lastServicedAt desc, limit 10. Real-time onSnapshot.
 // ═══════════════════════════════════════════════════════════════════
 
-import { memo, useEffect, useState, type CSSProperties } from 'react';
 import {
-  collection, onSnapshot, query, orderBy, limit, type Firestore,
+  memo,
+  useEffect,
+  useState,
+  type CSSProperties } from 'react';
+import {
+  collection,
+  onSnapshot,
+  query,
+  orderBy,
+  limit,
 } from 'firebase/firestore';
-import { _db } from '@/lib/firebase';
+import { requireDb } from '@/lib/firebase';
 import type { Vehicle } from '@/lib/customerEntity';
 
 interface Props {
@@ -25,7 +33,7 @@ function VehiclesSectionImpl({ businessId, customerId }: Props) {
 
   useEffect(() => {
     if (!businessId || !customerId) return;
-    const col = collection(_db as Firestore, 'businesses', businessId, 'customers', customerId, 'vehicles');
+    const col = collection(requireDb(), 'businesses', businessId, 'customers', customerId, 'vehicles');
     const q = query(col, orderBy('lastServicedAt', 'desc'), limit(10));
     const unsub = onSnapshot(q,
       (snap) => {

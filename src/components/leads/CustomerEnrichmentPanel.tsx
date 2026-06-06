@@ -14,12 +14,22 @@
 //  edit actions — those live on the Customer profile).
 // ═══════════════════════════════════════════════════════════════════
 
-import { memo, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import {
-  collection, doc, limit, onSnapshot, orderBy, query, where,
-  type Firestore,
+  memo,
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties } from 'react';
+import {
+  collection,
+  doc,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
+  where,
 } from 'firebase/firestore';
-import { _db } from '@/lib/firebase';
+import { requireDb } from '@/lib/firebase';
 import { formatPhoneForDisplay } from '@/lib/phone';
 import type { Customer, Vehicle } from '@/lib/customerEntity';
 import type { Job } from '@/types';
@@ -42,7 +52,7 @@ function CustomerEnrichmentPanelImpl({
   // Customer doc
   useEffect(() => {
     if (!businessId || !customerId) return;
-    const ref = doc(_db as Firestore, 'businesses', businessId, 'customers', customerId);
+    const ref = doc(requireDb(), 'businesses', businessId, 'customers', customerId);
     const unsub = onSnapshot(ref, (snap) => {
       setCustomer(snap.exists() ? ({ id: snap.id, ...snap.data() } as Customer) : null);
     });
@@ -53,7 +63,7 @@ function CustomerEnrichmentPanelImpl({
   useEffect(() => {
     if (!businessId || !customerId) return;
     const q = query(
-      collection(_db as Firestore, 'businesses', businessId, 'customers', customerId, 'vehicles'),
+      collection(requireDb(), 'businesses', businessId, 'customers', customerId, 'vehicles'),
       orderBy('lastServicedAt', 'desc'),
       limit(5),
     );
@@ -69,7 +79,7 @@ function CustomerEnrichmentPanelImpl({
   useEffect(() => {
     if (!businessId || !customerId) return;
     const q = query(
-      collection(_db as Firestore, 'businesses', businessId, 'jobs'),
+      collection(requireDb(), 'businesses', businessId, 'jobs'),
       where('customerId', '==', customerId),
       orderBy('date', 'desc'),
       limit(100),

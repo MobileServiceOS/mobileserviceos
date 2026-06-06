@@ -12,12 +12,22 @@
 //  SP6 listener picks it up and fires the popup.
 // ═══════════════════════════════════════════════════════════════════
 
-import { memo, useCallback, useEffect, useState, type CSSProperties } from 'react';
 import {
-  addDoc, collection, onSnapshot, query, orderBy, limit, Timestamp,
-  type Firestore,
+  memo,
+  useCallback,
+  useEffect,
+  useState,
+  type CSSProperties } from 'react';
+import {
+  addDoc,
+  collection,
+  onSnapshot,
+  query,
+  orderBy,
+  limit,
+  Timestamp,
 } from 'firebase/firestore';
-import { _db } from '@/lib/firebase';
+import { requireDb } from '@/lib/firebase';
 import { AccordionShell } from '@/components/settings/AccordionShell';
 import { usePermissions, useMembership } from '@/context/MembershipContext';
 import type { Settings } from '@/types';
@@ -62,7 +72,7 @@ function CommunicationsSettingsSectionImpl({
   // Test Incoming Call picker. Only fetches when the section is open.
   useEffect(() => {
     if (!isOwner || !open) return;
-    const col = collection(_db as Firestore, 'businesses', businessId, 'customers');
+    const col = collection(requireDb(), 'businesses', businessId, 'customers');
     const q = query(col, orderBy('lastJobAt', 'desc'), limit(50));
     const unsub = onSnapshot(q, (snap) => {
       const rows: Customer[] = [];
@@ -92,7 +102,7 @@ function CommunicationsSettingsSectionImpl({
         customerId = picked.id;
       }
       await addDoc(
-        collection(_db as Firestore, 'businesses', businessId, 'incomingCalls'),
+        collection(requireDb(), 'businesses', businessId, 'incomingCalls'),
         {
           provider: 'test',
           status: 'ringing',

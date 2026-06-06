@@ -191,6 +191,24 @@ try {
 
 export { _db, _auth, _storage };
 
+/**
+ * Asserted Firestore accessor. Returns the initialized Firestore handle
+ * or throws a clear error if init failed / hasn't run yet. Prefer this
+ * over `requireDb()`, which silently asserts initialization and
+ * yields opaque runtime errors when `_db` is undefined. (2026-06-05
+ * audit: ~48 unchecked casts across the app.)
+ */
+export function requireDb(): Firestore {
+  if (!_db) {
+    throw new Error(
+      initError
+        ? `Firestore not initialized: ${initError.message}`
+        : 'Firestore not initialized',
+    );
+  }
+  return _db;
+}
+
 export const scopedCol = (
   bId: string,
   name: string

@@ -18,10 +18,15 @@
 // ═══════════════════════════════════════════════════════════════════
 
 import {
-  collection, collectionGroup, getDocs, limit, orderBy, query, where,
-  type Firestore,
+  collection,
+  collectionGroup,
+  getDocs,
+  limit,
+  orderBy,
+  query,
+  where,
 } from 'firebase/firestore';
-import { _db } from '@/lib/firebase';
+import { requireDb } from '@/lib/firebase';
 import type { Customer, Vehicle } from '@/lib/customerEntity';
 
 export interface SearchResult {
@@ -178,7 +183,7 @@ export function invalidateSearchCache(): void { CACHE.clear(); }
 const _realOps: SearchOps = {
   queryByNamePrefix: async (bid, lo, hi) => {
     const snap = await getDocs(query(
-      collection(_db as Firestore, 'businesses', bid, 'customers'),
+      collection(requireDb(), 'businesses', bid, 'customers'),
       where('nameLower', '>=', lo), where('nameLower', '<', hi),
       orderBy('nameLower'), limit(20),
     ));
@@ -186,7 +191,7 @@ const _realOps: SearchOps = {
   },
   queryByCompanyPrefix: async (bid, lo, hi) => {
     const snap = await getDocs(query(
-      collection(_db as Firestore, 'businesses', bid, 'customers'),
+      collection(requireDb(), 'businesses', bid, 'customers'),
       where('companyLower', '>=', lo), where('companyLower', '<', hi),
       orderBy('companyLower'), limit(20),
     ));
@@ -194,7 +199,7 @@ const _realOps: SearchOps = {
   },
   queryByPhoneExact: async (bid, phoneKey) => {
     const snap = await getDocs(query(
-      collection(_db as Firestore, 'businesses', bid, 'customers'),
+      collection(requireDb(), 'businesses', bid, 'customers'),
       where('phoneKey', '==', phoneKey), limit(20),
     ));
     return snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -203,7 +208,7 @@ const _realOps: SearchOps = {
     const lo = suffix;
     const hi = suffix + DIGIT_SENTINEL;
     const snap = await getDocs(query(
-      collection(_db as Firestore, 'businesses', bid, 'customers'),
+      collection(requireDb(), 'businesses', bid, 'customers'),
       where('phoneKey', '>=', lo), where('phoneKey', '<', hi),
       orderBy('phoneKey'), limit(20),
     ));
@@ -211,7 +216,7 @@ const _realOps: SearchOps = {
   },
   queryByCityPrefix: async (bid, lo, hi) => {
     const snap = await getDocs(query(
-      collection(_db as Firestore, 'businesses', bid, 'customers'),
+      collection(requireDb(), 'businesses', bid, 'customers'),
       where('cityLower', '>=', lo), where('cityLower', '<', hi),
       orderBy('cityLower'), limit(20),
     ));
@@ -219,7 +224,7 @@ const _realOps: SearchOps = {
   },
   queryByZipExact: async (bid, zip) => {
     const snap = await getDocs(query(
-      collection(_db as Firestore, 'businesses', bid, 'customers'),
+      collection(requireDb(), 'businesses', bid, 'customers'),
       where('zipCode', '==', zip), limit(20),
     ));
     return snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -231,7 +236,7 @@ const _realOps: SearchOps = {
   // See 2026-06-05 security audit (cross-tenant vehicle leak).
   queryByMakeModelPrefix: async (bid, lo, hi) => {
     const snap = await getDocs(query(
-      collectionGroup(_db as Firestore, 'vehicles'),
+      collectionGroup(requireDb(), 'vehicles'),
       where('businessId', '==', bid),
       where('makeModelLower', '>=', lo), where('makeModelLower', '<', hi),
       orderBy('makeModelLower'), limit(20),
@@ -240,7 +245,7 @@ const _realOps: SearchOps = {
   },
   queryByLicensePlate: async (bid, plate) => {
     const snap = await getDocs(query(
-      collectionGroup(_db as Firestore, 'vehicles'),
+      collectionGroup(requireDb(), 'vehicles'),
       where('businessId', '==', bid),
       where('licensePlate', '==', plate), limit(20),
     ));
@@ -248,7 +253,7 @@ const _realOps: SearchOps = {
   },
   queryByTireSize: async (bid, size) => {
     const snap = await getDocs(query(
-      collectionGroup(_db as Firestore, 'vehicles'),
+      collectionGroup(requireDb(), 'vehicles'),
       where('businessId', '==', bid),
       where('tire.size', '==', size), limit(20),
     ));
@@ -256,7 +261,7 @@ const _realOps: SearchOps = {
   },
   queryByTireSizeLegacy: async (bid, size) => {
     const snap = await getDocs(query(
-      collectionGroup(_db as Firestore, 'vehicles'),
+      collectionGroup(requireDb(), 'vehicles'),
       where('businessId', '==', bid),
       where('tireSize', '==', size), limit(20),
     ));

@@ -12,12 +12,20 @@
 //  error + cancel button.
 // ═══════════════════════════════════════════════════════════════════
 
-import { memo, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import {
-  collection, limit, onSnapshot, orderBy, query,
-  type Firestore,
+  memo,
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties } from 'react';
+import {
+  collection,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
 } from 'firebase/firestore';
-import { _db } from '@/lib/firebase';
+import { requireDb } from '@/lib/firebase';
 import { formatPhoneForDisplay } from '@/lib/phone';
 import type { ReviewRequest, ReviewRequestStatus } from '@/types';
 
@@ -39,7 +47,7 @@ function ReviewRequestHistoryTableImpl({ businessId }: Props): JSX.Element {
   useEffect(() => {
     if (!businessId) return;
     const q = query(
-      collection(_db as Firestore, 'businesses', businessId, 'reviewRequests'),
+      collection(requireDb(), 'businesses', businessId, 'reviewRequests'),
       orderBy('createdAt', 'desc'),
       limit(100),
     );
@@ -59,7 +67,7 @@ function ReviewRequestHistoryTableImpl({ businessId }: Props): JSX.Element {
     if (ids.length === 0) return;
     // The customers collection isn't huge; subscribe to all and pluck.
     const unsub = onSnapshot(
-      collection(_db as Firestore, 'businesses', businessId, 'customers'),
+      collection(requireDb(), 'businesses', businessId, 'customers'),
       (snap) => {
         const next: CustomerNameMap = {};
         snap.forEach(d => { next[d.id] = (d.data() as { name?: string }).name ?? ''; });

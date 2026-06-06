@@ -16,13 +16,23 @@
 //    8. History table (delegated to ReviewRequestHistoryTable)
 // ═══════════════════════════════════════════════════════════════════
 
-import { memo, useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import {
-  collection, limit, onSnapshot, orderBy, query, where,
-  type Firestore,
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties } from 'react';
+import {
+  collection,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
+  where,
 } from 'firebase/firestore';
 import { getFunctions, httpsCallable, connectFunctionsEmulator } from 'firebase/functions';
-import { _db } from '@/lib/firebase';
+import { _db, requireDb } from '@/lib/firebase';
 import { AccordionShell } from '@/components/settings/AccordionShell';
 import { ReviewRequestHistoryTable } from '@/components/settings/ReviewRequestHistoryTable';
 import { renderTemplate } from '@/lib/reviewTemplate';
@@ -109,7 +119,7 @@ function ReviewAutomationSectionImpl({
     if (!businessId || !open) return;
     if (!_db) return;
     const q = query(
-      collection(_db as Firestore, 'businesses', businessId, 'jobs'),
+      collection(requireDb(), 'businesses', businessId, 'jobs'),
       where('status', '==', 'Completed'),
       orderBy('date', 'desc'),
       limit(1),

@@ -9,9 +9,16 @@
 //  via SP1 firestore.rules meta-only allowlist.
 // ═══════════════════════════════════════════════════════════════════
 
-import { memo, useCallback, useMemo, useState, type CSSProperties } from 'react';
-import { doc, setDoc, type Firestore } from 'firebase/firestore';
-import { _db } from '@/lib/firebase';
+import {
+  memo,
+  useCallback,
+  useMemo,
+  useState,
+  type CSSProperties } from 'react';
+import { doc,
+  setDoc,
+} from 'firebase/firestore';
+import { requireDb } from '@/lib/firebase';
 import type { Customer } from '@/lib/customerEntity';
 
 export interface QuickNoteFieldDef {
@@ -101,7 +108,7 @@ function CustomerNotesSectionImpl({ businessId, customer, canEdit, editorUid }: 
     setSaving(true);
     try {
       const patch = _buildPatch({ original: customer, draft, editorUid });
-      const ref = doc(_db as Firestore, 'businesses', businessId, 'customers', customer.id);
+      const ref = doc(requireDb(), 'businesses', businessId, 'customers', customer.id);
       await setDoc(ref, patch, { merge: true });
       setDraft({});
       setEditing(false);

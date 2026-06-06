@@ -20,12 +20,20 @@
 //  gates Quick Notes inline edit.
 // ═══════════════════════════════════════════════════════════════════
 
-import { useEffect, useMemo, useState } from 'react';
 import {
-  collection, doc, limit, onSnapshot, orderBy, query, where,
-  type Firestore,
+  useEffect,
+  useMemo,
+  useState } from 'react';
+import {
+  collection,
+  doc,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
+  where,
 } from 'firebase/firestore';
-import { _db } from '@/lib/firebase';
+import { requireDb } from '@/lib/firebase';
 import { formatPhoneForDisplay } from '@/lib/phone';
 import { usePermissions } from '@/context/MembershipContext';
 import type { Customer } from '@/lib/customerEntity';
@@ -57,7 +65,7 @@ export default function CustomerProfile(props: Props): JSX.Element {
 
   useEffect(() => {
     if (!businessId || !customerId) return;
-    const ref = doc(_db as Firestore, 'businesses', businessId, 'customers', customerId);
+    const ref = doc(requireDb(), 'businesses', businessId, 'customers', customerId);
     const unsub = onSnapshot(ref, (snap) => {
       setCustomer(snap.exists() ? ({ id: snap.id, ...snap.data() } as Customer) : null);
       setLoading(false);
@@ -68,7 +76,7 @@ export default function CustomerProfile(props: Props): JSX.Element {
   useEffect(() => {
     if (!businessId || !customerId) return;
     const q = query(
-      collection(_db as Firestore, 'businesses', businessId, 'jobs'),
+      collection(requireDb(), 'businesses', businessId, 'jobs'),
       where('customerId', '==', customerId),
       orderBy('date', 'desc'),
       limit(100),
@@ -85,7 +93,7 @@ export default function CustomerProfile(props: Props): JSX.Element {
   useEffect(() => {
     if (!businessId || !customerId) return;
     const q = query(
-      collection(_db as Firestore, 'businesses', businessId, 'reviewRequests'),
+      collection(requireDb(), 'businesses', businessId, 'reviewRequests'),
       where('customerId', '==', customerId),
       orderBy('createdAt', 'desc'),
       limit(20),
@@ -102,7 +110,7 @@ export default function CustomerProfile(props: Props): JSX.Element {
   useEffect(() => {
     if (!businessId || !customerId) return;
     const q = query(
-      collection(_db as Firestore, 'businesses', businessId, 'communicationEvents'),
+      collection(requireDb(), 'businesses', businessId, 'communicationEvents'),
       where('customerId', '==', customerId),
       orderBy('sentAt', 'desc'),
       limit(20),
@@ -120,7 +128,7 @@ export default function CustomerProfile(props: Props): JSX.Element {
   useEffect(() => {
     if (!businessId || !customerId) return;
     const q = query(
-      collection(_db as Firestore, 'businesses', businessId, 'leads'),
+      collection(requireDb(), 'businesses', businessId, 'leads'),
       where('customerId', '==', customerId),
       orderBy('receivedAt', 'desc'),
       limit(20),

@@ -16,13 +16,23 @@
 //    8. Recent leads list (last 5; tap → LeadDetailSheet)
 // ═══════════════════════════════════════════════════════════════════
 
-import { memo, useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import {
-  collection, limit, onSnapshot, orderBy, query, where,
-  type Firestore,
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties } from 'react';
+import {
+  collection,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
+  where,
 } from 'firebase/firestore';
 import { getFunctions, httpsCallable, connectFunctionsEmulator } from 'firebase/functions';
-import { _db } from '@/lib/firebase';
+import { requireDb } from '@/lib/firebase';
 import { AccordionShell } from '@/components/settings/AccordionShell';
 import { renderTemplate } from '@/lib/reviewTemplate';
 import { DEFAULT_MISSED_CALL_TEMPLATE } from '@/lib/defaults';
@@ -105,7 +115,7 @@ function MissedCallRecoverySectionImpl({
   useEffect(() => {
     if (!businessId || !open) return;
     const q = query(
-      collection(_db as Firestore, 'businesses', businessId, 'leads'),
+      collection(requireDb(), 'businesses', businessId, 'leads'),
       orderBy('receivedAt', 'desc'),
       limit(5),
     );

@@ -13,11 +13,19 @@
 //    - Row click → CustomerProfile via onSelectCustomer prop
 // ═══════════════════════════════════════════════════════════════════
 
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import {
-  collection, onSnapshot, query, orderBy, limit, type Firestore,
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties } from 'react';
+import {
+  collection,
+  onSnapshot,
+  query,
+  orderBy,
+  limit,
 } from 'firebase/firestore';
-import { _db } from '@/lib/firebase';
+import { requireDb } from '@/lib/firebase';
 import { formatPhoneForDisplay } from '@/lib/phone';
 import { usePermissions } from '@/context/MembershipContext';
 import type { Customer } from '@/lib/customerEntity';
@@ -43,7 +51,7 @@ export default function CustomerHub(props: Props): JSX.Element {
 
   useEffect(() => {
     if (!businessId) return;
-    const col = collection(_db as Firestore, 'businesses', businessId, 'customers');
+    const col = collection(requireDb(), 'businesses', businessId, 'customers');
     const q = query(col, orderBy('lastJobAt', 'desc'), limit(500));
     const unsub = onSnapshot(q,
       (snap) => {

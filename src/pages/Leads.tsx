@@ -11,12 +11,19 @@
 //  Tap card → LeadDetailSheet.
 // ═══════════════════════════════════════════════════════════════════
 
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import {
-  collection, limit, onSnapshot, orderBy, query,
-  type Firestore,
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties } from 'react';
+import {
+  collection,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
 } from 'firebase/firestore';
-import { _db } from '@/lib/firebase';
+import { requireDb } from '@/lib/firebase';
 import { LeadCard } from '@/components/leads/LeadCard';
 import { LeadDetailSheet } from '@/components/leads/LeadDetailSheet';
 import { computeLeadPriority } from '@/lib/leadPriority';
@@ -52,7 +59,7 @@ export default function Leads({ businessId, onOpenCustomer, onCreateJob }: Props
   useEffect(() => {
     if (!businessId) return;
     const q = query(
-      collection(_db as Firestore, 'businesses', businessId, 'leads'),
+      collection(requireDb(), 'businesses', businessId, 'leads'),
       orderBy('receivedAt', 'desc'),
       limit(200),
     );
@@ -70,7 +77,7 @@ export default function Leads({ businessId, onOpenCustomer, onCreateJob }: Props
   useEffect(() => {
     if (!businessId || leads.length === 0) return;
     const unsub = onSnapshot(
-      collection(_db as Firestore, 'businesses', businessId, 'customers'),
+      collection(requireDb(), 'businesses', businessId, 'customers'),
       (snap) => {
         const next = new Map<string, Customer>();
         snap.forEach(d => next.set(d.id, { id: d.id, ...d.data() } as Customer));

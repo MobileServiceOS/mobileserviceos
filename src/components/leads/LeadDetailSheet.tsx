@@ -15,14 +15,24 @@
 //    6. Audit footer
 // ═══════════════════════════════════════════════════════════════════
 
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import {
-  collection, doc, onSnapshot, orderBy, query, where, setDoc,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties } from 'react';
+import {
+  collection,
+  doc,
+  onSnapshot,
+  orderBy,
+  query,
+  where,
+  setDoc,
   Timestamp,
-  type Firestore,
 } from 'firebase/firestore';
 import { getFunctions, httpsCallable, connectFunctionsEmulator } from 'firebase/functions';
-import { _db, _auth } from '@/lib/firebase';
+import { _auth, requireDb } from '@/lib/firebase';
 import { usePermissions } from '@/context/MembershipContext';
 import { useFocusTrap } from '@/lib/useFocusTrap';
 import { CustomerEnrichmentPanel } from '@/components/leads/CustomerEnrichmentPanel';
@@ -82,7 +92,7 @@ export function LeadDetailSheet({
   // Lead subscription
   useEffect(() => {
     if (!businessId || !leadId) return;
-    const unsub = onSnapshot(doc(_db as Firestore, 'businesses', businessId, 'leads', leadId), (snap) => {
+    const unsub = onSnapshot(doc(requireDb(), 'businesses', businessId, 'leads', leadId), (snap) => {
       if (snap.exists()) {
         const l = { id: snap.id, ...snap.data() } as Lead;
         setLead(l);
@@ -98,7 +108,7 @@ export function LeadDetailSheet({
   useEffect(() => {
     if (!businessId || !leadId) return;
     const q = query(
-      collection(_db as Firestore, 'businesses', businessId, 'communicationEvents'),
+      collection(requireDb(), 'businesses', businessId, 'communicationEvents'),
       where('leadId', '==', leadId),
       orderBy('sentAt', 'asc'),
     );
@@ -116,7 +126,7 @@ export function LeadDetailSheet({
       setLostReasonOpen(true);
       return;
     }
-    const ref = doc(_db as Firestore, 'businesses', businessId, 'leads', leadId);
+    const ref = doc(requireDb(), 'businesses', businessId, 'leads', leadId);
     await setDoc(ref, {
       status: next,
       updatedAt: Timestamp.now(),
@@ -129,7 +139,7 @@ export function LeadDetailSheet({
     if (!lead || !canEdit) return;
     const reason = lostReasonText.trim();
     if (!reason) return;
-    const ref = doc(_db as Firestore, 'businesses', businessId, 'leads', leadId);
+    const ref = doc(requireDb(), 'businesses', businessId, 'leads', leadId);
     await setDoc(ref, {
       status: 'Lost' as LeadStatus,
       closedReason: reason,
@@ -145,7 +155,7 @@ export function LeadDetailSheet({
   const onBlurNotes = useCallback(async () => {
     if (!lead || !canEdit) return;
     if (notesLocal === (lead.notes ?? '')) return;
-    const ref = doc(_db as Firestore, 'businesses', businessId, 'leads', leadId);
+    const ref = doc(requireDb(), 'businesses', businessId, 'leads', leadId);
     await setDoc(ref, {
       notes: notesLocal,
       updatedAt: Timestamp.now(),

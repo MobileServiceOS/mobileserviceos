@@ -1,7 +1,20 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
-import { doc, onSnapshot, setDoc, Timestamp, type Firestore } from 'firebase/firestore';
-import { _auth, _db, scopedCol, fbDelete, fbListen, fbSet, fbSetFast, initError } from '@/lib/firebase';
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState } from 'react';
+import { onAuthStateChanged,
+  signOut,
+  type User } from 'firebase/auth';
+import { doc,
+  onSnapshot,
+  setDoc,
+  Timestamp,
+} from 'firebase/firestore';
+import { _auth, _db, scopedCol, fbDelete, fbListen, fbSet, fbSetFast, initError, requireDb } from '@/lib/firebase';
 import { buildJobsListenerQuery } from '@/lib/jobsQuery';
 import { BrandProvider, useBrand } from '@/context/BrandContext';
 import { MembershipProvider, usePermissions, useMembership } from '@/context/MembershipContext';
@@ -1205,7 +1218,7 @@ function AuthenticatedApp({ user }: { user: User }) {
       if (sourceLeadId) {
         try {
           await setDoc(
-            doc(_db as Firestore, 'businesses', businessId, 'leads', sourceLeadId),
+            doc(requireDb(), 'businesses', businessId, 'leads', sourceLeadId),
             {
               status: 'Booked' as LeadStatus,
               jobId: finalJob.id,

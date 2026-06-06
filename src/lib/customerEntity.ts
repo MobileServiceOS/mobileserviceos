@@ -155,9 +155,8 @@ export interface Vehicle {
 import {
   doc,
   runTransaction,
-  type Firestore,
 } from 'firebase/firestore';
-import { _db } from '@/lib/firebase';
+import { requireDb } from '@/lib/firebase';
 import { normalizePhone } from '@/lib/phone';
 import { deriveVipTier, deriveCustomerStatus } from '@/lib/customerInsights';
 
@@ -385,10 +384,10 @@ export async function upsertCustomerFromJob(
   const nowIso = new Date().toISOString();
   const actorUid = job.createdByUid ?? '';
 
-  const customerRef = doc(_db as Firestore, `businesses/${businessId}/customers/${customerId}`);
-  const vehicleRef = doc(_db as Firestore, `businesses/${businessId}/customers/${customerId}/vehicles/${vehicleId}`);
+  const customerRef = doc(requireDb(), `businesses/${businessId}/customers/${customerId}`);
+  const vehicleRef = doc(requireDb(), `businesses/${businessId}/customers/${customerId}/vehicles/${vehicleId}`);
 
-  await runTransaction(_db as Firestore, async (tx) => {
+  await runTransaction(requireDb(), async (tx) => {
     const [cSnap, vSnap] = await Promise.all([tx.get(customerRef), tx.get(vehicleRef)]);
     const cExisting = cSnap.exists() ? (cSnap.data() as Record<string, unknown>) : undefined;
     const vExisting = vSnap.exists() ? (vSnap.data() as Record<string, unknown>) : undefined;

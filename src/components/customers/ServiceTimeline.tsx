@@ -8,11 +8,20 @@
 //  Financial revenue gated by canViewFinancials.
 // ═══════════════════════════════════════════════════════════════════
 
-import { memo, useEffect, useState, type CSSProperties } from 'react';
 import {
-  collection, onSnapshot, query, orderBy, where, limit, type Firestore,
+  memo,
+  useEffect,
+  useState,
+  type CSSProperties } from 'react';
+import {
+  collection,
+  onSnapshot,
+  query,
+  orderBy,
+  where,
+  limit,
 } from 'firebase/firestore';
-import { _db } from '@/lib/firebase';
+import { requireDb } from '@/lib/firebase';
 import type { Job } from '@/types';
 
 interface Props {
@@ -28,7 +37,7 @@ function ServiceTimelineImpl({ businessId, customerId, canViewFinancials, onJobC
 
   useEffect(() => {
     if (!businessId || !customerId) return;
-    const col = collection(_db as Firestore, 'businesses', businessId, 'jobs');
+    const col = collection(requireDb(), 'businesses', businessId, 'jobs');
     const q = query(col, where('customerId', '==', customerId), orderBy('date', 'desc'), limit(100));
     const unsub = onSnapshot(q,
       (snap) => {
