@@ -26,6 +26,7 @@ import { AddressAutofillInput, type AddressValue } from '@/components/addJob/Add
 import { useMembership } from '@/context/MembershipContext';
 import { useBusinessMembers } from '@/lib/useBusinessMembers';
 import { validateAddJob } from '@/lib/addJobValidation';
+import { splitEmojiLabel } from '@/lib/emojiLabel';
 
 // ─── DynamicJobField: shared renderer for vertical.jobFields ──────────
 // Renders a single Job field declared by a vertical config. Mechanic
@@ -321,7 +322,19 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
   const needsTireDetails = showTireBlock && TIRE_MATERIAL_SERVICES.includes(job.service);
   const tireSource = (job.tireSource || 'Inventory') as TireSource;
 
-  // Pre-populate revenue with suggested when blank and service/vehicle present
+  // Pre-populate revenue with suggested when blank and service/vehicle present.
+  //
+  // Batch E (2026-06-05): the dep list is INTENTIONALLY narrow.
+  // Omitted deliberately: isEditing (read once at form mount, never
+  // flips), job.revenue (we only seed when it's empty — re-firing on
+  // every revenue keystroke would clobber the user's manual entry),
+  // settings + the other calcQuote inputs (miles/tireCost/qty/
+  // surcharges/etc — those drive the LIVE quote effect at line ~528,
+  // not this seed-on-pick path). If a future maintainer "fixes"
+  // exhaustive-deps by adding job.revenue, every digit typed into
+  // the revenue field would re-run this branch and overwrite the
+  // user input back to the system suggestion — see Batch A
+  // regression where this exact path almost shipped.
   useEffect(() => {
     if (!isEditing && !job.revenue) {
       const q = calcQuote({
@@ -337,7 +350,15 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job.service, job.vehicleType]);
 
-  // Auto-zero tireCost when customer-supplied
+  // Auto-zero tireCost when customer-supplied.
+  //
+  // Batch E (2026-06-05): omit job.tireCost and `set` from deps on
+  // purpose. The body READS job.tireCost only to detect "needs
+  // zeroing"; including it as a dep would trigger an infinite loop
+  // (set tireCost → effect reruns → reads new value → re-checks).
+  // `set` is the parent's setter which closes over fresh `job` via
+  // setJob((prev) => …) so a stale-closure read is structurally
+  // impossible here. Only re-fire when the SOURCE selection changes.
   useEffect(() => {
     if (tireSource === 'Customer supplied' && Number(job.tireCost || 0) !== 0) {
       set('tireCost', 0);
@@ -345,7 +366,15 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tireSource]);
 
-  // Mirror purchase price → tireCost when bought-for-this-job
+  // Mirror purchase price → tireCost when bought-for-this-job.
+  //
+  // Batch E (2026-06-05): job.tireCost is omitted from deps for the
+  // same loop-prevention reason as the customer-supplied effect
+  // above — body reads it only to gate the write. `set` is omitted
+  // because the setter is functionally stable (closes over setJob
+  // with the (prev) => updater shape). Re-firing only on the two
+  // INPUTS that decide the mirror — the source picker and the
+  // purchase-price field — is correct.
   useEffect(() => {
     if (tireSource === 'Bought for this job') {
       const pp = Number(job.tirePurchasePrice || 0);
@@ -354,7 +383,17 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job.tirePurchasePrice, tireSource]);
 
-  // Default state to brand state on new jobs
+  // Default state to brand state on new jobs.
+  //
+  // Batch E (2026-06-05): one-shot seed. Omitted: isEditing (read
+  // once at mount), job.state (we only seed when EMPTY — re-firing
+  // on every state edit would lock the field to the brand value and
+  // make user overrides impossible), brand.mainCity (read for the
+  // city/area fill-in but we explicitly want re-seed to track only
+  // the state change; mainCity drifting independently shouldn't
+  // re-stomp the operator's chosen city). If someone adds job.state
+  // to deps, the result is "field becomes read-only" because every
+  // keystroke triggers a re-seed back to brand.state.
   const { brand } = useBrand();
   useEffect(() => {
     if (!isEditing && !job.state && brand.state) {
@@ -388,6 +427,13 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
   // none read taxRate, so it stays out. resolveVertical reads
   // settings.businessType but that field cannot change without a full
   // page remount (BrandContext re-bootstrap), so it's safe to omit.
+  //
+  // Batch E (2026-06-05): the disable below is REQUIRED — eslint
+  // wants the full `job` and `settings` objects in the dep list
+  // because the body passes them by reference, but we deliberately
+  // pass `job` to a pure function that only reads the enumerated
+  // fields. "Fixing" this by widening to [job, settings] reintroduces
+  // the keystroke-jitter regression Perf P1-3 fixed.
   const breakdown = useMemo(
     () => computeBreakdownTagged(job, settings),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -509,6 +555,12 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
   // calcQuote reads only servicePricing / vehiclePricing /
   // freeMilesIncluded / costPerMile from settings — verified against
   // src/lib/utils.ts::calcQuote and the pricing engine entry points.
+  //
+  // Batch E (2026-06-05): "fixing" the disable by widening to
+  // [job, settings] would recompute liveQuote on every customerName/
+  // notes/city keystroke and (worse) re-stomp revenue via the mirror
+  // effect at line ~574, causing the input to flicker between user
+  // text and the system suggestion mid-edit. Leave narrow.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   [
     job.service, job.vehicleType, job.miles, job.tireCost, job.materialCost,
@@ -525,6 +577,15 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
    * locked, we ALWAYS write the suggested to revenue so the field
    * value stays in sync with what's displayed.
    */
+  //
+  // Batch E (2026-06-05): job.revenue and `set` are deliberately
+  // OMITTED from the dep list. job.revenue is the field we WRITE TO;
+  // adding it as a dep creates a feedback loop (write revenue →
+  // effect reruns → compares → writes again). `set` is a stable
+  // setter (closes over setJob's (prev) => updater so no stale
+  // closure risk). The two deps that DO appear — revenueLocked +
+  // liveQuote.suggested — are the only signals that should cause a
+  // re-mirror: lock state changed, or the suggested price moved.
   useEffect(() => {
     if (!revenueLocked) return;
     if (Number(job.revenue) !== Number(liveQuote.suggested)) {
@@ -971,14 +1032,26 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
                 — no one washes cars on the highway. Configs that
                 don't declare `conditions` fall back to all 4 for
                 back-compat with anything not yet migrated. */}
+            {/* Batch E (2026-06-05): wrap the leading emoji glyph in
+                <span aria-hidden="true"> via splitEmojiLabel so screen
+                readers announce "Emergency" instead of "fire engine
+                emoji Emergency". Visual rendering unchanged — the
+                emoji still appears in the same spot — only the AT
+                tree changes. Helper handles VS-16 / skin-tone /
+                no-emoji passthrough; see tests/emojiLabel.test.ts. */}
             {(vertical.conditions ?? [
               { key: 'emergency' as const, label: '🚨 Emergency' },
               { key: 'lateNight' as const, label: '🌙 Late Night' },
               { key: 'highway' as const,   label: '🛣️ Highway' },
               { key: 'weekend' as const,   label: '📅 Weekend' },
-            ]).map(({ key: k, label: l }) => (
-              <button key={k} type="button" className={'chip' + (job[k] ? ' active' : '')} aria-pressed={!!job[k]} onClick={() => set(k, !job[k])}>{l}</button>
-            ))}
+            ]).map(({ key: k, label: l }) => {
+              const { emoji, text } = splitEmojiLabel(l);
+              return (
+                <button key={k} type="button" className={'chip' + (job[k] ? ' active' : '')} aria-pressed={!!job[k]} onClick={() => set(k, !job[k])}>
+                  {emoji && <span aria-hidden="true">{emoji} </span>}{text || l}
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>

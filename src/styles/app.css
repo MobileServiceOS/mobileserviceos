@@ -1062,7 +1062,17 @@ a { color: var(--brand-primary); text-decoration: none; }
   padding-bottom: var(--safe-bot);
   padding-left: var(--safe-l);
   padding-right: var(--safe-r);
-  display: grid; grid-template-columns: repeat(5, 1fr);
+  /* Batch E (2026-06-05): grid was repeat(5, 1fr) but the nav renders
+     SEVEN buttons (Home / Jobs / Leads / Customers / Log / Inv / More).
+     With 5 columns the trailing 2 buttons wrapped to an implicit
+     second row on narrow phones, doubling the nav height and pushing
+     content under the home indicator. Bumped to repeat(7, 1fr).
+     Tap-target math on iPhone SE (320 viewport, ~308 usable after
+     safe-area insets): 308 / 7 ≈ 44px column — meets the 44pt iOS
+     minimum touch target. If a future tab is added bringing this to
+     8 buttons, switch to an overflow pattern (4 primary + More sheet
+     hosting the rest) rather than further squeezing columns. */
+  display: grid; grid-template-columns: repeat(7, 1fr);
   /* Translucent + blurred backdrop — content scrolls softly behind
      the nav instead of hitting a hard opaque bar. */
   background: rgba(17,19,21,.86);
