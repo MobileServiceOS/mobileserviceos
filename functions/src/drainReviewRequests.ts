@@ -13,8 +13,12 @@
 //    - 5xx                     → retryCount++ (status=failed at 3)
 //    - success                 → status=sent + log event
 //
-//  The drainer is idempotent and race-safe via transactional flip
-//  from 'pending' → 'sending' inside processOne.
+//  The drainer is idempotent and race-safe via a two-phase design:
+//  Phase 1 claims the row in an I/O-free transaction (pending →
+//  sending); Phase 2 sends the SMS and records the outcome OUTSIDE any
+//  transaction. The Twilio call must never sit inside a retrying
+//  transaction — retries would double-text the customer (2026-06-05
+//  audit). _processOne composes both phases for the test harness.
 // ═══════════════════════════════════════════════════════════════════
 
 import { onSchedule } from 'firebase-functions/v2/scheduler';
@@ -55,8 +59,11 @@ function _isSendAfterPast(value: unknown): boolean {
 }
 
 /**
- * Process exactly one queue entry. Pure logic — tx + sendSms +
- * addCommunicationEvent are injected so tests stub them.
+ * Process exactly one queue entry: claim (pending → sending) then send.
+ * Pure logic — tx + sendSms + addCommunicationEvent are injected so
+ * tests stub them. Used by the test harness via __testHooks; production
+ * splits the claim and the send across two phases (see the scheduler
+ * body) so the Twilio call never runs inside a retrying transaction.
  */
 async function _processOne(
   target: ProcessTarget,
@@ -76,6 +83,28 @@ async function _processOne(
   // instances draining the same minute).
   tx.update({ path }, { status: 'sending' });
 
+  await _finalizeClaimed(target, req, tx, sendSms, addCommunicationEvent);
+}
+
+/**
+ * Send the SMS for an ALREADY-CLAIMED ('sending') request and record the
+ * outcome (sent / failed / retry / dormant-unwind) + communication event.
+ *
+ * 2026-06-05 audit: this must NOT run inside a retrying Firestore
+ * transaction. Transactions auto-retry on contention and would re-invoke
+ * sendSms, double-texting the customer. Production claims the row in an
+ * I/O-free transaction first, then calls this with a non-transactional
+ * writer. The `writer` only needs `update` (one write per outcome).
+ */
+async function _finalizeClaimed(
+  target: ProcessTarget,
+  req: Record<string, unknown>,
+  writer: Pick<TxLike, 'update'>,
+  sendSms: SendSmsFn,
+  addCommunicationEvent: EventSink,
+): Promise<void> {
+  const path = `businesses/${target.businessId}/reviewRequests/${target.requestId}`;
+  const tx = writer;
   try {
     const result = await sendSms({ to: String(req.phoneE164), body: String(req.templateRendered) });
     const sentAt = Timestamp.now();
@@ -213,32 +242,58 @@ export const drainReviewRequests = onSchedule(
       for (const reqDoc of pendingSnap.docs) {
         scanned += 1;
         const target = { businessId, requestId: reqDoc.id };
+        const ref = db.doc(`businesses/${businessId}/reviewRequests/${reqDoc.id}`);
+
+        // ─── Phase 1: claim (pending → sending) ──────────────────────
+        // I/O-free transaction so contention retries are cheap and safe.
+        // Exactly one drainer instance wins the flip; the loser sees
+        // status !== 'pending' and skips. Returns the claimed data, or
+        // null if not claimable (already sending/sent, or not yet due).
+        let claimedReq: Record<string, unknown> | null = null;
         try {
-          await db.runTransaction(async (tx) => {
-            const events: Array<Record<string, unknown>> = [];
-            const addEvent: EventSink = (e) => events.push(e);
-            // Real tx satisfies TxLike; admin tx APIs accept DocumentReference,
-            // so we adapt by wrapping the path back into a ref inside the helper.
-            const adapter: TxLike = {
-              get: async (ref) => {
-                const s = await tx.get(db.doc(ref.path));
-                return { exists: s.exists, data: () => s.data() ?? undefined };
-              },
-              update: (ref, patch) => tx.update(db.doc(ref.path), patch),
-              set:    (ref, patch) => tx.set(db.doc(ref.path), patch, { merge: true }),
-            };
-            await _processOne(target, adapter, realSendSms, addEvent);
-            // After the request-doc writes are queued, append events.
-            for (const e of events) {
-              const eventRef = db.collection(`businesses/${businessId}/communicationEvents`).doc();
-              tx.set(eventRef, e);
-            }
-            if (events.find(e => e.type === 'review_request_sent'))   sent += 1;
-            if (events.find(e => e.type === 'review_request_failed')) failedCount += 1;
+          claimedReq = await db.runTransaction(async (tx) => {
+            const s = await tx.get(ref);
+            if (!s.exists) return null;
+            const d = s.data() ?? {};
+            if (d.status !== 'pending') return null;
+            if (!_isSendAfterPast(d.sendAfterAt)) return null;
+            tx.update(ref, { status: 'sending' });
+            return d;
           });
         } catch (err) {
-          // Tx aborted (contention) — let the next minute retry.
-          console.error('[drainReviewRequests] tx failed', { target, err: (err as Error).message });
+          // Claim aborted (contention) — let the next minute retry.
+          console.error('[drainReviewRequests] claim failed', { target, err: (err as Error).message });
+          continue;
+        }
+        if (!claimedReq) continue;
+
+        // ─── Phase 2: send + finalize (OUTSIDE any transaction) ──────
+        // The Twilio call must never run inside a retrying transaction
+        // (2026-06-05 audit: would double-text on retry). A post-send
+        // write failure leaves the row in 'sending' rather than re-
+        // sending — safer than a duplicate text; a stale-'sending'
+        // sweep can reconcile it.
+        const events: Array<Record<string, unknown>> = [];
+        const addEvent: EventSink = (e) => events.push(e);
+        const writes: Array<Promise<unknown>> = [];
+        const writer: Pick<TxLike, 'update'> = {
+          update: (r, patch) => { writes.push(db.doc(r.path).update(patch)); },
+        };
+        try {
+          await _finalizeClaimed(target, claimedReq, writer, realSendSms, addEvent);
+          await Promise.all(writes);
+          if (events.length) {
+            const batch = db.batch();
+            for (const e of events) {
+              batch.set(db.collection(`businesses/${businessId}/communicationEvents`).doc(), e);
+            }
+            await batch.commit();
+          }
+          if (events.find(e => e.type === 'review_request_sent'))   sent += 1;
+          if (events.find(e => e.type === 'review_request_failed')) failedCount += 1;
+        } catch (err) {
+          // Send/finalize failed after the claim — row stays 'sending'.
+          console.error('[drainReviewRequests] finalize failed', { target, err: (err as Error).message });
         }
       }
     }

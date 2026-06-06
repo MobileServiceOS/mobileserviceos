@@ -10,10 +10,15 @@
 //  handler can catch + 403.
 //
 //  When TWILIO_AUTH_TOKEN is unset:
-//    - validation is SKIPPED with a console.warn
-//    - the webhook proceeds (so SP4B is testable in dev without a
-//      real Twilio account)
-//    - operator must set the env var before production exposure
+//    - in the Functions emulator ONLY, validation is SKIPPED with a
+//      console.warn so SP4B is testable in dev without a real Twilio
+//      account
+//    - in production (not the emulator) this FAILS CLOSED — it throws
+//      TWILIO_SIGNATURE_INVALID so the handler returns 403 rather than
+//      processing a forgeable, unauthenticated webhook. (2026-06-05
+//      audit: the previous unconditional skip was fail-open — anyone
+//      knowing the public function URL could spray fake leads / SMS if
+//      the secret was ever missing.)
 //
 //  Uses the canonical Twilio recipe: HMAC-SHA1 of (URL + sorted form
 //  params) keyed by the auth token. The twilio package handles this
@@ -34,17 +39,24 @@ let warnedTokenMissing = false;
 
 /**
  * Throws Error('TWILIO_SIGNATURE_INVALID') on a forged signature.
- * Silently returns when TWILIO_AUTH_TOKEN is unset (with a warning).
+ * When TWILIO_AUTH_TOKEN is unset: skips only inside the Functions
+ * emulator (dev); in production it fails closed (throws).
  */
 export function assertValidTwilioSignature(input: ValidationInput): void {
   const token = process.env.TWILIO_AUTH_TOKEN;
   if (!token) {
-    if (!warnedTokenMissing) {
-      warnedTokenMissing = true;
-      // eslint-disable-next-line no-console
-      console.warn('[twilioSignatureValidator] TWILIO_AUTH_TOKEN unset — signature validation DISABLED. Do not deploy to production in this state.');
+    // Fail OPEN only in the local emulator; fail CLOSED everywhere else.
+    if (process.env.FUNCTIONS_EMULATOR === 'true') {
+      if (!warnedTokenMissing) {
+        warnedTokenMissing = true;
+        // eslint-disable-next-line no-console
+        console.warn('[twilioSignatureValidator] TWILIO_AUTH_TOKEN unset — signature validation DISABLED (emulator only).');
+      }
+      return;
     }
-    return;
+    // eslint-disable-next-line no-console
+    console.error('[twilioSignatureValidator] TWILIO_AUTH_TOKEN unset in production — rejecting webhook (fail-closed).');
+    throw new Error('TWILIO_SIGNATURE_INVALID');
   }
   const sig = input.signatureHeader ?? '';
   const ok = validateRequest(token, sig, input.url, input.params);

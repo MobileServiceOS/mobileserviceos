@@ -141,24 +141,52 @@ export const stripeWebhook = onRequest(
     // ─── 3. Idempotency check ──────────────────────────────────
     const db = admin.firestore();
     const eventDocRef = db.collection('stripeWebhookEvents').doc(event.id);
+    // Lease window: how long a 'sending'/in-flight claim is trusted
+    // before a later delivery is allowed to re-claim it. Covers the
+    // worst-case handler runtime; a crashed handler's claim goes stale
+    // after this and the next Stripe retry reprocesses.
+    const CLAIM_LEASE_MS = 60_000;
     try {
-      // Transactional create: if the doc already exists, we've
-      // already processed this event. setDoc with create-if-missing
-      // semantics via runTransaction.
-      const already = await db.runTransaction(async (tx) => {
+      // Transactional claim:
+      //   - processed === true        → genuinely done, skip (idempotent)
+      //   - exists, fresh claim       → another delivery is in-flight → 503
+      //   - exists, stale claim       → prior attempt died, re-claim + run
+      //   - missing                   → claim + run
+      // 2026-06-05 audit: the previous code skipped on mere doc EXISTENCE,
+      // so an event whose handler threw (doc left processed:false) was
+      // never retried — Stripe's redelivery short-circuited as "already
+      // processed" and the subscription/invoice mutation was lost forever.
+      const decision = await db.runTransaction<'done' | 'inflight' | 'claimed'>(async (tx) => {
         const snap = await tx.get(eventDocRef);
-        if (snap.exists) return true;
+        const nowMs = Date.now();
+        if (snap.exists) {
+          const d = snap.data() ?? {};
+          if (d.processed === true) return 'done';
+          const claimedAtMs = typeof d.claimedAtMs === 'number' ? d.claimedAtMs : 0;
+          if (nowMs - claimedAtMs < CLAIM_LEASE_MS) return 'inflight';
+          tx.set(eventDocRef, { type: event.type, claimedAtMs: nowMs, processed: false }, { merge: true });
+          return 'claimed';
+        }
         tx.set(eventDocRef, {
           type: event.type,
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          claimedAtMs: nowMs,
           processed: false,
         });
-        return false;
+        return 'claimed';
       });
-      if (already) {
+      if (decision === 'done') {
         // eslint-disable-next-line no-console
         console.info('[stripeWebhook] duplicate event skipped', { eventId: event.id, type: event.type });
         res.status(200).send('Already processed');
+        return;
+      }
+      if (decision === 'inflight') {
+        // Another delivery is mid-flight. Ask Stripe to retry later
+        // rather than process concurrently (double-apply risk).
+        // eslint-disable-next-line no-console
+        console.info('[stripeWebhook] event in-flight, deferring', { eventId: event.id, type: event.type });
+        res.status(503).send('Event in-flight — retry later');
         return;
       }
     } catch (err) {
