@@ -6,6 +6,7 @@ import { PAYMENT_METHOD_LABELS } from '@/types';
 import { fmtDate, jobGrossProfit, money, paymentPillClass, resolvePaymentStatus, serviceIcon } from '@/lib/utils';
 import { useActiveVertical } from '@/lib/useActiveVertical';
 import { useMembership } from '@/context/MembershipContext';
+import { RoadsideActions } from '@/components/RoadsideActions';
 import { useBrand } from '@/context/BrandContext';
 import { useMembersDirectory } from '@/lib/useMembersDirectory';
 import { JobTimer } from '@/components/JobDetailModal/JobTimer';
@@ -197,6 +198,12 @@ export function JobDetailModal({
               label={job.fullLocationLabel || (job.city && job.state ? `${job.city}, ${job.state}` : job.area || '—')}
             />
             <Row label="Source" value={job.source || '—'} />
+            {/* Roadside — call the customer + navigate to the job site. */}
+            <RoadsideActions
+              phoneE164={job.customerPhone}
+              address={job.fullLocationLabel || [job.city, job.state].filter(Boolean).join(', ') || job.area || null}
+              style={{ marginTop: 10, marginBottom: 0 }}
+            />
           </div>
 
           {showTireBlock && (

@@ -875,6 +875,27 @@ a { color: var(--brand-primary); text-decoration: none; }
 .btn.danger:hover { background: rgba(239,68,68,.2); }
 .btn.danger:disabled { opacity: .4; cursor: not-allowed; }
 .btn.success { background: rgba(34,197,94,.16); color: var(--green); border-color: rgba(34,197,94,.3); }
+/* Roadside — extra-large thumb target for primary field actions
+   (Save Job, etc). 52px clears the iOS 44pt minimum with margin for
+   gloves + daylight. */
+.btn.xl { padding: 15px 20px; font-size: 15px; border-radius: 12px; min-height: 52px; }
+
+/* Roadside action links — tel: / sms: / maps: rendered as <a> so the OS
+   handles call / text / navigate natively. Big, high-contrast, one-hand. */
+.roadside-row { display: flex; gap: 8px; }
+.roadside-link {
+  flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  min-height: 50px; padding: 12px 14px; border-radius: 12px;
+  font-size: 14px; font-weight: 800; letter-spacing: .2px;
+  text-decoration: none; cursor: pointer; border: 1px solid transparent;
+  -webkit-tap-highlight-color: transparent;
+  transition: background .15s ease, transform .07s ease;
+}
+.roadside-link:active { transform: scale(.97); }
+.roadside-link.call { background: #22c55e; color: #04210f; }
+.roadside-link.text { background: var(--s3); color: var(--t1); border-color: var(--border); }
+.roadside-link.nav  { background: var(--brand-primary); color: #06070a; }
+.roadside-link svg { width: 17px; height: 17px; stroke-width: 2.2; }
 
 .cta-btn {
   display: block; width: 100%; max-width: 100%;
