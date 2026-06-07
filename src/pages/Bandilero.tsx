@@ -38,6 +38,7 @@ import { CustomerSegmentsPanel } from '@/components/bandilero/CustomerSegmentsPa
 import { InventoryIntelPanel } from '@/components/bandilero/InventoryIntelPanel';
 import { GrowthPanel } from '@/components/bandilero/GrowthPanel';
 import { ReputationPanel } from '@/components/bandilero/ReputationPanel';
+import { PricingIntelPanel } from '@/components/bandilero/PricingIntelPanel';
 
 interface Props {
   businessId: string;
@@ -205,7 +206,24 @@ export default function Bandilero({
           : narr.value}
       </div>
 
-      {/* Top 3 Actions */}
+      {/* Metric sections — spec order: Revenue → Jobs → Missed calls →
+          Review alerts → Inventory alerts */}
+      {briefing.sections.map((s) => (
+        <div className="bandilero-section" key={s.key}>
+          <div className="bandilero-section-title">{s.title}</div>
+          {s.restricted ? (
+            <div style={{ fontSize: 12, color: '#8b93a3', padding: '10px 12px', borderRadius: 12, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}>
+              🔒 Financial metrics are available to owners and admins.
+            </div>
+          ) : (
+            <div className="bandilero-grid">
+              {s.metrics.map((m) => <MetricCard key={`${s.key}-${m.label}`} metric={m} />)}
+            </div>
+          )}
+        </div>
+      ))}
+
+      {/* Top 3 Actions — closes the command briefing (spec order) */}
       <div className="bandilero-section">
         <div className="bandilero-section-title">Top 3 Actions</div>
         {briefing.actionsRestricted ? (
@@ -222,22 +240,6 @@ export default function Bandilero({
           </div>
         )}
       </div>
-
-      {/* Metric sections */}
-      {briefing.sections.map((s) => (
-        <div className="bandilero-section" key={s.key}>
-          <div className="bandilero-section-title">{s.title}</div>
-          {s.restricted ? (
-            <div style={{ fontSize: 12, color: '#8b93a3', padding: '10px 12px', borderRadius: 12, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}>
-              🔒 Financial metrics are available to owners and admins.
-            </div>
-          ) : (
-            <div className="bandilero-grid">
-              {s.metrics.map((m) => <MetricCard key={`${s.key}-${m.label}`} metric={m} />)}
-            </div>
-          )}
-        </div>
-      ))}
 
       {/* ── Phase 2 modules (operational; all roles) ── */}
       <div className="bandilero-section">
@@ -261,6 +263,18 @@ export default function Bandilero({
         <GrowthPanel
           recommendations={recommendations}
           narrative={growthNarrative ?? notConnected<string>('AI not connected', 'ai')}
+          canViewFinancials={canViewFinancials}
+        />
+      </div>
+
+      <div className="bandilero-section">
+        <div className="bandilero-section-title">Pricing Intelligence</div>
+        <PricingIntelPanel
+          jobs={jobs}
+          leads={leads}
+          inventory={inventory}
+          settings={settings}
+          today={today}
           canViewFinancials={canViewFinancials}
         />
       </div>

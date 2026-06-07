@@ -33,7 +33,6 @@ import { grossProfitForRange } from './services/finance';
 import { missedCallMetrics, missedCallStats } from './services/callIntel';
 import { inventoryAlertMetrics } from './services/inventory';
 import { reviewRequestMetrics } from './services/reviews';
-import { repeatMetricsFromInsights } from './services/customers';
 import { computeAlerts, topActions } from './alerts';
 import { getWeekStart } from '@/lib/utils';
 
@@ -82,15 +81,16 @@ export function buildDailyBriefing(input: BriefingInput): Briefing {
     ],
   };
 
-  // ── Jobs (operational, all roles) ───────────────────────────────
-  const scheduledToday = jobs.filter((j) => j.date === today && j.status !== 'Cancelled').length;
+  // ── Jobs (operational, all roles): completed + pending ──────────
   const completedToday = jobs.filter((j) => j.date === today && j.status === 'Completed').length;
+  // Pending = open jobs not yet completed/cancelled (any date).
+  const pendingJobs = jobs.filter((j) => j.status === 'Pending').length;
   const jobsSection: BriefingSection = {
     key: 'jobs',
     title: 'Jobs',
     metrics: [
-      labeled(live(scheduledToday, 'jobs', today), 'Scheduled today', 'count'),
       labeled(live(completedToday, 'jobs', today), 'Completed today', 'count'),
+      labeled(live(pendingJobs, 'jobs', today), 'Pending', 'count'),
       labeled(live(insights.dailyJobs.jobsThisWeek, 'jobs', today), 'Jobs this week', 'count'),
     ],
   };
@@ -112,7 +112,7 @@ export function buildDailyBriefing(input: BriefingInput): Briefing {
   const reviews = reviewRequestMetrics(reviewRequests, connectivity, today, windowDays);
   const reviewsSection: BriefingSection = {
     key: 'reviews',
-    title: 'Review requests',
+    title: 'Review alerts',
     metrics: [
       labeled(reviews.sent, `Sent (${windowDays}d)`, 'count'),
       labeled(reviews.pending, 'Pending', 'count'),
@@ -124,7 +124,7 @@ export function buildDailyBriefing(input: BriefingInput): Briefing {
   const inv = inventoryAlertMetrics(inventory, jobs, today);
   const inventorySection: BriefingSection = {
     key: 'inventory',
-    title: 'Inventory',
+    title: 'Inventory alerts',
     metrics: [
       labeled(inv.critical, 'Out of stock', 'count'),
       labeled(inv.low, 'Low stock', 'count'),
@@ -132,27 +132,9 @@ export function buildDailyBriefing(input: BriefingInput): Briefing {
     ],
   };
 
-  // ── Customers (repeat — operational) ────────────────────────────
-  const repeat = repeatMetricsFromInsights(insights, today);
-  const customersSection: BriefingSection = {
-    key: 'customers',
-    title: 'Customers',
-    metrics: [
-      labeled(repeat.repeat, 'Repeat customers', 'count'),
-      labeled(repeat.pct, 'Repeat rate', 'pct'),
-    ],
-  };
-
-  // ── Not-connected sources (honest NOT_CONNECTED, never 0) ───────
-  const growthSection: BriefingSection = {
-    key: 'growth',
-    title: 'Growth & visibility',
-    metrics: [
-      labeled(notConnected<number>('Google Business Profile API not connected', 'gbp'), 'Review score', 'count'),
-      labeled(notConnected<number>('Search Console not connected', 'seo'), 'Search impressions', 'count'),
-      labeled(notConnected<number>('No GPS on jobs — dispatch not connected', 'dispatch'), 'Avg ETA', 'count'),
-    ],
-  };
+  // Customer + reputation/visibility detail live in their dedicated
+  // Phase 2/3 panels (Customer Segments, Reputation) — the core command
+  // briefing stays to the spec'd format to avoid duplication.
 
   // ── Top-3 Actions (financial — dollar impact) ───────────────────
   const allActions = computeAlerts({
@@ -165,9 +147,12 @@ export function buildDailyBriefing(input: BriefingInput): Briefing {
   const ranked = topActions(allActions, 3);
 
   // ── Apply tech redaction (access overlay, NOT a confidence state) ─
+  // Spec'd command-briefing order: Revenue → Jobs → Missed calls →
+  // Review alerts → Inventory alerts (greeting + Top-3 Actions render
+  // around these in the page).
   const sections: BriefingSection[] = [
     revenueSection, jobsSection, missedCallsSection,
-    reviewsSection, inventorySection, customersSection, growthSection,
+    reviewsSection, inventorySection,
   ];
   let actionsRestricted = false;
   if (!input.canViewFinancials) {

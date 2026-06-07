@@ -49,8 +49,14 @@ export function ActionCard({ action, rank }: { action: Action; rank: number }) {
         <div style={{ fontSize: 11, color: 'var(--t3, #9aa3b2)', marginTop: 3, lineHeight: 1.35 }}>
           {action.detail}
         </div>
-        <div style={{ marginTop: 7 }}>
+        <div style={{ marginTop: 7, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <ConfidenceBadge state={action.impact.state} />
+          <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: 0.4, color: '#7e8798', textTransform: 'uppercase' }}>
+            Source: {action.source}
+          </span>
+          {action.impact.state === 'ESTIMATED' && action.impact.assumption && (
+            <span style={{ fontSize: 9.5, color: '#9aa3b2' }}>· {action.impact.assumption}</span>
+          )}
         </div>
       </div>
     </div>
