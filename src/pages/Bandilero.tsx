@@ -23,18 +23,20 @@ import { detectConnectivity } from '@/lib/bandilero/connectivity';
 import { buildDailyBriefing } from '@/lib/bandilero/briefing';
 import { buildRecommendations } from '@/lib/bandilero/recommendations';
 import { draftBriefingNarrative, draftGrowthSynthesis } from '@/lib/bandilero/reasoning';
-import { type Metric, notConnected, hasValue } from '@/lib/bandilero/confidence';
+import { type Metric, notConnected, hasValue, live } from '@/lib/bandilero/confidence';
 import { type BandileroConfig, resolveConfig } from '@/lib/bandilero/config';
 import { statusFromCount, statusFromFlag, type ModuleStatus } from '@/lib/bandilero/moduleStatus';
 import { ModuleHeader } from '@/components/bandilero/ModuleHeader';
+import { HeadlineStrip, type Kpi } from '@/components/bandilero/HeadlineStrip';
 import { dispatchMetrics } from '@/lib/bandilero/services/dispatch';
 import { callIntelDeep } from '@/lib/bandilero/services/callIntelDeep';
 import { customerIntelligence } from '@/lib/bandilero/services/customerIntel';
 import { financeIntel } from '@/lib/bandilero/services/financeIntel';
 import { inventoryIntel } from '@/lib/bandilero/services/inventoryIntel';
 import { reputationStatus } from '@/lib/bandilero/services/reputation';
-import { MetricCard } from '@/components/bandilero/MetricCard';
+import { buildAlertCenter } from '@/lib/bandilero/services/alertCenter';
 import { ActionCard } from '@/components/bandilero/ActionCard';
+import { AlertCenterPanel } from '@/components/bandilero/AlertCenterPanel';
 import { BriefingHeader } from '@/components/bandilero/BriefingHeader';
 import { DispatchPanel } from '@/components/bandilero/DispatchPanel';
 import { CallIntelPanel } from '@/components/bandilero/CallIntelPanel';
@@ -134,6 +136,26 @@ export default function Bandilero({
     [jobs, leads, inventory, settings, connectivity, today, config.windowDays],
   );
 
+  // Headline KPI strip — 8 at-a-glance KPIs composed from the modules
+  // (replaces the old duplicate briefing metric-grids). Financial KPIs
+  // are flagged so the strip redacts them for technicians.
+  const headlineKpis = useMemo<Kpi[]>(() => {
+    const scheduledToday = jobs.filter((j) => j.date === today && j.status !== 'Cancelled').length;
+    const completedToday = jobs.filter((j) => j.date === today && j.status === 'Completed').length;
+    return [
+      { label: 'Revenue today', metric: finance.revenueToday, format: 'money', financial: true },
+      { label: 'Profit today', metric: finance.profitToday, format: 'money', financial: true },
+      { label: 'Jobs scheduled', metric: live(scheduledToday, 'jobs', today), format: 'count' },
+      { label: 'Jobs completed', metric: live(completedToday, 'jobs', today), format: 'count' },
+      { label: 'Inventory alerts', metric: invIntel.reorderCount, format: 'count' },
+      { label: 'Follow-ups', metric: custIntel.inactive90Count, format: 'count' },
+      { label: 'Reputation', metric: reputation.metrics.reviewScore, format: 'count' },
+      { label: 'Growth opps', metric: live(recommendations.length, 'jobs', today), format: 'count' },
+    ];
+  }, [jobs, today, finance, invIntel, custIntel, reputation, recommendations]);
+
+  const alertCenter = useMemo(() => buildAlertCenter(recommendations), [recommendations]);
+
   // Per-module Data Confidence (CONNECTED / PARTIAL / NOT_CONNECTED) —
   // derived from real counts + connectivity, never fabricated.
   const status = useMemo(() => {
@@ -205,22 +227,9 @@ export default function Bandilero({
           : narr.value}
       </div>
 
-      {/* Metric sections — spec order: Revenue → Jobs → Missed calls →
-          Review alerts → Inventory alerts */}
-      {briefing.sections.map((s) => (
-        <div className="bandilero-section" key={s.key}>
-          <div className="bandilero-section-title">{s.title}</div>
-          {s.restricted ? (
-            <div style={{ fontSize: 12, color: '#8b93a3', padding: '10px 12px', borderRadius: 12, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}>
-              🔒 Financial metrics are available to owners and admins.
-            </div>
-          ) : (
-            <div className="bandilero-grid">
-              {s.metrics.map((m) => <MetricCard key={`${s.key}-${m.label}`} metric={m} />)}
-            </div>
-          )}
-        </div>
-      ))}
+      {/* Headline KPIs — at-a-glance command strip (single source; the
+          per-domain detail lives in the modules below). */}
+      <HeadlineStrip kpis={headlineKpis} canViewFinancials={canViewFinancials} />
 
       {/* Top 3 Actions — closes the command briefing (spec order) */}
       <div className="bandilero-section">
@@ -238,6 +247,12 @@ export default function Bandilero({
             {briefing.topActions.map((a, i) => <ActionCard key={a.id} action={a} rank={i + 1} />)}
           </div>
         )}
+      </div>
+
+      {/* ── Alert Center — Critical / Warning / Opportunity ── */}
+      <div className="bandilero-section">
+        <div className="bandilero-section-title">Alert Center</div>
+        <AlertCenterPanel center={alertCenter} canViewFinancials={canViewFinancials} />
       </div>
 
       {/* ── Revenue & Finance (owner/admin only) ── */}

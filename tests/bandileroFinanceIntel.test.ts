@@ -47,6 +47,9 @@ console.log('\n── revenue + profit (no expenses) ──');
   check('distributable week = 1200 (taxRate 0)', f.distributableWeek.value === 1200, `got ${f.distributableWeek.value}`);
   check('all headline metrics LIVE', [f.revenueToday, f.grossProfitWeek, f.distributableWeek, f.netProfitMonth].every((m) => m.state === 'LIVE'));
   check('revenueTrend is 8 weeks', f.revenueTrend.length === 8);
+  check('profit today = 1200', f.profitToday.value === 1200, `got ${f.profitToday.value}`);
+  check('revenue by service totals 1500', f.revenueByService.reduce((t, r) => t + r.total, 0) === 1500, JSON.stringify(f.revenueByService));
+  check('breakdown arrays present', Array.isArray(f.revenueByCity) && Array.isArray(f.revenueByCustomer) && Array.isArray(f.revenueByTechnician));
 }
 
 console.log('\n── owner split (60/40 of 1200) ──');

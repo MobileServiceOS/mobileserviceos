@@ -36,6 +36,41 @@ function TrendBars({ trend }: { trend: FinanceIntel['revenueTrend'] }) {
   );
 }
 
+function BreakdownList({ title, rows }: { title: string; rows: { label: string; total: number }[] }) {
+  if (rows.length === 0) return null;
+  const max = Math.max(1, ...rows.map((r) => r.total));
+  return (
+    <div>
+      <div style={{ fontSize: 10.5, color: '#9aa3b2', fontWeight: 700, margin: '0 0 6px 2px' }}>{title}</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+        {rows.map((r) => (
+          <div key={r.label} className="bnd-card" style={{ position: 'relative', padding: '7px 11px', overflow: 'hidden' }}>
+            <div aria-hidden="true" style={{ position: 'absolute', inset: 0, width: `${Math.round((r.total / max) * 100)}%`, background: 'linear-gradient(90deg, rgba(34,211,238,0.14), rgba(34,211,238,0.02))' }} />
+            <div style={{ position: 'relative', display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+              <span style={{ fontSize: 12, color: '#e8ebf2', fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.label}</span>
+              <span style={{ fontSize: 11.5, color: 'var(--bnd-cyan,#22d3ee)', fontWeight: 800, whiteSpace: 'nowrap' }}>{money(r.total)}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RevenueBreakdowns({ intel }: { intel: FinanceIntel }) {
+  return (
+    <div>
+      <div style={{ fontSize: 11, color: '#9aa3b2', fontWeight: 700, margin: '2px 0 8px 2px' }}>Revenue breakdown — month to date</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+        <BreakdownList title="By service" rows={intel.revenueByService} />
+        <BreakdownList title="By city" rows={intel.revenueByCity} />
+        <BreakdownList title="By customer" rows={intel.revenueByCustomer} />
+        <BreakdownList title="By technician" rows={intel.revenueByTechnician} />
+      </div>
+    </div>
+  );
+}
+
 export function FinanceIntelPanel({ intel, canViewFinancials }: { intel: FinanceIntel; canViewFinancials: boolean }) {
   if (!canViewFinancials) {
     return (
@@ -48,6 +83,7 @@ export function FinanceIntelPanel({ intel, canViewFinancials }: { intel: Finance
     <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
       <div className="bandilero-grid">
         <MetricCard metric={labeled(intel.revenueToday, 'Revenue today', 'money')} />
+        <MetricCard metric={labeled(intel.profitToday, 'Profit today', 'money')} />
         <MetricCard metric={labeled(intel.revenueWeek, 'Revenue (week)', 'money')} />
         <MetricCard metric={labeled(intel.revenueMonth, 'Revenue (month)', 'money')} />
         <MetricCard metric={labeled(intel.grossProfitWeek, 'Gross profit (week)', 'money')} />
@@ -58,6 +94,9 @@ export function FinanceIntelPanel({ intel, canViewFinancials }: { intel: Finance
       </div>
 
       <TrendBars trend={intel.revenueTrend} />
+
+      {/* Revenue breakdowns (month-to-date) */}
+      <RevenueBreakdowns intel={intel} />
 
       {intel.ownerShares.length > 0 && (
         <div>

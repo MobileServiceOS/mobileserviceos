@@ -25,13 +25,33 @@ const isCompleted = (j: Job): boolean => j.status === 'Completed';
 
 export interface OwnerShare { name: string; pct: number; amount: number; }
 export interface ExpenseRow { label: string; total: number; }
+export interface RevenueRow { label: string; total: number; }
+
+/** Sum completed-job revenue grouped by a key, top-N descending. */
+function revenueBy(completed: ReadonlyArray<Job>, pick: (j: Job) => string, topN = 6): RevenueRow[] {
+  const m = new Map<string, number>();
+  for (const j of completed) {
+    const label = (pick(j) || '').trim() || 'Unassigned';
+    m.set(label, (m.get(label) || 0) + (Number(j.revenue) || 0));
+  }
+  return Array.from(m.entries())
+    .map(([label, total]) => ({ label, total: round2(total) }))
+    .sort((a, b) => b.total - a.total)
+    .slice(0, topN);
+}
 
 export interface FinanceIntel {
   revenueToday: Metric<number>;
   revenueWeek: Metric<number>;
   revenueMonth: Metric<number>;
+  profitToday: Metric<number>;
   grossProfitWeek: Metric<number>;
   netProfitMonth: Metric<number>;
+  // Revenue breakdowns (month-to-date completed jobs).
+  revenueByService: RevenueRow[];
+  revenueByCity: RevenueRow[];
+  revenueByCustomer: RevenueRow[];
+  revenueByTechnician: RevenueRow[];
   monthlyRecurring: Metric<number>;
   expensesMonth: Metric<number>;
   /** Weekly distributable (net − tax reserve) — reconciles with Payouts. */
@@ -54,6 +74,16 @@ export function financeIntel(jobs: ReadonlyArray<Job>, settings: Settings, today
     round2(completed.filter(pred).reduce((t, j) => t + (Number(j.revenue) || 0), 0));
   const revenueToday = sumRev((j) => j.date === today);
   const revenueMonth = sumRev((j) => getMonth(j.date) === month);
+  const profitToday = round2(
+    completed.filter((j) => j.date === today).reduce((t, j) => t + jobGrossProfit(j, settings), 0),
+  );
+
+  // Revenue breakdowns over month-to-date completed jobs.
+  const monthJobs = completed.filter((j) => getMonth(j.date) === month);
+  const revenueByService = revenueBy(monthJobs, (j) => j.service);
+  const revenueByCity = revenueBy(monthJobs, (j) => j.city || '');
+  const revenueByCustomer = revenueBy(monthJobs, (j) => j.customerName || j.customerPhone || '');
+  const revenueByTechnician = revenueBy(monthJobs, (j) => j.assignedToUid || j.createdByUid || '');
 
   // ── Weekly profit + distributable (mirrors Payouts.tsx exactly) ──
   const weekJobs = completed.filter((j) => getWeekStart(j.date, weekStartDay) === thisWeek);
@@ -96,6 +126,11 @@ export function financeIntel(jobs: ReadonlyArray<Job>, settings: Settings, today
     revenueToday: live(revenueToday, 'jobs', today),
     revenueWeek: live(revenueWeek, 'jobs', today),
     revenueMonth: live(revenueMonth, 'jobs', today),
+    profitToday: live(profitToday, 'jobs', today),
+    revenueByService,
+    revenueByCity,
+    revenueByCustomer,
+    revenueByTechnician,
     grossProfitWeek: live(weekProfit, 'jobs', today),
     netProfitMonth: live(netProfitMonth, 'jobs+expenses', today),
     monthlyRecurring: live(round2(monthlyFixed(settings)), 'expenses', today),
