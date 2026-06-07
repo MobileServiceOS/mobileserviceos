@@ -1526,6 +1526,10 @@ function AuthenticatedApp({ user }: { user: User }) {
         operatorName={user?.displayName ?? null}
         canViewFinancials={canViewFinancials}
         proEnabled={canAccessFeature(settings, 'bandilero')}
+        onOpenSettings={(section) => {
+          if (section) { try { sessionStorage.setItem('msos_open_section', section); } catch { /* */ } }
+          setTab('settings');
+        }}
       />
     );
     if (tab === 'history') return (
@@ -1790,15 +1794,11 @@ function AuthenticatedApp({ user }: { user: User }) {
           >
             <span className="nav-ico" aria-hidden="true">＋</span><span>Log</span>
           </button>
+          {/* Inventory moved out of the primary bar (2026-06-07) — now in
+              the More sheet. Keeps the bottom nav to one row on small
+              phones; inventory remains one tap away under More. */}
           <button
-            className={'nav-btn' + (tab === 'inventory' ? ' active' : '')}
-            aria-current={tab === 'inventory' ? 'page' : undefined}
-            onClick={() => setTab('inventory')}
-          >
-            <span className="nav-ico" aria-hidden="true">🛞</span><span>Inv</span>
-          </button>
-          <button
-            className={'nav-btn' + ((tab === 'settings' || tab === 'payouts' || tab === 'expenses' || tab === 'insights' || tab === 'help' || tab === 'bandilero') ? ' active' : '')}
+            className={'nav-btn' + ((tab === 'settings' || tab === 'payouts' || tab === 'expenses' || tab === 'insights' || tab === 'help' || tab === 'bandilero' || tab === 'inventory') ? ' active' : '')}
             aria-haspopup="dialog"
             aria-expanded={moreOpen}
             onClick={() => setMoreOpen(true)}

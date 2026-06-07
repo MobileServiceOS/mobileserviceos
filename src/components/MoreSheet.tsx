@@ -70,6 +70,15 @@ export function MoreSheet({ onClose, onPick, bandileroEnabled }: Props) {
       visible: !!bandileroEnabled,
     },
     {
+      id: 'inventory',
+      label: 'Inventory',
+      icon: '🛞',
+      hint: 'Tire & parts stock · reorder levels · dead-stock',
+      // Moved here from the primary bottom-nav (2026-06-07). Kept
+      // visible to all roles, matching its prior always-on placement.
+      visible: true,
+    },
+    {
       id: 'payouts',
       label: 'Payouts',
       icon: '💰',
