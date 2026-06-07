@@ -30,6 +30,8 @@ import { buildCoreNodes, coreStateFrom, type NodeKey } from '@/lib/bandilero/com
 import { ModuleHeader } from '@/components/bandilero/ModuleHeader';
 import { HeadlineStrip, type Kpi } from '@/components/bandilero/HeadlineStrip';
 import { CommandCore } from '@/components/bandilero/CommandCore';
+import { CommandConsole } from '@/components/bandilero/CommandConsole';
+import type { ConsoleContext } from '@/lib/bandilero/commandConsole';
 import { dispatchMetrics } from '@/lib/bandilero/services/dispatch';
 import { callIntelDeep } from '@/lib/bandilero/services/callIntelDeep';
 import { customerIntelligence } from '@/lib/bandilero/services/customerIntel';
@@ -192,6 +194,12 @@ export default function Bandilero({
     [alertCenter],
   );
 
+  // AI command console context — real deterministic service outputs.
+  const consoleCtx = useMemo<ConsoleContext>(
+    () => ({ finance, customers: custIntel, inventory: invIntel, alertCenter, connectivity, canViewFinancials }),
+    [finance, custIntel, invIntel, alertCenter, connectivity, canViewFinancials],
+  );
+
   // Tap a node → smooth-scroll to its module.
   const scrollToModule = (id: string) => {
     document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -241,6 +249,9 @@ export default function Bandilero({
 
       {/* Holographic AI Core + intelligence nodes (real status/alerts). */}
       <CommandCore state={coreState} nodes={coreNodes} onNodeTap={scrollToModule} />
+
+      {/* Jarvis command console — deterministic answers from real data. */}
+      <CommandConsole ctx={consoleCtx} />
 
       {/* AI narrative — optional, honest when off. Glass hero (capped blur). */}
       <div className={'bnd-card ' + (narr.state === 'NOT_CONNECTED' ? 'bnd-nc' : 'bnd-glass bnd-live')} style={{
