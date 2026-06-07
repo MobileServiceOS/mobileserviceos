@@ -104,7 +104,10 @@
 }
 
 /* ── Confidence-state visual language ────────────────────────────── */
-/* LIVE — cyan edge + breathing glow (the pulse is the reward of real data). */
+/* LIVE — cyan edge + a STATIC inner ring. (Perf: the per-card pulse was
+   removed — dozens of simultaneously-animating glow layers blew the
+   animation budget. Motion is now concentrated in the AI Core. LIVE
+   stays clearly distinct via the cyan accent; honesty is unchanged.) */
 .bnd-live { border-color: rgba(34, 211, 238, 0.34); }
 .bnd-live::after {
   content: '';
@@ -112,11 +115,8 @@
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
-  box-shadow: 0 0 16px -3px var(--bnd-cyan-soft), inset 0 0 0 1px rgba(34, 211, 238, 0.28);
-  opacity: 0.5;
-  animation: bnd-pulse 2.6s ease-in-out infinite; /* opacity-only → composited */
+  box-shadow: inset 0 0 0 1px rgba(34, 211, 238, 0.22);
 }
-@keyframes bnd-pulse { 0%, 100% { opacity: 0.28; } 50% { opacity: 0.85; } }
 
 /* ESTIMATED — amber, static (modeled, not measured → no live pulse). */
 .bnd-est { border-color: rgba(255, 207, 92, 0.26); }
@@ -127,9 +127,9 @@
   border-color: rgba(120, 130, 150, 0.12);
 }
 
-/* LIVE status dot (used by the confidence badge). */
-.bnd-dot-live { animation: bnd-dot 2.6s ease-in-out infinite; }
-@keyframes bnd-dot { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
+/* LIVE status dot — static glow (the inline box-shadow in the badge
+   carries the LIVE cue). Kept as a no-op hook; motion lives in the Core. */
+.bnd-dot-live { opacity: 1; }
 
 /* ── HUD header scan-underline ───────────────────────────────────── */
 .bnd-scan { position: relative; display: inline-block; }
@@ -194,7 +194,7 @@
 
 .bnd-node { position: absolute; transform: translate(-50%,-50%); width: 64px; display: flex; flex-direction: column;
   align-items: center; gap: 3px; cursor: pointer; -webkit-tap-highlight-color: transparent; z-index: 3; }
-.bnd-node-disc { position: relative; width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center;
+.bnd-node-disc { position: relative; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
   background: rgba(255,255,255,0.05); border: 1px solid var(--bnd-border); transition: transform .15s ease, box-shadow .15s ease; }
 .bnd-node:active .bnd-node-disc { transform: scale(0.93); }
 .bnd-node.on .bnd-node-disc { border-color: rgba(34,211,238,0.45); box-shadow: 0 0 12px -3px rgba(34,211,238,0.6); }
