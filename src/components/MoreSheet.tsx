@@ -24,6 +24,8 @@ import { useFocusTrap } from '@/lib/useFocusTrap';
 interface Props {
   onClose: () => void;
   onPick: (t: TabId) => void;
+  /** Pro-tier entitlement for the (archived) Bandilero command center. */
+  bandileroEnabled?: boolean;
 }
 
 interface Item {
@@ -34,7 +36,7 @@ interface Item {
   visible: boolean;
 }
 
-export function MoreSheet({ onClose, onPick }: Props) {
+export function MoreSheet({ onClose, onPick, bandileroEnabled }: Props) {
   const permissions = usePermissions();
   // Audit a11y P1-4 (2026-05-31): trap focus inside the sheet so AT
   // users can't Tab back into the (visually obscured) nav below. The
@@ -58,9 +60,17 @@ export function MoreSheet({ onClose, onPick }: Props) {
   }, [onClose]);
 
   const items: Item[] = [
-    // Bandilero is no longer a More entry — it IS Home (the Command
-    // Center) for Pro businesses. Inventory returned to the primary
-    // bottom-nav in the V2 reorder, so it's not duplicated here either.
+    {
+      id: 'bandilero',
+      label: 'Bandilero',
+      icon: '🛰️',
+      hint: 'AI command center · briefing · intelligence (archived — not on Home)',
+      // Archived behind the Pro feature flag and reachable here, NOT on
+      // Home — Home is the operational dashboard. Hidden entirely on Core.
+      visible: !!bandileroEnabled,
+    },
+    // Inventory returned to the primary bottom-nav in the V2 reorder, so
+    // it's not duplicated here.
     {
       id: 'payouts',
       label: 'Payouts',

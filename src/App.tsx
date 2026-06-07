@@ -1483,28 +1483,12 @@ function AuthenticatedApp({ user }: { user: User }) {
 
   const tabContent = useMemo(() => {
     if (tab === 'dashboard') {
-      // V2: Home IS the Bandilero Command Center when the business has the
-      // feature (Pro). Bandilero is owner/admin-facing — technicians are
-      // routed to Jobs (see TabRoleGuard) and never land here. Core/non-Pro
-      // accounts keep the classic operational Dashboard.
-      if (businessId && canAccessFeature(settings, 'bandilero')) {
-        return (
-          <Bandilero
-            businessId={businessId}
-            jobs={jobs}
-            settings={settings}
-            inventory={inventory}
-            brand={brand}
-            operatorName={user?.displayName ?? null}
-            canViewFinancials={canViewFinancials}
-            proEnabled
-            onOpenSettings={(section) => {
-              if (section) { try { sessionStorage.setItem('msos_open_section', section); } catch { /* */ } }
-              setTab('settings');
-            }}
-          />
-        );
-      }
+      // Home is the classic operational Dashboard — optimized for field /
+      // roadside speed (today's jobs, scheduled, pending leads, quick
+      // quote/add, revenue today, inventory alerts, recent activity,
+      // follow-ups). The Bandilero Command Center is NOT on Home; it's
+      // archived behind the Pro feature flag and reachable from the More
+      // sheet (tab === 'bandilero' below). (Reverted 2026-06-07.)
       return (
         <Dashboard
           jobs={jobs}
@@ -1830,6 +1814,7 @@ function AuthenticatedApp({ user }: { user: User }) {
         <MoreSheet
           onClose={() => setMoreOpen(false)}
           onPick={(t) => { setTab(t); setMoreOpen(false); }}
+          bandileroEnabled={canAccessFeature(settings, 'bandilero')}
         />
       )}
       {detailJob && (
