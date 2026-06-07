@@ -1,0 +1,188 @@
+// src/pages/Bandilero.tsx
+// ═══════════════════════════════════════════════════════════════════
+//  Bandilero — command-center intelligence tab (Phase 1).
+//
+//  Reads Firestore as the single source of truth: jobs/settings/
+//  inventory arrive as props (already-loaded app state); leads +
+//  reviewRequests are subscribed here in real time. Builds the daily
+//  briefing from the deterministic services and renders REAL values
+//  only — every metric carries a confidence state, NOT_CONNECTED is
+//  shown explicitly, financials are redacted (not faked) for techs,
+//  and the LLM narrative is optional (NOT_CONNECTED when AI is off).
+//
+//  Pro-only: a non-Pro tenant sees an upgrade panel, never fake data.
+// ═══════════════════════════════════════════════════════════════════
+
+import { useEffect, useMemo, useState } from 'react';
+import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
+import { requireDb } from '@/lib/firebase';
+import { isAIConfigured } from '@/lib/aiClient';
+import type { Brand, InventoryItem, Job, Lead, ReviewRequest, Settings } from '@/types';
+import { detectConnectivity } from '@/lib/bandilero/connectivity';
+import { buildDailyBriefing } from '@/lib/bandilero/briefing';
+import { draftBriefingNarrative } from '@/lib/bandilero/reasoning';
+import { type Metric, notConnected } from '@/lib/bandilero/confidence';
+import { MetricCard } from '@/components/bandilero/MetricCard';
+import { ActionCard } from '@/components/bandilero/ActionCard';
+import { BriefingHeader } from '@/components/bandilero/BriefingHeader';
+
+interface Props {
+  businessId: string;
+  jobs: Job[];
+  settings: Settings;
+  inventory: InventoryItem[];
+  brand: Brand;
+  operatorName: string | null;
+  canViewFinancials: boolean;
+  /** Pro-tier entitlement (canAccessFeature(settings,'bandilero')). */
+  proEnabled: boolean;
+}
+
+/** Today in the app's operating timezone (matches utils date helpers). */
+function todayISO(): string {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+}
+
+export default function Bandilero({
+  businessId, jobs, settings, inventory, brand, operatorName, canViewFinancials, proEnabled,
+}: Props) {
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [reviewRequests, setReviewRequests] = useState<ReviewRequest[]>([]);
+  const [narrative, setNarrative] = useState<Metric<string> | null>(null);
+
+  const today = todayISO();
+
+  // Real-time leads (missed-call source) + review requests.
+  useEffect(() => {
+    if (!businessId || !proEnabled) return;
+    const db = requireDb();
+    const unsubLeads = onSnapshot(
+      query(collection(db, 'businesses', businessId, 'leads'), orderBy('receivedAt', 'desc')),
+      (snap) => setLeads(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as unknown as Lead)),
+      () => setLeads([]),
+    );
+    const unsubReviews = onSnapshot(
+      collection(db, 'businesses', businessId, 'reviewRequests'),
+      (snap) => setReviewRequests(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as unknown as ReviewRequest)),
+      () => setReviewRequests([]),
+    );
+    return () => { unsubLeads(); unsubReviews(); };
+  }, [businessId, proEnabled]);
+
+  const connectivity = useMemo(
+    () => detectConnectivity({ settings, brandReviewUrl: brand?.reviewUrl, aiConfigured: isAIConfigured() }),
+    [settings, brand?.reviewUrl],
+  );
+
+  const briefing = useMemo(
+    () => buildDailyBriefing({
+      today, settings, jobs, leads, reviewRequests, inventory, connectivity,
+      operatorName, businessName: brand?.businessName ?? settings.businessName ?? null,
+      canViewFinancials,
+    }),
+    [today, settings, jobs, leads, reviewRequests, inventory, connectivity, operatorName, brand?.businessName, canViewFinancials],
+  );
+
+  // AI narrative (optional). Only fires when the proxy is configured;
+  // otherwise stays NOT_CONNECTED. Never blocks the deterministic UI.
+  useEffect(() => {
+    let alive = true;
+    if (!isAIConfigured()) { setNarrative(notConnected<string>('AI not connected', 'ai')); return; }
+    draftBriefingNarrative(briefing).then((m) => { if (alive) setNarrative(m); });
+    return () => { alive = false; };
+  }, [briefing]);
+
+  if (!proEnabled) {
+    return (
+      <div className="page page-enter" style={{ color: '#f3f5f9' }}>
+        <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 10 }}>Bandilero</div>
+        <div style={{
+          padding: 16, borderRadius: 12, background: 'var(--s2)', border: '1px solid var(--border)',
+          fontSize: 13, color: 'var(--t3)', lineHeight: 1.5,
+        }}>
+          Bandilero — the command-center intelligence module — is a Pro feature.
+          Upgrade to Pro to unlock the daily briefing, live metrics, and top actions
+          computed from your real job, customer, and inventory data.
+        </div>
+      </div>
+    );
+  }
+
+  const narr = narrative ?? briefing.narrative;
+
+  return (
+    <div className="bandilero-root page-enter">
+      <style>{`
+        .bandilero-root {
+          min-height: 100%;
+          padding: 18px 16px 96px;
+          background:
+            radial-gradient(1100px 480px at 12% -8%, rgba(108,140,255,0.16), transparent 60%),
+            radial-gradient(900px 420px at 92% 4%, rgba(34,227,163,0.10), transparent 55%),
+            #0b0e14;
+          color: #f3f5f9;
+        }
+        .bandilero-grid {
+          display: grid; gap: 10px;
+          grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        }
+        .bandilero-section { margin-top: 18px; }
+        .bandilero-section-title {
+          font-size: 12px; font-weight: 800; letter-spacing: 1.2;
+          text-transform: uppercase; color: #9aa3b2; margin: 0 0 9px 2px;
+          display: flex; align-items: center; gap: 8px;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .bandilero-root, .bandilero-root * { animation: none !important; transition: none !important; }
+        }
+      `}</style>
+
+      <BriefingHeader greeting={briefing.greeting} />
+
+      {/* AI narrative — optional, honest when off */}
+      <div style={{
+        padding: '12px 14px', borderRadius: 14, marginBottom: 4,
+        background: 'rgba(108,140,255,0.07)', border: '1px solid rgba(108,140,255,0.16)',
+        fontSize: 12.5, lineHeight: 1.5, color: narr.state === 'NOT_CONNECTED' ? '#8b93a3' : '#cfd6e6',
+      }}>
+        {narr.state === 'NOT_CONNECTED'
+          ? 'AI briefing narrative is not connected — metrics below are computed deterministically from your data.'
+          : narr.value}
+      </div>
+
+      {/* Top 3 Actions */}
+      <div className="bandilero-section">
+        <div className="bandilero-section-title">Top 3 Actions</div>
+        {briefing.actionsRestricted ? (
+          <div style={{ fontSize: 12, color: '#8b93a3', padding: '10px 12px', borderRadius: 12, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}>
+            🔒 Dollar-impact actions are available to owners and admins.
+          </div>
+        ) : briefing.topActions.length === 0 ? (
+          <div style={{ fontSize: 12, color: '#8b93a3', padding: '10px 12px', borderRadius: 12, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}>
+            No action items right now — nothing above threshold.
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {briefing.topActions.map((a, i) => <ActionCard key={a.id} action={a} rank={i + 1} />)}
+          </div>
+        )}
+      </div>
+
+      {/* Metric sections */}
+      {briefing.sections.map((s) => (
+        <div className="bandilero-section" key={s.key}>
+          <div className="bandilero-section-title">{s.title}</div>
+          {s.restricted ? (
+            <div style={{ fontSize: 12, color: '#8b93a3', padding: '10px 12px', borderRadius: 12, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}>
+              🔒 Financial metrics are available to owners and admins.
+            </div>
+          ) : (
+            <div className="bandilero-grid">
+              {s.metrics.map((m) => <MetricCard key={`${s.key}-${m.label}`} metric={m} />)}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}

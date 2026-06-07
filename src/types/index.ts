@@ -58,6 +58,7 @@ export type SyncStatus = 'local' | 'syncing' | 'connected' | 'offline' | 'sync_f
 export type TabId =
   | 'dashboard'
   | 'add'
+  | 'bandilero'
   | 'history'
   | 'customers'
   | 'leads'

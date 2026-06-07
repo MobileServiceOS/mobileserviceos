@@ -69,6 +69,8 @@ export type PlanFeature =
   | 'multiDeviceTeamOperations'
   | 'expandedReporting'
   | 'futureIntegrationsSupport'
+  // Bandilero — command-center intelligence module (Pro-only).
+  | 'bandilero'
   // ── Branding (available on Core + Pro as of 2026-05-28; gated via
   //    canUseBrandedInvoices() in invoice.ts which reads this matrix) ──
   | 'brandedInvoices';
@@ -127,6 +129,7 @@ export const PLAN_FEATURE_MATRIX: Readonly<Record<AccessTier, Readonly<Partial<R
     multiDeviceTeamOperations: false,
     expandedReporting: false,
     futureIntegrationsSupport: false,
+    bandilero: false,
     // brandedInvoices promoted to Core 2026-05-28. Solo operators need
     // logo + business-color invoices for credibility when selling to
     // fleets and B2B accounts — the original Pro-only gating was leaving
@@ -166,6 +169,7 @@ export const PLAN_FEATURE_MATRIX: Readonly<Record<AccessTier, Readonly<Partial<R
     multiDeviceTeamOperations: true,
     expandedReporting: true,
     futureIntegrationsSupport: true,
+    bandilero: true,
     brandedInvoices: true,
   },
 };

@@ -24,6 +24,8 @@ import { useFocusTrap } from '@/lib/useFocusTrap';
 interface Props {
   onClose: () => void;
   onPick: (t: TabId) => void;
+  /** Pro-tier entitlement for the Bandilero intelligence module. */
+  bandileroEnabled?: boolean;
 }
 
 interface Item {
@@ -34,7 +36,7 @@ interface Item {
   visible: boolean;
 }
 
-export function MoreSheet({ onClose, onPick }: Props) {
+export function MoreSheet({ onClose, onPick, bandileroEnabled }: Props) {
   const permissions = usePermissions();
   // Audit a11y P1-4 (2026-05-31): trap focus inside the sheet so AT
   // users can't Tab back into the (visually obscured) nav below. The
@@ -58,6 +60,15 @@ export function MoreSheet({ onClose, onPick }: Props) {
   }, [onClose]);
 
   const items: Item[] = [
+    {
+      id: 'bandilero',
+      label: 'Bandilero',
+      icon: '🛰️',
+      hint: 'Command center · daily briefing · top actions from real data',
+      // Pro-only; visible to all roles (financials are redacted in-page
+      // for technicians). Hidden entirely on Core.
+      visible: !!bandileroEnabled,
+    },
     {
       id: 'payouts',
       label: 'Payouts',

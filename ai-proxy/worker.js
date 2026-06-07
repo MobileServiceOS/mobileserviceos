@@ -133,6 +133,36 @@ const TASKS = {
       maxTokens: 400,
     };
   },
+
+  // Bandilero daily-briefing narrative (Phase 1). Turns the briefing's
+  // grounded digest (LIVE/ESTIMATED metric values + ranked actions,
+  // built client-side in src/lib/bandilero/reasoning.ts) into a short
+  // spoken-style briefing. Deterministic numbers are computed in the
+  // app; this only narrates them. AI-optional: when the proxy URL is
+  // unset the client never calls this and renders a deterministic-only
+  // briefing.
+  bandilero_briefing: (input) => {
+    if (!input || typeof input !== 'object') {
+      throw new Error('bandilero_briefing: input must be an object');
+    }
+    return {
+      system:
+        'You are Bandilero, a command-center briefing assistant for the ' +
+        'owner of a mobile service business. From the digest provided ' +
+        '(real metrics with confidence states, plus ranked action items ' +
+        'with dollar impacts), write a 2 to 3 sentence spoken-style ' +
+        'morning briefing. Rules: (1) Use ONLY numbers that appear in ' +
+        'the digest — never compute new figures (percentages, sums, ' +
+        'deltas) not already present. (2) A metric marked ESTIMATED is ' +
+        'modeled — if you cite it, call it an estimate. (3) Lead with ' +
+        'the most important action item if one exists. (4) Do NOT ' +
+        'invent metrics, customer names, or facts not in the digest. ' +
+        '(5) Plain prose only — no markdown, no JSON, no bullet list. ' +
+        'Respond with ONLY the briefing text.',
+      user: JSON.stringify(input),
+      maxTokens: 220,
+    };
+  },
 };
 
 export default {
