@@ -26,8 +26,10 @@ import { draftBriefingNarrative, draftGrowthSynthesis } from '@/lib/bandilero/re
 import { type Metric, notConnected, hasValue, live } from '@/lib/bandilero/confidence';
 import { type BandileroConfig, resolveConfig } from '@/lib/bandilero/config';
 import { statusFromCount, statusFromFlag, type ModuleStatus } from '@/lib/bandilero/moduleStatus';
+import { buildCoreNodes, coreStateFrom, type NodeKey } from '@/lib/bandilero/commandCore';
 import { ModuleHeader } from '@/components/bandilero/ModuleHeader';
 import { HeadlineStrip, type Kpi } from '@/components/bandilero/HeadlineStrip';
+import { CommandCore } from '@/components/bandilero/CommandCore';
 import { dispatchMetrics } from '@/lib/bandilero/services/dispatch';
 import { callIntelDeep } from '@/lib/bandilero/services/callIntelDeep';
 import { customerIntelligence } from '@/lib/bandilero/services/customerIntel';
@@ -175,6 +177,26 @@ export default function Bandilero({
     };
   }, [jobs.length, custIntel.totalCustomers.value, connectivity, dispatch, inventory.length]);
 
+  // AI Core model — 8 intelligence nodes (health + real alert counts) +
+  // core state. All derived from real status/alerts; nothing fabricated.
+  const coreNodes = useMemo(() => {
+    const nodeStatus: Record<NodeKey, ModuleStatus> = {
+      revenue: status.finance, customers: status.customer, pricing: status.pricing,
+      inventory: status.inventory, dispatch: status.dispatch, reputation: status.reputation,
+      seo: statusFromFlag(connectivity.seo), growth: status.growth,
+    };
+    return buildCoreNodes(nodeStatus, recommendations);
+  }, [status, connectivity.seo, recommendations]);
+  const coreState = useMemo(
+    () => coreStateFrom(alertCenter.critical.length, alertCenter.total),
+    [alertCenter],
+  );
+
+  // Tap a node → smooth-scroll to its module.
+  const scrollToModule = (id: string) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   // AI narrative (optional). Only fires when the proxy is configured;
   // otherwise stays NOT_CONNECTED. Never blocks the deterministic UI.
   useEffect(() => {
@@ -217,6 +239,9 @@ export default function Bandilero({
     <div className="bandilero-root page-enter">
       <BriefingHeader greeting={briefing.greeting} />
 
+      {/* Holographic AI Core + intelligence nodes (real status/alerts). */}
+      <CommandCore state={coreState} nodes={coreNodes} onNodeTap={scrollToModule} />
+
       {/* AI narrative — optional, honest when off. Glass hero (capped blur). */}
       <div className={'bnd-card ' + (narr.state === 'NOT_CONNECTED' ? 'bnd-nc' : 'bnd-glass bnd-live')} style={{
         padding: '12px 14px', marginBottom: 4,
@@ -256,13 +281,13 @@ export default function Bandilero({
       </div>
 
       {/* ── Revenue & Finance (owner/admin only) ── */}
-      <div className="bandilero-section">
+      <div className="bandilero-section" id="bnd-mod-revenue">
         <ModuleHeader title="Revenue & Finance" status={status.finance} />
         <FinanceIntelPanel intel={finance} canViewFinancials={canViewFinancials} />
       </div>
 
       {/* ── Customer Intelligence (real Firestore data; no Twilio) ── */}
-      <div className="bandilero-section">
+      <div className="bandilero-section" id="bnd-mod-customer">
         <ModuleHeader title="Customer Intelligence" status={status.customer} />
         <CustomerIntelPanel intel={custIntel} canViewFinancials={canViewFinancials} />
       </div>
@@ -273,13 +298,13 @@ export default function Bandilero({
         <CallIntelPanel data={callDeep} />
       </div>
 
-      <div className="bandilero-section">
+      <div className="bandilero-section" id="bnd-mod-dispatch">
         <ModuleHeader title="Dispatch & Routing" status={status.dispatch} />
         <DispatchPanel metrics={dispatch} />
       </div>
 
       {/* ── Phase 3 modules ── */}
-      <div className="bandilero-section">
+      <div className="bandilero-section" id="bnd-mod-growth">
         <ModuleHeader title="Growth & Recommendations" status={status.growth} />
         <GrowthPanel
           recommendations={recommendations}
@@ -288,7 +313,7 @@ export default function Bandilero({
         />
       </div>
 
-      <div className="bandilero-section">
+      <div className="bandilero-section" id="bnd-mod-pricing">
         <ModuleHeader title="Pricing Intelligence" status={status.pricing} />
         <PricingIntelPanel
           jobs={jobs}
@@ -300,12 +325,12 @@ export default function Bandilero({
         />
       </div>
 
-      <div className="bandilero-section">
+      <div className="bandilero-section" id="bnd-mod-inventory">
         <ModuleHeader title="Inventory Intelligence" status={status.inventory} />
         <InventoryIntelPanel intel={invIntel} />
       </div>
 
-      <div className="bandilero-section">
+      <div className="bandilero-section" id="bnd-mod-reputation">
         <ModuleHeader title="Reputation & Visibility" status={status.reputation} />
         <ReputationPanel status={reputation} />
       </div>

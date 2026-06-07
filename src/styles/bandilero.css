@@ -159,3 +159,46 @@
     transition: none !important;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   AI Core — holographic reasoning centerpiece (Phase B).
+   Performance-capped: only transform/opacity animate (compositor-
+   friendly); one blurred glow layer; ≤ a dozen particles; the global
+   prefers-reduced-motion rule above disables ALL of this.
+   ═══════════════════════════════════════════════════════════════════ */
+.bnd-core-wrap { position: relative; width: 100%; max-width: 360px; margin: 6px auto 14px; aspect-ratio: 1 / 1; }
+.bnd-core-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
+.bnd-connector { stroke: rgba(34,211,238,0.18); stroke-width: 0.4; }
+.bnd-connector.active { stroke: rgba(34,211,238,0.6); stroke-dasharray: 2.5 2.5; animation: bnd-flow 1.3s linear infinite; }
+.bnd-connector.alert { stroke: rgba(255,107,107,0.6); }
+@keyframes bnd-flow { to { stroke-dashoffset: -10; } }
+
+.bnd-core { position: absolute; top: 50%; left: 50%; width: 44%; aspect-ratio: 1; transform: translate(-50%,-50%); display: grid; place-items: center; z-index: 2; }
+.bnd-ring { position: absolute; inset: 0; border-radius: 50%; border: 1.5px solid rgba(34,211,238,0.22); transform-origin: center; }
+.bnd-ring.r1 { animation: bnd-spin 32s linear infinite reverse; }
+.bnd-ring.r2 { inset: 13%; border-style: dashed; border-color: rgba(59,130,246,0.3); animation: bnd-spin 19s linear infinite; }
+.bnd-ring.r3 { inset: 26%; border-color: rgba(34,211,238,0.4); animation: bnd-spin 12s linear infinite; }
+@keyframes bnd-spin { to { transform: rotate(360deg); } }
+
+.bnd-core-glow { position: absolute; inset: 28%; border-radius: 50%; filter: blur(3px);
+  background: radial-gradient(circle, rgba(34,211,238,0.55), rgba(34,211,238,0.06) 60%, transparent 72%);
+  animation: bnd-core-pulse 3.2s ease-in-out infinite; }
+@keyframes bnd-core-pulse { 0%,100% { opacity: 0.45; transform: scale(0.94); } 50% { opacity: 0.9; transform: scale(1.05); } }
+.bnd-core.analyzing .bnd-core-glow { background: radial-gradient(circle, rgba(255,207,92,0.5), transparent 72%); }
+.bnd-core.alert .bnd-core-glow { background: radial-gradient(circle, rgba(255,107,107,0.55), transparent 72%); animation-duration: 1.8s; }
+
+.bnd-particles { position: absolute; inset: 4%; animation: bnd-spin 26s linear infinite; }
+.bnd-particle { position: absolute; top: 50%; left: 50%; width: 3.5px; height: 3.5px; border-radius: 50%;
+  background: var(--bnd-cyan); box-shadow: 0 0 6px var(--bnd-cyan); }
+.bnd-core-label { position: relative; z-index: 3; text-align: center; pointer-events: none; }
+
+.bnd-node { position: absolute; transform: translate(-50%,-50%); width: 64px; display: flex; flex-direction: column;
+  align-items: center; gap: 3px; cursor: pointer; -webkit-tap-highlight-color: transparent; z-index: 3; }
+.bnd-node-disc { position: relative; width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center;
+  background: rgba(255,255,255,0.05); border: 1px solid var(--bnd-border); transition: transform .15s ease, box-shadow .15s ease; }
+.bnd-node:active .bnd-node-disc { transform: scale(0.93); }
+.bnd-node.on .bnd-node-disc { border-color: rgba(34,211,238,0.45); box-shadow: 0 0 12px -3px rgba(34,211,238,0.6); }
+.bnd-node.partial .bnd-node-disc { border-color: rgba(255,207,92,0.45); }
+.bnd-node-badge { position: absolute; top: -5px; right: -5px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px;
+  background: #ff6b6b; color: #fff; font-size: 9.5px; font-weight: 800; display: grid; place-items: center; box-shadow: 0 0 8px rgba(255,107,107,0.6); }
+.bnd-node-label { font-size: 9px; font-weight: 700; letter-spacing: 0.3px; color: var(--bnd-t2); white-space: nowrap; }
