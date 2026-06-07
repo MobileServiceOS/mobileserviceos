@@ -24,11 +24,15 @@
 // changes, stale caches live forever.
 // ════════════════════════════════════════════════════════════════════
 
-// Bumped to v6 — install handler now also fetches '/' so the shell
-// is available offline even if the user closes the tab before the
-// first navigation completes. v5 only cached on a successful
-// navigation; v6 eagerly prefetches the shell at install time.
-const VERSION = 'msos-v6';
+// VERSION carries a per-build id. `__BUILD_ID__` is replaced at build
+// time by the stamp-sw-build-id Vite plugin (see vite.config.ts) with a
+// unique token, so dist/sw.js changes EVERY deploy. That guarantees the
+// browser detects a new service worker, installs it, skipWaiting →
+// activate, and purges every cache not matching the new VERSION — so a
+// stale shell can never pin users to an old hashed bundle again. In dev
+// the placeholder stays literal (the plugin only runs on build); that's
+// fine — it's just a constant version string.
+const VERSION = 'msos-v7-__BUILD_ID__';
 const SHELL_CACHE = VERSION + '-shell';
 const RUNTIME_CACHE = VERSION + '-runtime';
 

@@ -1,6 +1,34 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
+import fs from 'node:fs';
+
+// Stamp dist/sw.js with a unique build id so the service-worker file
+// changes on EVERY production build. The custom SW (public/sw.js) keys
+// its caches off VERSION and purges anything that doesn't match on
+// activate — but only if the browser detects a changed sw.js. A static
+// VERSION meant byte-identical sw.js across deploys, so the browser never
+// updated the SW and users were pinned to a stale shell / old hashed
+// bundle. Replacing __BUILD_ID__ at build time fixes that for good.
+function stampServiceWorker() {
+  return {
+    name: 'stamp-sw-build-id',
+    apply: 'build' as const,
+    closeBundle() {
+      const swPath = path.resolve(__dirname, 'dist/sw.js');
+      try {
+        const raw = fs.readFileSync(swPath, 'utf8');
+        const buildId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+        fs.writeFileSync(swPath, raw.split('__BUILD_ID__').join(buildId));
+        // eslint-disable-next-line no-console
+        console.log(`[stamp-sw] dist/sw.js stamped with build id ${buildId}`);
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('[stamp-sw] could not stamp dist/sw.js', e);
+      }
+    },
+  };
+}
 
 // Asset base path.
 //
@@ -14,7 +42,7 @@ const base = process.env.VITE_BASE_PATH ?? '/';
 
 export default defineConfig({
   base,
-  plugins: [react()],
+  plugins: [react(), stampServiceWorker()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
