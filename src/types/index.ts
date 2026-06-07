@@ -737,6 +737,12 @@ export interface Job {
    *  + zipCode are net-new. */
   addressLine?: string;
   zipCode?: string;
+  /** Bandilero Phase 2: optional GPS coordinates of the job site,
+   *  captured by AddressAutofillInput's "Use my location" geolocation.
+   *  Present ONLY when GPS was used (never inferred) — Bandilero's
+   *  Dispatch module stays NOT_CONNECTED for jobs without them. */
+  lat?: number;
+  lng?: number;
   /** SP2-additive fleet identifier. Optional; non-empty values tag the
    *  customer record as a fleet customer via _buildCustomerPatch. */
   companyName?: string;

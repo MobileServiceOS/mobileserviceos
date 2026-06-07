@@ -17,14 +17,23 @@ import { useEffect, useMemo, useState } from 'react';
 import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
 import { requireDb } from '@/lib/firebase';
 import { isAIConfigured } from '@/lib/aiClient';
-import type { Brand, InventoryItem, Job, Lead, ReviewRequest, Settings } from '@/types';
+import type { Brand, CommunicationEvent, InventoryItem, Job, Lead, ReviewRequest, Settings } from '@/types';
 import { detectConnectivity } from '@/lib/bandilero/connectivity';
 import { buildDailyBriefing } from '@/lib/bandilero/briefing';
 import { draftBriefingNarrative } from '@/lib/bandilero/reasoning';
 import { type Metric, notConnected } from '@/lib/bandilero/confidence';
+import { dispatchMetrics } from '@/lib/bandilero/services/dispatch';
+import { callIntelDeep } from '@/lib/bandilero/services/callIntelDeep';
+import { customerSegments } from '@/lib/bandilero/services/customerSegments';
 import { MetricCard } from '@/components/bandilero/MetricCard';
 import { ActionCard } from '@/components/bandilero/ActionCard';
 import { BriefingHeader } from '@/components/bandilero/BriefingHeader';
+import { DispatchPanel } from '@/components/bandilero/DispatchPanel';
+import { CallIntelPanel } from '@/components/bandilero/CallIntelPanel';
+import { CustomerSegmentsPanel } from '@/components/bandilero/CustomerSegmentsPanel';
+
+/** Trailing window (days) for windowed Phase-2 metrics. */
+const PHASE2_WINDOW_DAYS = 7;
 
 interface Props {
   businessId: string;
@@ -48,11 +57,12 @@ export default function Bandilero({
 }: Props) {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [reviewRequests, setReviewRequests] = useState<ReviewRequest[]>([]);
+  const [commEvents, setCommEvents] = useState<CommunicationEvent[]>([]);
   const [narrative, setNarrative] = useState<Metric<string> | null>(null);
 
   const today = todayISO();
 
-  // Real-time leads (missed-call source) + review requests.
+  // Real-time leads (missed-call source) + review requests + comm events.
   useEffect(() => {
     if (!businessId || !proEnabled) return;
     const db = requireDb();
@@ -66,7 +76,12 @@ export default function Bandilero({
       (snap) => setReviewRequests(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as unknown as ReviewRequest)),
       () => setReviewRequests([]),
     );
-    return () => { unsubLeads(); unsubReviews(); };
+    const unsubEvents = onSnapshot(
+      collection(db, 'businesses', businessId, 'communicationEvents'),
+      (snap) => setCommEvents(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as unknown as CommunicationEvent)),
+      () => setCommEvents([]),
+    );
+    return () => { unsubLeads(); unsubReviews(); unsubEvents(); };
   }, [businessId, proEnabled]);
 
   const connectivity = useMemo(
@@ -82,6 +97,14 @@ export default function Bandilero({
     }),
     [today, settings, jobs, leads, reviewRequests, inventory, connectivity, operatorName, brand?.businessName, canViewFinancials],
   );
+
+  // Phase 2 modules — deterministic, computed from the same real data.
+  const dispatch = useMemo(() => dispatchMetrics(jobs, today), [jobs, today]);
+  const callDeep = useMemo(
+    () => callIntelDeep(leads, commEvents, connectivity, today, PHASE2_WINDOW_DAYS),
+    [leads, commEvents, connectivity, today],
+  );
+  const segments = useMemo(() => customerSegments(jobs, settings, today), [jobs, settings, today]);
 
   // AI narrative (optional). Only fires when the proxy is configured;
   // otherwise stays NOT_CONNECTED. Never blocks the deterministic UI.
@@ -183,6 +206,22 @@ export default function Bandilero({
           )}
         </div>
       ))}
+
+      {/* ── Phase 2 modules (operational; all roles) ── */}
+      <div className="bandilero-section">
+        <div className="bandilero-section-title">Call Intelligence</div>
+        <CallIntelPanel data={callDeep} />
+      </div>
+
+      <div className="bandilero-section">
+        <div className="bandilero-section-title">Customer Segments</div>
+        <CustomerSegmentsPanel segments={segments} canViewFinancials={canViewFinancials} />
+      </div>
+
+      <div className="bandilero-section">
+        <div className="bandilero-section-title">Dispatch &amp; Routing</div>
+        <DispatchPanel metrics={dispatch} />
+      </div>
     </div>
   );
 }

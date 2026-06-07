@@ -49,6 +49,11 @@ export interface AddressValue {
   city: string;
   state: string;
   zipCode: string;
+  /** GPS coordinates, set ONLY when "Use my location" geolocation
+   *  succeeds (Bandilero Phase 2). Undefined for manually-typed
+   *  addresses — Dispatch stays NOT_CONNECTED without them. */
+  lat?: number;
+  lng?: number;
 }
 
 interface Props {
@@ -260,7 +265,10 @@ function AddressAutofillInputImpl({ value, onChange, disabled, idPrefix }: Props
           const withZipAutofill = geo.zipCode
             ? _derivePatchOnZipChange(mergedFromGeo, geo.zipCode)
             : mergedFromGeo;
-          onChange(withZipAutofill);
+          // Capture the raw coordinates alongside the resolved address
+          // (Bandilero Phase 2 Dispatch). Only set on a successful GPS
+          // fix — manual typing never carries coords.
+          onChange({ ...withZipAutofill, lat: pos.coords.latitude, lng: pos.coords.longitude });
           setGps({ kind: 'idle' });
         } catch {
           setGps({ kind: 'error', message: 'Location unavailable. Type address below.' });

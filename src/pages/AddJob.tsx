@@ -299,7 +299,9 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
     city:        String(job.city ?? ''),
     state:       String(job.state ?? ''),
     zipCode:     String(job.zipCode ?? ''),
-  }), [job.addressLine, job.city, job.state, job.zipCode]);
+    lat:         job.lat,
+    lng:         job.lng,
+  }), [job.addressLine, job.city, job.state, job.zipCode, job.lat, job.lng]);
 
   const onAddressChange = useCallback((next: AddressValue) => {
     setJob((prev) => ({
@@ -308,6 +310,10 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
       city: next.city,
       state: next.state,
       zipCode: next.zipCode,
+      // GPS coords flow through only when "Use my location" set them
+      // (Bandilero Phase 2). Manual edits keep any previously-captured fix.
+      lat: next.lat,
+      lng: next.lng,
       area: next.city || prev.area,
       fullLocationLabel: next.city && next.state ? `${next.city}, ${next.state}` : next.city,
     }));
