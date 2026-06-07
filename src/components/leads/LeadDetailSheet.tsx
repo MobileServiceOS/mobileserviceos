@@ -38,6 +38,7 @@ import { usePermissions } from '@/context/MembershipContext';
 import { useFocusTrap } from '@/lib/useFocusTrap';
 import { markViewedPatch, stageTransitionPatch } from '@/lib/leadLifecycle';
 import { CustomerEnrichmentPanel } from '@/components/leads/CustomerEnrichmentPanel';
+import { RoadsideActions } from '@/components/RoadsideActions';
 import type { Lead, LeadStatus, CommunicationEvent, Job } from '@/types';
 
 interface Props {
@@ -229,6 +230,9 @@ export function LeadDetailSheet({
           <h2 style={{ margin: 0, fontSize: 18 }}>Lead</h2>
           <button type="button" className="btn sm secondary" onClick={onClose}>Close</button>
         </div>
+
+        {/* Roadside actions — one-tap call / text the lead. */}
+        <RoadsideActions phoneE164={lead.phoneE164} />
 
         {/* 1. Customer enrichment */}
         <CustomerEnrichmentPanel

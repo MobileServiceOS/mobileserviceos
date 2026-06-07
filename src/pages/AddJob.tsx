@@ -1467,13 +1467,13 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
               the button reads as unavailable even on browsers where
               the disabled attribute alone isn't visually obvious. */}
           <button
-            className="btn primary"
+            className="btn primary xl"
             disabled={isSaving || !validation.canSave}
             aria-busy={savingMode === 'save'}
             aria-disabled={!validation.canSave || isSaving}
             onClick={() => attemptSave('save')}
             style={{
-              minWidth: 120,
+              minWidth: 140,
               opacity: (isSaving && savingMode !== 'save') || !validation.canSave ? 0.55 : 1,
               cursor: isSaving || !validation.canSave ? 'not-allowed' : 'pointer',
               transition: 'opacity 120ms ease',

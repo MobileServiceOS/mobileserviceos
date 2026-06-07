@@ -100,17 +100,28 @@ try {
   // first, wait for the GH Pages workflow to ship, then enforce on
   // the backend. Reversing the order locks out every active session
   // until they hard-refresh.
+  // App Check is OPT-IN via VITE_APPCHECK_ENABLED === '1' (in addition to
+  // the site key). Reason: a misconfigured reCAPTCHA key (wrong key, or a
+  // domain not registered for it) makes every token fetch fail with a
+  // reCAPTCHA 400, and isTokenAutoRefreshEnabled retries forever — which
+  // floods the console and adds request overhead while providing NO
+  // protection (it only protects once enforcement is ON in the Console,
+  // and a failing token can't enforce anything). Gating behind an explicit
+  // flag means the broken init is skipped by default; flip the flag only
+  // after the key + domain are verified AND you're ready to enforce.
   const appCheckKey = (env.VITE_FIREBASE_APPCHECK_SITE_KEY ?? '').trim();
-  if (appCheckKey && typeof window !== 'undefined') {
+  const appCheckEnabled = (env.VITE_APPCHECK_ENABLED ?? '').trim() === '1';
+  if (appCheckKey && appCheckEnabled && typeof window !== 'undefined') {
     try {
       // Dynamic import keeps the App Check SDK out of the critical-
-      // path bundle when the key isn't set. ~15 KB gzip stays in a
-      // separate chunk fetched only when this code path runs.
+      // path bundle. ~15 KB gzip stays in a separate chunk.
       void import('firebase/app-check').then(({ initializeAppCheck, ReCaptchaV3Provider }) => {
         try {
           initializeAppCheck(app!, {
             provider: new ReCaptchaV3Provider(appCheckKey),
-            isTokenAutoRefreshEnabled: true,
+            // No auto-refresh: a failing reCAPTCHA must not retry in a
+            // tight loop and spam the console / network.
+            isTokenAutoRefreshEnabled: false,
           });
           console.info('[firebase] App Check initialized');
         } catch (err) {
