@@ -27,8 +27,8 @@ import { type Metric, notConnected, hasValue } from '@/lib/bandilero/confidence'
 import { type BandileroConfig, resolveConfig } from '@/lib/bandilero/config';
 import { dispatchMetrics } from '@/lib/bandilero/services/dispatch';
 import { callIntelDeep } from '@/lib/bandilero/services/callIntelDeep';
-import { callVolumeMetrics, type CallMetricsDay } from '@/lib/bandilero/services/callMetrics';
 import { customerSegments } from '@/lib/bandilero/services/customerSegments';
+import { customerIntelligence } from '@/lib/bandilero/services/customerIntel';
 import { inventoryIntel } from '@/lib/bandilero/services/inventoryIntel';
 import { reputationStatus } from '@/lib/bandilero/services/reputation';
 import { MetricCard } from '@/components/bandilero/MetricCard';
@@ -37,6 +37,7 @@ import { BriefingHeader } from '@/components/bandilero/BriefingHeader';
 import { DispatchPanel } from '@/components/bandilero/DispatchPanel';
 import { CallIntelPanel } from '@/components/bandilero/CallIntelPanel';
 import { CustomerSegmentsPanel } from '@/components/bandilero/CustomerSegmentsPanel';
+import { CustomerIntelPanel } from '@/components/bandilero/CustomerIntelPanel';
 import { InventoryIntelPanel } from '@/components/bandilero/InventoryIntelPanel';
 import { GrowthPanel } from '@/components/bandilero/GrowthPanel';
 import { ReputationPanel } from '@/components/bandilero/ReputationPanel';
@@ -65,7 +66,6 @@ export default function Bandilero({
   const [leads, setLeads] = useState<Lead[]>([]);
   const [reviewRequests, setReviewRequests] = useState<ReviewRequest[]>([]);
   const [commEvents, setCommEvents] = useState<CommunicationEvent[]>([]);
-  const [callMetricsDays, setCallMetricsDays] = useState<CallMetricsDay[]>([]);
   const [configDoc, setConfigDoc] = useState<Partial<BandileroConfig> | null>(null);
   const [narrative, setNarrative] = useState<Metric<string> | null>(null);
   const [growthNarrative, setGrowthNarrative] = useState<Metric<string> | null>(null);
@@ -98,13 +98,7 @@ export default function Bandilero({
       (snap) => setConfigDoc(snap.exists() ? (snap.data() as Partial<BandileroConfig>) : null),
       () => setConfigDoc(null),
     );
-    // Daily call-analytics rollups (Bandilero #3; empty until Twilio wired).
-    const unsubCalls = onSnapshot(
-      collection(db, 'businesses', businessId, 'callMetrics'),
-      (snap) => setCallMetricsDays(snap.docs.map((d) => ({ date: d.id, ...d.data() }) as unknown as CallMetricsDay)),
-      () => setCallMetricsDays([]),
-    );
-    return () => { unsubLeads(); unsubReviews(); unsubEvents(); unsubConfig(); unsubCalls(); };
+    return () => { unsubLeads(); unsubReviews(); unsubEvents(); unsubConfig(); };
   }, [businessId, proEnabled]);
 
   const connectivity = useMemo(
@@ -127,11 +121,8 @@ export default function Bandilero({
     () => callIntelDeep(leads, commEvents, connectivity, today, config.windowDays),
     [leads, commEvents, connectivity, today, config.windowDays],
   );
-  const callVolume = useMemo(
-    () => callVolumeMetrics(callMetricsDays, connectivity, today, config.windowDays),
-    [callMetricsDays, connectivity, today, config.windowDays],
-  );
   const segments = useMemo(() => customerSegments(jobs, settings, today), [jobs, settings, today]);
+  const custIntel = useMemo(() => customerIntelligence(jobs, settings, today), [jobs, settings, today]);
 
   // Phase 3 modules.
   const invIntel = useMemo(() => inventoryIntel(inventory, jobs, today), [inventory, jobs, today]);
@@ -228,10 +219,16 @@ export default function Bandilero({
         )}
       </div>
 
+      {/* ── Customer Intelligence (real Firestore data; no Twilio) ── */}
+      <div className="bandilero-section">
+        <div className="bandilero-section-title">Customer Intelligence</div>
+        <CustomerIntelPanel intel={custIntel} canViewFinancials={canViewFinancials} />
+      </div>
+
       {/* ── Phase 2 modules (operational; all roles) ── */}
       <div className="bandilero-section">
         <div className="bandilero-section-title">Call Intelligence</div>
-        <CallIntelPanel data={callDeep} volume={callVolume} />
+        <CallIntelPanel data={callDeep} />
       </div>
 
       <div className="bandilero-section">

@@ -756,18 +756,6 @@ service cloud.firestore {
         allow write: if false;
       }
 
-      // ─── calls / callMetrics — Bandilero #3 call analytics ───────
-      // Written by twilioCallStatus + onCallWriteRollup (admin SDK,
-      // bypasses rules). Read-only for members; no client writes.
-      match /calls/{callSid} {
-        allow read:  if isMemberOfBusiness(businessId);
-        allow write: if false;
-      }
-      match /callMetrics/{dateId} {
-        allow read:  if isMemberOfBusiness(businessId);
-        allow write: if false;
-      }
-
       // ─── leads — SP4B Lead queue (admin SDK writes only) ─────────
       // Webhook creates Leads via admin SDK (bypasses rules).
       // Clients may UPDATE workflow fields only — status/notes/etc.

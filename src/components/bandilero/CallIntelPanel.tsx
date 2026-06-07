@@ -7,7 +7,6 @@
 
 import { labeled, hasValue } from '@/lib/bandilero/confidence';
 import type { CallIntelDeep } from '@/lib/bandilero/services/callIntelDeep';
-import type { CallVolumeMetrics } from '@/lib/bandilero/services/callMetrics';
 import { MetricCard } from './MetricCard';
 
 const STAGES: Array<{ key: keyof CallIntelDeep['funnel']; label: string }> = [
@@ -19,13 +18,10 @@ const STAGES: Array<{ key: keyof CallIntelDeep['funnel']; label: string }> = [
   { key: 'lost', label: 'Lost' },
 ];
 
-export function CallIntelPanel({ data, volume }: { data: CallIntelDeep; volume?: CallVolumeMetrics }) {
+export function CallIntelPanel({ data }: { data: CallIntelDeep }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div className="bandilero-grid">
-        {volume && <MetricCard metric={labeled(volume.inboundVolume, 'Inbound calls', 'count')} />}
-        {volume && <MetricCard metric={labeled(volume.answerRate, 'Answer rate', 'pct')} />}
-        {volume && <MetricCard metric={labeled(volume.avgTalkTimeMin, 'Avg talk (min)', 'count')} />}
         <MetricCard metric={labeled(data.conversionPct, 'Conversion rate', 'pct')} />
         <MetricCard metric={labeled(data.avgResponseMinutes, 'Avg response (min)', 'count')} />
       </div>
