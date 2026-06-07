@@ -306,6 +306,29 @@ export function MembershipProvider({ settings, children }: ProviderProps) {
   //
   // This means an exempt account's owner gets canManageTeam:true even
   // when settings.plan is technically null/undefined.
+  // Effective member — grants owner identity OPTIMISTICALLY from
+  // authoritative signals (uid===businessId convention owner, or the root
+  // business doc's ownerUid/ownerEmail) WITHOUT waiting for the member-doc
+  // snapshot. That snapshot can be slow, stuck loading, or blocked (e.g.
+  // an App Check / reCAPTCHA failure) — and the real owner must never see
+  // a locked UI because of it. A non-owner can't match these signals
+  // (their uid never equals the businessId, and they aren't named on the
+  // root doc), so this never over-grants.
+  const effectiveMember = useMemo<MemberDoc | null>(() => {
+    if (member && member.role === 'owner') return member;
+    const uid = _auth?.currentUser?.uid;
+    const email = _auth?.currentUser?.email || '';
+    const ownerById =
+      (!!uid && uid === businessId) ||
+      (!!uid && !!bizOwner.ownerUid && bizOwner.ownerUid === uid) ||
+      (!!email && !!bizOwner.ownerEmail && bizOwner.ownerEmail.toLowerCase() === email.toLowerCase());
+    if (ownerById && uid) {
+      return { uid, email, role: 'owner', status: 'active', assignedBusinessId: businessId } as MemberDoc;
+    }
+    return member;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [member, businessId, bizOwner.ownerUid, bizOwner.ownerEmail]);
+
   const permissions = useMemo(() => {
     const exempt = isBillingExempt(settings);
     // For exempt accounts, spread plan='pro' so plan caps in
@@ -315,7 +338,7 @@ export function MembershipProvider({ settings, children }: ProviderProps) {
     const permsInput: Settings = exempt
       ? { ...settings, plan: 'pro' }
       : settings;
-    const p = getPermissions(member, permsInput);
+    const p = getPermissions(effectiveMember, permsInput);
 
     // Diagnostic log on every recompute — surfaces the full state for
     // DevTools-based debugging of "why does my owner not see X" cases.
@@ -324,30 +347,26 @@ export function MembershipProvider({ settings, children }: ProviderProps) {
       uid: _auth?.currentUser?.uid ?? null,
       businessId: businessId ?? null,
       businessOwnerUid: bizOwner.ownerUid ?? null,
-      membershipRole: member?.role ?? null,
-      memberStatus: member?.status ?? null,
-      isOwner: member?.role === 'owner',
-      isAdmin: member?.role === 'admin',
-      isTechnician: member?.role === 'technician',
+      membershipRole: effectiveMember?.role ?? null,
+      rawMemberRole: member?.role ?? null,
+      ownerByIdentity: effectiveMember?.role === 'owner' && member?.role !== 'owner',
+      isOwner: effectiveMember?.role === 'owner',
       plan: settings.plan ?? 'undefined',
       planEffective: permsInput.plan,
       billingExempt: exempt,
-      subscriptionOverride: settings.subscriptionOverride ?? null,
-      canManageTeam: p.canManageTeam,
-      canManageBilling: p.canManageBilling,
-      canEditPricingSettings: p.canEditPricingSettings,
+      canViewFinancials: p.canViewFinancials,
       loading,
     });
 
     return p;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [member, settings.plan, settings.allowTechnicianPriceOverride, settings.billingExempt, settings.subscriptionOverride, loading]);
+  }, [effectiveMember, settings.plan, settings.allowTechnicianPriceOverride, settings.billingExempt, settings.subscriptionOverride, loading]);
 
-  const role: Role | null = member?.role || null;
+  const role: Role | null = effectiveMember?.role || null;
 
   const value: MembershipState = useMemo(
-    () => ({ member, role, permissions, loading }),
-    [member, role, permissions, loading]
+    () => ({ member: effectiveMember, role, permissions, loading }),
+    [effectiveMember, role, permissions, loading]
   );
 
   return <MembershipContext.Provider value={value}>{children}</MembershipContext.Provider>;
