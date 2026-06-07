@@ -27,6 +27,7 @@ import { requireDb } from '@/lib/firebase';
 import { LeadCard } from '@/components/leads/LeadCard';
 import { LeadDetailSheet } from '@/components/leads/LeadDetailSheet';
 import { computeLeadPriority } from '@/lib/leadPriority';
+import { isLeadUnread } from '@/lib/leadLifecycle';
 import type { Customer } from '@/lib/customerEntity';
 import type { Lead, LeadStatus, Job } from '@/types';
 
@@ -119,6 +120,10 @@ export default function Leads({ businessId, onOpenCustomer, onCreateJob }: Props
     return counts;
   }, [leads]);
 
+  // Unread count — read state is independent of status, so it's counted
+  // separately (a Contacted lead can still be unread until opened).
+  const unreadCount = useMemo(() => leads.reduce((n, l) => n + (isLeadUnread(l) ? 1 : 0), 0), [leads]);
+
   // Filter + search. Search hay includes the formatted E.164 AND a
   // digits-only variant so operators can type "3055551212" or
   // "(305) 555-1212" or "+13055551212" and all match.
@@ -143,8 +148,11 @@ export default function Leads({ businessId, onOpenCustomer, onCreateJob }: Props
 
   return (
     <div className="page page-enter">
-      <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 14 }}>
-        Leads {visible.length > 0 && <span style={{ fontSize: 14, fontWeight: 400, color: 'var(--t3)' }}>· {visible.length}</span>}
+      <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span>Leads {visible.length > 0 && <span style={{ fontSize: 14, fontWeight: 400, color: 'var(--t3)' }}>· {visible.length}</span>}</span>
+        {unreadCount > 0 && (
+          <span style={unreadPill}>{unreadCount} unread</span>
+        )}
       </div>
 
       {/* Filter chips */}
@@ -207,4 +215,8 @@ const searchInputStyle: CSSProperties = {
 };
 const emptyStyle: CSSProperties = {
   padding: 24, color: 'var(--t3)', fontSize: 13, textAlign: 'center',
+};
+const unreadPill: CSSProperties = {
+  fontSize: 11, fontWeight: 800, padding: '2px 9px', borderRadius: 99,
+  background: '#3b82f6', color: '#fff', letterSpacing: '0.3px',
 };

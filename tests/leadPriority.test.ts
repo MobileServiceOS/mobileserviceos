@@ -93,7 +93,7 @@ console.log('\n── New Lead alone (wasNewCustomer=true) ──');
     lead({ wasNewCustomer: true }),
   );
   check('score is 20', out.score === 20, `got ${out.score}`);
-  check('badge is New Lead', out.badges[0].key === 'new_lead');
+  check('badge is New Lead', out.badges[0].key === 'new_customer');
 }
 
 console.log('\n── New Lead alone (jobCount===0, wasNewCustomer=false) ──');
@@ -105,7 +105,7 @@ console.log('\n── New Lead alone (jobCount===0, wasNewCustomer=false) ──
     lead({ wasNewCustomer: false }),
   );
   check('score is 20', out.score === 20);
-  check('badge is New Lead', out.badges[0].key === 'new_lead');
+  check('badge is New Lead', out.badges[0].key === 'new_customer');
 }
 
 console.log('\n── Fleet + New Lead (unknown fleet caller, first call) ──');
@@ -116,7 +116,7 @@ console.log('\n── Fleet + New Lead (unknown fleet caller, first call) ──
   );
   check('score is 100 (80 + 20)', out.score === 100, `got ${out.score}`);
   check('contains Fleet', out.badges.some(b => b.key === 'fleet'));
-  check('contains New Lead', out.badges.some(b => b.key === 'new_lead'));
+  check('contains New Lead', out.badges.some(b => b.key === 'new_customer'));
 }
 
 console.log('\n── Test lead override (id starts with lead-test-) ──');
@@ -133,7 +133,7 @@ console.log('\n── Null customer fallback (defensive) ──');
 {
   const out = computeLeadPriority(null, lead({ wasNewCustomer: true }));
   check('score is 20 (new lead fallback)', out.score === 20, `got ${out.score}`);
-  check('badge is New Lead', out.badges[0]?.key === 'new_lead');
+  check('badge is New Lead', out.badges[0]?.key === 'new_customer');
 }
 
 console.log('\n── Undefined customer fallback ──');
@@ -141,7 +141,7 @@ console.log('\n── Undefined customer fallback ──');
   const out = computeLeadPriority(undefined, lead({ wasNewCustomer: false }));
   // Customer absent + wasNewCustomer false → still treated as New Lead
   check('score is 20', out.score === 20);
-  check('badge is New Lead', out.badges[0]?.key === 'new_lead');
+  check('badge is New Lead', out.badges[0]?.key === 'new_customer');
 }
 
 console.log('\n── Score-DESC sort produces the expected ordering ──');

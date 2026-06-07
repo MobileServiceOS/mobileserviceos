@@ -1218,12 +1218,14 @@ function AuthenticatedApp({ user }: { user: User }) {
       // status dropdown if the linkback ever fails.
       if (sourceLeadId) {
         try {
+          const linkbackNow = Timestamp.now();
           await setDoc(
             doc(requireDb(), 'businesses', businessId, 'leads', sourceLeadId),
             {
               status: 'Booked' as LeadStatus,
+              bookedAt: linkbackNow,           // stamp the lifecycle stage
               jobId: finalJob.id,
-              updatedAt: Timestamp.now(),
+              updatedAt: linkbackNow,
               lastEditedByUid: _auth?.currentUser?.uid ?? 'unknown',
             },
             { merge: true },

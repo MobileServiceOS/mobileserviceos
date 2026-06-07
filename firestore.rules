@@ -767,7 +767,10 @@ service cloud.firestore {
                      && request.resource.data.diff(resource.data).affectedKeys()
                         .hasOnly(['status','notes','assignedToUid','jobId',
                                   'closedAt','closedReason','updatedAt',
-                                  'lastEditedByUid']);
+                                  'lastEditedByUid',
+                                  // read state + lifecycle stage timestamps
+                                  'viewedAt','contactedAt','quotedAt',
+                                  'bookedAt','completedAt','lostAt']);
         allow delete: if false;
       }
 

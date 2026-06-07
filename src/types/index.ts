@@ -1305,7 +1305,22 @@ export interface Lead {
   phoneE164: string;
   source: LeadSource;
   status: LeadStatus;
-  wasNewCustomer: boolean;
+  wasNewCustomer: boolean;       // customer-type flag (set once at create) — NOT a read-state
+
+  // ── Read state ───────────────────────────────────────────────────
+  // Written the first time the lead is opened. Absent ⇒ unread (the
+  // honest source of the "NEW"/Unread badge). Persists in Firestore so
+  // read state survives refresh, re-login, and device changes.
+  viewedAt?: Timestamp;
+
+  // ── Lifecycle stage timestamps ───────────────────────────────────
+  // Stamped when the lead is advanced into each stage. Each is written
+  // once, on transition — never inferred.
+  contactedAt?: Timestamp;
+  quotedAt?: Timestamp;
+  bookedAt?: Timestamp;
+  completedAt?: Timestamp;       // set when status → Closed
+  lostAt?: Timestamp;
 
   // ── First-touch metadata ─────────────────────────────────────────
   callSid?: string;

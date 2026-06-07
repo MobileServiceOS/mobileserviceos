@@ -19,6 +19,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties } from 'react';
 import {
@@ -35,6 +36,7 @@ import { getFunctions, httpsCallable, connectFunctionsEmulator } from 'firebase/
 import { _auth, requireDb } from '@/lib/firebase';
 import { usePermissions } from '@/context/MembershipContext';
 import { useFocusTrap } from '@/lib/useFocusTrap';
+import { markViewedPatch, stageTransitionPatch } from '@/lib/leadLifecycle';
 import { CustomerEnrichmentPanel } from '@/components/leads/CustomerEnrichmentPanel';
 import type { Lead, LeadStatus, CommunicationEvent, Job } from '@/types';
 
@@ -104,6 +106,22 @@ export function LeadDetailSheet({
     return () => unsub();
   }, [businessId, leadId]);
 
+  // Mark viewed on first open — the core read-state write. Writes
+  // viewedAt exactly once (markViewedPatch returns null once set, and
+  // the ref guards against a double-write before the snapshot echoes
+  // back). Persisted in Firestore ⇒ "Unread" clears across refresh,
+  // re-login, and devices. A read receipt, so not gated on canEdit.
+  const viewedWrittenFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!lead || !businessId || !leadId) return;
+    if (lead.viewedAt || viewedWrittenFor.current === leadId) return;
+    viewedWrittenFor.current = leadId;
+    const patch = markViewedPatch(lead, _auth?.currentUser?.uid ?? 'unknown', Timestamp.now());
+    if (!patch) return;
+    const ref = doc(requireDb(), 'businesses', businessId, 'leads', leadId);
+    void setDoc(ref, patch, { merge: true });
+  }, [lead, businessId, leadId]);
+
   // Communication events for this lead
   useEffect(() => {
     if (!businessId || !leadId) return;
@@ -127,11 +145,7 @@ export function LeadDetailSheet({
       return;
     }
     const ref = doc(requireDb(), 'businesses', businessId, 'leads', leadId);
-    await setDoc(ref, {
-      status: next,
-      updatedAt: Timestamp.now(),
-      lastEditedByUid: _auth?.currentUser?.uid ?? 'unknown',
-    }, { merge: true });
+    await setDoc(ref, stageTransitionPatch(next, _auth?.currentUser?.uid ?? 'unknown', Timestamp.now()), { merge: true });
     setStatusChangeOpen(false);
   }, [lead, canEdit, businessId, leadId]);
 
@@ -139,14 +153,14 @@ export function LeadDetailSheet({
     if (!lead || !canEdit) return;
     const reason = lostReasonText.trim();
     if (!reason) return;
+    const now = Timestamp.now();
     const ref = doc(requireDb(), 'businesses', businessId, 'leads', leadId);
-    await setDoc(ref, {
-      status: 'Lost' as LeadStatus,
+    // stageTransitionPatch stamps lostAt; closedReason/closedAt carry the
+    // existing close-out metadata the rest of the app already reads.
+    await setDoc(ref, stageTransitionPatch('Lost', _auth?.currentUser?.uid ?? 'unknown', now, {
       closedReason: reason,
-      closedAt: Timestamp.now(),
-      updatedAt: Timestamp.now(),
-      lastEditedByUid: _auth?.currentUser?.uid ?? 'unknown',
-    }, { merge: true });
+      closedAt: now,
+    }), { merge: true });
     setLostReasonOpen(false);
     setLostReasonText('');
     setStatusChangeOpen(false);
