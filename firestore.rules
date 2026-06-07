@@ -527,6 +527,15 @@ service cloud.firestore {
           );
       }
 
+      // Bandilero — tenant-tunable intelligence config (thresholds /
+      // windows). Any member can read so the module renders; only
+      // owner/admin can tune. Absence is fine — the client falls back to
+      // documented defaults (resolveConfig), never a fabricated value.
+      match /bandilero/{docId} {
+        allow read: if isMemberOfBusiness(businessId);
+        allow write: if isOwnerOrAdmin(businessId);
+      }
+
       // Presence collection — technician work status (Available /
       // En Route / On Site / Busy / Off Duty). Each user writes ONLY
       // their own presence doc; all members can read so the dispatch

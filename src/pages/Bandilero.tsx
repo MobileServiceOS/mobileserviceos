@@ -14,26 +14,30 @@
 // ═══════════════════════════════════════════════════════════════════
 
 import { useEffect, useMemo, useState } from 'react';
-import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
+import { collection, doc, onSnapshot, orderBy, query } from 'firebase/firestore';
 import { requireDb } from '@/lib/firebase';
 import { isAIConfigured } from '@/lib/aiClient';
 import type { Brand, CommunicationEvent, InventoryItem, Job, Lead, ReviewRequest, Settings } from '@/types';
 import { detectConnectivity } from '@/lib/bandilero/connectivity';
 import { buildDailyBriefing } from '@/lib/bandilero/briefing';
-import { draftBriefingNarrative } from '@/lib/bandilero/reasoning';
-import { type Metric, notConnected } from '@/lib/bandilero/confidence';
+import { buildRecommendations } from '@/lib/bandilero/recommendations';
+import { draftBriefingNarrative, draftGrowthSynthesis } from '@/lib/bandilero/reasoning';
+import { type Metric, notConnected, hasValue } from '@/lib/bandilero/confidence';
+import { type BandileroConfig, resolveConfig } from '@/lib/bandilero/config';
 import { dispatchMetrics } from '@/lib/bandilero/services/dispatch';
 import { callIntelDeep } from '@/lib/bandilero/services/callIntelDeep';
 import { customerSegments } from '@/lib/bandilero/services/customerSegments';
+import { inventoryIntel } from '@/lib/bandilero/services/inventoryIntel';
+import { reputationStatus } from '@/lib/bandilero/services/reputation';
 import { MetricCard } from '@/components/bandilero/MetricCard';
 import { ActionCard } from '@/components/bandilero/ActionCard';
 import { BriefingHeader } from '@/components/bandilero/BriefingHeader';
 import { DispatchPanel } from '@/components/bandilero/DispatchPanel';
 import { CallIntelPanel } from '@/components/bandilero/CallIntelPanel';
 import { CustomerSegmentsPanel } from '@/components/bandilero/CustomerSegmentsPanel';
-
-/** Trailing window (days) for windowed Phase-2 metrics. */
-const PHASE2_WINDOW_DAYS = 7;
+import { InventoryIntelPanel } from '@/components/bandilero/InventoryIntelPanel';
+import { GrowthPanel } from '@/components/bandilero/GrowthPanel';
+import { ReputationPanel } from '@/components/bandilero/ReputationPanel';
 
 interface Props {
   businessId: string;
@@ -58,9 +62,12 @@ export default function Bandilero({
   const [leads, setLeads] = useState<Lead[]>([]);
   const [reviewRequests, setReviewRequests] = useState<ReviewRequest[]>([]);
   const [commEvents, setCommEvents] = useState<CommunicationEvent[]>([]);
+  const [configDoc, setConfigDoc] = useState<Partial<BandileroConfig> | null>(null);
   const [narrative, setNarrative] = useState<Metric<string> | null>(null);
+  const [growthNarrative, setGrowthNarrative] = useState<Metric<string> | null>(null);
 
   const today = todayISO();
+  const config = useMemo(() => resolveConfig(configDoc), [configDoc]);
 
   // Real-time leads (missed-call source) + review requests + comm events.
   useEffect(() => {
@@ -81,7 +88,13 @@ export default function Bandilero({
       (snap) => setCommEvents(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as unknown as CommunicationEvent)),
       () => setCommEvents([]),
     );
-    return () => { unsubLeads(); unsubReviews(); unsubEvents(); };
+    // Tenant-tunable thresholds (optional doc; defaults when absent).
+    const unsubConfig = onSnapshot(
+      doc(db, 'businesses', businessId, 'bandilero', 'config'),
+      (snap) => setConfigDoc(snap.exists() ? (snap.data() as Partial<BandileroConfig>) : null),
+      () => setConfigDoc(null),
+    );
+    return () => { unsubLeads(); unsubReviews(); unsubEvents(); unsubConfig(); };
   }, [businessId, proEnabled]);
 
   const connectivity = useMemo(
@@ -101,10 +114,18 @@ export default function Bandilero({
   // Phase 2 modules — deterministic, computed from the same real data.
   const dispatch = useMemo(() => dispatchMetrics(jobs, today), [jobs, today]);
   const callDeep = useMemo(
-    () => callIntelDeep(leads, commEvents, connectivity, today, PHASE2_WINDOW_DAYS),
-    [leads, commEvents, connectivity, today],
+    () => callIntelDeep(leads, commEvents, connectivity, today, config.windowDays),
+    [leads, commEvents, connectivity, today, config.windowDays],
   );
   const segments = useMemo(() => customerSegments(jobs, settings, today), [jobs, settings, today]);
+
+  // Phase 3 modules.
+  const invIntel = useMemo(() => inventoryIntel(inventory, jobs, today), [inventory, jobs, today]);
+  const reputation = useMemo(() => reputationStatus(connectivity), [connectivity]);
+  const recommendations = useMemo(
+    () => buildRecommendations({ jobs, leads, inventory, settings, connectivity, today, windowDays: config.windowDays }),
+    [jobs, leads, inventory, settings, connectivity, today, config.windowDays],
+  );
 
   // AI narrative (optional). Only fires when the proxy is configured;
   // otherwise stays NOT_CONNECTED. Never blocks the deterministic UI.
@@ -114,6 +135,17 @@ export default function Bandilero({
     draftBriefingNarrative(briefing).then((m) => { if (alive) setNarrative(m); });
     return () => { alive = false; };
   }, [briefing]);
+
+  // AI growth synthesis (optional) over the ranked recommendations.
+  useEffect(() => {
+    let alive = true;
+    if (!isAIConfigured() || !canViewFinancials) { setGrowthNarrative(notConnected<string>('AI not connected', 'ai')); return; }
+    const digest = recommendations
+      .filter((r) => hasValue(r.impact) && (r.impact.state === 'LIVE' || r.impact.state === 'ESTIMATED'))
+      .map((r) => ({ title: r.title, impact: r.impact.value as number, state: r.impact.state as 'LIVE' | 'ESTIMATED', assumption: r.impact.assumption }));
+    draftGrowthSynthesis(digest).then((m) => { if (alive) setGrowthNarrative(m); });
+    return () => { alive = false; };
+  }, [recommendations, canViewFinancials]);
 
   if (!proEnabled) {
     return (
@@ -221,6 +253,26 @@ export default function Bandilero({
       <div className="bandilero-section">
         <div className="bandilero-section-title">Dispatch &amp; Routing</div>
         <DispatchPanel metrics={dispatch} />
+      </div>
+
+      {/* ── Phase 3 modules ── */}
+      <div className="bandilero-section">
+        <div className="bandilero-section-title">Growth &amp; Recommendations</div>
+        <GrowthPanel
+          recommendations={recommendations}
+          narrative={growthNarrative ?? notConnected<string>('AI not connected', 'ai')}
+          canViewFinancials={canViewFinancials}
+        />
+      </div>
+
+      <div className="bandilero-section">
+        <div className="bandilero-section-title">Inventory Intelligence</div>
+        <InventoryIntelPanel intel={invIntel} />
+      </div>
+
+      <div className="bandilero-section">
+        <div className="bandilero-section-title">Reputation &amp; Visibility</div>
+        <ReputationPanel status={reputation} />
       </div>
     </div>
   );

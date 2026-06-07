@@ -79,13 +79,29 @@ export async function draftBriefingNarrative(briefing: Briefing): Promise<Metric
 }
 
 /**
- * Draft a reply to a customer review. AI-optional scaffold — returns
- * NOT_CONNECTED until the proxy `review_reply` task + AI are live
- * (Phase 3). Never throws.
+ * Draft a reply to a customer review. AI-optional. DRAFT-FOR-APPROVAL
+ * ONLY — this returns text for a human to review and post; Bandilero
+ * never auto-publishes a public reply. Returns NOT_CONNECTED until both
+ * the GBP review source and AI are connected. Never throws.
  */
 export async function draftReviewReply(input: { rating?: number; text: string; businessName?: string }): Promise<Metric<string>> {
   if (!isAIConfigured()) return notConnected<string>('AI not connected', 'ai');
   const res = await callAI('review_reply', input);
+  if (!res.ok || !res.text) return notConnected<string>(res.error || 'AI call failed', 'ai');
+  return live(res.text, 'ai');
+}
+
+/**
+ * Draft a growth synthesis narrative over the ranked recommendations.
+ * AI-optional: NOT_CONNECTED when AI is off; otherwise narrates ONLY the
+ * recommendation titles + dollar impacts handed in (no invented figures).
+ * Never throws.
+ */
+export async function draftGrowthSynthesis(
+  recommendations: Array<{ title: string; impact: number; state: 'LIVE' | 'ESTIMATED'; assumption?: string }>,
+): Promise<Metric<string>> {
+  if (!isAIConfigured()) return notConnected<string>('AI not connected', 'ai');
+  const res = await callAI('bandilero_growth', { recommendations });
   if (!res.ok || !res.text) return notConnected<string>(res.error || 'AI call failed', 'ai');
   return live(res.text, 'ai');
 }

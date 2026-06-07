@@ -163,6 +163,30 @@ const TASKS = {
       maxTokens: 220,
     };
   },
+
+  // Bandilero growth synthesis (Phase 3). Narrates the deterministically
+  // ranked recommendation list (title + dollar impact + state). The
+  // ranking is computed in the app; this only summarizes it. AI-optional.
+  bandilero_growth: (input) => {
+    if (!input || typeof input !== 'object' || !Array.isArray(input.recommendations)) {
+      throw new Error('bandilero_growth: input.recommendations must be an array');
+    }
+    return {
+      system:
+        'You are Bandilero, advising the owner of a mobile service ' +
+        'business. You are given an already-ranked list of growth ' +
+        'recommendations, each with a title, a dollar impact, and a ' +
+        'state (LIVE = measured, ESTIMATED = modeled). Write 2 to 3 ' +
+        'sentences highlighting the top opportunities and the total ' +
+        'upside. Rules: (1) Use ONLY the dollar figures provided — ' +
+        'never compute new sums or percentages beyond adding the given ' +
+        'impacts. (2) Call an ESTIMATED figure an estimate. (3) Do NOT ' +
+        'invent recommendations or numbers not in the list. (4) Plain ' +
+        'prose only — no markdown, no JSON. Respond with ONLY the text.',
+      user: JSON.stringify(input),
+      maxTokens: 240,
+    };
+  },
 };
 
 export default {
