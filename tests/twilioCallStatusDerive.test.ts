@@ -50,13 +50,18 @@ console.log('\n── deriveCall: completed but zero duration → NOT answered �
   check('answered false when duration 0', c.answered === false);
 }
 
-console.log('\n── deriveCall: DialCallStatus precedence + outbound + extras ──');
+console.log('\n── deriveCall: DialCallStatus precedence + outbound ──');
 {
-  const c = deriveCall(form({ Direction: 'outbound-dial', DialCallStatus: 'busy', CallStatus: 'completed', AnsweredBy: 'human', RecordingUrl: 'https://r/x' }))!;
+  const c = deriveCall(form({ Direction: 'outbound-dial', DialCallStatus: 'busy', CallStatus: 'completed' }))!;
   check('DialCallStatus wins (busy)', c.status === 'busy');
   check('direction outbound', c.direction === 'outbound');
-  check('answeredBy captured', c.answeredBy === 'human');
-  check('recordingUrl captured', c.recordingUrl === 'https://r/x');
+}
+
+console.log('\n── deriveCall: metadata only — no recording/transcript fields ──');
+{
+  const c = deriveCall(form({ RecordingUrl: 'https://r/x', AnsweredBy: 'human' })) as Record<string, unknown>;
+  check('no recordingUrl captured', !('recordingUrl' in c));
+  check('no answeredBy captured', !('answeredBy' in c));
 }
 
 console.log('\n── deriveCall: missing CallSid → null ──');

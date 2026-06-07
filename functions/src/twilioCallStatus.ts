@@ -5,9 +5,15 @@
 //
 //  SHIPS DORMANT. A standalone, signature-validated Twilio Status
 //  Callback that records EVERY inbound call (answered AND missed) into
-//  businesses/{bid}/calls/{callSid} for analytics — duration, answer
-//  status, answered-by, recording URL when present. The onCallWrite
-//  trigger rolls these into daily callMetrics.
+//  businesses/{bid}/calls/{callSid} as METADATA ONLY — direction, status,
+//  answered (derived from status + talk time), duration, caller linkage.
+//  The onCallWrite trigger rolls these into daily callMetrics.
+//
+//  NO CALL RECORDING / NO TRANSCRIPTS by design — Bandilero Call
+//  Intelligence is built from call metadata + business outcomes, not
+//  audio. No recordingUrl is captured and no Twilio recording cost is
+//  incurred. If recording is ever added it must be an explicit
+//  per-tenant setting, disabled by default.
 //
 //  Relationship to twilioVoiceStatus (UNCHANGED): twilioVoiceStatus
 //  remains the missed-call → Lead recovery endpoint. This function is
@@ -17,8 +23,8 @@
 //  documented operator follow-up — see the Twilio audit. No fabricated
 //  data: nothing is written unless a real Twilio callback arrives.
 //
-//  Activation: set the 3 Twilio secrets, enable the Status Callback on
-//  the number pointing here, and (optionally) call recording.
+//  Activation: set the 3 Twilio secrets and enable the Status Callback
+//  on the number pointing here. No recording configuration.
 // ═══════════════════════════════════════════════════════════════════
 
 import { onRequest } from 'firebase-functions/v2/https';
@@ -50,8 +56,6 @@ export interface CallAnalytics {
   /** True only for a connected, non-zero-duration call. */
   answered: boolean;
   durationSec: number;
-  answeredBy?: string;
-  recordingUrl?: string;
 }
 
 /**
@@ -74,8 +78,8 @@ function _deriveCall(form: Record<string, string>): CallAnalytics | null {
     answered: status === 'completed' && durationSec > 0,
     durationSec,
   };
-  if (form.AnsweredBy) out.answeredBy = form.AnsweredBy;
-  if (form.RecordingUrl) out.recordingUrl = form.RecordingUrl;
+  // Intentionally NO recordingUrl / transcript / answeredBy(AMD) — Call
+  // Intelligence is metadata + outcomes only (no recording cost).
   return out;
 }
 
