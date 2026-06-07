@@ -1096,6 +1096,22 @@ a { color: var(--brand-primary); text-decoration: none; }
 .nav-btn.primary { color: var(--brand-primary); }
 .nav-ico { font-size: 18px; transition: transform .16s ease; }
 
+/* Log — the primary create action. A raised, filled accent puck lifts it
+   out of the row so it reads as an action, not a destination (FAB-in-nav).
+   The matching-colour ring makes it look cut out of the bar. */
+.nav-btn.nav-log { color: var(--t2); }
+.nav-btn.nav-log .nav-ico {
+  width: 40px; height: 40px; margin-top: -16px; margin-bottom: 2px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  background: var(--brand-primary); color: #14110a;
+  font-size: 24px; font-weight: 800; line-height: 1;
+  box-shadow: 0 6px 16px -3px rgba(0,0,0,.55),
+              0 0 0 4px rgba(17,19,21,.86),
+              0 0 18px -4px var(--brand-primary);
+}
+.nav-btn.nav-log:active .nav-ico { transform: scale(.9); }
+
 /* ── Install banner ─────────────────────────────────────── */
 .install-banner {
   position: fixed; left: 12px; right: 12px;
