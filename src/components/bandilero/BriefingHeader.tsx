@@ -18,14 +18,14 @@ function timeOfDayGreeting(): string {
 export function BriefingHeader({ greeting }: { greeting: BriefingGreeting }) {
   const who = greeting.operatorName || greeting.businessName || 'there';
   return (
-    <header style={{ marginBottom: 18 }}>
-      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: 'var(--brand-primary, #6c8cff)', textTransform: 'uppercase' }}>
+    <header style={{ marginBottom: 20 }}>
+      <span className="bnd-scan" style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2.4, color: 'var(--bnd-cyan, #22d3ee)', textTransform: 'uppercase', textShadow: '0 0 12px rgba(34,211,238,0.45)' }}>
         Bandilero · Command Center
-      </div>
-      <h1 style={{ fontSize: 24, fontWeight: 800, color: '#f3f5f9', margin: '6px 0 2px', letterSpacing: -0.4 }}>
+      </span>
+      <h1 style={{ fontSize: 25, fontWeight: 800, color: '#f3f8ff', margin: '12px 0 2px', letterSpacing: -0.4 }}>
         {timeOfDayGreeting()}, {who}
       </h1>
-      <div style={{ fontSize: 12.5, color: 'var(--t3, #9aa3b2)' }}>
+      <div style={{ fontSize: 12.5, color: 'var(--bnd-t2, #aeb9cc)' }}>
         {greeting.dateLabel}
         {greeting.businessName && greeting.operatorName ? ` · ${greeting.businessName}` : ''}
       </div>

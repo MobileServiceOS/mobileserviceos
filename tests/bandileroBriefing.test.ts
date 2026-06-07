@@ -85,18 +85,24 @@ console.log('\n── owner briefing (canViewFinancials true) ──');
 
   check('actionsRestricted false for owner', b.actionsRestricted !== true);
   check('top actions include critical-stock', b.topActions.some(a => a.id === 'critical-stock'));
+  check('every action carries a source', b.topActions.every(a => !!a.source));
   check('narrative NOT_CONNECTED by default (AI off)', b.narrative.state === 'NOT_CONNECTED' && b.narrative.value === null);
 }
 
-console.log('\n── growth section: no-integration sources ──');
+console.log('\n── command-briefing section order (spec) ──');
 {
   const b = buildDailyBriefing({
     today: TODAY, settings: S, jobs, leads: [], reviewRequests, inventory,
     connectivity: OFF, operatorName: null, businessName: S.businessName, canViewFinancials: true,
   });
-  const growth = b.sections.find(s => s.key === 'growth')!;
-  check('all growth metrics NOT_CONNECTED', growth.metrics.every(m => m.state === 'NOT_CONNECTED'));
-  check('all growth metrics value null (never 0)', growth.metrics.every(m => m.value === null));
+  check('sections are exactly: revenue, jobs, missedCalls, reviews, inventory (in order)',
+    b.sections.map(s => s.key).join(',') === 'revenue,jobs,missedCalls,reviews,inventory',
+    b.sections.map(s => s.key).join(','));
+  // The not-integrated sources (review score / SEO / dispatch) live in the
+  // dedicated Reputation panel now, not the core briefing.
+  check('no growth/customers section in the core briefing', !b.sections.some(s => s.key === 'growth' || s.key === 'customers'));
+  const jobs2 = b.sections.find(s => s.key === 'jobs')!;
+  check('jobs section has a Pending metric', jobs2.metrics.some(m => m.label === 'Pending'));
 }
 
 console.log('\n── missed calls render NOT_CONNECTED when Twilio off ──');
