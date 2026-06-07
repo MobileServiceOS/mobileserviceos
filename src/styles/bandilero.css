@@ -1,0 +1,161 @@
+/* src/styles/bandilero.css
+   ═══════════════════════════════════════════════════════════════════
+   Bandilero — Iron-Man / Jarvis command-center visual system.
+
+   VISUAL ONLY. Every rule is scoped under `.bandilero-root`, so nothing
+   outside Bandilero is affected. No data, logic, or layout semantics
+   change here.
+
+   Honesty rule encoded in CSS: the animated "data pulse" is applied
+   ONLY to LIVE cards (.bnd-live). ESTIMATED is static amber; NOT_CONNECTED
+   is muted with no glow/animation — an empty card is never animated to
+   look alive.
+
+   Performance budget (60fps mid-phone):
+     • animate ONLY opacity / transform (compositor-friendly);
+     • backdrop-filter (blur) is capped to .bnd-glass surfaces (hero only);
+     • prefers-reduced-motion disables every animation + transition.
+   ═══════════════════════════════════════════════════════════════════ */
+
+.bandilero-root {
+  --bnd-cyan: #22d3ee;
+  --bnd-blue: #3b82f6;
+  --bnd-bg: #070b12;
+  --bnd-surface: rgba(255, 255, 255, 0.045);
+  --bnd-surface-2: rgba(255, 255, 255, 0.02);
+  --bnd-border: rgba(120, 160, 220, 0.14);
+  --bnd-cyan-soft: rgba(34, 211, 238, 0.5);
+  --bnd-t1: #eef3fb;
+  --bnd-t2: #aeb9cc;
+  --bnd-t3: #7e8a9e;
+  --bnd-amber: #ffcf5c;
+  --bnd-red: #ff6b6b;
+
+  position: relative;
+  min-height: 100%;
+  padding: 18px 16px 96px;
+  color: var(--bnd-t1);
+  background:
+    radial-gradient(1100px 480px at 8% -10%, rgba(59, 130, 246, 0.18), transparent 60%),
+    radial-gradient(900px 460px at 96% 2%, rgba(34, 211, 238, 0.12), transparent 55%),
+    var(--bnd-bg);
+  isolation: isolate;
+}
+
+/* Faint HUD grid texture — pointer-events none, very low opacity. */
+.bandilero-root::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.045;
+  background-image:
+    linear-gradient(var(--bnd-cyan) 1px, transparent 1px),
+    linear-gradient(90deg, var(--bnd-cyan) 1px, transparent 1px);
+  background-size: 46px 46px;
+  -webkit-mask-image: radial-gradient(circle at 50% -5%, #000, transparent 70%);
+  mask-image: radial-gradient(circle at 50% -5%, #000, transparent 70%);
+}
+.bandilero-root > * { position: relative; z-index: 1; }
+
+/* ── Layout ──────────────────────────────────────────────────────── */
+.bandilero-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+}
+.bandilero-section { margin-top: 18px; }
+.bandilero-section-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 0 9px 2px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--bnd-t2);
+}
+/* Jarvis corner-tick before each section title. */
+.bandilero-section-title::before {
+  content: '';
+  width: 9px;
+  height: 9px;
+  border-left: 2px solid var(--bnd-cyan);
+  border-top: 2px solid var(--bnd-cyan);
+  opacity: 0.65;
+}
+
+/* ── Floating intelligence card ──────────────────────────────────── */
+.bnd-card {
+  position: relative;
+  border-radius: 14px;
+  background: var(--bnd-surface);
+  border: 1px solid var(--bnd-border);
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+.bnd-card:active { transform: translateY(1px) scale(0.997); }
+
+/* Capped-blur glass — use sparingly (hero surfaces only). */
+.bnd-glass {
+  backdrop-filter: blur(9px);
+  -webkit-backdrop-filter: blur(9px);
+}
+
+/* ── Confidence-state visual language ────────────────────────────── */
+/* LIVE — cyan edge + breathing glow (the pulse is the reward of real data). */
+.bnd-live { border-color: rgba(34, 211, 238, 0.34); }
+.bnd-live::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: 0 0 16px -3px var(--bnd-cyan-soft), inset 0 0 0 1px rgba(34, 211, 238, 0.28);
+  opacity: 0.5;
+  animation: bnd-pulse 2.6s ease-in-out infinite; /* opacity-only → composited */
+}
+@keyframes bnd-pulse { 0%, 100% { opacity: 0.28; } 50% { opacity: 0.85; } }
+
+/* ESTIMATED — amber, static (modeled, not measured → no live pulse). */
+.bnd-est { border-color: rgba(255, 207, 92, 0.26); }
+
+/* NOT_CONNECTED — muted, no glow, no animation (honest empty state). */
+.bnd-nc {
+  background: var(--bnd-surface-2);
+  border-color: rgba(120, 130, 150, 0.12);
+}
+
+/* LIVE status dot (used by the confidence badge). */
+.bnd-dot-live { animation: bnd-dot 2.6s ease-in-out infinite; }
+@keyframes bnd-dot { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
+
+/* ── HUD header scan-underline ───────────────────────────────────── */
+.bnd-scan { position: relative; display: inline-block; }
+.bnd-scan::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: -5px;
+  height: 2px;
+  width: 56px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--bnd-cyan), transparent);
+  transform-origin: left center;
+  animation: bnd-sweep 3.6s ease-in-out infinite;
+}
+@keyframes bnd-sweep {
+  0%, 100% { transform: translateX(0) scaleX(1); opacity: 0.45; }
+  50%      { transform: translateX(96px) scaleX(1.4); opacity: 1; }
+}
+
+/* ── Reduced motion: kill all animation + transition ─────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .bandilero-root *,
+  .bandilero-root *::before,
+  .bandilero-root *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

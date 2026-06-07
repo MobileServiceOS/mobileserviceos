@@ -21,13 +21,12 @@ export function ActionCard({ action, rank }: { action: Action; rank: number }) {
   const accent = SEV[action.severity];
   return (
     <div
+      className="bnd-card"
       style={{
         display: 'flex', gap: 12, alignItems: 'flex-start',
         padding: '13px 14px',
-        borderRadius: 14,
-        background: 'rgba(255,255,255,0.035)',
-        border: '1px solid rgba(255,255,255,0.06)',
         borderLeft: `3px solid ${accent}`,
+        boxShadow: `inset 1px 0 12px -8px ${accent}`,
       }}
     >
       <div style={{

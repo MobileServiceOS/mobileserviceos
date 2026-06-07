@@ -14,6 +14,7 @@
 // ═══════════════════════════════════════════════════════════════════
 
 import { useEffect, useMemo, useState } from 'react';
+import '@/styles/bandilero.css';
 import { collection, doc, onSnapshot, orderBy, query } from 'firebase/firestore';
 import { requireDb } from '@/lib/firebase';
 import { isAIConfigured } from '@/lib/aiClient';
@@ -168,38 +169,12 @@ export default function Bandilero({
 
   return (
     <div className="bandilero-root page-enter">
-      <style>{`
-        .bandilero-root {
-          min-height: 100%;
-          padding: 18px 16px 96px;
-          background:
-            radial-gradient(1100px 480px at 12% -8%, rgba(108,140,255,0.16), transparent 60%),
-            radial-gradient(900px 420px at 92% 4%, rgba(34,227,163,0.10), transparent 55%),
-            #0b0e14;
-          color: #f3f5f9;
-        }
-        .bandilero-grid {
-          display: grid; gap: 10px;
-          grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-        }
-        .bandilero-section { margin-top: 18px; }
-        .bandilero-section-title {
-          font-size: 12px; font-weight: 800; letter-spacing: 1.2;
-          text-transform: uppercase; color: #9aa3b2; margin: 0 0 9px 2px;
-          display: flex; align-items: center; gap: 8px;
-        }
-        @media (prefers-reduced-motion: reduce) {
-          .bandilero-root, .bandilero-root * { animation: none !important; transition: none !important; }
-        }
-      `}</style>
-
       <BriefingHeader greeting={briefing.greeting} />
 
-      {/* AI narrative — optional, honest when off */}
-      <div style={{
-        padding: '12px 14px', borderRadius: 14, marginBottom: 4,
-        background: 'rgba(108,140,255,0.07)', border: '1px solid rgba(108,140,255,0.16)',
-        fontSize: 12.5, lineHeight: 1.5, color: narr.state === 'NOT_CONNECTED' ? '#8b93a3' : '#cfd6e6',
+      {/* AI narrative — optional, honest when off. Glass hero (capped blur). */}
+      <div className={'bnd-card ' + (narr.state === 'NOT_CONNECTED' ? 'bnd-nc' : 'bnd-glass bnd-live')} style={{
+        padding: '12px 14px', marginBottom: 4,
+        fontSize: 12.5, lineHeight: 1.5, color: narr.state === 'NOT_CONNECTED' ? 'var(--bnd-t3)' : '#d6f6fb',
       }}>
         {narr.state === 'NOT_CONNECTED'
           ? 'AI briefing narrative is not connected — metrics below are computed deterministically from your data.'

@@ -10,7 +10,7 @@
 import type { ConfidenceState } from '@/lib/bandilero/confidence';
 
 const STYLE: Record<ConfidenceState, { label: string; dot: string; fg: string; bg: string }> = {
-  LIVE:          { label: 'LIVE',          dot: '#22e3a3', fg: '#7ef7cf', bg: 'rgba(34,227,163,0.12)' },
+  LIVE:          { label: 'LIVE',          dot: '#22d3ee', fg: '#9bf0fb', bg: 'rgba(34,211,238,0.12)' },
   ESTIMATED:     { label: 'EST',           dot: '#ffcf5c', fg: '#ffe39a', bg: 'rgba(255,207,92,0.12)' },
   NOT_CONNECTED: { label: 'NOT CONNECTED', dot: '#6b7280', fg: '#9aa3b2', bg: 'rgba(120,130,150,0.12)' },
 };
@@ -29,9 +29,10 @@ export function ConfidenceBadge({ state }: { state: ConfidenceState }) {
         textTransform: 'uppercase', whiteSpace: 'nowrap',
       }}
     >
-      <span aria-hidden="true" style={{
+      {/* Only LIVE gets the breathing pulse (bnd-dot-live) — honest signal. */}
+      <span aria-hidden="true" className={state === 'LIVE' ? 'bnd-dot-live' : undefined} style={{
         width: 6, height: 6, borderRadius: 999, background: s.dot,
-        boxShadow: state === 'LIVE' ? `0 0 6px ${s.dot}` : 'none',
+        boxShadow: state === 'LIVE' ? `0 0 7px ${s.dot}` : 'none',
       }} />
       {s.label}
     </span>
