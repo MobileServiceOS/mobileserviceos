@@ -24,9 +24,13 @@
   --border: rgba(255,255,255,.06);
   --border2: rgba(255,255,255,.11);
 
+  /* Text scale — brightened t2/t3 (2026-06-07) for daylight/roadside
+     readability. The old #a1a1aa/#71717a muted greys washed out in
+     sunlight; these clear WCAG AA on the dark surfaces while staying
+     clearly secondary to t1. */
   --t1: #f4f4f5;
-  --t2: #a1a1aa;
-  --t3: #71717a;
+  --t2: #b4b4be;
+  --t3: #8b8b95;
 
   --green: #22c55e;
   --red: #ef4444;
@@ -226,6 +230,10 @@ a { color: var(--brand-primary); text-decoration: none; }
 .card {
   background: var(--s1); border: 1px solid var(--border); border-radius: 14px;
   max-width: 100%;
+  /* Soft premium depth — a tight contact shadow + a wider ambient one.
+     Subtle on OLED black; gives cards a lifted, Linear/Stripe-grade
+     feel without heavy borders. */
+  box-shadow: 0 1px 2px rgba(0,0,0,.35), 0 6px 20px -10px rgba(0,0,0,.5);
 }
 .card-pad { padding: 14px; }
 /* Major section header — Title Case (was ALL CAPS micro-label

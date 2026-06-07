@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { getFunctions, httpsCallable, connectFunctionsEmulator } from 'firebase/functions';
 import type { Job, Settings, InventoryDeduction, PaymentMethod } from '@/types';
 import { useFocusTrap } from '@/lib/useFocusTrap';
@@ -7,6 +7,21 @@ import { fmtDate, jobGrossProfit, money, paymentPillClass, resolvePaymentStatus,
 import { useActiveVertical } from '@/lib/useActiveVertical';
 import { useMembership } from '@/context/MembershipContext';
 import { RoadsideActions } from '@/components/RoadsideActions';
+
+// Clean inline action icons (premium — replaces emoji on the action row).
+const Svg = ({ children }: { children: ReactNode }) => (
+  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+    style={{ flexShrink: 0 }}>{children}</svg>
+);
+const IcoInvoice  = () => <Svg><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></Svg>;
+const IcoSend     = () => <Svg><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></Svg>;
+const IcoStar     = () => <Svg><polygon points="12 2 15.1 8.3 22 9.3 17 14.1 18.2 21 12 17.8 5.8 21 7 14.1 2 9.3 8.9 8.3 12 2" /></Svg>;
+const IcoCopy     = () => <Svg><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></Svg>;
+const IcoEdit     = () => <Svg><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z" /></Svg>;
+const IcoTrash    = () => <Svg><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></Svg>;
+const IcoCheck    = () => <Svg><polyline points="20 6 9 17 4 12" /></Svg>;
+const IcoDollar   = () => <Svg><line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></Svg>;
 import { useBrand } from '@/context/BrandContext';
 import { useMembersDirectory } from '@/lib/useMembersDirectory';
 import { JobTimer } from '@/components/JobDetailModal/JobTimer';
@@ -450,14 +465,14 @@ export function JobDetailModal({
                   minHeight: 52,
                 }}
               >
-                💰 Mark Paid · {money(job.revenue)}
+<IcoDollar /> Mark Paid · {money(job.revenue)}
               </button>
             </div>
           )}
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 16 }}>
-            <button className="btn secondary" onClick={onGenerateInvoice}>📄 Invoice</button>
-            <button className="btn secondary" onClick={onSendInvoice}>📤 Send Invoice</button>
+            <button className="btn secondary" onClick={onGenerateInvoice}><IcoInvoice /> Invoice</button>
+            <button className="btn secondary" onClick={onSendInvoice}><IcoSend /> Send Invoice</button>
             {reviewIsCompleted ? (
               <button
                 className={'btn ' + (reviewBtnDisabled ? 'secondary' : 'primary')}
@@ -465,14 +480,14 @@ export function JobDetailModal({
                 onClick={() => setReviewConfirmOpen(true)}
                 title={reviewBtnTooltip}
               >
-                {reviewAlreadySent ? '✓ Review Requested' : '⭐ Send Review Request'}
+                {reviewAlreadySent ? <><IcoCheck /> Review Requested</> : <><IcoStar /> Send Review Request</>}
               </button>
             ) : (
-              <button className="btn secondary" onClick={onSendReview}>⭐ Review</button>
+              <button className="btn secondary" onClick={onSendReview}><IcoStar /> Review</button>
             )}
-            <button className="btn secondary" onClick={onDuplicate}>📋 Duplicate</button>
-            <button className="btn secondary" onClick={onEdit}>✏️ Edit</button>
-            <button className="btn danger" onClick={onDelete}>🗑 Delete</button>
+            <button className="btn secondary" onClick={onDuplicate}><IcoCopy /> Duplicate</button>
+            <button className="btn secondary" onClick={onEdit}><IcoEdit /> Edit</button>
+            <button className="btn danger" onClick={onDelete}><IcoTrash /> Delete</button>
           </div>
         </div>
       </div>
