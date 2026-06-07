@@ -29,6 +29,7 @@ import { dispatchMetrics } from '@/lib/bandilero/services/dispatch';
 import { callIntelDeep } from '@/lib/bandilero/services/callIntelDeep';
 import { customerSegments } from '@/lib/bandilero/services/customerSegments';
 import { customerIntelligence } from '@/lib/bandilero/services/customerIntel';
+import { financeIntel } from '@/lib/bandilero/services/financeIntel';
 import { inventoryIntel } from '@/lib/bandilero/services/inventoryIntel';
 import { reputationStatus } from '@/lib/bandilero/services/reputation';
 import { MetricCard } from '@/components/bandilero/MetricCard';
@@ -38,6 +39,7 @@ import { DispatchPanel } from '@/components/bandilero/DispatchPanel';
 import { CallIntelPanel } from '@/components/bandilero/CallIntelPanel';
 import { CustomerSegmentsPanel } from '@/components/bandilero/CustomerSegmentsPanel';
 import { CustomerIntelPanel } from '@/components/bandilero/CustomerIntelPanel';
+import { FinanceIntelPanel } from '@/components/bandilero/FinanceIntelPanel';
 import { InventoryIntelPanel } from '@/components/bandilero/InventoryIntelPanel';
 import { GrowthPanel } from '@/components/bandilero/GrowthPanel';
 import { ReputationPanel } from '@/components/bandilero/ReputationPanel';
@@ -123,6 +125,7 @@ export default function Bandilero({
   );
   const segments = useMemo(() => customerSegments(jobs, settings, today), [jobs, settings, today]);
   const custIntel = useMemo(() => customerIntelligence(jobs, settings, today), [jobs, settings, today]);
+  const finance = useMemo(() => financeIntel(jobs, settings, today), [jobs, settings, today]);
 
   // Phase 3 modules.
   const invIntel = useMemo(() => inventoryIntel(inventory, jobs, today), [inventory, jobs, today]);
@@ -217,6 +220,12 @@ export default function Bandilero({
             {briefing.topActions.map((a, i) => <ActionCard key={a.id} action={a} rank={i + 1} />)}
           </div>
         )}
+      </div>
+
+      {/* ── Revenue & Finance (owner/admin only) ── */}
+      <div className="bandilero-section">
+        <div className="bandilero-section-title">Revenue &amp; Finance</div>
+        <FinanceIntelPanel intel={finance} canViewFinancials={canViewFinancials} />
       </div>
 
       {/* ── Customer Intelligence (real Firestore data; no Twilio) ── */}
