@@ -108,6 +108,26 @@ export function MembershipProvider({ settings, children }: ProviderProps) {
   const [member, setMember] = useState<MemberDoc | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Owner identity lives on the ROOT business doc (businesses/{id}.ownerUid
+  // / ownerEmail) — NOT on settings/main, which is what `brand` mirrors. So
+  // `brand.ownerUid` is always undefined and can't identify the owner. We
+  // read the root doc directly here; this is the authoritative owner signal
+  // for the owner-by-fallback resolver below, which matters for a
+  // multi-business owner viewing a business where uid !== businessId.
+  const [bizOwner, setBizOwner] = useState<{ ownerUid?: string; ownerEmail?: string }>({});
+  useEffect(() => {
+    if (!_db || !businessId) { setBizOwner({}); return; }
+    const unsub = onSnapshot(
+      doc(_db, `businesses/${businessId}`),
+      (snap) => {
+        const d = (snap.data() || {}) as { ownerUid?: string; ownerEmail?: string };
+        setBizOwner({ ownerUid: d.ownerUid, ownerEmail: d.ownerEmail });
+      },
+      () => setBizOwner({}),
+    );
+    return () => unsub();
+  }, [businessId]);
+
   useEffect(() => {
     if (!_db || !_auth?.currentUser || !businessId) {
       setMember(null);
@@ -132,8 +152,17 @@ export function MembershipProvider({ settings, children }: ProviderProps) {
     //   3. brand.ownerEmail === email — last-ditch email match
     const isLikelyOwner = (): { isOwner: boolean; via: string } => {
       if (uid === businessId) return { isOwner: true, via: 'uid===businessId' };
-      // brand fields may be undefined if BrandContext is still loading
-      // its initial snapshot. Don't treat missing-as-positive.
+      // Authoritative source: the root business doc's ownerUid/ownerEmail
+      // (read into bizOwner above). These may be empty while that doc is
+      // still loading — don't treat missing-as-positive.
+      if (bizOwner.ownerUid && bizOwner.ownerUid === uid) {
+        return { isOwner: true, via: 'business.ownerUid===uid' };
+      }
+      if (email && bizOwner.ownerEmail && bizOwner.ownerEmail.toLowerCase() === email.toLowerCase()) {
+        return { isOwner: true, via: 'business.ownerEmail===authEmail' };
+      }
+      // Fallback: brand (settings/main) in case a tenant mirrors owner
+      // fields there. Usually undefined — harmless.
       const brandWithOwner = brand as typeof brand & { ownerUid?: string; ownerEmail?: string };
       if (brandWithOwner.ownerUid && brandWithOwner.ownerUid === uid) {
         return { isOwner: true, via: 'brand.ownerUid===uid' };
@@ -255,12 +284,15 @@ export function MembershipProvider({ settings, children }: ProviderProps) {
     }
 
     return () => { if (unsub) unsub(); };
-    // brand.ownerUid / brand.ownerEmail captured in the closure are
-    // intentionally not in the dependency list — we re-resolve on the
-    // next snapshot anyway, and we don't want every brand field change
-    // to tear down + recreate the membership listener.
+    // bizOwner.ownerUid / ownerEmail are in the deps so the listener (and
+    // its isLikelyOwner closure) re-resolves once the root business doc
+    // finishes loading. Without this, a multi-business owner where
+    // uid !== businessId would be evaluated against EMPTY owner fields (the
+    // member snapshot fires before the root doc loads, no further snapshot
+    // comes, and the owner signals never match) — leaving the real owner
+    // locked out of financials. These change at most once after load.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [businessId]);
+  }, [businessId, bizOwner.ownerUid, bizOwner.ownerEmail]);
 
   // ─── Resolve permissions ────────────────────────────────────────────
   // The standard getPermissions() flow handles role + plan + business
@@ -291,7 +323,7 @@ export function MembershipProvider({ settings, children }: ProviderProps) {
     console.log('[permissions]', {
       uid: _auth?.currentUser?.uid ?? null,
       businessId: businessId ?? null,
-      businessOwnerUid: (brand as typeof brand & { ownerUid?: string }).ownerUid ?? null,
+      businessOwnerUid: bizOwner.ownerUid ?? null,
       membershipRole: member?.role ?? null,
       memberStatus: member?.status ?? null,
       isOwner: member?.role === 'owner',
