@@ -190,11 +190,31 @@ export function MembershipProvider({ settings, children }: ProviderProps) {
           // with a missing role field. Now resolves via the typed
           // helper that defaults to 'technician' (least privilege).
           const data = snap.data() as Partial<MemberDoc>;
+
+          // Resolve role (least-privilege default), THEN guard the
+          // canonical owner. A stale/malformed member doc — e.g. a legacy
+          // doc missing `role`, which now resolves to 'technician' — must
+          // not demote the actual business owner and lock them out of
+          // their own financials. The owner is identifiable through
+          // authoritative signals a technician can NEVER match
+          // (uid===businessId, brand.ownerUid===uid, brand.ownerEmail).
+          // If any fire, honor owner — exactly as we'd synthesize one when
+          // the doc is missing entirely.
+          let resolvedRole = resolveMemberRole(data.role);
+          if (resolvedRole !== 'owner') {
+            const ownerCheck = isLikelyOwner();
+            if (ownerCheck.isOwner) {
+              // eslint-disable-next-line no-console
+              console.info('[permissions] member doc role was', resolvedRole, '— elevating to owner via', ownerCheck.via);
+              resolvedRole = 'owner';
+            }
+          }
+
           const m: MemberDoc = {
             uid: data.uid || uid,
             email: data.email || email,
             displayName: data.displayName,
-            role: resolveMemberRole(data.role),
+            role: resolvedRole,
             status: (data.status || 'active') as MemberDoc['status'],
             invitedBy: data.invitedBy,
             invitedAt: data.invitedAt,

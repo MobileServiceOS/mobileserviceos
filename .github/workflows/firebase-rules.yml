@@ -1,0 +1,86 @@
+# Mobile Service OS — Deploy Firestore rules + indexes
+# Repository: MobileServiceOS/mobileserviceos
+#
+# Why this exists:
+#   deploy.yml ships the APP to GitHub Pages but does NOT touch Firestore
+#   security rules. Rules changes (e.g. the leads viewedAt/lifecycle
+#   fields) used to require a manual `firebase deploy --only
+#   firestore:rules` from a developer machine. This workflow automates it
+#   so rules ship with the code that depends on them.
+#
+# ── ONE-TIME SETUP (required before this can run) ───────────────────────
+#   This needs a Google service account that can deploy rules. Create it
+#   once, then it runs forever:
+#     1. Firebase Console → Project settings → Service accounts →
+#        "Generate new private key" → download the JSON.
+#        (Or GCP IAM: a service account with role
+#         "Firebase Rules Admin" + "Cloud Datastore Index Admin".)
+#     2. GitHub repo → Settings → Secrets and variables → Actions →
+#        "New repository secret":
+#            Name:  FIREBASE_SERVICE_ACCOUNT
+#            Value: <paste the entire JSON file contents>
+#   That's it. Until the secret exists this workflow self-skips with a
+#   notice (it never fails the pipeline).
+#
+# Triggers: push to main that touches rules/indexes, or manual dispatch.
+
+name: Deploy Firestore rules
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'firestore.rules'
+      - 'firestore.indexes.json'
+      - '.github/workflows/firebase-rules.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-rules:
+    name: Deploy rules + indexes
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      # Surfacing the secret as an env var lets us reference it in step
+      # `if:` conditions (secrets can't be used in `if:` directly).
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+      FIREBASE_PROJECT_ID: mobile-service-os
+
+    steps:
+      - name: Skip notice (no credentials yet)
+        if: ${{ env.FIREBASE_SERVICE_ACCOUNT == '' }}
+        run: |
+          echo "::warning::FIREBASE_SERVICE_ACCOUNT secret is not set — skipping rules deploy."
+          echo "::warning::Add it (Settings → Secrets → Actions) to enable automatic Firestore rules deployment. See the header of this workflow for steps."
+
+      - name: Checkout
+        if: ${{ env.FIREBASE_SERVICE_ACCOUNT != '' }}
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        if: ${{ env.FIREBASE_SERVICE_ACCOUNT != '' }}
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: Write service account key
+        if: ${{ env.FIREBASE_SERVICE_ACCOUNT != '' }}
+        run: |
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/sa.json" >> "$GITHUB_ENV"
+
+      - name: Deploy Firestore rules + indexes
+        if: ${{ env.FIREBASE_SERVICE_ACCOUNT != '' }}
+        run: |
+          npx --yes firebase-tools@latest deploy \
+            --only firestore:rules,firestore:indexes \
+            --project "$FIREBASE_PROJECT_ID" \
+            --non-interactive \
+            --force
+
+      - name: Cleanup credentials
+        if: ${{ always() && env.FIREBASE_SERVICE_ACCOUNT != '' }}
+        run: rm -f "$RUNNER_TEMP/sa.json"

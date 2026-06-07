@@ -89,6 +89,19 @@ export function Settings({ settings, onSave }: Props) {
           const el = document.querySelector<HTMLElement>('[data-section="subscription"]');
           if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }, 100);
+        return;
+      }
+      // Generic section deep-link — any caller (e.g. Bandilero's inline
+      // "Open in Settings" connect buttons) can set this to the accordion
+      // key it wants expanded, then route to the Settings tab.
+      const target = sessionStorage.getItem('msos_open_section');
+      if (target) {
+        sessionStorage.removeItem('msos_open_section');
+        setOpenSection(target);
+        setTimeout(() => {
+          const el = document.querySelector<HTMLElement>(`[data-section="${target}"]`);
+          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
       }
     } catch { /* */ }
   }, []);

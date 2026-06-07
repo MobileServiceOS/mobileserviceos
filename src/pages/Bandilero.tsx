@@ -61,6 +61,8 @@ interface Props {
   canViewFinancials: boolean;
   /** Pro-tier entitlement (canAccessFeature(settings,'bandilero')). */
   proEnabled: boolean;
+  /** Navigate to a Settings accordion (inline "connect" links). */
+  onOpenSettings?: (section?: string) => void;
 }
 
 /** Today in the app's operating timezone (matches utils date helpers). */
@@ -69,7 +71,7 @@ function todayISO(): string {
 }
 
 export default function Bandilero({
-  businessId, jobs, settings, inventory, brand, operatorName, canViewFinancials, proEnabled,
+  businessId, jobs, settings, inventory, brand, operatorName, canViewFinancials, proEnabled, onOpenSettings,
 }: Props) {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [reviewRequests, setReviewRequests] = useState<ReviewRequest[]>([]);
@@ -343,7 +345,7 @@ export default function Bandilero({
 
       <div className="bandilero-section" id="bnd-mod-reputation">
         <ModuleHeader title="Reputation & Visibility" status={status.reputation} />
-        <ReputationPanel status={reputation} />
+        <ReputationPanel status={reputation} onOpenSettings={onOpenSettings} />
       </div>
     </div>
   );

@@ -23,7 +23,10 @@ function ConnectSteps({ title, steps }: { title: string; steps: string[] }) {
   );
 }
 
-export function ReputationPanel({ status }: { status: ReputationStatus }) {
+export function ReputationPanel({ status, onOpenSettings }: {
+  status: ReputationStatus;
+  onOpenSettings?: (section?: string) => void;
+}) {
   const m = status.metrics;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -38,6 +41,20 @@ export function ReputationPanel({ status }: { status: ReputationStatus }) {
         <ConnectSteps title="Connect Google Business Profile" steps={status.connectStepsGbp} />
         <ConnectSteps title="Connect Search Console" steps={status.connectStepsGsc} />
       </div>
+
+      {onOpenSettings && (
+        <button
+          type="button"
+          onClick={() => onOpenSettings('reviewAutomation')}
+          style={{
+            alignSelf: 'flex-start',
+            border: '1px solid rgba(34,211,238,0.3)', background: 'rgba(34,211,238,0.1)',
+            color: '#9bf0fb', borderRadius: 9, padding: '7px 13px',
+            fontSize: 12, fontWeight: 800, cursor: 'pointer',
+          }}>
+          Open Review settings →
+        </button>
+      )}
 
       <div style={{ fontSize: 10.5, color: '#8b93a3', lineHeight: 1.4 }}>
         Review replies are draft-for-approval — Bandilero drafts, you post. Nothing is auto-published.
