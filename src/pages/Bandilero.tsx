@@ -25,9 +25,10 @@ import { buildRecommendations } from '@/lib/bandilero/recommendations';
 import { draftBriefingNarrative, draftGrowthSynthesis } from '@/lib/bandilero/reasoning';
 import { type Metric, notConnected, hasValue } from '@/lib/bandilero/confidence';
 import { type BandileroConfig, resolveConfig } from '@/lib/bandilero/config';
+import { statusFromCount, statusFromFlag, type ModuleStatus } from '@/lib/bandilero/moduleStatus';
+import { ModuleHeader } from '@/components/bandilero/ModuleHeader';
 import { dispatchMetrics } from '@/lib/bandilero/services/dispatch';
 import { callIntelDeep } from '@/lib/bandilero/services/callIntelDeep';
-import { customerSegments } from '@/lib/bandilero/services/customerSegments';
 import { customerIntelligence } from '@/lib/bandilero/services/customerIntel';
 import { financeIntel } from '@/lib/bandilero/services/financeIntel';
 import { inventoryIntel } from '@/lib/bandilero/services/inventoryIntel';
@@ -37,7 +38,6 @@ import { ActionCard } from '@/components/bandilero/ActionCard';
 import { BriefingHeader } from '@/components/bandilero/BriefingHeader';
 import { DispatchPanel } from '@/components/bandilero/DispatchPanel';
 import { CallIntelPanel } from '@/components/bandilero/CallIntelPanel';
-import { CustomerSegmentsPanel } from '@/components/bandilero/CustomerSegmentsPanel';
 import { CustomerIntelPanel } from '@/components/bandilero/CustomerIntelPanel';
 import { FinanceIntelPanel } from '@/components/bandilero/FinanceIntelPanel';
 import { InventoryIntelPanel } from '@/components/bandilero/InventoryIntelPanel';
@@ -123,7 +123,6 @@ export default function Bandilero({
     () => callIntelDeep(leads, commEvents, connectivity, today, config.windowDays),
     [leads, commEvents, connectivity, today, config.windowDays],
   );
-  const segments = useMemo(() => customerSegments(jobs, settings, today), [jobs, settings, today]);
   const custIntel = useMemo(() => customerIntelligence(jobs, settings, today), [jobs, settings, today]);
   const finance = useMemo(() => financeIntel(jobs, settings, today), [jobs, settings, today]);
 
@@ -134,6 +133,25 @@ export default function Bandilero({
     () => buildRecommendations({ jobs, leads, inventory, settings, connectivity, today, windowDays: config.windowDays }),
     [jobs, leads, inventory, settings, connectivity, today, config.windowDays],
   );
+
+  // Per-module Data Confidence (CONNECTED / PARTIAL / NOT_CONNECTED) —
+  // derived from real counts + connectivity, never fabricated.
+  const status = useMemo(() => {
+    const dispatchStatus: ModuleStatus =
+      dispatch.routeMiles.state !== 'NOT_CONNECTED' ? 'CONNECTED'
+      : (dispatch.geocodedToday.value ?? 0) > 0 ? 'PARTIAL'
+      : 'NOT_CONNECTED';
+    return {
+      finance: statusFromCount(jobs.length),
+      customer: statusFromCount(custIntel.totalCustomers.value ?? 0),
+      call: statusFromFlag(connectivity.twilio),
+      dispatch: dispatchStatus,
+      growth: statusFromCount(jobs.length),
+      pricing: statusFromCount(jobs.length),
+      inventory: statusFromCount(inventory.length),
+      reputation: statusFromFlag(connectivity.reviews || connectivity.gbp),
+    };
+  }, [jobs.length, custIntel.totalCustomers.value, connectivity, dispatch, inventory.length]);
 
   // AI narrative (optional). Only fires when the proxy is configured;
   // otherwise stays NOT_CONNECTED. Never blocks the deterministic UI.
@@ -224,35 +242,30 @@ export default function Bandilero({
 
       {/* ── Revenue & Finance (owner/admin only) ── */}
       <div className="bandilero-section">
-        <div className="bandilero-section-title">Revenue &amp; Finance</div>
+        <ModuleHeader title="Revenue & Finance" status={status.finance} />
         <FinanceIntelPanel intel={finance} canViewFinancials={canViewFinancials} />
       </div>
 
       {/* ── Customer Intelligence (real Firestore data; no Twilio) ── */}
       <div className="bandilero-section">
-        <div className="bandilero-section-title">Customer Intelligence</div>
+        <ModuleHeader title="Customer Intelligence" status={status.customer} />
         <CustomerIntelPanel intel={custIntel} canViewFinancials={canViewFinancials} />
       </div>
 
       {/* ── Phase 2 modules (operational; all roles) ── */}
       <div className="bandilero-section">
-        <div className="bandilero-section-title">Call Intelligence</div>
+        <ModuleHeader title="Call Intelligence" status={status.call} />
         <CallIntelPanel data={callDeep} />
       </div>
 
       <div className="bandilero-section">
-        <div className="bandilero-section-title">Customer Segments</div>
-        <CustomerSegmentsPanel segments={segments} canViewFinancials={canViewFinancials} />
-      </div>
-
-      <div className="bandilero-section">
-        <div className="bandilero-section-title">Dispatch &amp; Routing</div>
+        <ModuleHeader title="Dispatch & Routing" status={status.dispatch} />
         <DispatchPanel metrics={dispatch} />
       </div>
 
       {/* ── Phase 3 modules ── */}
       <div className="bandilero-section">
-        <div className="bandilero-section-title">Growth &amp; Recommendations</div>
+        <ModuleHeader title="Growth & Recommendations" status={status.growth} />
         <GrowthPanel
           recommendations={recommendations}
           narrative={growthNarrative ?? notConnected<string>('AI not connected', 'ai')}
@@ -261,7 +274,7 @@ export default function Bandilero({
       </div>
 
       <div className="bandilero-section">
-        <div className="bandilero-section-title">Pricing Intelligence</div>
+        <ModuleHeader title="Pricing Intelligence" status={status.pricing} />
         <PricingIntelPanel
           jobs={jobs}
           leads={leads}
@@ -273,12 +286,12 @@ export default function Bandilero({
       </div>
 
       <div className="bandilero-section">
-        <div className="bandilero-section-title">Inventory Intelligence</div>
+        <ModuleHeader title="Inventory Intelligence" status={status.inventory} />
         <InventoryIntelPanel intel={invIntel} />
       </div>
 
       <div className="bandilero-section">
-        <div className="bandilero-section-title">Reputation &amp; Visibility</div>
+        <ModuleHeader title="Reputation & Visibility" status={status.reputation} />
         <ReputationPanel status={reputation} />
       </div>
     </div>

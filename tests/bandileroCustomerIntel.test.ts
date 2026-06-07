@@ -92,6 +92,20 @@ console.log('\n── most common tire size / service ──');
   check('top service = Tire Replacement', ci.topServices[0].value === 'Tire Replacement');
 }
 
+console.log('\n── consolidated overview/value/follow-up (merged segments) ──');
+{
+  const ci = customerIntelligence(jobs, S, TODAY);
+  check('newCustomers = 3 (Alice/Bob/Cara, first job today)', ci.newCustomers.value === 3, `got ${ci.newCustomers.value}`);
+  check('vipCustomers = 2 (Alice Platinum + Bob Gold)', ci.vipCustomers.value === 2, `got ${ci.vipCustomers.value}`);
+  check('atRiskCustomers = 1 (Dan)', ci.atRiskCustomers.value === 1, `got ${ci.atRiskCustomers.value}`);
+  check('totalRevenue = 4750', ci.totalRevenue.value === 4750, `got ${ci.totalRevenue.value}`);
+  check('top5 revenue share = 100% (only 5 customers)', ci.top5RevenueSharePct.value === 100);
+  check('inactive30Count = 2 (Dan, Eve)', ci.inactive30Count.value === 2, `got ${ci.inactive30Count.value}`);
+  check('inactive60Count = 2', ci.inactive60Count.value === 2);
+  check('insights non-empty + derived', ci.insights.length > 0 && ci.insights.every((i) => typeof i.text === 'string' && i.text.length > 0));
+  check('an at-risk risk insight present', ci.insights.some((i) => i.kind === 'risk'));
+}
+
 console.log('\n── customerCity helper ──');
 {
   const profiles = deriveCustomerProfiles(jobs, S);
