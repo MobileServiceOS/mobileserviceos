@@ -46,7 +46,9 @@ jobs:
     env:
       # Surfacing the secret as an env var lets us reference it in step
       # `if:` conditions (secrets can't be used in `if:` directly).
-      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+      # Accepts either secret name — FIREBASE_SERVICE_ACCOUNT (preferred)
+      # or MSOS (the name set on this repo) — whichever is populated.
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT || secrets.MSOS }}
       FIREBASE_PROJECT_ID: mobile-service-os
 
     steps:
