@@ -27,6 +27,7 @@ import { type Metric, notConnected, hasValue } from '@/lib/bandilero/confidence'
 import { type BandileroConfig, resolveConfig } from '@/lib/bandilero/config';
 import { dispatchMetrics } from '@/lib/bandilero/services/dispatch';
 import { callIntelDeep } from '@/lib/bandilero/services/callIntelDeep';
+import { callVolumeMetrics, type CallMetricsDay } from '@/lib/bandilero/services/callMetrics';
 import { customerSegments } from '@/lib/bandilero/services/customerSegments';
 import { inventoryIntel } from '@/lib/bandilero/services/inventoryIntel';
 import { reputationStatus } from '@/lib/bandilero/services/reputation';
@@ -64,6 +65,7 @@ export default function Bandilero({
   const [leads, setLeads] = useState<Lead[]>([]);
   const [reviewRequests, setReviewRequests] = useState<ReviewRequest[]>([]);
   const [commEvents, setCommEvents] = useState<CommunicationEvent[]>([]);
+  const [callMetricsDays, setCallMetricsDays] = useState<CallMetricsDay[]>([]);
   const [configDoc, setConfigDoc] = useState<Partial<BandileroConfig> | null>(null);
   const [narrative, setNarrative] = useState<Metric<string> | null>(null);
   const [growthNarrative, setGrowthNarrative] = useState<Metric<string> | null>(null);
@@ -96,7 +98,13 @@ export default function Bandilero({
       (snap) => setConfigDoc(snap.exists() ? (snap.data() as Partial<BandileroConfig>) : null),
       () => setConfigDoc(null),
     );
-    return () => { unsubLeads(); unsubReviews(); unsubEvents(); unsubConfig(); };
+    // Daily call-analytics rollups (Bandilero #3; empty until Twilio wired).
+    const unsubCalls = onSnapshot(
+      collection(db, 'businesses', businessId, 'callMetrics'),
+      (snap) => setCallMetricsDays(snap.docs.map((d) => ({ date: d.id, ...d.data() }) as unknown as CallMetricsDay)),
+      () => setCallMetricsDays([]),
+    );
+    return () => { unsubLeads(); unsubReviews(); unsubEvents(); unsubConfig(); unsubCalls(); };
   }, [businessId, proEnabled]);
 
   const connectivity = useMemo(
@@ -118,6 +126,10 @@ export default function Bandilero({
   const callDeep = useMemo(
     () => callIntelDeep(leads, commEvents, connectivity, today, config.windowDays),
     [leads, commEvents, connectivity, today, config.windowDays],
+  );
+  const callVolume = useMemo(
+    () => callVolumeMetrics(callMetricsDays, connectivity, today, config.windowDays),
+    [callMetricsDays, connectivity, today, config.windowDays],
   );
   const segments = useMemo(() => customerSegments(jobs, settings, today), [jobs, settings, today]);
 
@@ -219,7 +231,7 @@ export default function Bandilero({
       {/* ── Phase 2 modules (operational; all roles) ── */}
       <div className="bandilero-section">
         <div className="bandilero-section-title">Call Intelligence</div>
-        <CallIntelPanel data={callDeep} />
+        <CallIntelPanel data={callDeep} volume={callVolume} />
       </div>
 
       <div className="bandilero-section">

@@ -101,6 +101,14 @@ export { drainOutboundSms }      from './drainOutboundSms';
 export { sendTestMissedCall }    from './sendTestMissedCall';
 export { sendManualOutboundSms } from './sendManualOutboundSms';
 
+// Bandilero #3 — call-intelligence analytics. Ships DORMANT: records
+// every inbound call into calls/{callSid}; onCallWriteRollup maintains
+// daily callMetrics. Additive to (does not touch) the twilioVoiceStatus
+// missed-call→Lead pipeline. Activates when the operator points a Twilio
+// Status Callback at twilioCallStatus + sets the Twilio secrets.
+export { twilioCallStatus }      from './twilioCallStatus';
+export { onCallWriteRollup }     from './onCallWriteRollup';
+
 // Phase 1 real-time caller-ID screen-pop. Ships DORMANT — only fires
 // when the operator points the Twilio Voice URL (Phone Numbers →
 // [Number] → Voice & Fax → "A Call Comes In" → Webhook) at this
