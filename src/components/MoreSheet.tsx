@@ -24,8 +24,6 @@ import { useFocusTrap } from '@/lib/useFocusTrap';
 interface Props {
   onClose: () => void;
   onPick: (t: TabId) => void;
-  /** Pro-tier entitlement for the Bandilero intelligence module. */
-  bandileroEnabled?: boolean;
 }
 
 interface Item {
@@ -36,7 +34,7 @@ interface Item {
   visible: boolean;
 }
 
-export function MoreSheet({ onClose, onPick, bandileroEnabled }: Props) {
+export function MoreSheet({ onClose, onPick }: Props) {
   const permissions = usePermissions();
   // Audit a11y P1-4 (2026-05-31): trap focus inside the sheet so AT
   // users can't Tab back into the (visually obscured) nav below. The
@@ -60,24 +58,9 @@ export function MoreSheet({ onClose, onPick, bandileroEnabled }: Props) {
   }, [onClose]);
 
   const items: Item[] = [
-    {
-      id: 'bandilero',
-      label: 'Bandilero',
-      icon: '🛰️',
-      hint: 'Command center · daily briefing · top actions from real data',
-      // Pro-only; visible to all roles (financials are redacted in-page
-      // for technicians). Hidden entirely on Core.
-      visible: !!bandileroEnabled,
-    },
-    {
-      id: 'inventory',
-      label: 'Inventory',
-      icon: '🛞',
-      hint: 'Tire & parts stock · reorder levels · dead-stock',
-      // Moved here from the primary bottom-nav (2026-06-07). Kept
-      // visible to all roles, matching its prior always-on placement.
-      visible: true,
-    },
+    // Bandilero is no longer a More entry — it IS Home (the Command
+    // Center) for Pro businesses. Inventory returned to the primary
+    // bottom-nav in the V2 reorder, so it's not duplicated here either.
     {
       id: 'payouts',
       label: 'Payouts',

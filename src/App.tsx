@@ -1483,6 +1483,28 @@ function AuthenticatedApp({ user }: { user: User }) {
 
   const tabContent = useMemo(() => {
     if (tab === 'dashboard') {
+      // V2: Home IS the Bandilero Command Center when the business has the
+      // feature (Pro). Bandilero is owner/admin-facing — technicians are
+      // routed to Jobs (see TabRoleGuard) and never land here. Core/non-Pro
+      // accounts keep the classic operational Dashboard.
+      if (businessId && canAccessFeature(settings, 'bandilero')) {
+        return (
+          <Bandilero
+            businessId={businessId}
+            jobs={jobs}
+            settings={settings}
+            inventory={inventory}
+            brand={brand}
+            operatorName={user?.displayName ?? null}
+            canViewFinancials={canViewFinancials}
+            proEnabled
+            onOpenSettings={(section) => {
+              if (section) { try { sessionStorage.setItem('msos_open_section', section); } catch { /* */ } }
+              setTab('settings');
+            }}
+          />
+        );
+      }
       return (
         <Dashboard
           jobs={jobs}
@@ -1747,6 +1769,9 @@ function AuthenticatedApp({ user }: { user: User }) {
           hidden — see AddJob.tsx onCancel prop. */}
       {tab !== 'add' && (
         <nav className="bottom-nav" aria-label="Primary">
+          {/* V2 nav order (2026-06-07): Home · Leads · Jobs · Customers ·
+              Inventory · Log(+) · More. Money starts with leads; inventory
+              is a daily tool; Log is the action button (visually distinct). */}
           <button
             className={'nav-btn' + (tab === 'dashboard' ? ' active' : '')}
             aria-current={tab === 'dashboard' ? 'page' : undefined}
@@ -1755,25 +1780,19 @@ function AuthenticatedApp({ user }: { user: User }) {
             <span className="nav-ico" aria-hidden="true">🏠</span><span>Home</span>
           </button>
           <button
-            className={'nav-btn' + (tab === 'history' ? ' active' : '')}
-            aria-current={tab === 'history' ? 'page' : undefined}
-            onClick={() => setTab('history')}
-          >
-            <span className="nav-ico" aria-hidden="true">📋</span><span>Jobs</span>
-          </button>
-          {/* SP4B (task 14): top-level Leads nav route. Slotted between
-              Jobs and Customers so the funnel reads Home → Jobs → Leads →
-              Customers → +Log → Inv → More. */}
-          <button
             className={'nav-btn' + (tab === 'leads' ? ' active' : '')}
             aria-current={tab === 'leads' ? 'page' : undefined}
             onClick={() => setTab('leads')}
           >
             <span className="nav-ico" aria-hidden="true">📞</span><span>Leads</span>
           </button>
-          {/* SP1 (refinement #1): top-level Customers nav route. The
-              skeleton CustomerHub page renders the existing Customers
-              list; full hub content lands in SP3. */}
+          <button
+            className={'nav-btn' + (tab === 'history' ? ' active' : '')}
+            aria-current={tab === 'history' ? 'page' : undefined}
+            onClick={() => setTab('history')}
+          >
+            <span className="nav-ico" aria-hidden="true">📋</span><span>Jobs</span>
+          </button>
           <button
             className={'nav-btn' + (tab === 'customers' ? ' active' : '')}
             aria-current={tab === 'customers' ? 'page' : undefined}
@@ -1781,24 +1800,24 @@ function AuthenticatedApp({ user }: { user: User }) {
           >
             <span className="nav-ico" aria-hidden="true">👥</span><span>Customers</span>
           </button>
-          {/* Batch B (2026-06-05): the active/aria-current checks for
-              tab === 'add' are no longer reachable here — the whole
-              nav is hidden by the outer `tab !== 'add' &&` guard — so
-              the +Log button always renders in its inactive state.
-              The button is kept so the layout grid stays balanced and
-              startNewJob is still reachable from elsewhere in the
-              flow if a future tab is added that wants nav visible. */}
           <button
-            className="nav-btn primary"
+            className={'nav-btn' + (tab === 'inventory' ? ' active' : '')}
+            aria-current={tab === 'inventory' ? 'page' : undefined}
+            onClick={() => setTab('inventory')}
+          >
+            <span className="nav-ico" aria-hidden="true">🛞</span><span>Inv</span>
+          </button>
+          {/* Log — the primary action button. Visually distinct (raised
+              accent) via .nav-btn.primary.nav-log in the global stylesheet. */}
+          <button
+            className="nav-btn primary nav-log"
+            aria-label="Log a job"
             onClick={startNewJob}
           >
             <span className="nav-ico" aria-hidden="true">＋</span><span>Log</span>
           </button>
-          {/* Inventory moved out of the primary bar (2026-06-07) — now in
-              the More sheet. Keeps the bottom nav to one row on small
-              phones; inventory remains one tap away under More. */}
           <button
-            className={'nav-btn' + ((tab === 'settings' || tab === 'payouts' || tab === 'expenses' || tab === 'insights' || tab === 'help' || tab === 'bandilero' || tab === 'inventory') ? ' active' : '')}
+            className={'nav-btn' + ((tab === 'settings' || tab === 'payouts' || tab === 'expenses' || tab === 'insights' || tab === 'help' || tab === 'bandilero') ? ' active' : '')}
             aria-haspopup="dialog"
             aria-expanded={moreOpen}
             onClick={() => setMoreOpen(true)}
@@ -1811,7 +1830,6 @@ function AuthenticatedApp({ user }: { user: User }) {
         <MoreSheet
           onClose={() => setMoreOpen(false)}
           onPick={(t) => { setTab(t); setMoreOpen(false); }}
-          bandileroEnabled={canAccessFeature(settings, 'bandilero')}
         />
       )}
       {detailJob && (
