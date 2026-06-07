@@ -19,8 +19,11 @@ import type { Customer } from '@/lib/customerEntity';
 import type { Lead } from '@/types';
 
 export interface LeadPriorityBadge {
-  key: 'vip' | 'fleet' | 'high_value' | 'repeat_customer' | 'new_lead';
-  label: 'VIP' | 'Fleet' | 'High Value' | 'Repeat Customer' | 'New Lead';
+  // CUSTOMER-TYPE / value badges — distinct from read state (Unread/Viewed)
+  // and lead state (status). new_customer reflects the Customer, not the
+  // lead's read state, so it is labelled "New Customer", never "New".
+  key: 'vip' | 'fleet' | 'high_value' | 'repeat_customer' | 'new_customer';
+  label: 'VIP' | 'Fleet' | 'High Value' | 'Repeat Customer' | 'New Customer';
   score: number;
 }
 
@@ -33,7 +36,7 @@ const BADGE_VIP:    LeadPriorityBadge = { key: 'vip',             label: 'VIP', 
 const BADGE_FLEET:  LeadPriorityBadge = { key: 'fleet',           label: 'Fleet',           score: 80  };
 const BADGE_HIGH:   LeadPriorityBadge = { key: 'high_value',      label: 'High Value',      score: 60  };
 const BADGE_REPEAT: LeadPriorityBadge = { key: 'repeat_customer', label: 'Repeat Customer', score: 40  };
-const BADGE_NEW:    LeadPriorityBadge = { key: 'new_lead',        label: 'New Lead',        score: 20  };
+const BADGE_NEW:    LeadPriorityBadge = { key: 'new_customer',    label: 'New Customer',    score: 20  };
 
 type CustomerSlice = Pick<Customer, 'vipTier' | 'kind' | 'jobCount'>;
 type LeadSlice     = Pick<Lead, 'id' | 'wasNewCustomer'>;
@@ -69,7 +72,7 @@ export function computeLeadPriority(
     badges.push(BADGE_FLEET);
   }
 
-  // New Lead applies when EITHER the lead flagged itself as a new
+  // New Customer applies when EITHER the lead flagged itself as a new
   // customer OR the customer has zero jobs on record (covers
   // backfill-without-jobs edge case + absent-customer fallback).
   const noJobs = !customer || typeof customer.jobCount !== 'number' || customer.jobCount === 0;

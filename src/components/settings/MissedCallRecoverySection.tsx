@@ -36,6 +36,7 @@ import { requireDb } from '@/lib/firebase';
 import { AccordionShell } from '@/components/settings/AccordionShell';
 import { renderTemplate } from '@/lib/reviewTemplate';
 import { DEFAULT_MISSED_CALL_TEMPLATE } from '@/lib/defaults';
+import { isLeadUnread } from '@/lib/leadLifecycle';
 import { usePermissions, useMembership } from '@/context/MembershipContext';
 import { useBrand } from '@/context/BrandContext';
 import type { Lead, Settings } from '@/types';
@@ -312,10 +313,11 @@ function MissedCallRecoverySectionImpl({
               style={leadRow}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                {isLeadUnread(l) && <span aria-hidden="true" style={unreadDot} />}
                 <strong style={{ fontSize: 13 }}>{l.phoneE164}</strong>
+                {isLeadUnread(l) && <span style={unreadBadge}>UNREAD</span>}
                 <span style={statusPill(l.status)}>{l.status}</span>
                 {isTest && <span style={testBadge}>TEST</span>}
-                {l.wasNewCustomer && <span style={newCustomerBadge}>NEW</span>}
               </div>
               <span style={{ fontSize: 11, color: 'var(--t3)' }}>
                 {formatTs((l as unknown as { receivedAt?: { toMillis?: () => number } }).receivedAt)}
@@ -378,10 +380,14 @@ const testBadge: CSSProperties = {
   background: '#facc15', color: '#1a1a1a',
   textTransform: 'uppercase', letterSpacing: '0.5px',
 };
-const newCustomerBadge: CSSProperties = {
+const unreadBadge: CSSProperties = {
   fontSize: 9, fontWeight: 800, padding: '1px 5px', borderRadius: 99,
-  background: '#fb923c', color: '#1a1a1a',
+  background: '#3b82f6', color: '#fff',
   textTransform: 'uppercase', letterSpacing: '0.5px',
+};
+const unreadDot: CSSProperties = {
+  width: 7, height: 7, borderRadius: 99, background: '#3b82f6',
+  boxShadow: '0 0 6px rgba(59,130,246,0.8)', flexShrink: 0,
 };
 
 export const MissedCallRecoverySection = memo(MissedCallRecoverySectionImpl);

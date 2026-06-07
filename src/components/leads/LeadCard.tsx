@@ -14,6 +14,7 @@
 import { memo, type CSSProperties } from 'react';
 import { formatPhoneForDisplay } from '@/lib/phone';
 import { computeLeadPriority } from '@/lib/leadPriority';
+import { isLeadUnread } from '@/lib/leadLifecycle';
 import type { Customer } from '@/lib/customerEntity';
 import type { Lead, LeadStatus } from '@/types';
 
@@ -38,7 +39,7 @@ const BADGE_COLORS: Record<string, { bg: string; fg: string }> = {
   fleet:           { bg: '#3b82f6', fg: '#fff'    },   // Fleet blue
   high_value:      { bg: '#d4af37', fg: '#1a1a1a' },   // Gold
   repeat_customer: { bg: '#22c55e', fg: '#fff'    },   // Repeat green
-  new_lead:        { bg: '#fb923c', fg: '#1a1a1a' },   // New orange
+  new_customer:    { bg: '#fb923c', fg: '#1a1a1a' },   // New-customer orange
 };
 
 const SOURCE_ICON: Record<string, string> = {
@@ -67,18 +68,22 @@ function LeadCardImpl({ lead, customer, lastCommPreview, onClick }: Props): JSX.
   const phoneFmt = lead.phoneE164 ? formatPhoneForDisplay(lead.phoneE164) : '';
   const visibleBadges = priority.badges.slice(0, 3);
   const overflowCount = Math.max(0, priority.badges.length - 3);
+  const unread = isLeadUnread(lead);
   const receivedAt = (lead as unknown as { receivedAt?: { toMillis?: () => number } }).receivedAt;
 
   return (
     <button type="button" onClick={onClick} style={cardRoot}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
         <div style={{ minWidth: 0, flex: 1 }}>
-          {/* Row 1: name + status */}
+          {/* Row 1: name + read state + lead state.
+              Read state (Unread) and lead state (status) are distinct
+              concepts and shown separately — never collapsed to "NEW". */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            <strong style={{ fontSize: 14, color: 'var(--t1)' }}>{displayName}</strong>
+            {unread && <span aria-hidden="true" style={unreadDot} />}
+            <strong style={{ fontSize: 14, color: 'var(--t1)', fontWeight: unread ? 800 : 600 }}>{displayName}</strong>
+            {unread && <span style={unreadBadge}>UNREAD</span>}
             <span style={statusPill(lead.status)}>{lead.status}</span>
             {isTest && <span style={testBadge}>TEST</span>}
-            {lead.wasNewCustomer && <span style={newCustomerBadge}>NEW</span>}
           </div>
 
           {/* Row 2: priority badges */}
@@ -139,10 +144,14 @@ const testBadge: CSSProperties = {
   background: '#facc15', color: '#1a1a1a',
   textTransform: 'uppercase', letterSpacing: '0.5px',
 };
-const newCustomerBadge: CSSProperties = {
+const unreadBadge: CSSProperties = {
   fontSize: 9, fontWeight: 800, padding: '1px 5px', borderRadius: 99,
-  background: '#fb923c', color: '#1a1a1a',
+  background: '#3b82f6', color: '#fff',
   textTransform: 'uppercase', letterSpacing: '0.5px',
+};
+const unreadDot: CSSProperties = {
+  width: 7, height: 7, borderRadius: 99, background: '#3b82f6',
+  boxShadow: '0 0 6px rgba(59,130,246,0.8)', flexShrink: 0,
 };
 const overflowBadge: CSSProperties = {
   fontSize: 9, fontWeight: 800, padding: '1px 5px', borderRadius: 99,
