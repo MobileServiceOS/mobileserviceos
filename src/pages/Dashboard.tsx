@@ -34,8 +34,9 @@ import { useSwipeAction } from '@/lib/useSwipeAction';
 //    OWNER / ADMIN — see company-wide profit, revenue, costs, goal %,
 //                    growth vs last week, pending payments, low stock,
 //                    lead sources, all jobs in recent feed
-//    TECHNICIAN   — see ONLY their own jobs (filtered by createdByUid).
-//                   Hero shows completed-jobs progress vs personal
+//    TECHNICIAN   — see their own jobs: ones they logged OR ones an
+//                   owner dispatched to them (assigned-OR-created union,
+//                   via useScopedJobs). Hero shows completed-jobs vs personal
 //                   weekly goal, not company $$. Growth % is their own
 //                   week-over-week. No pending payments. No company
 //                   revenue/costs. Job-count framing throughout.
@@ -242,10 +243,15 @@ export function Dashboard({
   const today = TODAY();
 
   // ─── Per-role job visibility ────────────────────────────────────
-  const visibleJobs = useMemo(() => {
-    if (!isTechnician || !myUid) return safeJobs;
-    return safeJobs.filter((j) => j.createdByUid === myUid);
-  }, [safeJobs, isTechnician, myUid]);
+  // safeJobs is ALREADY scoped by useScopedJobs (line above): owners/admins
+  // get the full list, technicians get the assigned-OR-created union. We
+  // intentionally do NOT re-filter to createdByUid here — doing so dropped
+  // jobs an owner dispatched to the tech (assignedToUid set, createdByUid
+  // the owner's), so dispatched work never appeared on the tech's Home even
+  // though the "Assigned Jobs" card is meant to show exactly that. The home
+  // counts/goal therefore reflect the work the tech actually owns: jobs they
+  // logged AND jobs assigned to them.
+  const visibleJobs = safeJobs;
 
   // ─── Week math ──────────────────────────────────────────────────
   const weekStartDay = typeof settings.workWeekStartDay === 'number'
