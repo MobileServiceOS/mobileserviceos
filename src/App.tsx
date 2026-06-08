@@ -1456,6 +1456,23 @@ function AuthenticatedApp({ user }: { user: User }) {
     }
   }, [businessId, brand, handleSendReview]);
 
+  // Explicit Complete — sets status → Completed WITHOUT touching payment,
+  // so a job can be marked done while payment is still outstanding. This is
+  // the counterpart to Mark Paid (which also completes as a convenience);
+  // keeping them separate lets "work done, pay later" be a one-tap action.
+  const handleCompleteJob = useCallback(async (j: Job) => {
+    if (!businessId || j.status === 'Completed') return;
+    const jobsCol = scopedCol(businessId, 'jobs');
+    try {
+      await fbSetFast(jobsCol, j.id, { status: 'Completed' });
+      setDetailJob((cur) => (cur && cur.id === j.id ? { ...cur, status: 'Completed' } : cur));
+      addToast('Job completed', 'success');
+    } catch (e) {
+      setSyncStatus('sync_failed');
+      addToast(`Complete failed: ${humanizeFirestoreError(e)}`, 'error');
+    }
+  }, [businessId]);
+
   // On-demand inventory deduction for the Complete Job Command Center.
   // Inventory-source jobs are normally deducted at save time (saveJob), so
   // this is the explicit fallback for a job that wasn't deducted yet (e.g.
@@ -1594,6 +1611,7 @@ function AuthenticatedApp({ user }: { user: User }) {
         settings={settings}
         onViewJob={handleViewJob}
         onMarkPaid={handleMarkPaid}
+        onComplete={handleCompleteJob}
         onEditJob={handleEditJob}
         onGenerateInvoice={handleGenerateInvoice}
         onSendInvoice={handleSendInvoice}
@@ -1675,7 +1693,7 @@ function AuthenticatedApp({ user }: { user: User }) {
   }, [tab, jobs, settings, inventory, jobDraft, editingJobId, prefilledFromQuote, savedJob, brand,
       businessId, canViewFinancials, user,
       handleViewJob, handleGenerateInvoice, handleSendReview, handleMarkPaid,
-      handleEditJob, handleDuplicate, saveJob, startNewJob, startJobFromQuote, persistExpenses, persistInventory, persistSettings]);
+      handleEditJob, handleDuplicate, handleCompleteJob, saveJob, startNewJob, startJobFromQuote, persistExpenses, persistInventory, persistSettings]);
 
   if (brandLoading) {
     return (
