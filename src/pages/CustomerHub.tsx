@@ -29,6 +29,8 @@ import { requireDb } from '@/lib/firebase';
 import { formatPhoneForDisplay } from '@/lib/phone';
 import { usePermissions } from '@/context/MembershipContext';
 import type { Customer } from '@/lib/customerEntity';
+import { computeCustomerIntel } from '@/lib/customerIntel';
+import { CustomerIntelPanel } from '@/components/customers/CustomerIntelPanel';
 import type { Job, Settings } from '@/types';
 
 type SortKey = 'recent' | 'revenue' | 'name';
@@ -94,6 +96,9 @@ export default function CustomerHub(props: Props): JSX.Element {
     return { count: customers.length, revenue: totalRevenue, repeat: repeatCount };
   }, [customers]);
 
+  // Deterministic customer intelligence (at-risk / top-value / repeat).
+  const customerIntel = useMemo(() => computeCustomerIntel(customers, Date.now()), [customers]);
+
   // Permissions read directly from MembershipContext; the prop is
   // preserved for back-compat / test overrides but the context wins.
   const ctxPerms = usePermissions();
@@ -146,6 +151,14 @@ export default function CustomerHub(props: Props): JSX.Element {
           ))}
         </div>
       </header>
+
+      {!loading && customers.length > 0 && (
+        <CustomerIntelPanel
+          intel={customerIntel}
+          canViewFinancials={canView}
+          onSelectCustomer={props.onSelectCustomer}
+        />
+      )}
 
       {loading && (
         <div style={{ padding: 20, color: 'var(--t3)' }}>Loading customers…</div>
