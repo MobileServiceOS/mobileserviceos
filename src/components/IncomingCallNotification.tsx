@@ -531,11 +531,11 @@ function IncomingCallNotificationImpl({
         <div style={{ marginBottom: 12 }}>
           <h2 id="incoming-call-title" style={nameStyle}>{displayName}</h2>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6, alignItems: 'center' }}>
-            {isKnown && isVIP    && <span style={badgeVIP}>VIP ⭐⭐</span>}
-            {isKnown && isRepeat && <span style={badgeRepeat}>Repeat Customer ⭐</span>}
+            {isKnown && isVIP    && <span style={badgeVIP}>VIP</span>}
+            {isKnown && isRepeat && <span style={badgeRepeat}>Repeat Customer</span>}
             {!isKnown            && <span style={badgeNew}>Unknown Caller</span>}
           </div>
-          {phoneFmt && <div style={phoneStyle}>📞 {phoneFmt}</div>}
+          {phoneFmt && <div style={phoneStyle}>{phoneFmt}</div>}
         </div>
 
         {/* Enrichment grid — known customer */}

@@ -293,32 +293,33 @@ function CustomerLookupCardImpl({ businessId, rawPhone, onApplyPatch, onContinue
 
       {(customer.note || customer.gateCode || customer.apartmentNumber || customer.wheelLockKeyLocation || customer.tpmsNotes || customer.preferredPaymentMethod || customer.parkingInstructions || customer.preferredContactMethod || customer.generalNotes) && (
         <div className="info-banner" style={{ marginBottom: 10, fontSize: 11 }}>
-          {customer.note && <div>📝 {customer.note}</div>}
-          {customer.gateCode && <div>🚪 Gate: {customer.gateCode}</div>}
-          {customer.apartmentNumber && <div>🏢 Apt: {customer.apartmentNumber}</div>}
-          {customer.wheelLockKeyLocation && <div>🔑 Wheel-lock key: {customer.wheelLockKeyLocation}</div>}
-          {customer.tpmsNotes && <div>📡 TPMS: {customer.tpmsNotes}</div>}
-          {customer.preferredPaymentMethod && <div>💳 Pays via: {customer.preferredPaymentMethod}</div>}
-          {customer.parkingInstructions && <div>🅿️ Parking: {customer.parkingInstructions}</div>}
-          {customer.preferredContactMethod && <div>📞 Prefers: {customer.preferredContactMethod}</div>}
-          {customer.generalNotes && <div>ℹ️ {customer.generalNotes}</div>}
+          {customer.note && <div>{customer.note}</div>}
+          {customer.gateCode && <div><strong>Gate:</strong> {customer.gateCode}</div>}
+          {customer.apartmentNumber && <div><strong>Apt:</strong> {customer.apartmentNumber}</div>}
+          {customer.wheelLockKeyLocation && <div><strong>Wheel-lock key:</strong> {customer.wheelLockKeyLocation}</div>}
+          {customer.tpmsNotes && <div><strong>TPMS:</strong> {customer.tpmsNotes}</div>}
+          {customer.preferredPaymentMethod && <div><strong>Pays via:</strong> {customer.preferredPaymentMethod}</div>}
+          {customer.parkingInstructions && <div><strong>Parking:</strong> {customer.parkingInstructions}</div>}
+          {customer.preferredContactMethod && <div><strong>Prefers:</strong> {customer.preferredContactMethod}</div>}
+          {customer.generalNotes && <div>{customer.generalNotes}</div>}
         </div>
       )}
 
+      {/* Fast path first: "Repeat Last Service" prefills the most (identity
+          + service + vehicle + tire + city) — the one-tap log for a
+          returning customer's repeat job. "Use Customer" fills identity
+          only, for when they want a different service. */}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        <button type="button" className="btn sm primary" onClick={onUseCustomer}>Use Customer</button>
-        <button type="button" className="btn sm secondary" onClick={onRepeatLastService} disabled={!lastJob}>
-          Repeat Last Service
-        </button>
-        <button
-          type="button"
-          className="btn sm secondary"
-          disabled
-          title="View History — coming in SP3"
-          style={{ opacity: 0.5, cursor: 'not-allowed' }}
-        >
-          View History
-        </button>
+        {lastJob ? (
+          <>
+            <button type="button" className="btn sm primary" onClick={onRepeatLastService}>
+              Repeat Last Job
+            </button>
+            <button type="button" className="btn sm secondary" onClick={onUseCustomer}>Use Customer</button>
+          </>
+        ) : (
+          <button type="button" className="btn sm primary" onClick={onUseCustomer}>Use Customer</button>
+        )}
       </div>
     </div>
   );
