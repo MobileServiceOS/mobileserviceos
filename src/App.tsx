@@ -410,22 +410,6 @@ function AuthenticatedApp({ user }: { user: User }) {
     [activeVertical],
   );
   const [tab, setTab] = useState<TabId>('dashboard');
-  // Google OAuth redirect result — the callback bounces back to the app
-  // root with ?google_connected=1 or ?google_error=…; surface a toast and
-  // strip the param so a refresh doesn't re-fire it.
-  useEffect(() => {
-    try {
-      const p = new URLSearchParams(window.location.search);
-      if (p.has('google_connected')) {
-        addToast('Google connected. Search Console syncs now; reviews begin once API access is approved.', 'success');
-      } else if (p.has('google_error')) {
-        addToast(`Google connection failed: ${p.get('google_error')}`, 'warn');
-      } else { return; }
-      p.delete('google_connected'); p.delete('google_error');
-      const qs = p.toString();
-      window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : ''));
-    } catch { /* */ }
-  }, []);
   // SP3 task 9: selected customer id for CustomerProfile drill-down.
   // Set when a customer row is clicked; consumed by the
   // tab === 'customerProfile' render branch below.
