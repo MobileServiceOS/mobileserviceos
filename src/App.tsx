@@ -881,6 +881,21 @@ function AuthenticatedApp({ user }: { user: User }) {
     setTab('add');
   }, []);
 
+  // One-tap Quote → Job: the Dashboard Quick Quote hands over a partial
+  // draft (service / vehicle / miles / qty / surcharges / tire cost /
+  // chosen price, plus optional phone + tire size). Merge onto a fresh
+  // EMPTY_JOB so unspecified fields keep their defaults, flag the draft as
+  // quote-sourced (AddJob shows the "Pre-filled from Quick Quote" banner),
+  // and jump to the Add tab. Carrying the phone lets AddJob's
+  // CustomerLookupCard auto-recognize a returning customer and backfill
+  // name / address — so the operator re-enters nothing it already knows.
+  const startJobFromQuote = useCallback((draft: Partial<Job>) => {
+    setJobDraft({ ...EMPTY_JOB(), ...draft });
+    setEditingJobId(null);
+    setPrefilledFromQuote(true);
+    setTab('add');
+  }, []);
+
   const saveJob = useCallback(async (resetAfter = false): Promise<Job | null> => {
     if (!businessId) { addToast('Sign in to save', 'warn'); return null; }
     const j = jobDraft;
@@ -1493,6 +1508,7 @@ function AuthenticatedApp({ user }: { user: User }) {
           inventory={inventory}
           setTab={setTab}
           onNewJob={startNewJob}
+          onQuoteToJob={startJobFromQuote}
           onViewJob={handleViewJob}
           onGenerateInvoice={handleGenerateInvoice}
           onSendInvoice={handleSendInvoice}
@@ -1606,7 +1622,7 @@ function AuthenticatedApp({ user }: { user: User }) {
   }, [tab, jobs, settings, inventory, jobDraft, editingJobId, prefilledFromQuote, savedJob, brand,
       businessId, canViewFinancials, user,
       handleViewJob, handleGenerateInvoice, handleSendReview, handleMarkPaid,
-      handleEditJob, handleDuplicate, saveJob, startNewJob, persistExpenses, persistInventory, persistSettings]);
+      handleEditJob, handleDuplicate, saveJob, startNewJob, startJobFromQuote, persistExpenses, persistInventory, persistSettings]);
 
   if (brandLoading) {
     return (
