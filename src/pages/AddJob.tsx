@@ -470,6 +470,22 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
     return inventory.filter((i) => normalizeTireSize(i.size) === t).reduce((s, i) => s + Number(i.qty || 0), 0);
   }, [inventory, job.tireSize]);
 
+  // Quick-pick tire sizes — the sizes you actually stock, most first, so a
+  // tech can tap instead of typing "245/45R19" on a phone. Top 6.
+  const recentSizes = useMemo(() => {
+    const byQty = new Map<string, number>();
+    for (const i of inventory) {
+      const s = (i.size || '').trim();
+      if (!s) continue;
+      byQty.set(s, (byQty.get(s) || 0) + (Number(i.qty) || 0));
+    }
+    return [...byQty.entries()]
+      .filter(([, q]) => q > 0)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([s]) => s);
+  }, [inventory]);
+
   // Batch C (2026-06-05): required-field gating. Pure validator lives
   // in src/lib/addJobValidation.ts and is pinned by
   // tests/addJobValidation.test.ts. Memoized on the three fields the
@@ -838,6 +854,19 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
           <div className="field">
             <label htmlFor="addjob-tire-size">Size</label>
             <MemoInput id="addjob-tire-size" value={job.tireSize} onChange={fieldSetters.tireSize} placeholder="225/65R17" />
+            {recentSizes.length > 0 && (
+              <div className="chip-grid" style={{ marginTop: 8 }}>
+                {recentSizes.map((s) => {
+                  const active = normalizeTireSize(s) === normalizeTireSize(job.tireSize || '');
+                  return (
+                    <button key={s} type="button" className={'chip sm' + (active ? ' active' : '')}
+                      onClick={() => fieldSetters.tireSize(s)}>
+                      {s}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             {(() => {
               const typed = (job.tireSize || '').trim();
               if (!typed) return null;
