@@ -77,9 +77,17 @@ console.log('\n┌─ deriveRepeatLastServicePatch ─────────�
   check('includes service from lastJob', patch.service === 'tire_swap');
   check('includes vehicleMakeModel from lastJob', patch.vehicleMakeModel === 'Honda Civic');
   check('includes tireSize from lastJob', patch.tireSize === '215/55R17');
-  check('does NOT copy revenue from lastJob', !('revenue' in patch));
+  // One-tap pricing (2026-06-08): the repeat patch now CARRIES the last
+  // job's sell price so a returning customer's price is a tap, not a
+  // re-type. It stays editable + the live-quote divergence hint catches
+  // a stale price.
+  check('copies revenue from lastJob (one-tap pricing)', patch.revenue === 450);
   check('does NOT copy paymentStatus from lastJob', !('paymentStatus' in patch));
   check('does NOT copy note from lastJob', !('note' in patch));
+  // Guard: a zero / missing last revenue must NOT seed a $0 price.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const zeroPatch = deriveRepeatLastServicePatch(customer as any, vehicle as any, { ...lastJob, revenue: 0 } as any);
+  check('zero last revenue is not carried', !('revenue' in zeroPatch));
 }
 
 console.log('\n══════════════════════════════════════════════════');
