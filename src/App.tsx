@@ -53,6 +53,7 @@ import { ToastHost } from '@/components/ToastHost';
 import { InstallBanner } from '@/components/InstallBanner';
 import { UpdateBanner } from '@/components/UpdateBanner';
 import { MoreSheet } from '@/components/MoreSheet';
+import { NavHome, NavLeads, NavJobs, NavCustomers, NavInventory, NavLog, NavMore } from '@/components/NavIcons';
 import { IncomingCallNotification } from '@/components/IncomingCallNotification';
 import { EmailVerificationBanner } from '@/components/EmailVerificationBanner';
 import { TrialCountdownBanner } from '@/components/TrialCountdownBanner';
@@ -1761,35 +1762,35 @@ function AuthenticatedApp({ user }: { user: User }) {
             aria-current={tab === 'dashboard' ? 'page' : undefined}
             onClick={() => setTab('dashboard')}
           >
-            <span className="nav-ico" aria-hidden="true">🏠</span><span>Home</span>
+            <span className="nav-ico" aria-hidden="true"><NavHome /></span><span>Home</span>
           </button>
           <button
             className={'nav-btn' + (tab === 'leads' ? ' active' : '')}
             aria-current={tab === 'leads' ? 'page' : undefined}
             onClick={() => setTab('leads')}
           >
-            <span className="nav-ico" aria-hidden="true">📞</span><span>Leads</span>
+            <span className="nav-ico" aria-hidden="true"><NavLeads /></span><span>Leads</span>
           </button>
           <button
             className={'nav-btn' + (tab === 'history' ? ' active' : '')}
             aria-current={tab === 'history' ? 'page' : undefined}
             onClick={() => setTab('history')}
           >
-            <span className="nav-ico" aria-hidden="true">📋</span><span>Jobs</span>
+            <span className="nav-ico" aria-hidden="true"><NavJobs /></span><span>Jobs</span>
           </button>
           <button
             className={'nav-btn' + (tab === 'customers' ? ' active' : '')}
             aria-current={tab === 'customers' ? 'page' : undefined}
             onClick={() => setTab('customers')}
           >
-            <span className="nav-ico" aria-hidden="true">👥</span><span>Customers</span>
+            <span className="nav-ico" aria-hidden="true"><NavCustomers /></span><span>Customers</span>
           </button>
           <button
             className={'nav-btn' + (tab === 'inventory' ? ' active' : '')}
             aria-current={tab === 'inventory' ? 'page' : undefined}
             onClick={() => setTab('inventory')}
           >
-            <span className="nav-ico" aria-hidden="true">🛞</span><span>Inv</span>
+            <span className="nav-ico" aria-hidden="true"><NavInventory /></span><span>Inv</span>
           </button>
           {/* Log — the primary action button. Visually distinct (raised
               accent) via .nav-btn.primary.nav-log in the global stylesheet. */}
@@ -1798,7 +1799,7 @@ function AuthenticatedApp({ user }: { user: User }) {
             aria-label="Log a job"
             onClick={startNewJob}
           >
-            <span className="nav-ico" aria-hidden="true">＋</span><span>Log</span>
+            <span className="nav-ico" aria-hidden="true"><NavLog /></span><span>Log</span>
           </button>
           <button
             className={'nav-btn' + ((tab === 'settings' || tab === 'payouts' || tab === 'expenses' || tab === 'insights' || tab === 'help' || tab === 'bandilero') ? ' active' : '')}
@@ -1806,7 +1807,7 @@ function AuthenticatedApp({ user }: { user: User }) {
             aria-expanded={moreOpen}
             onClick={() => setMoreOpen(true)}
           >
-            <span className="nav-ico" aria-hidden="true">⚙</span><span>More</span>
+            <span className="nav-ico" aria-hidden="true"><NavMore /></span><span>More</span>
           </button>
         </nav>
       )}

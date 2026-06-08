@@ -234,18 +234,18 @@ export default function CustomerProfile(props: Props): JSX.Element {
           )}
         </div>
         {phoneLabel && (
-          <div style={{ fontSize: 14, color: 'var(--t2)' }}>📞 {phoneLabel}</div>
+          <div style={{ fontSize: 14, color: 'var(--t2)' }}>{phoneLabel}</div>
         )}
         {customer.email && (
-          <div style={{ fontSize: 13, color: 'var(--t2)' }}>✉️ {customer.email}</div>
+          <div style={{ fontSize: 13, color: 'var(--t2)' }}>{customer.email}</div>
         )}
         {(customer.city || customer.state) && (
           <div style={{ fontSize: 13, color: 'var(--t2)' }}>
-            📍 {customer.addressLine ? `${customer.addressLine}, ` : ''}{customer.city}{customer.city && customer.state ? ', ' : ''}{customer.state} {customer.zipCode ?? ''}
+            {customer.addressLine ? `${customer.addressLine}, ` : ''}{customer.city}{customer.city && customer.state ? ', ' : ''}{customer.state} {customer.zipCode ?? ''}
           </div>
         )}
         {customer.companyName && (
-          <div style={{ fontSize: 13, color: 'var(--t2)' }}>🏢 {customer.companyName}</div>
+          <div style={{ fontSize: 13, color: 'var(--t2)' }}>{customer.companyName}</div>
         )}
       </header>
 
@@ -256,8 +256,8 @@ export default function CustomerProfile(props: Props): JSX.Element {
           <button type="button" className="btn sm primary" onClick={onCreateJob}>Create Job</button>
           <button type="button" className="btn sm secondary" onClick={onRepeatLastJob} disabled={!lastJob}>Repeat Last Job</button>
           <button type="button" className="btn sm secondary" onClick={onRepeatLastService} disabled={!lastJob}>Repeat Last Service</button>
-          <button type="button" className="btn sm secondary" onClick={onCall} disabled={!customer.phoneE164}>📞 Call</button>
-          <button type="button" className="btn sm secondary" onClick={onText} disabled={!customer.phoneE164}>💬 Text</button>
+          <button type="button" className="btn sm secondary" onClick={onCall} disabled={!customer.phoneE164}>Call</button>
+          <button type="button" className="btn sm secondary" onClick={onText} disabled={!customer.phoneE164}>Text</button>
           <button type="button" className="btn sm secondary" disabled style={dimStyle} title="Send Quote — wired in SP3 follow-up">Send Quote</button>
           <button type="button" className="btn sm secondary" disabled style={dimStyle} title="Send Invoice — wired in SP3 follow-up">Send Invoice</button>
           <button type="button" className="btn sm secondary" disabled style={dimStyle} title="Send Review — wired in SP3 follow-up">Send Review</button>
