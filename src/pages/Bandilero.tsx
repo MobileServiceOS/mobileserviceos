@@ -136,7 +136,14 @@ export default function Bandilero({
 
   // Phase 3 modules.
   const invIntel = useMemo(() => inventoryIntel(inventory, jobs, today), [inventory, jobs, today]);
-  const reputation = useMemo(() => reputationStatus(connectivity), [connectivity]);
+  const reputation = useMemo(
+    () => reputationStatus(connectivity, {
+      rating: settings.googleRating,
+      reviewCount: settings.googleReviewCount,
+      updatedAt: settings.reputationUpdatedAt,
+    }),
+    [connectivity, settings.googleRating, settings.googleReviewCount, settings.reputationUpdatedAt],
+  );
   const recommendations = useMemo(
     () => buildRecommendations({ jobs, leads, inventory, settings, connectivity, today, windowDays: config.windowDays }),
     [jobs, leads, inventory, settings, connectivity, today, config.windowDays],

@@ -1177,6 +1177,14 @@ export interface Settings {
   /** Google Business Profile review URL. Required for the trigger to
    *  enqueue — guard #5 in onJobCompletedReviewRequest. Default ''. */
   googleReviewLink?: string;
+  /** Manually-entered reputation (interim until live Google Business
+   *  Profile / Search Console sync lands — that needs Google's Business
+   *  Profile API approval). Owner enters these; they surface in the
+   *  Bandilero Reputation module honestly labelled "entered by you", NOT
+   *  as live/measured data. */
+  googleRating?: number;          // e.g. 4.8 (0–5)
+  googleReviewCount?: number;     // total reviews
+  reputationUpdatedAt?: string;   // ISO date the owner last updated the above
   /** Operator's primary service area (e.g. "South Florida"). Used as
    *  the third fallback for {city} when job.city + job.area are both
    *  empty — see renderTemplate() consumers. Optional. */
