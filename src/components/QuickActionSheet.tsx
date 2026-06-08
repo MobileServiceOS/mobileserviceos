@@ -1,7 +1,7 @@
 import { useEffect, type ReactNode } from 'react';
 import type { Job } from '@/types';
 import { resolvePaymentStatus } from '@/lib/utils';
-import { IconDollar, IconEye, IconEdit, IconCopy, IconSend, IconStar } from '@/components/ActionIcons';
+import { IconDollar, IconEye, IconEdit, IconCopy, IconSend, IconStar, IconCheck } from '@/components/ActionIcons';
 
 interface Props {
   job: Job;
@@ -12,6 +12,10 @@ interface Props {
   onSendInvoice: () => void;
   onSendReview: () => void;
   onMarkPaid: () => void;
+  /** Mark the job done WITHOUT taking payment — an explicit Complete that's
+   *  separate from Mark Paid (which also completes as a convenience). Shown
+   *  only when the job isn't already Completed/Cancelled. */
+  onComplete?: () => void;
 }
 
 interface ActionDef {
@@ -35,7 +39,7 @@ interface ActionDef {
  * for one-thumb roadside use.
  */
 export function QuickActionSheet({
-  job, onClose, onView, onEdit, onDuplicate, onSendInvoice, onSendReview, onMarkPaid,
+  job, onClose, onView, onEdit, onDuplicate, onSendInvoice, onSendReview, onMarkPaid, onComplete,
 }: Props) {
   // Escape key dismiss — backdrop click already wired below. Matches
   // the MoreSheet / QuickExpenseSheet pattern so every bottom sheet
@@ -48,11 +52,18 @@ export function QuickActionSheet({
 
   const ps = resolvePaymentStatus(job);
   const canMarkPaid = ps !== 'Paid' && ps !== 'Cancelled';
+  // Explicit Complete — separate from Mark Paid. Only when the job is still
+  // open (not already Completed/Cancelled). Lets the operator mark the work
+  // done while payment is still outstanding (customer pays later).
+  const canComplete = !!onComplete && job.status !== 'Completed' && job.status !== 'Cancelled';
 
   // Duplicate goes right after Edit — same form-prefill mental model,
   // and the use case (tire shops logging the 4th of the same job
   // today) is the second-most-common History action after Mark Paid.
   const actions: ActionDef[] = [
+    ...(canComplete
+      ? [{ key: 'complete', icon: <IconCheck />, label: 'Complete Job', handler: onComplete!, emphasize: true }]
+      : []),
     ...(canMarkPaid
       ? [{ key: 'paid', icon: <IconDollar />, label: 'Mark Paid', handler: onMarkPaid, emphasize: true }]
       : []),
