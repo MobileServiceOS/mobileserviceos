@@ -1456,6 +1456,59 @@ function AuthenticatedApp({ user }: { user: User }) {
     }
   }, [businessId, brand, handleSendReview]);
 
+  // On-demand inventory deduction for the Complete Job Command Center.
+  // Inventory-source jobs are normally deducted at save time (saveJob), so
+  // this is the explicit fallback for a job that wasn't deducted yet (e.g.
+  // a dispatched job whose tire size was filled in the field). Idempotent:
+  // refuses if the job already carries deductions. FIFO by cost via the
+  // shared planInventoryDeduction, and writes the resulting TOTAL tire cost
+  // back so profit reconciles with the breakdown/rollups.
+  const handleDeductInventory = useCallback(async (j: Job) => {
+    if (!businessId) return;
+    if (j.tireSource !== 'Inventory' || !j.tireSize) {
+      addToast('No stock to deduct for this job', 'info');
+      return;
+    }
+    if (Array.isArray(j.inventoryDeductions) && j.inventoryDeductions.length > 0) {
+      addToast('Inventory already deducted', 'info');
+      return;
+    }
+    const invCol = scopedCol(businessId, 'inventory');
+    const jobsCol = scopedCol(businessId, 'jobs');
+    const workingInv = inventory.map((i) => ({ ...i }));
+    const plan = planInventoryDeduction(j.tireSize, Number(j.qty || 1), workingInv);
+    if (plan.deductions.length === 0) {
+      addToast(`No "${j.tireSize}" in stock to deduct`, 'warn');
+      return;
+    }
+    const invWrites: Promise<void>[] = [];
+    for (const d of plan.deductions) {
+      const idx = workingInv.findIndex((i) => i.id === d.id);
+      if (idx < 0) continue;
+      workingInv[idx] = { ...workingInv[idx], qty: Math.max(0, Number(workingInv[idx].qty || 0) - Number(d.qty || 0)) };
+      invWrites.push(fbSetFast(invCol, workingInv[idx].id, workingInv[idx]));
+    }
+    setInventoryRaw(workingInv);
+    const planTotal = plan.deductions.reduce((s, d) => s + d.cost * d.qty, 0);
+    const patch: Partial<Job> = {
+      inventoryDeductions: plan.deductions,
+      inventoryUsed: plan.deductions.map((d) => ({ size: d.size, qty: d.qty })),
+    };
+    if (planTotal > 0) patch.tireCost = r2(planTotal);
+    try {
+      await Promise.all(invWrites);
+      await fbSetFast(jobsCol, j.id, patch);
+      setDetailJob((cur) => (cur && cur.id === j.id ? { ...cur, ...patch } : cur));
+      addToast(
+        plan.shortfall > 0 ? `Deducted with shortfall of ${plan.shortfall} tire(s)` : 'Inventory deducted',
+        plan.shortfall > 0 ? 'warn' : 'success',
+      );
+    } catch (e) {
+      setSyncStatus('sync_failed');
+      addToast(`Inventory deduct failed: ${humanizeFirestoreError(e)}`, 'error');
+    }
+  }, [businessId, inventory]);
+
   const handleEditJob = useCallback((j: Job) => {
     setJobDraft({ ...j });
     setEditingJobId(j.id);
@@ -1825,6 +1878,7 @@ function AuthenticatedApp({ user }: { user: User }) {
           onSendInvoice={() => handleSendInvoice(detailJob)}
           onSendReview={() => handleSendReview(detailJob)}
           onMarkPaid={(method) => handleMarkPaid(detailJob, method)}
+          onDeductInventory={() => { void handleDeductInventory(detailJob); }}
           onUpdateJob={async (patch) => {
             if (!businessId) return;
             // Send ONLY the patch — fbSetFast merges into Firestore, so

@@ -1,5 +1,4 @@
-import { useState, type ReactNode } from 'react';
-import { getFunctions, httpsCallable, connectFunctionsEmulator } from 'firebase/functions';
+import { useState, type CSSProperties, type ReactNode } from 'react';
 import type { Job, Settings, InventoryDeduction, PaymentMethod } from '@/types';
 import { useFocusTrap } from '@/lib/useFocusTrap';
 import { PAYMENT_METHOD_LABELS } from '@/types';
@@ -23,24 +22,11 @@ const IcoEdit     = () => <Svg><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12
 const IcoTrash    = () => <Svg><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></Svg>;
 const IcoCheck    = () => <Svg><polyline points="20 6 9 17 4 12" /></Svg>;
 const IcoDollar   = () => <Svg><line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></Svg>;
+const IcoBox      = () => <Svg><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /><polyline points="3.27 6.96 12 12.01 20.73 6.96" /><line x1="12" y1="22.08" x2="12" y2="12" /></Svg>;
 import { useBrand } from '@/context/BrandContext';
 import { useMembersDirectory } from '@/lib/useMembersDirectory';
 import { JobTimer } from '@/components/JobDetailModal/JobTimer';
 import { JobPhotoCapture } from '@/components/JobPhotoCapture';
-
-function _getEmulatorAwareFunctions() {
-  const fns = getFunctions();
-  const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env ?? {};
-  const useEmu =
-    env.DEV &&
-    typeof window !== 'undefined' &&
-    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') &&
-    env.VITE_USE_FIREBASE_EMULATOR === '1';
-  if (useEmu) {
-    try { connectFunctionsEmulator(fns, '127.0.0.1', 5001); } catch { /* already connected */ }
-  }
-  return fns;
-}
 
 interface Props {
   job: Job;
@@ -53,16 +39,20 @@ interface Props {
   onSendInvoice: () => void;
   onSendReview: () => void;
   onMarkPaid: (method?: PaymentMethod) => void;
+  /** Deduct this job's tire stock on demand (Complete Job Command
+   *  Center). Inventory-source jobs are normally deducted at save time;
+   *  this is the explicit fallback when they weren't. */
+  onDeductInventory?: () => void;
   /** Optional patch-update callback used by the Phase-4 photos +
-   *  signature surfaces. Threaded from App.tsx; when absent, the
-   *  photo / signature sections render in read-only mode. */
+   *  signature surfaces, and the command center's Complete Job action.
+   *  Threaded from App.tsx; when absent those actions render disabled. */
   onUpdateJob?: (patch: Partial<Job>) => Promise<void>;
 }
 
 export function JobDetailModal({
   job, settings, onClose, onEdit, onDuplicate, onDelete,
   onGenerateInvoice, onSendInvoice, onSendReview, onMarkPaid,
-  onUpdateJob,
+  onDeductInventory, onUpdateJob,
 }: Props) {
   // Audit a11y P1-4 (2026-05-31): keep keyboard focus inside the
   // modal while it's open, and return focus to the card that opened
@@ -95,9 +85,6 @@ export function JobDetailModal({
   // write path (paymentStatus stays 'Paid', paidAt preserved,
   // paymentMethod updated).
   const [editingMethod, setEditingMethod] = useState(false);
-  const [reviewSendInFlight, setReviewSendInFlight] = useState(false);
-  const [reviewSendError,    setReviewSendError]    = useState<string | null>(null);
-  const [reviewConfirmOpen,  setReviewConfirmOpen]  = useState(false);
   const { role, member, permissions } = useMembership();
   const myUid = member?.uid || null;
   // Technicians see revenue (they set the price) but never the
@@ -109,41 +96,15 @@ export function JobDetailModal({
     ? job.inventoryDeductions
     : null;
 
-  // Manual "Send Review Request" gating. The button is shown only on
-  // Completed jobs. It's disabled when:
-  //   - reviewAutomationEnabled is OFF, OR
-  //   - googleReviewLink is empty, OR
-  //   - reviewRequestSent is already true (idempotency: the row exists)
-  type JobWithReview = Job & { reviewRequestSent?: boolean; reviewRequestId?: string };
-  const jobR = job as JobWithReview;
-  const reviewIsCompleted   = job.status === 'Completed';
-  const reviewIsConfigured  = (settings.reviewAutomationEnabled ?? false) && !!(settings.googleReviewLink?.trim());
-  const reviewAlreadySent   = jobR.reviewRequestSent === true;
-  const reviewBtnDisabled   = !reviewIsConfigured || reviewAlreadySent;
-  const reviewBtnTooltip    = reviewAlreadySent
-    ? 'Already requested — see Review history on the customer profile'
-    : !reviewIsConfigured
-      ? 'Enable Review Automation + set Review URL in Settings'
-      : '';
-
-  const onSendManualReview = async () => {
-    if (reviewBtnDisabled || reviewSendInFlight) return;
-    setReviewSendInFlight(true);
-    setReviewSendError(null);
-    try {
-      const fn = httpsCallable<
-        { businessId: string; jobId: string },
-        { requestId: string }
-      >(_getEmulatorAwareFunctions(), 'sendManualReviewRequest');
-      if (!businessId) throw new Error('businessId not resolved');
-      await fn({ businessId, jobId: job.id });
-      setReviewConfirmOpen(false);
-    } catch (err) {
-      setReviewSendError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setReviewSendInFlight(false);
-    }
-  };
+  // Review is "done" when either flag is set: reviewRequested (the free
+  // native-SMS path used everywhere now) or the legacy reviewRequestSent
+  // (back-compat for jobs sent via the old backend path).
+  type JobWithReview = Job & { reviewRequestSent?: boolean };
+  const reviewDone = job.reviewRequested === true || (job as JobWithReview).reviewRequestSent === true;
+  // Command-center derived state.
+  const isPaid = ps === 'Paid';
+  const isCancelled = ps === 'Cancelled' || job.status === 'Cancelled';
+  const isInventoryJob = job.tireSource === 'Inventory' && !!job.tireSize;
 
   return (
     <div
@@ -166,6 +127,78 @@ export function JobDetailModal({
           <button onClick={onClose} className="modal-close" aria-label="Close">✕</button>
         </div>
         <div className="modal-body">
+          {/* ─── Complete Job Command Center ──────────────────────────
+              Everything to close out a job, on one screen at the top:
+              Complete · Mark Paid · Send Invoice · Send Review SMS ·
+              Deduct Inventory. Each row shows its done-state so the
+              operator sees what's left at a glance. All actions use the
+              free native-SMS / on-device handlers — no backend SMS cost.
+              Hidden for cancelled jobs (nothing to collect). */}
+          {!isCancelled && (
+            <div className="form-group" style={cmdWrap}>
+              <div className="form-group-title" style={{ marginBottom: 10 }}>Complete &amp; Collect</div>
+
+              {/* 1 · Complete Job */}
+              {job.status === 'Completed' ? (
+                <CmdDone label="Job completed" />
+              ) : (
+                <CmdAction
+                  label="Complete Job" sub="Mark the work finished" icon={<IcoCheck />} tone="primary"
+                  disabled={!onUpdateJob}
+                  onClick={() => { void onUpdateJob?.({ status: 'Completed' }); }}
+                />
+              )}
+
+              {/* 2 · Mark Paid (with method chips when unpaid) */}
+              {isPaid ? (
+                <CmdDone label={`Paid${job.paymentMethod ? ` · ${PAYMENT_METHOD_LABELS[job.paymentMethod as PaymentMethod] ?? job.paymentMethod}` : ''}`} />
+              ) : (
+                <div>
+                  <div style={cmdChips}>
+                    {PAY_METHODS.map((m) => (
+                      <button
+                        key={m} type="button" onClick={() => setPayMethod(m)} aria-pressed={payMethod === m}
+                        style={cmdChip(payMethod === m)}
+                      >{PAYMENT_METHOD_LABELS[m]}</button>
+                    ))}
+                  </div>
+                  <CmdAction
+                    label={`Mark Paid · ${money(job.revenue)}`} sub={`via ${PAYMENT_METHOD_LABELS[payMethod]}`}
+                    icon={<IcoDollar />} tone="green"
+                    onClick={() => onMarkPaid(payMethod)}
+                  />
+                </div>
+              )}
+
+              {/* 3 · Send Invoice (generates if needed, then texts it) */}
+              {job.invoiceSent ? (
+                <CmdDone label="Invoice sent" actionLabel="Resend" onAction={onSendInvoice} />
+              ) : (
+                <CmdAction label="Send Invoice" sub="Generates + texts the invoice" icon={<IcoSend />} onClick={onSendInvoice} />
+              )}
+
+              {/* 4 · Send Review SMS (free native text) */}
+              {reviewDone ? (
+                <CmdDone label="Review requested" actionLabel="Resend" onAction={onSendReview} />
+              ) : (
+                <CmdAction label="Send Review SMS" sub="Texts your review link" icon={<IcoStar />} onClick={onSendReview} />
+              )}
+
+              {/* 5 · Deduct Inventory — only Inventory-source tire jobs */}
+              {isInventoryJob && (
+                invDeds && invDeds.length > 0 ? (
+                  <CmdDone label={`Stock deducted · ${invDeds.map((d) => `${d.qty}×${d.size}`).join(', ')}`} />
+                ) : (
+                  <CmdAction
+                    label="Deduct Inventory" sub={`${job.qty || 1}× ${job.tireSize} from stock`} icon={<IcoBox />}
+                    disabled={!onDeductInventory}
+                    onClick={() => onDeductInventory?.()}
+                  />
+                )
+              )}
+            </div>
+          )}
+
           {/* Cost breakdown. Technicians (canViewProfit false) see a
               single Revenue row — never costs, travel, or profit.
               Owner/admin see the full reconciling breakdown: each
@@ -404,130 +437,93 @@ export function JobDetailModal({
           />
 
 
-          {/* Mark Paid CTA — primary action when payment is outstanding.
-              Chip row selects the payment method (defaults to cash —
-              the most common roadside case). One tap on the green
-              button records both the timestamp and the method so the
-              "Paid via X · {date}" audit line + invoice PDF can
-              actually render. */}
-          {ps !== 'Paid' && ps !== 'Cancelled' && (
-            <div style={{ marginTop: 16 }}>
-              <div style={{
-                fontSize: 10, fontWeight: 700, color: 'var(--t3)',
-                textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6,
-              }}>
-                Payment method
-              </div>
-              <div style={{
-                display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10,
-              }}>
-                {(['cash', 'card', 'zelle', 'venmo', 'cashapp', 'check', 'apple_pay', 'google_pay', 'other'] as PaymentMethod[]).map((m) => {
-                  const selected = payMethod === m;
-                  return (
-                    <button
-                      key={m}
-                      type="button"
-                      onClick={() => setPayMethod(m)}
-                      aria-pressed={selected}
-                      style={{
-                        padding: '7px 11px',
-                        borderRadius: 8,
-                        background: selected ? 'rgba(34,197,94,.10)' : 'var(--s3)',
-                        border: selected
-                          ? '1px solid var(--green)'
-                          : '1px solid var(--border)',
-                        color: selected ? 'var(--green)' : 'var(--t2)',
-                        fontSize: 12, fontWeight: selected ? 700 : 600,
-                        cursor: 'pointer', lineHeight: 1.2,
-                      }}
-                    >
-                      {PAYMENT_METHOD_LABELS[m]}
-                    </button>
-                  );
-                })}
-              </div>
-              <button
-                onClick={() => onMarkPaid(payMethod)}
-                style={{
-                  width: '100%',
-                  padding: '14px 18px',
-                  background: 'linear-gradient(135deg, var(--green) 0%, #16a34a 100%)',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: 12,
-                  fontSize: 15,
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                  boxShadow: '0 6px 20px rgba(34,197,94,.25)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 8,
-                  minHeight: 52,
-                }}
-              >
-<IcoDollar /> Mark Paid · {money(job.revenue)}
-              </button>
-            </div>
-          )}
-
+          {/* Secondary actions. The primary close-out actions (Complete,
+              Mark Paid, Invoice, Review, Deduct) live in the command
+              center at the top — these are the less-frequent record ops. */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 16 }}>
-            <button className="btn secondary" onClick={onGenerateInvoice}><IcoInvoice /> Invoice</button>
-            <button className="btn secondary" onClick={onSendInvoice}><IcoSend /> Send Invoice</button>
-            {reviewIsCompleted ? (
-              <button
-                className={'btn ' + (reviewBtnDisabled ? 'secondary' : 'primary')}
-                disabled={reviewBtnDisabled || reviewSendInFlight}
-                onClick={() => setReviewConfirmOpen(true)}
-                title={reviewBtnTooltip}
-              >
-                {reviewAlreadySent ? <><IcoCheck /> Review Requested</> : <><IcoStar /> Send Review Request</>}
-              </button>
-            ) : (
-              <button className="btn secondary" onClick={onSendReview}><IcoStar /> Review</button>
-            )}
+            <button className="btn secondary" onClick={onGenerateInvoice}><IcoInvoice /> Invoice PDF</button>
             <button className="btn secondary" onClick={onDuplicate}><IcoCopy /> Duplicate</button>
             <button className="btn secondary" onClick={onEdit}><IcoEdit /> Edit</button>
             <button className="btn danger" onClick={onDelete}><IcoTrash /> Delete</button>
           </div>
         </div>
       </div>
-      {reviewConfirmOpen && (
-        <div
-          className="modal-overlay"
-          onClick={(e) => { if (e.target === e.currentTarget) setReviewConfirmOpen(false); }}
-          style={{ zIndex: 200 }}
-        >
-          <div className="modal-card" style={{ maxWidth: 380 }}>
-            <h3 style={{ margin: 0, marginBottom: 8, fontSize: 16 }}>Send Review Request?</h3>
-            <p style={{ fontSize: 13, color: 'var(--t2)', marginBottom: 12 }}>
-              Send a review request SMS to <strong>{job.customerName || 'this customer'}</strong>
-              {job.customerPhone ? ` at ${job.customerPhone}` : ''}?
-            </p>
-            {reviewSendError && (
-              <p style={{ fontSize: 12, color: 'var(--danger, #f87171)', marginBottom: 12 }}>
-                {reviewSendError}
-              </p>
-            )}
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button
-                type="button"
-                className="btn sm secondary"
-                onClick={() => setReviewConfirmOpen(false)}
-                disabled={reviewSendInFlight}
-              >Cancel</button>
-              <button
-                type="button"
-                className="btn sm primary"
-                onClick={onSendManualReview}
-                disabled={reviewSendInFlight}
-              >
-                {reviewSendInFlight ? 'Sending…' : 'Send'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+    </div>
+  );
+}
+
+// ─── Complete Job Command Center helpers ──────────────────────────────
+const PAY_METHODS: PaymentMethod[] = ['cash', 'card', 'zelle', 'venmo', 'cashapp', 'check', 'apple_pay', 'google_pay', 'other'];
+
+const cmdWrap: CSSProperties = {
+  marginBottom: 14, padding: 12,
+  background: 'var(--s2)', border: '1px solid var(--border)', borderRadius: 14,
+};
+const cmdChips: CSSProperties = { display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 };
+function cmdChip(on: boolean): CSSProperties {
+  return {
+    padding: '6px 10px', borderRadius: 8,
+    background: on ? 'rgba(34,197,94,.10)' : 'var(--s3)',
+    border: on ? '1px solid var(--green)' : '1px solid var(--border)',
+    color: on ? 'var(--green)' : 'var(--t2)',
+    fontSize: 11, fontWeight: on ? 700 : 600, cursor: 'pointer', lineHeight: 1.2,
+  };
+}
+
+/** A tappable command-center action row — icon + label/sub + chevron.
+ *  `tone` raises it to a filled primary/green CTA; otherwise it's a
+ *  bordered secondary row. Full-width + ≥56px tall for one-thumb use. */
+function CmdAction({ label, sub, icon, onClick, disabled, tone }: {
+  label: string; sub?: string; icon: ReactNode; onClick: () => void;
+  disabled?: boolean; tone?: 'primary' | 'green';
+}) {
+  const strong = tone === 'green' || tone === 'primary';
+  const accent = tone === 'green' ? 'var(--green)' : 'var(--brand-primary)';
+  return (
+    <button
+      type="button" onClick={onClick} disabled={disabled}
+      style={{
+        width: '100%', display: 'flex', alignItems: 'center', gap: 12,
+        padding: '12px 14px', marginBottom: 8, minHeight: 56,
+        background: strong
+          ? (tone === 'green' ? 'linear-gradient(135deg, var(--green) 0%, #16a34a 100%)' : 'var(--brand-primary)')
+          : 'var(--s1)',
+        color: strong ? '#fff' : 'var(--t1)',
+        border: strong ? 'none' : '1px solid var(--border)',
+        borderRadius: 12, cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.5 : 1, textAlign: 'left',
+        boxShadow: tone === 'green' ? '0 6px 18px rgba(34,197,94,.22)' : 'none',
+      }}
+    >
+      <span style={{ display: 'inline-flex', flexShrink: 0, color: strong ? '#fff' : accent }}>{icon}</span>
+      <span style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
+        <span style={{ fontSize: 14, fontWeight: 800, lineHeight: 1.2 }}>{label}</span>
+        {sub ? <span style={{ fontSize: 11, fontWeight: 600, opacity: 0.8, marginTop: 1 }}>{sub}</span> : null}
+      </span>
+      <span aria-hidden="true" style={{ fontSize: 18, opacity: 0.7, flexShrink: 0 }}>›</span>
+    </button>
+  );
+}
+
+/** A completed command-center row — green check + label, with an
+ *  optional "Resend" affordance for invoice / review. */
+function CmdDone({ label, actionLabel, onAction }: {
+  label: string; actionLabel?: string; onAction?: () => void;
+}) {
+  return (
+    <div style={{
+      width: '100%', display: 'flex', alignItems: 'center', gap: 12,
+      padding: '11px 14px', marginBottom: 8, minHeight: 48,
+      background: 'rgba(34,197,94,.06)', border: '1px solid rgba(34,197,94,.22)', borderRadius: 12,
+    }}>
+      <span style={{ display: 'inline-flex', flexShrink: 0, color: 'var(--green)' }}><IcoCheck /></span>
+      <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 700, color: 'var(--t2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+      {actionLabel && onAction ? (
+        <button type="button" onClick={onAction} style={{
+          background: 'transparent', border: 'none', color: 'var(--brand-primary)',
+          fontSize: 12, fontWeight: 700, cursor: 'pointer', padding: '4px 6px', flexShrink: 0,
+        }}>{actionLabel}</button>
+      ) : null}
     </div>
   );
 }
