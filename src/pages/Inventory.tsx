@@ -17,11 +17,6 @@ import {
   HEALTH_BUCKETS, categorizeInventoryHealth, inventoryHealthCounts,
   type InventoryHealthBucket,
 } from '@/lib/inventoryHealth';
-import { useMembership } from '@/context/MembershipContext';
-import { callAI, isAIConfigured } from '@/lib/aiClient';
-import {
-  buildInventoryInsightsInput, parseInventoryInsightsResponse,
-} from '@/lib/aiInventoryInsights';
 
 interface Props {
   inventory: InventoryItem[];
@@ -274,24 +269,6 @@ function TireInventoryView({ inventory, onSave, jobs }: InternalViewProps) {
   }, [jobs]);
 
   // Phase 4 — Inventory AI insight (owner/admin only).
-  const membership = useMembership();
-  const isOwnerOrAdmin = membership.role === 'owner' || membership.role === 'admin';
-  const aiAvailable = isOwnerOrAdmin && isAIConfigured() && list.length > 0;
-  const [aiStatus, setAiStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
-  const [aiBullets, setAiBullets] = useState<string[]>([]);
-
-  const handleAiInsight = async (): Promise<void> => {
-    if (!aiAvailable) return;
-    setAiStatus('loading');
-    setAiBullets([]);
-    const digest = buildInventoryInsightsInput(list, jobs, today);
-    const res = await callAI('inventory_insights', digest);
-    if (!res.ok || !res.text) { setAiStatus('error'); return; }
-    const parsed = parseInventoryInsightsResponse(res.text, digest);
-    if (!parsed.ok) { setAiStatus('error'); return; }
-    setAiBullets(parsed.bullets);
-    setAiStatus('done');
-  };
 
   // Phase 1 smart filters — multi-select chip set. Each active chip
   // intersects with the others (item must match every active chip).
@@ -575,30 +552,6 @@ function TireInventoryView({ inventory, onSave, jobs }: InternalViewProps) {
           inputMode="search"
         />
       </div>
-
-      {aiAvailable && (
-        <div className="inv-ai-insight">
-          <button
-            type="button"
-            className="inv-ai-insight-btn press-scale"
-            onClick={handleAiInsight}
-            disabled={aiStatus === 'loading'}
-          >
-            {aiStatus === 'loading' ? 'Thinking…' : 'AI inventory insight'}
-          </button>
-          {aiStatus === 'done' && aiBullets.length > 0 && (
-            <div className="ai-summary-card card-anim" style={{ marginTop: 8 }}>
-              <div className="ai-summary-label">AI inventory insight</div>
-              <ul className="ai-summary-list">
-                {aiBullets.map((b, i) => <li key={i}>{b}</li>)}
-              </ul>
-            </div>
-          )}
-          {aiStatus === 'error' && (
-            <div className="ai-summary-error">Couldn't generate insight — try again.</div>
-          )}
-        </div>
-      )}
 
       {/* Phase 2 — inventory health buckets. Single-select; counts
           render in parens and dim when 0. */}
