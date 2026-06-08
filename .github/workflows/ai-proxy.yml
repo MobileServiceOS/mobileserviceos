@@ -1,0 +1,72 @@
+# Mobile Service OS — Deploy the AI proxy (Cloudflare Worker)
+# Repository: MobileServiceOS/mobileserviceos
+#
+# Why this exists:
+#   The app's AI features (Bandilero briefing, inventory/pricing insights)
+#   call tasks on the Cloudflare Worker in ai-proxy/. When the DEPLOYED
+#   worker is older than ai-proxy/worker.js, calls to newer tasks fail
+#   with `unknown_task` (HTTP 400) — which is why the AI narrative shows
+#   "not connected". This workflow keeps the deployed worker in sync with
+#   the repo, so adding/updating a task ships with the code that calls it.
+#
+# ── ONE-TIME SETUP (required before this can run) ───────────────────────
+#   1. Cloudflare dashboard → My Profile → API Tokens → Create Token →
+#      use the "Edit Cloudflare Workers" template (or a custom token with
+#      Account · Workers Scripts · Edit). Copy the token.
+#   2. GitHub repo → Settings → Secrets and variables → Actions →
+#      New repository secret:
+#          Name:  CLOUDFLARE_API_TOKEN
+#          Value: <the token>
+#      (Optional) CLOUDFLARE_ACCOUNT_ID — only needed if the token can see
+#      more than one account; find it on any Cloudflare dashboard page URL.
+#   Until the token is set this workflow self-skips with a notice (never
+#   fails the pipeline). The worker's ANTHROPIC_API_KEY secret already
+#   lives on the worker and is preserved across `wrangler deploy`.
+#
+# Triggers: push to main touching ai-proxy/**, or manual dispatch.
+
+name: Deploy AI proxy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ai-proxy/**'
+      - '.github/workflows/ai-proxy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-proxy:
+    name: Deploy worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      # Surfaced as env so step `if:` can reference it (secrets can't be
+      # used in `if:` directly).
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+    steps:
+      - name: Skip notice (no credentials yet)
+        if: ${{ env.CLOUDFLARE_API_TOKEN == '' }}
+        run: |
+          echo "::warning::CLOUDFLARE_API_TOKEN secret is not set — skipping AI proxy deploy."
+          echo "::warning::Add it (Settings → Secrets → Actions) to enable automatic worker deployment. See the header of this workflow for steps."
+
+      - name: Checkout
+        if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: Deploy worker (wrangler)
+        if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
+        working-directory: ai-proxy
+        run: npx --yes wrangler@latest deploy
