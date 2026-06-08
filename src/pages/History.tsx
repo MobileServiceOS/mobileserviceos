@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Job, Settings } from '@/types';
 import { PAYMENT_METHOD_LABELS } from '@/types';
-import { fmtDate, fmtDateShort, jobGrossProfit, money, paymentPillClass, resolvePaymentStatus, serviceIcon } from '@/lib/utils';
+import { fmtDate, fmtDateShort, jobGrossProfit, money, paymentPillClass, resolvePaymentStatus } from '@/lib/utils';
+import { ServiceIcon } from '@/components/ServiceIcon';
 import { useBrand } from '@/context/BrandContext';
 import { useMembersDirectory } from '@/lib/useMembersDirectory';
 import { useLongPress } from '@/lib/useLongPress';
@@ -380,7 +381,7 @@ function HistoryJobCard({
             {isSelected ? '✓' : ''}
           </div>
         )}
-        <div className="job-icon">{serviceIcon(job.service)}</div>
+        <div className="job-icon"><ServiceIcon name={job.service} /></div>
         <div className="job-main">
           <div className="job-title" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             <span>{job.customerName || job.service}</span>
