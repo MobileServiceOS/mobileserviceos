@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { Job, Settings, InventoryItem, TireSource } from '@/types';
 import {
   DEFAULT_SERVICE_PRICING, DEFAULT_VEHICLE_PRICING,
@@ -663,6 +663,35 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
     }
   };
 
+  // Sticky Quick Pricing bar sits just below the app's sticky header
+  // (.header-compact, top:0). The header height varies with the iOS
+  // safe-area inset, so measure it instead of hardcoding. Re-measures on
+  // resize / orientation change. Falls back to 0 (bar pins to viewport
+  // top) if the header isn't found.
+  const [stickyTop, setStickyTop] = useState(0);
+  useLayoutEffect(() => {
+    const measure = () => {
+      const h = document.querySelector('.header-compact')?.getBoundingClientRect().height ?? 0;
+      setStickyTop(Math.round(h));
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
+
+  // The always-visible Quick Pricing figures. Total cost is derived
+  // (revenue − profit) so it is correct for every pricing model. Tire cost
+  // only exists on the flat (tire-vertical) breakdown. Cost/profit are
+  // owner-only; technicians see sell price alone.
+  const qpIsFlat = breakdown.model === 'flat';
+  const qpSellPrice = breakdown.revenue;
+  const qpTireCost = qpIsFlat ? breakdown.tireCost : 0;
+  const qpTotalCost = Math.round((breakdown.revenue - breakdown.profit) * 100) / 100;
+  const qpProfit = breakdown.profit;
+  // Column count: techs see 1 (sell price); owners see 4 on tire (incl.
+  // tire cost) or 3 on other verticals.
+  const qpCols = !permissions.canViewProfit ? 1 : (qpIsFlat ? 4 : 3);
+
   return (
     <div className="page page-enter">
       {prefilledFromQuote && !isEditing && (
@@ -671,12 +700,14 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
         </div>
       )}
 
-      {/* Batch B (2026-06-05): sticky suggested-price tile removed per
-          operator decision D7. Quick Pricing card below carries the
-          suggested-price + breakdown panel, and the Android backdrop-
-          filter blur was a known compositor jank source on low-end
-          devices. liveQuote remains computed for the in-card Quick
-          Pricing "Suggested" hint and the revenue-divergence button. */}
+      {/* 2026-06-08: a lightweight sticky pricing strip is reinstated
+          (see .qp-sticky below) — the operator asked for tire cost / sell
+          price / total / profit to stay on screen while scrolling. Unlike
+          the Batch B tile removed on D7, this one uses NO backdrop-filter
+          blur (the prior compositor-jank source) — just a solid card — and
+          shows the reconciled figures rather than only the suggestion.
+          liveQuote still feeds the in-card "Suggested" hint + divergence
+          button. */}
 
       {/* SP2: step badge style — inline so SP2 doesn't depend on
           a CSS file edit that would conflict with parallel work. */}
@@ -686,435 +717,83 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
           background: var(--brand-primary); color: var(--brand-on-primary, #1a1a1a);
           font-size: 11px; font-weight: 700; margin-right: 8px;
         }
+        /* Always-visible Quick Pricing strip. Pins below the app header
+           while the rest of the form scrolls, so tire cost / sell price /
+           profit / total stay on screen for one-handed field use. */
+        .qp-sticky {
+          background: var(--s1); border: 1px solid var(--border);
+          border-radius: 14px; padding: 8px 10px; margin-bottom: 12px;
+          box-shadow: 0 6px 18px rgba(0,0,0,.28);
+        }
+        .qp-sticky-grid {
+          display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+        }
+        .qp-cell {
+          display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+          padding: 4px 6px; border-radius: 9px; background: var(--s2); min-width: 0;
+        }
+        .qp-cell .qp-label {
+          font-size: 8.5px; font-weight: 800; color: var(--t3);
+          text-transform: uppercase; letter-spacing: .4px;
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+        }
+        .qp-cell .qp-value {
+          font-size: 15px; font-weight: 800; color: var(--t1); line-height: 1.15;
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+        }
+        .qp-cell.qp-sell { background: color-mix(in srgb, var(--brand-primary) 16%, var(--s2)); }
+        .qp-cell .qp-value.green { color: var(--green, #34d399); }
+        .qp-cell .qp-value.red   { color: var(--red, #f87171); }
       `}</style>
 
-      {/* ─── SP2 Step 1: Phone ──────────────────────────────────
-          Operator's first keystroke. MemoInput + stable setter
-          per the P1-3 keystroke-storm contract. Triggers the
-          Step 2 CustomerLookupCard below. */}
-      <div className="form-group card-anim">
-        <div className="form-group-title"><span className="step-badge">1</span>Phone</div>
-        <div className="field">
-          <label htmlFor="addjob-customer-phone">Customer phone</label>
-          <MemoInput
-            id="addjob-customer-phone"
-            type="tel"
-            inputMode="tel"
-            autoComplete="tel"
-            value={job.customerPhone}
-            onChange={fieldSetters.customerPhonePartial}
-            onBlur={fieldSetters.customerPhoneBlur}
-            placeholder="(555) 123-4567"
-          />
-        </div>
-      </div>
-
-      {/* ─── SP2 Step 2: Customer Lookup ───────────────────────
-          Renders null in idle state; renders a Returning Customer
-          card on hit; renders a "no match" hint on miss. */}
-      {businessId && (
-        <CustomerLookupCard
-          businessId={businessId}
-          rawPhone={phoneForLookup}
-          onApplyPatch={applyCustomerPatch}
-        />
-      )}
-
-      {/* ─── SP2 Step 2 (continued): Customer details ─────────
-          Editable name + email + company name. */}
-      <div className="form-group card-anim">
-        <div className="form-group-title"><span className="step-badge">2</span>Customer details</div>
-        <div className="field-row">
-          <div className="field">
-            <label htmlFor="addjob-customer-name">Name</label>
-            <MemoInput
-              id="addjob-customer-name"
-              value={job.customerName}
-              onChange={fieldSetters.customerName}
-              placeholder="John D."
-            />
+      {/* ─── Always-visible Quick Pricing strip ─────────────────
+          Pinned below the header so the operator never loses sight of
+          the numbers while scrolling the form. The full editable Quick
+          Pricing card (Step 1) sits directly below. Cost + profit are
+          owner-only; technicians see Sell price alone. */}
+      <div
+        className="qp-sticky"
+        style={{ position: 'sticky', top: stickyTop, zIndex: 40 }}
+      >
+        <div
+          className="qp-sticky-grid"
+          style={{ gridTemplateColumns: `repeat(${qpCols}, 1fr)` }}
+        >
+          <div className="qp-cell qp-sell">
+            <span className="qp-label">Sell price</span>
+            <span className="qp-value">{money(qpSellPrice)}</span>
           </div>
-          <div className="field">
-            <label htmlFor="addjob-customer-email">Email <span style={{ fontWeight: 400, color: 'var(--t3)', fontSize: 11 }}>(optional)</span></label>
-            <MemoInput
-              id="addjob-customer-email"
-              type="email"
-              autoComplete="email"
-              value={String(job.customerEmail ?? '')}
-              onChange={(v: string) => set('customerEmail', v as Job['customerEmail'])}
-              placeholder="customer@example.com"
-            />
-          </div>
-        </div>
-        <div className="field">
-          <label htmlFor="addjob-company-name">Company / Fleet name <span style={{ fontWeight: 400, color: 'var(--t3)', fontSize: 11 }}>(optional)</span></label>
-          <MemoInput
-            id="addjob-company-name"
-            value={String(job.companyName ?? '')}
-            onChange={(v: string) => set('companyName', v as Job['companyName'])}
-            placeholder="Uber Fleet LLC"
-          />
-        </div>
-      </div>
-
-      {/* ─── Step 3: Vehicle ────────────────────────────────────
-          Vehicle type chip-grid + detailing's vehicle-size chip
-          sub-block (when the active vertical's pricing model is
-          package_multiplier). Tire / mechanic verticals have
-          features.vehicleSizeMultiplier === false, so the sub-block
-          short-circuits to null. Batch B reorder: Vehicle moves up
-          from position 9 → 4 so the operator commits to the rig
-          before drilling into Service / pricing. */}
-      <div className={'form-group card-anim'}>
-        <div className="form-group-title"><span className="step-badge">3</span>Vehicle</div>
-        <div className="chip-grid">
-          {rankedVehicles.map((v) => (
-            <button key={v} className={'chip' + (job.vehicleType === v ? ' active' : '')}
-              onClick={() => set('vehicleType', v)} type="button">{v}</button>
-          ))}
-        </div>
-        {vertical.features.vehicleSizeMultiplier && vehicleSizes.length > 0 && (
-          <div className="field" style={{ marginTop: 8 }}>
-            <label id="addjob-vehicle-size-label">Vehicle size</label>
-            <div className="chip-grid" role="group" aria-labelledby="addjob-vehicle-size-label">
-              {vehicleSizes.map((sz) => (
-                <button
-                  key={sz}
-                  type="button"
-                  className={'chip' + (job.vehicleSize === sz ? ' active' : '')}
-                  aria-pressed={job.vehicleSize === sz}
-                  onClick={() => set('vehicleSize', sz)}
-                >{sz}</button>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ─── Step 4: Service ────────────────────────────────────
-          Primary package picker + detailing add-ons multi-select
-          (when the vertical declares add-on services). enabledAddOns
-          is empty for tire / mechanic so the add-ons sub-block is
-          null for them. */}
-      <div className={'form-group card-anim'}>
-        <div className="form-group-title"><span className="step-badge">4</span>{vertical.copy.packageLabel || 'Service'}</div>
-        <ServicePicker
-          services={vertical.services}
-          enabledIds={enabledPackages}
-          selected={job.service}
-          onSelect={(id) => set('service', id)}
-          jobs={jobs}
-        />
-        {enabledAddOns.length > 0 && (
-          <div className="field" style={{ marginTop: 8 }}>
-            <label id="addjob-addons-label">
-              Add-ons{' '}
-              <span style={{ fontWeight: 400, color: 'var(--t3)', fontSize: 11 }}>
-                (tap any that apply)
-              </span>
-            </label>
-            <div className="chip-grid" role="group" aria-labelledby="addjob-addons-label">
-              {enabledAddOns.map((id) => {
-                const selected = (job.detailingAddons ?? []).includes(id);
-                return (
-                  <button
-                    key={id}
-                    type="button"
-                    className={'chip' + (selected ? ' active' : '')}
-                    aria-pressed={selected}
-                    onClick={() => {
-                      const cur = job.detailingAddons ?? [];
-                      const next = selected ? cur.filter((x) => x !== id) : [...cur, id];
-                      set('detailingAddons', next as Job['detailingAddons']);
-                    }}
-                  >{id}</button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ─── Step 5: Job Details ────────────────────────────────
-          One badge covers a stack of vertical-aware sub-blocks:
-            - Tire Details bespoke block (when needsTireDetails)
-            - Vertical jobFields loop (when !showTireBlock && vertical
-              declares jobFields — mechanic / detailing)
-            - PartsSection (mechanic only)
-            - General Quantity + Material + Conditions block
-          Each sub-block keeps its existing conditional gate so the
-          render contract is unchanged. */}
-      {needsTireDetails && (
-        <div className="form-group card-anim">
-          <div className="form-group-title"><span className="step-badge">5</span>Tire Details</div>
-          {/* Batch C (2026-06-05): Qty removed from this block — it
-              now lives in Job Details below as the sole source of
-              truth. Same MemoInput + fieldSetters.qty so behavior is
-              unchanged; just one field instead of two-in-sync. */}
-          <div className="field">
-            <label htmlFor="addjob-tire-size">Size</label>
-            <MemoInput id="addjob-tire-size" value={job.tireSize} onChange={fieldSetters.tireSize} placeholder="225/65R17" />
-            {recentSizes.length > 0 && (
-              <div className="chip-grid" style={{ marginTop: 8 }}>
-                {recentSizes.map((s) => {
-                  const active = normalizeTireSize(s) === normalizeTireSize(job.tireSize || '');
-                  return (
-                    <button key={s} type="button" className={'chip sm' + (active ? ' active' : '')}
-                      onClick={() => fieldSetters.tireSize(s)}>
-                      {s}
-                    </button>
-                  );
-                })}
+          {permissions.canViewProfit && (
+            <>
+              {qpIsFlat && (
+                <div className="qp-cell">
+                  <span className="qp-label">Tire cost</span>
+                  <span className="qp-value">{money(qpTireCost)}</span>
+                </div>
+              )}
+              <div className="qp-cell">
+                <span className="qp-label">Total cost</span>
+                <span className="qp-value">{money(qpTotalCost)}</span>
               </div>
-            )}
-            {(() => {
-              const typed = (job.tireSize || '').trim();
-              if (!typed) return null;
-              const target = normalizeTireSize(typed);
-              if (!target) return null;
-              const match = inventory.find(
-                (it) => normalizeTireSize(it.size || '') === target,
-              );
-              if (!match) return null;
-              const total = Number(match.qty || 0);
-              const avail = availableQty(match);
-              const reserved = reservedQty(match);
-              const needed = Number(job.qty || 0);
-              const low = needed > 0 && needed > avail;
-              if (reserved > 0 && low) {
-                return (
-                  <div className="inv-match-badge warn">
-                    ⚠ Low availability: {total} in stock, {reserved} reserved
-                  </div>
-                );
-              }
-              if (reserved > 0) {
-                return (
-                  <div className="inv-match-badge">
-                    ✓ In stock: {total} × {match.size} · available {avail}
-                  </div>
-                );
-              }
-              return (
-                <div className="inv-match-badge">
-                  ✓ In stock: {total} × {match.size}
-                </div>
-              );
-            })()}
-          </div>
-          <div className="field">
-            <label id="addjob-tire-source-label">Tire source</label>
-            <div className="chip-grid" role="group" aria-labelledby="addjob-tire-source-label">
-              {rankedTireSources.map((s) => (
-                <button key={s} className={'chip' + (tireSource === s ? ' active' : '')}
-                  aria-pressed={tireSource === s}
-                  onClick={() => set('tireSource', s as TireSource)} type="button">{s}</button>
-              ))}
-            </div>
-          </div>
-
-          {tireSource === 'Inventory' && job.tireSize && (
-            <div className="info-banner" style={{ marginTop: 8 }}>
-              {matchingInventoryCount > 0
-                ? `${matchingInventoryCount} on hand · ${inventoryPlan?.shortfall ? `short ${inventoryPlan.shortfall}` : 'in stock'}`
-                : 'No matching size on hand — consider switching tire source'}
-            </div>
-          )}
-
-          {tireSource === 'Bought for this job' && (
-            <div className="purchase-panel card-anim">
-              <div className="form-group-title" style={{ color: 'var(--brand-primary)' }}>Purchase Details</div>
-              <div className="field-row">
-                <div className="field">
-                  <label htmlFor="addjob-tire-vendor">Vendor</label>
-                  <MemoInput id="addjob-tire-vendor" value={job.tireVendor || ''} onChange={fieldSetters.tireVendor} placeholder="Discount Tire" />
-                </div>
-                <div className="field">
-                  <label htmlFor="addjob-tire-purchase-price">Purchase price ($)</label>
-                  <MemoInput id="addjob-tire-purchase-price" type="number" inputMode="decimal" value={job.tirePurchasePrice || ''} onChange={fieldSetters.tirePurchasePrice} placeholder="0" />
-                </div>
+              <div className="qp-cell">
+                <span className="qp-label">Profit</span>
+                <span className={'qp-value ' + (qpProfit >= 0 ? 'green' : 'red')}>{money(qpProfit)}</span>
               </div>
-              <div className="field-row">
-                <div className="field">
-                  <label htmlFor="addjob-tire-condition">Condition</label>
-                  <MemoSelect id="addjob-tire-condition" value={job.tireCondition || ''} onChange={fieldSetters.tireCondition}>
-                    <option value="">Select…</option>
-                    <option value="New">New</option>
-                    <option value="Used">Used</option>
-                  </MemoSelect>
-                </div>
-                <div className="field">
-                  <label htmlFor="addjob-tire-brand">Brand</label>
-                  <MemoInput id="addjob-tire-brand" value={job.tireBrand || ''} onChange={fieldSetters.tireBrand} placeholder="Michelin" />
-                </div>
-              </div>
-              <div className="field">
-                <label htmlFor="addjob-receipt-upload">Receipt</label>
-                <input id="addjob-receipt-upload" ref={receiptInputRef} type="file" accept="image/*" style={{ display: 'none' }}
-                  onChange={(e) => { const f = e.target.files?.[0]; if (f) handleReceipt(f); if (receiptInputRef.current) receiptInputRef.current.value = ''; }} />
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                  <button type="button" className="btn sm secondary" onClick={() => receiptInputRef.current?.click()} disabled={receiptUploading}>
-                    {receiptUploading ? 'Uploading…' : job.tireReceiptUrl ? 'Replace receipt' : 'Upload receipt'}
-                  </button>
-                  {job.tireReceiptUrl ? (
-                    <a
-                      href={job.tireReceiptUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      aria-label="View receipt full size"
-                      style={{
-                        display: 'inline-block', width: 56, height: 56,
-                        borderRadius: 8, overflow: 'hidden',
-                        border: '1px solid var(--border)',
-                        background: 'var(--s3)',
-                      }}
-                    >
-                      <img
-                        src={job.tireReceiptUrl}
-                        alt="Receipt thumbnail"
-                        loading="lazy"
-                        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-                      />
-                    </a>
-                  ) : null}
-                </div>
-              </div>
-              <div className="field">
-                <label htmlFor="addjob-tire-notes">Notes (optional)</label>
-                <MemoTextarea id="addjob-tire-notes" value={job.tireNotes || ''} onChange={fieldSetters.tireNotes} placeholder="Tread depth, condition notes…" />
-              </div>
-            </div>
-          )}
-
-          {tireSource === 'Customer supplied' && (
-            <div className="info-banner" style={{ marginTop: 8 }}>
-              Tires provided by customer · tire cost is $0 (not deducted from profit)
-            </div>
+            </>
           )}
         </div>
-      )}
-
-      {/* Vertical-specific job fields, rendered for any vertical
-          whose UI is NOT the tire bespoke block. Mechanic gets
-          Vehicle Make/Model, Mileage, Diagnostic Code, Labor Hours,
-          Parts Cost. Detailing gets Vehicle Size (when populated in
-          2.3). Tire's jobFields (tireSize/tireCondition/wheelLock-
-          Removed) are already covered by the bespoke block above,
-          so we suppress the loop here for tire. */}
-      {!showTireBlock && vertical.jobFields.length > 0 && (
-        <div className={'form-group card-anim'}>
-          <div className="form-group-title">
-            {!needsTireDetails && <span className="step-badge">5</span>}
-            {vertical.shortName} Details
-          </div>
-          <div className="field-row">
-            {vertical.jobFields.map((field) => (
-              <DynamicJobField
-                key={field.key}
-                field={field}
-                value={(job as unknown as Record<string, unknown>)[field.key]}
-                onChange={(v) => setJob((prev) => ({ ...prev, [field.key]: v } as Job))}
-                disabled={isSaving}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Mechanic-specific structured parts entry. Lives here because
-          it's interaction-rich (autocomplete, source picker, soft-
-          warn at save) and would be awkward inside a DynamicJobField
-          loop. Tire / detailing skip this block. */}
-      {vertical.key === 'mechanic' && (
-        <div className="card-anim" style={{ marginBottom: 12 }}>
-          <PartsSection
-            parts={job.parts ?? []}
-            inventory={inventory}
-            onChange={(parts) => setJob((prev) => ({ ...prev, parts } as Job))}
-          />
-        </div>
-      )}
-
-      {/* General Job Details: quantity (non-tire only) + material
-          cost + conditions chip-grid. The step badge here only fires
-          when neither needsTireDetails nor the vertical jobFields
-          block rendered above — otherwise the "5" badge already lives
-          on one of those earlier sub-blocks for this vertical. */}
-      <div className="form-group card-anim">
-        <div className="form-group-title">
-          {!needsTireDetails && !(!showTireBlock && vertical.jobFields.length > 0) && (
-            <span className="step-badge">5</span>
-          )}
-          Job Details
-        </div>
-        <div className="field-row">
-          {/* Batch C (2026-06-05): Quantity is now ALWAYS rendered
-              here as the single source of truth for `qty`. Prior
-              code split it across two locations (Tire Details +
-              this block) gated by needsTireDetails, which made the
-              two inputs drift out of sync if a service flipped
-              mid-edit. */}
-          <div className={'field'}>
-            <label htmlFor="addjob-qty">Quantity</label>
-            <MemoInput id="addjob-qty" type="number" inputMode="numeric" value={job.qty} onChange={fieldSetters.qty} placeholder="1" />
-          </div>
-          <div className="field">
-            <label htmlFor="addjob-material-cost">Material $</label>
-            <MemoInput id="addjob-material-cost" type="number" inputMode="decimal" value={job.materialCost} onChange={fieldSetters.materialCost} placeholder="0" />
-          </div>
-        </div>
-        <div className="field" style={{ marginTop: 6 }}>
-          <label id="addjob-conditions-label">Conditions <span style={{ fontWeight: 400, color: 'var(--t3)', fontSize: 11 }}>(tap any that apply)</span></label>
-          <div className="chip-grid" role="group" aria-labelledby="addjob-conditions-label">
-            {/* Conditions are vertical-aware. Detailing omits 'highway'
-                — no one washes cars on the highway. Configs that
-                don't declare `conditions` fall back to all 4 for
-                back-compat with anything not yet migrated. */}
-            {/* Batch E (2026-06-05): wrap the leading emoji glyph in
-                <span aria-hidden="true"> via splitEmojiLabel so screen
-                readers announce "Emergency" instead of "fire engine
-                emoji Emergency". Visual rendering unchanged — the
-                emoji still appears in the same spot — only the AT
-                tree changes. Helper handles VS-16 / skin-tone /
-                no-emoji passthrough; see tests/emojiLabel.test.ts. */}
-            {(vertical.conditions ?? [
-              { key: 'emergency' as const, label: '🚨 Emergency' },
-              { key: 'lateNight' as const, label: '🌙 Late Night' },
-              { key: 'highway' as const,   label: '🛣️ Highway' },
-              { key: 'weekend' as const,   label: '📅 Weekend' },
-            ]).map(({ key: k, label: l }) => {
-              const { emoji, text } = splitEmojiLabel(l);
-              return (
-                <button key={k} type="button" className={'chip' + (job[k] ? ' active' : '')} aria-pressed={!!job[k]} onClick={() => set(k, !job[k])}>
-                  {emoji && <span aria-hidden="true">{emoji} </span>}{text || l}
-                </button>
-              );
-            })}
-          </div>
-        </div>
       </div>
 
-      {/* ─── Step 6: Location ──────────────────────────────────
-          AddressAutofillInput owns ZIP + city + state + addressLine
-          per spec §"AddJob Workflow Change → step 7". Replaces the
-          prior City-only Customer-card field. Batch B reorder moves
-          Location down from above Quick Pricing so the operator
-          locks in WHERE before they think about HOW MUCH. */}
-      <div className="form-group card-anim">
-        <div className="form-group-title"><span className="step-badge">6</span>Location</div>
-        <AddressAutofillInput value={addressValue} onChange={onAddressChange} />
-      </div>
-
-      {/* ─── Step 7: Quick Pricing ─────────────────────────────
+      {/* ─── Step 1: Quick Pricing ─────────────────────────────
           Miles + tire cost + revenue + the vertical-aware breakdown
-          panel. Batch B reorder: moved from position 4 (just after
-          Customer details) to position 7 so the operator establishes
-          vehicle / service / job details / location FIRST — all the
-          inputs that drive the suggested price — and only then sees
-          the resulting number. Avoids the prior pattern of staring
-          at $0 while filling everything else in. */}
+          panel. 2026-06-08: pricing-first reorder — moved to the top so
+          the operator sets / confirms the price without scrolling, and
+          the always-visible sticky strip above keeps tire cost, sell
+          price, total cost and profit on screen the whole way down. The
+          suggested price auto-fills from service / vehicle / miles, so a
+          leading $0 self-corrects as those fields are filled below. */}
       <div className="form-group card-anim">
-        <div className="form-group-title"><span className="step-badge">7</span>Quick Pricing</div>
+        <div className="form-group-title"><span className="step-badge">1</span>Quick Pricing</div>
         <div className="field-row">
           <div className="field">
             <label htmlFor="addjob-miles">Miles to job</label>
@@ -1277,6 +956,423 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
             </div>
           </div>
         )}
+      </div>
+
+      {/* ─── SP2 Step 1: Phone ──────────────────────────────────
+          Operator's first keystroke. MemoInput + stable setter
+          per the P1-3 keystroke-storm contract. Triggers the
+          Step 2 CustomerLookupCard below. */}
+      <div className="form-group card-anim">
+        <div className="form-group-title"><span className="step-badge">2</span>Phone</div>
+        <div className="field">
+          <label htmlFor="addjob-customer-phone">Customer phone</label>
+          <MemoInput
+            id="addjob-customer-phone"
+            type="tel"
+            inputMode="tel"
+            autoComplete="tel"
+            value={job.customerPhone}
+            onChange={fieldSetters.customerPhonePartial}
+            onBlur={fieldSetters.customerPhoneBlur}
+            placeholder="(555) 123-4567"
+          />
+        </div>
+      </div>
+
+      {/* ─── SP2 Step 2: Customer Lookup ───────────────────────
+          Renders null in idle state; renders a Returning Customer
+          card on hit; renders a "no match" hint on miss. */}
+      {businessId && (
+        <CustomerLookupCard
+          businessId={businessId}
+          rawPhone={phoneForLookup}
+          onApplyPatch={applyCustomerPatch}
+        />
+      )}
+
+      {/* ─── SP2 Step 2 (continued): Customer details ─────────
+          Editable name + email + company name. */}
+      <div className="form-group card-anim">
+        <div className="form-group-title"><span className="step-badge">3</span>Customer details</div>
+        <div className="field-row">
+          <div className="field">
+            <label htmlFor="addjob-customer-name">Name</label>
+            <MemoInput
+              id="addjob-customer-name"
+              value={job.customerName}
+              onChange={fieldSetters.customerName}
+              placeholder="John D."
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="addjob-customer-email">Email <span style={{ fontWeight: 400, color: 'var(--t3)', fontSize: 11 }}>(optional)</span></label>
+            <MemoInput
+              id="addjob-customer-email"
+              type="email"
+              autoComplete="email"
+              value={String(job.customerEmail ?? '')}
+              onChange={(v: string) => set('customerEmail', v as Job['customerEmail'])}
+              placeholder="customer@example.com"
+            />
+          </div>
+        </div>
+        <div className="field">
+          <label htmlFor="addjob-company-name">Company / Fleet name <span style={{ fontWeight: 400, color: 'var(--t3)', fontSize: 11 }}>(optional)</span></label>
+          <MemoInput
+            id="addjob-company-name"
+            value={String(job.companyName ?? '')}
+            onChange={(v: string) => set('companyName', v as Job['companyName'])}
+            placeholder="Uber Fleet LLC"
+          />
+        </div>
+      </div>
+
+      {/* ─── Step 3: Vehicle ────────────────────────────────────
+          Vehicle type chip-grid + detailing's vehicle-size chip
+          sub-block (when the active vertical's pricing model is
+          package_multiplier). Tire / mechanic verticals have
+          features.vehicleSizeMultiplier === false, so the sub-block
+          short-circuits to null. Batch B reorder: Vehicle moves up
+          from position 9 → 4 so the operator commits to the rig
+          before drilling into Service / pricing. */}
+      <div className={'form-group card-anim'}>
+        <div className="form-group-title"><span className="step-badge">4</span>Vehicle</div>
+        <div className="chip-grid">
+          {rankedVehicles.map((v) => (
+            <button key={v} className={'chip' + (job.vehicleType === v ? ' active' : '')}
+              onClick={() => set('vehicleType', v)} type="button">{v}</button>
+          ))}
+        </div>
+        {vertical.features.vehicleSizeMultiplier && vehicleSizes.length > 0 && (
+          <div className="field" style={{ marginTop: 8 }}>
+            <label id="addjob-vehicle-size-label">Vehicle size</label>
+            <div className="chip-grid" role="group" aria-labelledby="addjob-vehicle-size-label">
+              {vehicleSizes.map((sz) => (
+                <button
+                  key={sz}
+                  type="button"
+                  className={'chip' + (job.vehicleSize === sz ? ' active' : '')}
+                  aria-pressed={job.vehicleSize === sz}
+                  onClick={() => set('vehicleSize', sz)}
+                >{sz}</button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ─── Step 4: Service ────────────────────────────────────
+          Primary package picker + detailing add-ons multi-select
+          (when the vertical declares add-on services). enabledAddOns
+          is empty for tire / mechanic so the add-ons sub-block is
+          null for them. */}
+      <div className={'form-group card-anim'}>
+        <div className="form-group-title"><span className="step-badge">5</span>{vertical.copy.packageLabel || 'Service'}</div>
+        <ServicePicker
+          services={vertical.services}
+          enabledIds={enabledPackages}
+          selected={job.service}
+          onSelect={(id) => set('service', id)}
+          jobs={jobs}
+        />
+        {enabledAddOns.length > 0 && (
+          <div className="field" style={{ marginTop: 8 }}>
+            <label id="addjob-addons-label">
+              Add-ons{' '}
+              <span style={{ fontWeight: 400, color: 'var(--t3)', fontSize: 11 }}>
+                (tap any that apply)
+              </span>
+            </label>
+            <div className="chip-grid" role="group" aria-labelledby="addjob-addons-label">
+              {enabledAddOns.map((id) => {
+                const selected = (job.detailingAddons ?? []).includes(id);
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    className={'chip' + (selected ? ' active' : '')}
+                    aria-pressed={selected}
+                    onClick={() => {
+                      const cur = job.detailingAddons ?? [];
+                      const next = selected ? cur.filter((x) => x !== id) : [...cur, id];
+                      set('detailingAddons', next as Job['detailingAddons']);
+                    }}
+                  >{id}</button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ─── Step 5: Job Details ────────────────────────────────
+          One badge covers a stack of vertical-aware sub-blocks:
+            - Tire Details bespoke block (when needsTireDetails)
+            - Vertical jobFields loop (when !showTireBlock && vertical
+              declares jobFields — mechanic / detailing)
+            - PartsSection (mechanic only)
+            - General Quantity + Material + Conditions block
+          Each sub-block keeps its existing conditional gate so the
+          render contract is unchanged. */}
+      {needsTireDetails && (
+        <div className="form-group card-anim">
+          <div className="form-group-title"><span className="step-badge">6</span>Tire Details</div>
+          {/* Batch C (2026-06-05): Qty removed from this block — it
+              now lives in Job Details below as the sole source of
+              truth. Same MemoInput + fieldSetters.qty so behavior is
+              unchanged; just one field instead of two-in-sync. */}
+          <div className="field">
+            <label htmlFor="addjob-tire-size">Size</label>
+            <MemoInput id="addjob-tire-size" value={job.tireSize} onChange={fieldSetters.tireSize} placeholder="225/65R17" />
+            {recentSizes.length > 0 && (
+              <div className="chip-grid" style={{ marginTop: 8 }}>
+                {recentSizes.map((s) => {
+                  const active = normalizeTireSize(s) === normalizeTireSize(job.tireSize || '');
+                  return (
+                    <button key={s} type="button" className={'chip sm' + (active ? ' active' : '')}
+                      onClick={() => fieldSetters.tireSize(s)}>
+                      {s}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {(() => {
+              const typed = (job.tireSize || '').trim();
+              if (!typed) return null;
+              const target = normalizeTireSize(typed);
+              if (!target) return null;
+              const match = inventory.find(
+                (it) => normalizeTireSize(it.size || '') === target,
+              );
+              if (!match) return null;
+              const total = Number(match.qty || 0);
+              const avail = availableQty(match);
+              const reserved = reservedQty(match);
+              const needed = Number(job.qty || 0);
+              const low = needed > 0 && needed > avail;
+              if (reserved > 0 && low) {
+                return (
+                  <div className="inv-match-badge warn">
+                    ⚠ Low availability: {total} in stock, {reserved} reserved
+                  </div>
+                );
+              }
+              if (reserved > 0) {
+                return (
+                  <div className="inv-match-badge">
+                    ✓ In stock: {total} × {match.size} · available {avail}
+                  </div>
+                );
+              }
+              return (
+                <div className="inv-match-badge">
+                  ✓ In stock: {total} × {match.size}
+                </div>
+              );
+            })()}
+          </div>
+          <div className="field">
+            <label id="addjob-tire-source-label">Tire source</label>
+            <div className="chip-grid" role="group" aria-labelledby="addjob-tire-source-label">
+              {rankedTireSources.map((s) => (
+                <button key={s} className={'chip' + (tireSource === s ? ' active' : '')}
+                  aria-pressed={tireSource === s}
+                  onClick={() => set('tireSource', s as TireSource)} type="button">{s}</button>
+              ))}
+            </div>
+          </div>
+
+          {tireSource === 'Inventory' && job.tireSize && (
+            <div className="info-banner" style={{ marginTop: 8 }}>
+              {matchingInventoryCount > 0
+                ? `${matchingInventoryCount} on hand · ${inventoryPlan?.shortfall ? `short ${inventoryPlan.shortfall}` : 'in stock'}`
+                : 'No matching size on hand — consider switching tire source'}
+            </div>
+          )}
+
+          {tireSource === 'Bought for this job' && (
+            <div className="purchase-panel card-anim">
+              <div className="form-group-title" style={{ color: 'var(--brand-primary)' }}>Purchase Details</div>
+              <div className="field-row">
+                <div className="field">
+                  <label htmlFor="addjob-tire-vendor">Vendor</label>
+                  <MemoInput id="addjob-tire-vendor" value={job.tireVendor || ''} onChange={fieldSetters.tireVendor} placeholder="Discount Tire" />
+                </div>
+                <div className="field">
+                  <label htmlFor="addjob-tire-purchase-price">Purchase price ($)</label>
+                  <MemoInput id="addjob-tire-purchase-price" type="number" inputMode="decimal" value={job.tirePurchasePrice || ''} onChange={fieldSetters.tirePurchasePrice} placeholder="0" />
+                </div>
+              </div>
+              <div className="field-row">
+                <div className="field">
+                  <label htmlFor="addjob-tire-condition">Condition</label>
+                  <MemoSelect id="addjob-tire-condition" value={job.tireCondition || ''} onChange={fieldSetters.tireCondition}>
+                    <option value="">Select…</option>
+                    <option value="New">New</option>
+                    <option value="Used">Used</option>
+                  </MemoSelect>
+                </div>
+                <div className="field">
+                  <label htmlFor="addjob-tire-brand">Brand</label>
+                  <MemoInput id="addjob-tire-brand" value={job.tireBrand || ''} onChange={fieldSetters.tireBrand} placeholder="Michelin" />
+                </div>
+              </div>
+              <div className="field">
+                <label htmlFor="addjob-receipt-upload">Receipt</label>
+                <input id="addjob-receipt-upload" ref={receiptInputRef} type="file" accept="image/*" style={{ display: 'none' }}
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) handleReceipt(f); if (receiptInputRef.current) receiptInputRef.current.value = ''; }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                  <button type="button" className="btn sm secondary" onClick={() => receiptInputRef.current?.click()} disabled={receiptUploading}>
+                    {receiptUploading ? 'Uploading…' : job.tireReceiptUrl ? 'Replace receipt' : 'Upload receipt'}
+                  </button>
+                  {job.tireReceiptUrl ? (
+                    <a
+                      href={job.tireReceiptUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label="View receipt full size"
+                      style={{
+                        display: 'inline-block', width: 56, height: 56,
+                        borderRadius: 8, overflow: 'hidden',
+                        border: '1px solid var(--border)',
+                        background: 'var(--s3)',
+                      }}
+                    >
+                      <img
+                        src={job.tireReceiptUrl}
+                        alt="Receipt thumbnail"
+                        loading="lazy"
+                        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                      />
+                    </a>
+                  ) : null}
+                </div>
+              </div>
+              <div className="field">
+                <label htmlFor="addjob-tire-notes">Notes (optional)</label>
+                <MemoTextarea id="addjob-tire-notes" value={job.tireNotes || ''} onChange={fieldSetters.tireNotes} placeholder="Tread depth, condition notes…" />
+              </div>
+            </div>
+          )}
+
+          {tireSource === 'Customer supplied' && (
+            <div className="info-banner" style={{ marginTop: 8 }}>
+              Tires provided by customer · tire cost is $0 (not deducted from profit)
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Vertical-specific job fields, rendered for any vertical
+          whose UI is NOT the tire bespoke block. Mechanic gets
+          Vehicle Make/Model, Mileage, Diagnostic Code, Labor Hours,
+          Parts Cost. Detailing gets Vehicle Size (when populated in
+          2.3). Tire's jobFields (tireSize/tireCondition/wheelLock-
+          Removed) are already covered by the bespoke block above,
+          so we suppress the loop here for tire. */}
+      {!showTireBlock && vertical.jobFields.length > 0 && (
+        <div className={'form-group card-anim'}>
+          <div className="form-group-title">
+            {!needsTireDetails && <span className="step-badge">6</span>}
+            {vertical.shortName} Details
+          </div>
+          <div className="field-row">
+            {vertical.jobFields.map((field) => (
+              <DynamicJobField
+                key={field.key}
+                field={field}
+                value={(job as unknown as Record<string, unknown>)[field.key]}
+                onChange={(v) => setJob((prev) => ({ ...prev, [field.key]: v } as Job))}
+                disabled={isSaving}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Mechanic-specific structured parts entry. Lives here because
+          it's interaction-rich (autocomplete, source picker, soft-
+          warn at save) and would be awkward inside a DynamicJobField
+          loop. Tire / detailing skip this block. */}
+      {vertical.key === 'mechanic' && (
+        <div className="card-anim" style={{ marginBottom: 12 }}>
+          <PartsSection
+            parts={job.parts ?? []}
+            inventory={inventory}
+            onChange={(parts) => setJob((prev) => ({ ...prev, parts } as Job))}
+          />
+        </div>
+      )}
+
+      {/* General Job Details: quantity (non-tire only) + material
+          cost + conditions chip-grid. The step badge here only fires
+          when neither needsTireDetails nor the vertical jobFields
+          block rendered above — otherwise the "5" badge already lives
+          on one of those earlier sub-blocks for this vertical. */}
+      <div className="form-group card-anim">
+        <div className="form-group-title">
+          {!needsTireDetails && !(!showTireBlock && vertical.jobFields.length > 0) && (
+            <span className="step-badge">6</span>
+          )}
+          Job Details
+        </div>
+        <div className="field-row">
+          {/* Batch C (2026-06-05): Quantity is now ALWAYS rendered
+              here as the single source of truth for `qty`. Prior
+              code split it across two locations (Tire Details +
+              this block) gated by needsTireDetails, which made the
+              two inputs drift out of sync if a service flipped
+              mid-edit. */}
+          <div className={'field'}>
+            <label htmlFor="addjob-qty">Quantity</label>
+            <MemoInput id="addjob-qty" type="number" inputMode="numeric" value={job.qty} onChange={fieldSetters.qty} placeholder="1" />
+          </div>
+          <div className="field">
+            <label htmlFor="addjob-material-cost">Material $</label>
+            <MemoInput id="addjob-material-cost" type="number" inputMode="decimal" value={job.materialCost} onChange={fieldSetters.materialCost} placeholder="0" />
+          </div>
+        </div>
+        <div className="field" style={{ marginTop: 6 }}>
+          <label id="addjob-conditions-label">Conditions <span style={{ fontWeight: 400, color: 'var(--t3)', fontSize: 11 }}>(tap any that apply)</span></label>
+          <div className="chip-grid" role="group" aria-labelledby="addjob-conditions-label">
+            {/* Conditions are vertical-aware. Detailing omits 'highway'
+                — no one washes cars on the highway. Configs that
+                don't declare `conditions` fall back to all 4 for
+                back-compat with anything not yet migrated. */}
+            {/* Batch E (2026-06-05): wrap the leading emoji glyph in
+                <span aria-hidden="true"> via splitEmojiLabel so screen
+                readers announce "Emergency" instead of "fire engine
+                emoji Emergency". Visual rendering unchanged — the
+                emoji still appears in the same spot — only the AT
+                tree changes. Helper handles VS-16 / skin-tone /
+                no-emoji passthrough; see tests/emojiLabel.test.ts. */}
+            {(vertical.conditions ?? [
+              { key: 'emergency' as const, label: '🚨 Emergency' },
+              { key: 'lateNight' as const, label: '🌙 Late Night' },
+              { key: 'highway' as const,   label: '🛣️ Highway' },
+              { key: 'weekend' as const,   label: '📅 Weekend' },
+            ]).map(({ key: k, label: l }) => {
+              const { emoji, text } = splitEmojiLabel(l);
+              return (
+                <button key={k} type="button" className={'chip' + (job[k] ? ' active' : '')} aria-pressed={!!job[k]} onClick={() => set(k, !job[k])}>
+                  {emoji && <span aria-hidden="true">{emoji} </span>}{text || l}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* ─── Step 6: Location ──────────────────────────────────
+          AddressAutofillInput owns ZIP + city + state + addressLine
+          per spec §"AddJob Workflow Change → step 7". Replaces the
+          prior City-only Customer-card field. (2026-06-08: Quick Pricing
+          now leads the form; Location keeps its mid-form slot so address
+          entry stays grouped with the job/customer context.) */}
+      <div className="form-group card-anim">
+        <div className="form-group-title"><span className="step-badge">7</span>Location</div>
+        <AddressAutofillInput value={addressValue} onChange={onAddressChange} />
       </div>
 
       {/* ─── Step 8: Lead & Payment + Assignment ────────────────
