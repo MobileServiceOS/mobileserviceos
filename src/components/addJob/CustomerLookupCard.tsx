@@ -47,6 +47,9 @@ export interface UseCustomerPatch {
   vehicleSize?: string;
   tireBrand?: string;
   qty?: string | number;
+  // One-tap pricing: the last job's sell price, carried so a repeat
+  // customer's price is a tap (or zero taps via auto-fill), not a re-type.
+  revenue?: string | number;
   // Operator note assembled from the customer's access info (gate code,
   // wheel-lock key, parking) + general note — so it travels with the job.
   note?: string;
@@ -135,9 +138,17 @@ function _deriveRepeatLastServicePatch(
   if (lastJob.vehicleType)      patch.vehicleType      = lastJob.vehicleType;
   if (lastJob.tireSize)         patch.tireSize         = lastJob.tireSize;
   if (lastJob.city && !patch.city) patch.city = lastJob.city;
-  // Per spec: do NOT copy revenue, tireCost, materialCost, note,
-  // parts, photos, timeSessions, inventoryDeductions, paymentStatus,
-  // status, createdAt, lastEditedAt.
+  // One-tap pricing: carry the last job's sell price so a repeat
+  // customer's price is already set. It stays editable, and AddJob's
+  // "Suggested: $X · tap to apply" hint surfaces it if the live quote
+  // diverges — so a stale price can't slip through unnoticed. tireCost
+  // is intentionally NOT copied: it's recomputed from current stock on
+  // save (FIFO), keeping profit accurate against today's inventory.
+  if (lastJob.revenue !== undefined && lastJob.revenue !== null && Number(lastJob.revenue) > 0) {
+    patch.revenue = lastJob.revenue;
+  }
+  // Still NOT copied: materialCost, note, parts, photos, timeSessions,
+  // inventoryDeductions, paymentStatus, status, createdAt, lastEditedAt.
   return patch;
 }
 
@@ -352,7 +363,7 @@ function CustomerLookupCardImpl({ businessId, rawPhone, onApplyPatch, onContinue
         {lastJob ? (
           <>
             <button type="button" className="btn sm primary" onClick={onRepeatLastService}>
-              Repeat Last Job
+              Repeat Last Job{lastJob.revenue !== undefined && Number(lastJob.revenue) > 0 ? ` · $${Number(lastJob.revenue).toFixed(0)}` : ''}
             </button>
             <button type="button" className="btn sm secondary" onClick={onUseCustomer}>Use Customer</button>
           </>
