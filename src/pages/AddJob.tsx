@@ -1134,7 +1134,7 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
               tire cost and shouldn't show this field. */}
           {needsTireDetails && (
             <div className="field">
-              <label htmlFor="addjob-tire-cost">Tire cost ($)</label>
+              <label htmlFor="addjob-tire-cost">Tire cost — total ($)</label>
               <input
                 id="addjob-tire-cost"
                 type="number"

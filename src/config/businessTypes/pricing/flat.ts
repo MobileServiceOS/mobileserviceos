@@ -47,7 +47,15 @@ export function calcFlatQuote(form: QuoteForm, settings: Settings): QuoteResult 
   const vp = settings.vehiclePricing || DEFAULT_VEHICLE_PRICING;
   const sd = sp[form.service] || { basePrice: 100, minProfit: 80, enabled: true };
   const vd = vp[form.vehicleType] || { addOnProfit: 0 };
-  const tc = Number(form.tireCost || 0) * Number(form.qty || 1);
+  // tireCost is the TOTAL tire cost (qty already baked in) — the SAME
+  // convention used by computeFlatPrice, jobCOGS and weekSummary. Do NOT
+  // re-multiply by qty here. Callers that hold a per-unit figure (e.g. the
+  // Dashboard Quick Quote's "Tire $" input) must pass perUnit × qty.
+  // (2026-06-08 audit: previously this scaled by qty while AddJob fed it
+  // the already-total job.tireCost, double-counting the live suggested
+  // price. Aligning on TOTAL makes the estimator reconcile with the saved
+  // breakdown, the rollups, and owner payouts.)
+  const tc = Number(form.tireCost || 0);
   const mc = Number(form.materialCost || form.miscCost || 0);
   const freeMiles = Number(settings.freeMilesIncluded || 0);
   const chargeable = Math.max(0, Number(form.miles || 0) - freeMiles);
@@ -76,10 +84,9 @@ export function computeFlatPrice(
   // tireCost on a Job is the TOTAL tire cost for all units (qty already
   // baked in) — that is how it is persisted: inventory jobs store the FIFO
   // plan total (App.tsx) and "bought" jobs store tirePurchasePrice × qty.
-  // So computeFlatPrice MUST NOT re-multiply by qty here. This differs
-  // deliberately from calcFlatQuote (flat.ts:50), which takes a live
-  // QuoteForm whose tireCost is the user's PER-UNIT input and therefore
-  // does scale by qty. (2026-06-05 audit: Batch A had made this multiply,
+  // So computeFlatPrice MUST NOT re-multiply by qty here. calcFlatQuote
+  // (the live estimator) now follows the SAME total convention, so both
+  // engines agree. (2026-06-05 audit: Batch A had made this multiply,
   // which double-counted every inventory job — the dominant, total-stored
   // path — while only "fixing" the per-unit "bought" path. Aligning on
   // TOTAL keeps both engines and the rollups in jobCOGS/weekSummary
