@@ -37,6 +37,7 @@ import { _auth, requireDb } from '@/lib/firebase';
 import { usePermissions } from '@/context/MembershipContext';
 import { useFocusTrap } from '@/lib/useFocusTrap';
 import { markViewedPatch, stageTransitionPatch } from '@/lib/leadLifecycle';
+import { formatPhoneForDisplay } from '@/lib/phone';
 import { CustomerEnrichmentPanel } from '@/components/leads/CustomerEnrichmentPanel';
 import { RoadsideActions } from '@/components/RoadsideActions';
 import type { Lead, LeadStatus, CommunicationEvent, Job } from '@/types';
@@ -198,9 +199,12 @@ export function LeadDetailSheet({
 
   const onCreateJobFromLead = useCallback(() => {
     if (!lead || !onCreateJob) return;
+    // Pass the formatted phone — it displays cleanly in the Add Job field
+    // AND drives the auto-fill (the lookup normalizes formatting back to
+    // digits), so a returning-customer lead opens the job already filled.
     onCreateJob({
       customerId: lead.customerId,
-      customerPhone: lead.phoneE164,
+      customerPhone: lead.phoneE164 ? formatPhoneForDisplay(lead.phoneE164) : '',
       note: lead.notes ?? '',
     } as Partial<Job>, lead.id);
   }, [lead, onCreateJob]);
