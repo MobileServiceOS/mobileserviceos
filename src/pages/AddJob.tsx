@@ -282,6 +282,25 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
       (Object.keys(patch) as (keyof UseCustomerPatch)[]).forEach((k) => {
         const val = patch[k];
         if (val === undefined) return;
+        // Note is special on auto-fill: the customer's on-site access info
+        // (gate code, parking, wheel-lock) should MERGE with any note
+        // already present — e.g. one carried in from a Lead — instead of
+        // being skipped. Without this, converting a lead that has notes
+        // silently drops the access info the tech needs at the door.
+        // Parts are de-duped (case-insensitive) and re-joined with ' · ',
+        // matching how CustomerLookupCard assembles the access note.
+        if (k === 'note' && fillOnly) {
+          const existing = String(next.note ?? '').trim();
+          const incoming = String(val ?? '').trim();
+          if (existing && incoming && existing !== incoming) {
+            const seen = new Set<string>();
+            next.note = [...existing.split(' · '), ...incoming.split(' · ')]
+              .map((s) => s.trim())
+              .filter((s) => s && !seen.has(s.toLowerCase()) && seen.add(s.toLowerCase()))
+              .join(' · ');
+            return;
+          }
+        }
         if (fillOnly && !isEmpty(next[k as string])) return;
         next[k as string] = val;
       });

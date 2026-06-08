@@ -201,12 +201,18 @@ export function LeadDetailSheet({
     if (!lead || !onCreateJob) return;
     // Pass the formatted phone — it displays cleanly in the Add Job field
     // AND drives the auto-fill (the lookup normalizes formatting back to
-    // digits), so a returning-customer lead opens the job already filled.
-    onCreateJob({
+    // digits), so a returning-customer lead opens the job already filled
+    // with name / address / vehicle / last service + price. We carry the
+    // lead's own data on top: its notes (merged with the customer's access
+    // info in AddJob, not overwritten) and its assignee — so a lead the
+    // owner dispatched to a tech becomes a job already assigned to them.
+    const draft: Partial<Job> = {
       customerId: lead.customerId,
       customerPhone: lead.phoneE164 ? formatPhoneForDisplay(lead.phoneE164) : '',
       note: lead.notes ?? '',
-    } as Partial<Job>, lead.id);
+    };
+    if (lead.assignedToUid) draft.assignedToUid = lead.assignedToUid;
+    onCreateJob(draft, lead.id);
   }, [lead, onCreateJob]);
 
   const nextLegalStatuses = useMemo(() => {
