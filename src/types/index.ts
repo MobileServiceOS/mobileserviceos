@@ -1390,6 +1390,9 @@ export interface QuoteForm {
   service: string;
   vehicleType: string;
   miles?: number | string;
+  /** TOTAL tire cost for all units (qty already baked in) — the same
+   *  convention as a saved Job. Callers holding a per-unit figure must
+   *  pass perUnit × qty. */
   tireCost?: number | string;
   materialCost?: number | string;
   miscCost?: number | string;

@@ -469,7 +469,15 @@ export function Dashboard({
   // growth/ring calculations. It's the canonical net-profit figure
   // that flows into both the hero number AND the breakdown card.)
 
-  const quote = useMemo(() => calcQuote(qqForm, settings), [qqForm, settings]);
+  // The Quick Quote "Tire $" field is a PER-UNIT cost paired with a Qty
+  // field; calcQuote now expects a TOTAL tireCost (the same convention as a
+  // saved job), so multiply here. Result is identical to before — only the
+  // multiplication moved from inside the engine to the call site, so the
+  // estimator stays in sync with AddJob and the saved breakdown.
+  const quote = useMemo(() => calcQuote(
+    { ...qqForm, tireCost: Number(qqForm.tireCost || 0) * Number(qqForm.qty || 1) },
+    settings,
+  ), [qqForm, settings]);
 
   // Count-up animation target: NET profit for owner (jobs gross minus
   // the week's expenses — so adding a $50 expense visibly drops the

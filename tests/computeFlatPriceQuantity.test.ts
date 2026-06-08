@@ -13,12 +13,17 @@
 // rollups under-counted "bought" jobs (stored per-unit). The fix aligns
 // everything on TOTAL: saveJob now stores "bought" as tirePurchasePrice ×
 // qty, the AddJob mirror sets the total, and computeFlatPrice reads it
-// straight. calcFlatQuote (the live suggested-price estimator) is the one
-// place that stays per-unit — it takes a QuoteForm whose tireCost is the
-// user's per-tire input.
+// straight.
+//
+// 2026-06-08 audit: calcFlatQuote (the live suggested-price estimator)
+// ALSO now follows the TOTAL convention — it previously scaled by qty,
+// which double-counted AddJob's live suggestion because AddJob feeds it
+// the already-total job.tireCost. The Dashboard Quick Quote (whose "Tire
+// $" input is per-unit) now multiplies by qty at the call site. So both
+// engines and every rollup agree: tireCost is always a TOTAL.
 
-import { computeFlatPrice } from '@/config/businessTypes/pricing/flat';
-import type { Job, Settings } from '@/types';
+import { calcFlatQuote, computeFlatPrice } from '@/config/businessTypes/pricing/flat';
+import type { Job, QuoteForm, Settings } from '@/types';
 
 const settings: Settings = {
   businessName: 'Test',
@@ -115,6 +120,30 @@ console.log('\n── breakdown.tireCost echoes the stored total ──');
   const j = mkJob({ revenue: 1000, tireCost: 320, qty: 4 });
   const r = computeFlatPrice(j, settings);
   check('breakdown.tireCost = $320', r.tireCost === 320, `got ${r.tireCost}`);
+}
+
+console.log('\n── calcFlatQuote: tireCost is TOTAL — live suggestion does NOT double-count ──');
+{
+  // AddJob feeds the live estimator the already-total job.tireCost.
+  // sd defaults: basePrice 100, minProfit 80 → targetProfit 80.
+  // dc = 320 (+0 material +0 travel); suggested = ceil((320+80)/5)*5 = 400.
+  const form = { service: 'Tire Replacement', vehicleType: 'Sedan', miles: 0,
+    tireCost: 320, qty: 4, materialCost: 0 } as QuoteForm;
+  const q = calcFlatQuote(form, settings);
+  check('directCosts = $320 (NOT $1280)', q.directCosts === 320, `got ${q.directCosts}`);
+  check('suggested = $400 (NOT $1360)',   q.suggested === 400,   `got ${q.suggested}`);
+}
+
+console.log('\n── calcFlatQuote reconciles with computeFlatPrice at the suggested price ──');
+{
+  // A job saved at the suggested price must show the estimator's targetProfit.
+  const form = { service: 'Tire Replacement', vehicleType: 'Sedan', miles: 0,
+    tireCost: 320, qty: 4, materialCost: 0 } as QuoteForm;
+  const q = calcFlatQuote(form, settings);
+  const j = mkJob({ revenue: q.suggested, tireCost: 320, qty: 4, miles: 0 });
+  const r = computeFlatPrice(j, settings);
+  check('saved directCost matches estimator', r.directCost === q.directCosts, `${r.directCost} vs ${q.directCosts}`);
+  check('saved profit ≥ targetProfit',         r.profit >= q.targetProfit,     `${r.profit} vs ${q.targetProfit}`);
 }
 
 console.log(`\n── DONE: ${passed} passed, ${failed} failed ──`);
