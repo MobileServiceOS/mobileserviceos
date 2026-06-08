@@ -7,6 +7,8 @@ import {
   availableQty, reservedQty, addReservation, removeReservation,
 } from '@/lib/inventoryReservations';
 import { addToast } from '@/lib/toast';
+import { computeInventoryIntel } from '@/lib/inventoryIntel';
+import { InventoryIntelPanel } from '@/components/inventory/InventoryIntelPanel';
 import { NumberField } from '@/components/NumberField';
 import { useActiveVertical } from '@/lib/useActiveVertical';
 import type { BusinessTypeInventoryField, BusinessTypeConfig } from '@/config/businessTypes/registry';
@@ -267,6 +269,12 @@ function TireInventoryView({ inventory, onSave, jobs }: InternalViewProps) {
     }
     return m;
   }, [jobs]);
+
+  // Deterministic inventory intelligence (reorder / dead-stock / movers).
+  const inventoryIntel = useMemo(
+    () => computeInventoryIntel(list, velocityBySize),
+    [list, velocityBySize],
+  );
 
   // Phase 4 — Inventory AI insight (owner/admin only).
 
@@ -609,6 +617,10 @@ function TireInventoryView({ inventory, onSave, jobs }: InternalViewProps) {
           </button>
         ))}
       </div>
+
+      {/* Inventory Intelligence — reorder / dead-stock / movers, tappable
+          to the health filters. Deterministic, on-device. */}
+      <InventoryIntelPanel intel={inventoryIntel} onViewAll={(b) => setHealthFilter(b)} />
 
       {/* Hot Sizes — quick-add chip strip for repeat-stock sizes. */}
       {hotSizes.length > 0 && (
