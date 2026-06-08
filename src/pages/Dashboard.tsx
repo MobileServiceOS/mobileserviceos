@@ -7,6 +7,7 @@ import {
   r2, resolvePaymentStatus, weekSummary,
 } from '@/lib/utils';
 import { ServiceIcon } from '@/components/ServiceIcon';
+import { formatPhonePartial } from '@/lib/formatPhone';
 import {
   expenseTotalsInRange,
   monthlyRecurringTotal,
@@ -54,6 +55,10 @@ interface Props {
    *  Use this for every "log a new job" CTA; setTab('add') alone
    *  preloads the last-saved job into the form. */
   onNewJob: () => void;
+  /** One-tap Quote → Job: carries the Quick Quote's service / vehicle /
+   *  pricing / surcharges (+ optional phone & tire size) into a prefilled
+   *  Add Job so the operator re-enters nothing already captured. */
+  onQuoteToJob: (draft: Partial<Job>) => void;
   onViewJob: (j: Job) => void;
   onGenerateInvoice: (j: Job) => void;
   /** Optional invoice-send handler. Reserved for future per-job
@@ -164,7 +169,7 @@ function SubKpi({ label, value, tone }: { label: string; value: string; tone: 'n
 }
 
 export function Dashboard({
-  jobs: rawJobs, settings, inventory, setTab, onNewJob,
+  jobs: rawJobs, settings, inventory, setTab, onNewJob, onQuoteToJob,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   onViewJob, onGenerateInvoice, onSendInvoice, onSendReview, onMarkPaid, onEditJob,
   onLogExpense,
@@ -215,6 +220,11 @@ export function Dashboard({
   // pricing engine's Suggested / Premium don't capture).
   const [qqCustom, setQqCustom] = useState('');
   const [qqDetailsOpen, setQqDetailsOpen] = useState(false);
+  // Optional intake captured on the quote so a one-tap Quote → Job carries
+  // it. Phone is the high-value one: AddJob's CustomerLookupCard recognizes
+  // a returning customer from it and backfills name / address.
+  const [qqPhone, setQqPhone] = useState('');
+  const [qqTireSize, setQqTireSize] = useState('');
   const qqChange = <K extends keyof QuoteForm>(k: K, v: QuoteForm[K]) => setQqForm((p) => ({ ...p, [k]: v }));
 
   // ─── Role resolution ─────────────────────────────────────────────
@@ -494,6 +504,39 @@ export function Dashboard({
       : qqMode === 'premium'
         ? quote.premium
         : quote.suggested;
+
+  // Build a prefilled Job draft from the quote and hand it to App. The
+  // Quick Quote's "Tire $" is PER-UNIT (paired with Qty), but a saved Job
+  // stores the TOTAL tire cost — so multiply, and mark the source "Bought
+  // for this job" so AddJob's mirror keeps the carried total (the default
+  // Inventory source would otherwise recompute it from stock on save).
+  // Only do that when a cost was actually entered; otherwise leave the
+  // default Inventory source so the operator picks from stock.
+  const handleQuoteToJob = () => {
+    const perUnit = Number(qqForm.tireCost || 0);
+    const qty = Number(qqForm.qty || 1) || 1;
+    const carryTireCost = perUnit > 0 && vertical.features.inventoryDeduction;
+    const draft: Partial<Job> = {
+      service: qqForm.service,
+      vehicleType: qqForm.vehicleType,
+      miles: qqForm.miles,
+      qty: qqForm.qty,
+      materialCost: qqForm.materialCost,
+      emergency: !!qqForm.emergency,
+      lateNight: !!qqForm.lateNight,
+      highway: !!qqForm.highway,
+      weekend: !!qqForm.weekend,
+      revenue: qqRevenue,
+      customerPhone: qqPhone.trim(),
+      tireSize: qqTireSize.trim(),
+    };
+    if (carryTireCost) {
+      draft.tireSource = 'Bought for this job';
+      draft.tirePurchasePrice = perUnit;
+      draft.tireCost = Math.round(perUnit * qty * 100) / 100;
+    }
+    onQuoteToJob(draft);
+  };
 
   // Development-only role-resolution log (spec: defensive check).
   useEffect(() => {
@@ -931,7 +974,7 @@ export function Dashboard({
       {/* ─── 6. Quick Quote ─────────────────────────────────────── */}
       <div className="section-label with-action">
         <span>Quick Quote</span>
-        <span className="section-label-hint">Suggested pricing feeds straight into Log Job</span>
+        <span className="section-label-hint">One tap turns this quote into a job — nothing re-entered</span>
       </div>
       <div className="quote-box card-anim">
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
@@ -1029,6 +1072,49 @@ export function Dashboard({
         {qqDetailsOpen && (
           <div className="qq-meta">Direct cost {money(quote.directCosts)} · target profit {money(quote.targetProfit)}</div>
         )}
+
+        {/* One-tap Quote → Job. Optional phone + tire size are captured
+            here so they carry too — phone unlocks returning-customer
+            auto-fill in Add Job. Everything else (service / vehicle /
+            miles / qty / surcharges / tire cost / chosen price) carries
+            automatically, so the operator re-enters nothing. */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: vertical.features.inventoryDeduction ? '1fr 1fr' : '1fr',
+            gap: 10, marginTop: 12,
+          }}
+        >
+          <div className="field" style={{ marginBottom: 0 }}>
+            <label>Phone (optional)</label>
+            <input
+              type="tel"
+              inputMode="tel"
+              value={qqPhone}
+              onChange={(e) => setQqPhone(formatPhonePartial(e.target.value))}
+              placeholder="(555) 123-4567"
+            />
+          </div>
+          {vertical.features.inventoryDeduction && (
+            <div className="field" style={{ marginBottom: 0 }}>
+              <label>Tire size (optional)</label>
+              <input
+                type="text"
+                value={qqTireSize}
+                onChange={(e) => setQqTireSize(e.target.value)}
+                placeholder="e.g. 225/45R17"
+              />
+            </div>
+          )}
+        </div>
+        <button
+          type="button"
+          className="cta-btn press-scale"
+          style={{ marginTop: 12, width: '100%' }}
+          onClick={handleQuoteToJob}
+        >
+          Create Job · {money(qqRevenue)} →
+        </button>
       </div>
 
       {/* ─── 7. Lead Sources — owner/admin only ──────────────────── */}
