@@ -25,7 +25,6 @@ import {
   type CSSProperties } from 'react';
 import {
   collection,
-  doc,
   limit,
   onSnapshot,
   orderBy,
@@ -40,7 +39,6 @@ import { renderTemplate } from '@/lib/reviewTemplate';
 import { DEFAULT_REVIEW_TEMPLATE } from '@/lib/defaults';
 import { usePermissions, useMembership } from '@/context/MembershipContext';
 import { useBrand } from '@/context/BrandContext';
-import { startGoogleConnect } from '@/lib/googleConnect';
 import type { Job, Settings } from '@/types';
 
 interface Props {
@@ -113,52 +111,6 @@ function ReviewAutomationSectionImpl({
 
   useEffect(() => { setUrlLocal(url); }, [url]);
   useEffect(() => { setTemplateLocal(template); }, [template]);
-
-  // Manual reputation (interim until live Google sync). Save-on-blur,
-  // stamping the date so the Reputation module can show "entered by you".
-  const ratingVal = settings.googleRating;
-  const countVal  = settings.googleReviewCount;
-  const [ratingLocal, setRatingLocal] = useState(ratingVal != null ? String(ratingVal) : '');
-  const [countLocal,  setCountLocal]  = useState(countVal != null ? String(countVal) : '');
-  useEffect(() => { setRatingLocal(ratingVal != null ? String(ratingVal) : ''); }, [ratingVal]);
-  useEffect(() => { setCountLocal(countVal != null ? String(countVal) : ''); }, [countVal]);
-  const onSaveReputation = useCallback(async () => {
-    if (!canEdit) return;
-    const r = parseFloat(ratingLocal);
-    const c = parseInt(countLocal, 10);
-    await onSaveSettings({
-      googleRating: Number.isFinite(r) ? Math.min(5, Math.max(0, r)) : 0,
-      googleReviewCount: Number.isFinite(c) ? Math.max(0, c) : 0,
-      reputationUpdatedAt: new Date().toISOString().slice(0, 10),
-    } as Partial<Settings>);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canEdit, ratingLocal, countLocal, onSaveSettings]);
-
-  // Google connection status (written by the googleOAuthCallback fn).
-  const [googleConn, setGoogleConn] = useState<{ status?: string; connectedAt?: { toDate?: () => Date }; lastSyncAt?: { toDate?: () => Date } | null } | null>(null);
-  const [connectInFlight, setConnectInFlight] = useState(false);
-  const [connectError, setConnectError] = useState<string | null>(null);
-  useEffect(() => {
-    if (!_db || !businessId) return;
-    const unsub = onSnapshot(
-      doc(requireDb(), 'businesses', businessId, 'integrations', 'google'),
-      (snap) => setGoogleConn(snap.exists() ? (snap.data() as typeof googleConn) : null),
-      () => setGoogleConn(null),
-    );
-    return () => unsub();
-  }, [businessId]);
-  const onConnectGoogle = useCallback(async () => {
-    if (!canEdit || !businessId) return;
-    setConnectError(null);
-    setConnectInFlight(true);
-    try {
-      await startGoogleConnect(businessId); // redirects on success
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setConnectError(/failed-precondition/.test(msg) ? 'Google OAuth isn’t configured yet — see setup steps.' : msg);
-      setConnectInFlight(false);
-    }
-  }, [canEdit, businessId]);
 
   // Last-completed job → preview source. Optional; falls back to a
   // static sample customer if nothing's available.
@@ -379,63 +331,6 @@ function ReviewAutomationSectionImpl({
             <p style={helpStyle}>
               Twilio is not connected. Test sends queue up; they'll deliver automatically once you configure a Twilio number in Missed Call Recovery.
             </p>
-          )}
-        </div>
-      )}
-
-      {/* 7a. Connect Google (Search Console + Business Profile). */}
-      {isOwnerOrAdmin && (
-        <div className="field" style={{ marginBottom: 12, paddingTop: 10, borderTop: '1px solid var(--border, #2a2a2a)' }}>
-          <label style={labelStyle}>Connect Google Business Profile</label>
-          {googleConn?.status === 'connected' ? (
-            <>
-              <p style={{ ...helpStyle, color: 'var(--ok, #4ade80)' }}>
-                Connected{googleConn.connectedAt?.toDate ? ` on ${googleConn.connectedAt.toDate().toLocaleDateString()}` : ''}.
-                {googleConn.lastSyncAt?.toDate ? ` Last sync ${googleConn.lastSyncAt.toDate().toLocaleString()}.` : ' Review sync begins once Google approves Business Profile API access for this project.'}
-              </p>
-              <button type="button" className="btn sm secondary" disabled={connectInFlight || !canEdit} onClick={onConnectGoogle} style={{ marginTop: 4 }}>
-                {connectInFlight ? 'Redirecting…' : 'Reconnect'}
-              </button>
-            </>
-          ) : (
-            <>
-              <p style={helpStyle}>
-                Authorize Google to sync Search Console (live now) and Business Profile reviews
-                (once Google approves API access). You&rsquo;ll be redirected to Google to grant access.
-              </p>
-              <button type="button" className="btn sm primary" disabled={connectInFlight || !canEdit} onClick={onConnectGoogle} style={{ marginTop: 4 }}>
-                {connectInFlight ? 'Redirecting…' : 'Connect Google'}
-              </button>
-            </>
-          )}
-          {connectError && <p style={{ ...helpStyle, color: 'var(--danger, #f87171)', marginTop: 6 }}>{connectError}</p>}
-        </div>
-      )}
-
-      {/* 7b. Manual reputation — interim until live Google sync. */}
-      {isOwnerOrAdmin && (
-        <div className="field" style={{ marginBottom: 12, paddingTop: 10, borderTop: '1px solid var(--border, #2a2a2a)' }}>
-          <label style={labelStyle}>Google rating &amp; reviews (manual)</label>
-          <p style={helpStyle}>
-            Enter your current Google rating and review count. They appear in Bandilero&rsquo;s Reputation module
-            labelled &ldquo;entered by you&rdquo; — until live Google Business Profile sync is connected.
-          </p>
-          <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-            <input
-              type="number" step="0.1" min="0" max="5" inputMode="decimal"
-              value={ratingLocal} onChange={(e) => setRatingLocal(e.target.value)} onBlur={onSaveReputation}
-              placeholder="Rating (e.g. 4.8)" aria-label="Google rating" disabled={!canEdit}
-              style={{ ...inputStyle, flex: 1 }}
-            />
-            <input
-              type="number" min="0" step="1" inputMode="numeric"
-              value={countLocal} onChange={(e) => setCountLocal(e.target.value)} onBlur={onSaveReputation}
-              placeholder="# reviews (e.g. 124)" aria-label="Review count" disabled={!canEdit}
-              style={{ ...inputStyle, flex: 1 }}
-            />
-          </div>
-          {settings.reputationUpdatedAt && (
-            <p style={helpStyle}>Last updated {settings.reputationUpdatedAt}.</p>
           )}
         </div>
       )}
