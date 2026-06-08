@@ -225,12 +225,23 @@ export function LeadDetailSheet({
       className="modal-overlay"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div ref={trapRef} className="modal-card" style={{ maxWidth: 640, maxHeight: '90vh', overflowY: 'auto' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+      <div ref={trapRef} className="modal-card" style={{
+        maxWidth: 640, width: '100%', maxHeight: '90vh',
+        display: 'flex', flexDirection: 'column', overflow: 'hidden',
+        background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: 16,
+      }}>
+        {/* Fixed header — never scrolls, so Close is always clickable and
+            can't be overlapped by the content below. */}
+        <div style={{
+          flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          gap: 8, padding: '13px 16px', borderBottom: '1px solid var(--border)', background: 'var(--s1)',
+        }}>
           <h2 style={{ margin: 0, fontSize: 18 }}>Lead</h2>
           <button type="button" className="btn sm secondary" onClick={onClose}>Close</button>
         </div>
 
+        {/* Scrollable body */}
+        <div style={{ overflowY: 'auto', padding: 16, flex: 1 }}>
         {/* Roadside actions — one-tap call / text the lead. */}
         <RoadsideActions phoneE164={lead.phoneE164} />
 
@@ -378,6 +389,7 @@ export function LeadDetailSheet({
             <div>Last edited by: {lead.lastEditedByUid ?? '—'}</div>
           </div>
         </details>
+        </div>
       </div>
     </div>
   );
