@@ -42,7 +42,6 @@ const CustomerProfile = lazy(() => import('@/pages/CustomerProfile'));
 // who actually open the queue pull in LeadDetailSheet + LeadCard + the
 // CustomerEnrichmentPanel bundle.
 const Leads = lazy(() => import('@/pages/Leads'));
-const Bandilero = lazy(() => import('@/pages/Bandilero'));
 const Insights  = lazy(() => import('@/pages/Insights').then((m)  => ({ default: m.Insights })));
 const Payouts   = lazy(() => import('@/pages/Payouts').then((m)   => ({ default: m.Payouts })));
 const Expenses  = lazy(() => import('@/pages/Expenses').then((m)  => ({ default: m.Expenses })));
@@ -63,7 +62,7 @@ import { ActiveTimerBar } from '@/components/ActiveTimerBar';
 import { OfflineBanner } from '@/components/OfflineBanner';
 import { Onboarding } from '@/components/Onboarding';
 import { PaywallLockout } from '@/components/PaywallLockout';
-import { shouldLockApp, isExistingCustomer, canAccessFeature } from '@/lib/planAccess';
+import { shouldLockApp, isExistingCustomer } from '@/lib/planAccess';
 import { addToast, addActionToast } from '@/lib/toast';
 import { humanizeFirestoreError, logFirestoreError, isPermissionDenied } from '@/lib/firebaseErrors';
 import { applyBrandColors, planInventoryDeduction, r2, uid } from '@/lib/utils';
@@ -1539,22 +1538,6 @@ function AuthenticatedApp({ user }: { user: User }) {
         />
       );
     }
-    if (tab === 'bandilero' && businessId) return (
-      <Bandilero
-        businessId={businessId}
-        jobs={jobs}
-        settings={settings}
-        inventory={inventory}
-        brand={brand}
-        operatorName={user?.displayName ?? null}
-        canViewFinancials={canViewFinancials}
-        proEnabled={canAccessFeature(settings, 'bandilero')}
-        onOpenSettings={(section) => {
-          if (section) { try { sessionStorage.setItem('msos_open_section', section); } catch { /* */ } }
-          setTab('settings');
-        }}
-      />
-    );
     if (tab === 'history') return (
       <History
         jobs={jobs}
@@ -1818,7 +1801,7 @@ function AuthenticatedApp({ user }: { user: User }) {
             <span className="nav-ico" aria-hidden="true"><NavLog /></span><span>Log</span>
           </button>
           <button
-            className={'nav-btn' + ((tab === 'settings' || tab === 'payouts' || tab === 'expenses' || tab === 'insights' || tab === 'help' || tab === 'bandilero') ? ' active' : '')}
+            className={'nav-btn' + ((tab === 'settings' || tab === 'payouts' || tab === 'expenses' || tab === 'insights' || tab === 'help') ? ' active' : '')}
             aria-haspopup="dialog"
             aria-expanded={moreOpen}
             onClick={() => setMoreOpen(true)}
@@ -1831,7 +1814,6 @@ function AuthenticatedApp({ user }: { user: User }) {
         <MoreSheet
           onClose={() => setMoreOpen(false)}
           onPick={(t) => { setTab(t); setMoreOpen(false); }}
-          bandileroEnabled={canAccessFeature(settings, 'bandilero')}
         />
       )}
       {detailJob && (

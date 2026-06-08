@@ -2,7 +2,7 @@ import { useEffect, type ReactNode } from 'react';
 import type { TabId } from '@/types';
 import { usePermissions } from '@/context/MembershipContext';
 import { useFocusTrap } from '@/lib/useFocusTrap';
-import { IconSparkle, IconWallet, IconDollar, IconChart, IconHelp, IconGear } from '@/components/ActionIcons';
+import { IconWallet, IconDollar, IconChart, IconHelp, IconGear } from '@/components/ActionIcons';
 
 // ─────────────────────────────────────────────────────────────────────
 //  MoreSheet — bottom-anchored menu opened from the "More" nav button.
@@ -25,8 +25,6 @@ import { IconSparkle, IconWallet, IconDollar, IconChart, IconHelp, IconGear } fr
 interface Props {
   onClose: () => void;
   onPick: (t: TabId) => void;
-  /** Pro-tier entitlement for the (archived) Bandilero command center. */
-  bandileroEnabled?: boolean;
 }
 
 interface Item {
@@ -37,7 +35,7 @@ interface Item {
   visible: boolean;
 }
 
-export function MoreSheet({ onClose, onPick, bandileroEnabled }: Props) {
+export function MoreSheet({ onClose, onPick }: Props) {
   const permissions = usePermissions();
   // Audit a11y P1-4 (2026-05-31): trap focus inside the sheet so AT
   // users can't Tab back into the (visually obscured) nav below. The
@@ -61,17 +59,9 @@ export function MoreSheet({ onClose, onPick, bandileroEnabled }: Props) {
   }, [onClose]);
 
   const items: Item[] = [
-    {
-      id: 'bandilero',
-      label: 'Bandilero',
-      icon: <IconSparkle />,
-      hint: 'AI command center · briefing · intelligence (archived — not on Home)',
-      // Archived behind the Pro feature flag and reachable here, NOT on
-      // Home — Home is the operational dashboard. Hidden entirely on Core.
-      visible: !!bandileroEnabled,
-    },
-    // Inventory returned to the primary bottom-nav in the V2 reorder, so
-    // it's not duplicated here.
+    // Bandilero removed from the app (2026-06-07) — code remains archived
+    // in the repo but is no longer reachable. Inventory lives in the
+    // primary bottom-nav, so it's not duplicated here either.
     {
       id: 'payouts',
       label: 'Payouts',
