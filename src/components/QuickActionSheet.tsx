@@ -1,6 +1,7 @@
-import { useEffect } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import type { Job } from '@/types';
 import { resolvePaymentStatus } from '@/lib/utils';
+import { IconDollar, IconEye, IconEdit, IconCopy, IconSend, IconStar } from '@/components/ActionIcons';
 
 interface Props {
   job: Job;
@@ -15,7 +16,7 @@ interface Props {
 
 interface ActionDef {
   key: string;
-  icon: string;
+  icon: ReactNode;
   label: string;
   handler: () => void;
   /** When true, render with green/primary styling. Used for Mark Paid. */
@@ -53,15 +54,15 @@ export function QuickActionSheet({
   // today) is the second-most-common History action after Mark Paid.
   const actions: ActionDef[] = [
     ...(canMarkPaid
-      ? [{ key: 'paid', icon: '💰', label: 'Mark Paid', handler: onMarkPaid, emphasize: true }]
+      ? [{ key: 'paid', icon: <IconDollar />, label: 'Mark Paid', handler: onMarkPaid, emphasize: true }]
       : []),
-    { key: 'view',    icon: '👁',  label: 'View Job',     handler: onView },
-    { key: 'edit',    icon: '✏️', label: 'Edit Job',     handler: onEdit },
+    { key: 'view',    icon: <IconEye />,  label: 'View Job',     handler: onView },
+    { key: 'edit',    icon: <IconEdit />, label: 'Edit Job',     handler: onEdit },
     ...(onDuplicate
-      ? [{ key: 'dup', icon: '📋', label: 'Duplicate Job', handler: onDuplicate }]
+      ? [{ key: 'dup', icon: <IconCopy />, label: 'Duplicate Job', handler: onDuplicate }]
       : []),
-    { key: 'invoice', icon: '📤', label: 'Send Invoice', handler: onSendInvoice },
-    { key: 'review',  icon: '⭐', label: 'Send Review',  handler: onSendReview },
+    { key: 'invoice', icon: <IconSend />, label: 'Send Invoice', handler: onSendInvoice },
+    { key: 'review',  icon: <IconStar />, label: 'Send Review',  handler: onSendReview },
   ];
 
   return (
@@ -130,7 +131,7 @@ export function QuickActionSheet({
                 minHeight: 52,
               }}
             >
-              <span style={{ fontSize: 18, width: 24, textAlign: 'center', flexShrink: 0 }}>
+              <span style={{ fontSize: 18, width: 24, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
                 {icon}
               </span>
               <span>{label}</span>

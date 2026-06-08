@@ -2,6 +2,7 @@ import type { Job, Settings, Brand } from '@/types';
 import { jobGrossProfit, money, paymentPillClass, resolvePaymentStatus } from '@/lib/utils';
 import { addToast } from '@/lib/toast';
 import { usePermissions } from '@/context/MembershipContext';
+import { IconDollar, IconInvoice, IconStar, IconEdit, IconEye, IconCopy, IconPlus, IconHome } from '@/components/ActionIcons';
 
 interface Props {
   job: Job;
@@ -98,32 +99,32 @@ export function JobSuccessPanel({
               boxShadow: '0 6px 20px rgba(34,197,94,.25)',
             }}
           >
-            <span className="action-ico">💰</span>
+            <span className="action-ico"><IconDollar /></span>
             <span style={{ fontWeight: 800 }}>Mark Paid · {money(job.revenue)}</span>
           </button>
         )}
         {isCompleted ? (
           <>
             <button className="action-btn" onClick={onGenerateInvoice}>
-              <span className="action-ico">📄</span><span>Generate Invoice</span>
+              <span className="action-ico"><IconInvoice /></span><span>Generate Invoice</span>
             </button>
             <button className="action-btn" onClick={() => {
               if (!brand.reviewUrl) { addToast('Set review URL in Settings', 'warn'); return; }
               onSendReview();
             }}>
-              <span className="action-ico">⭐</span><span>Send Review</span>
+              <span className="action-ico"><IconStar /></span><span>Send Review</span>
             </button>
           </>
         ) : null}
         <button className="action-btn" onClick={onEditJob}>
-          <span className="action-ico">✏️</span><span>Edit Job</span>
+          <span className="action-ico"><IconEdit /></span><span>Edit Job</span>
         </button>
         <button className="action-btn" onClick={onViewJob}>
-          <span className="action-ico">👁</span><span>View Details</span>
+          <span className="action-ico"><IconEye /></span><span>View Details</span>
         </button>
         {isCompleted ? (
           <button className="action-btn" onClick={onDuplicate}>
-            <span className="action-ico">📋</span><span>Duplicate Job</span>
+            <span className="action-ico"><IconCopy /></span><span>Duplicate Job</span>
           </button>
         ) : null}
         {/* Continuous flow — straight into the next job, no
@@ -136,10 +137,10 @@ export function JobSuccessPanel({
             border: 'none', fontWeight: 800,
           }}
         >
-          <span className="action-ico">➕</span><span>Log Another Job</span>
+          <span className="action-ico"><IconPlus /></span><span>Log Another Job</span>
         </button>
         <button className="action-btn wide" onClick={onClose}>
-          <span className="action-ico">🏠</span><span>Back to Dashboard</span>
+          <span className="action-ico"><IconHome /></span><span>Back to Dashboard</span>
         </button>
       </div>
     </div>
