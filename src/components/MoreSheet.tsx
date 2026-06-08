@@ -59,9 +59,7 @@ export function MoreSheet({ onClose, onPick }: Props) {
   }, [onClose]);
 
   const items: Item[] = [
-    // Bandilero removed from the app (2026-06-07) — code remains archived
-    // in the repo but is no longer reachable. Inventory lives in the
-    // primary bottom-nav, so it's not duplicated here either.
+    // Inventory lives in the primary bottom-nav, so it's not here.
     {
       id: 'payouts',
       label: 'Payouts',

@@ -1483,12 +1483,9 @@ function AuthenticatedApp({ user }: { user: User }) {
 
   const tabContent = useMemo(() => {
     if (tab === 'dashboard') {
-      // Home is the classic operational Dashboard — optimized for field /
-      // roadside speed (today's jobs, scheduled, pending leads, quick
-      // quote/add, revenue today, inventory alerts, recent activity,
-      // follow-ups). The Bandilero Command Center is NOT on Home; it's
-      // archived behind the Pro feature flag and reachable from the More
-      // sheet (tab === 'bandilero' below). (Reverted 2026-06-07.)
+      // Home is the operational Dashboard — optimized for field / roadside
+      // speed (today's jobs, scheduled, pending leads, quick quote/add,
+      // revenue today, inventory alerts, recent activity, follow-ups).
       return (
         <Dashboard
           jobs={jobs}
