@@ -3,6 +3,7 @@ import type { Job, Settings, InventoryDeduction, PaymentMethod } from '@/types';
 import { useFocusTrap } from '@/lib/useFocusTrap';
 import { PAYMENT_METHOD_LABELS } from '@/types';
 import { fmtDate, jobGrossProfit, money, paymentPillClass, resolvePaymentStatus } from '@/lib/utils';
+import { getLastPaymentMethod } from '@/lib/paymentMethodMemory';
 import { ServiceIcon } from '@/components/ServiceIcon';
 import { useActiveVertical } from '@/lib/useActiveVertical';
 import { useMembership } from '@/context/MembershipContext';
@@ -76,8 +77,11 @@ export function JobDetailModal({
   // chip before hitting Mark Paid. Pre-paid jobs (already 'Paid')
   // initialize from the stored method so re-opening the modal shows
   // the recorded value rather than flipping back to cash.
+  // Default to the job's own method if set, else the operator's last-used
+  // method (memory), else cash — so a Zelle shop isn't re-tapping the chip
+  // on every job.
   const [payMethod, setPayMethod] = useState<PaymentMethod>(
-    (job.paymentMethod as PaymentMethod | undefined) || 'cash',
+    (job.paymentMethod as PaymentMethod | undefined) || getLastPaymentMethod() || 'cash',
   );
   // Edit affordance for a paid job's method. Closed by default —
   // expands to a chip row when the operator taps "Change" next to
