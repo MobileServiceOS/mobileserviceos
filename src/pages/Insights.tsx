@@ -3,12 +3,8 @@ import type { Job, Settings } from '@/types';
 import { money, fmtDate } from '@/lib/utils';
 import { TODAY } from '@/lib/defaults';
 import { computeInsights } from '@/lib/insights';
-import { callAI, isAIConfigured } from '@/lib/aiClient';
-import { buildInsightsInput, parseInsightsResponse } from '@/lib/aiInsights';
-import { PricingInsightsCard } from '@/components/insights/PricingInsightsCard';
 import { BestSellersCard } from '@/components/insights/BestSellersCard';
 import { AccordionShell } from '@/components/settings/AccordionShell';
-import { useBrand } from '@/context/BrandContext';
 
 interface Props {
   jobs: Job[];
@@ -22,31 +18,10 @@ interface Props {
 // ─────────────────────────────────────────────────────────────────────
 
 export function Insights({ jobs, settings }: Props) {
-  const { businessId } = useBrand();
-
   const ins = useMemo(
     () => computeInsights(jobs, settings, TODAY()),
     [jobs, settings],
   );
-
-  // AI Insights — on-demand owner briefing. The digest is derived
-  // once from `ins`; `hasData` gates the button so the AI is never
-  // asked to summarise an empty business.
-  const aiDigest = useMemo(() => buildInsightsInput(ins), [ins]);
-  const hasData = aiDigest.totalRevenue8w > 0 || aiDigest.topServices.length > 0;
-  const [aiState, setAiState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
-  const [aiBullets, setAiBullets] = useState<string[]>([]);
-
-  const handleAiSummary = async () => {
-    setAiState('loading');
-    setAiBullets([]);
-    const res = await callAI('insights', aiDigest);
-    if (!res.ok || !res.text) { setAiState('error'); return; }
-    const parsed = parseInsightsResponse(res.text, aiDigest);
-    if (!parsed.ok) { setAiState('error'); return; }
-    setAiBullets(parsed.bullets);
-    setAiState('done');
-  };
 
   const trendMax = Math.max(1, ...ins.revenueTrend.map((w) => w.revenue));
   const trendRevenue = ins.revenueTrend.reduce((s, w) => s + w.revenue, 0);
@@ -83,30 +58,6 @@ export function Insights({ jobs, settings }: Props) {
   return (
     <div className="page page-enter">
       <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 14 }}>Insights</div>
-
-      {isAIConfigured() && (
-        <div className="ai-summary">
-          <button
-            className="ai-summary-btn press-scale"
-            onClick={handleAiSummary}
-            disabled={aiState === 'loading' || !hasData}
-          >
-            {aiState === 'loading' ? 'Summarising…' : '✨ AI summary'}
-          </button>
-          {aiState === 'done' && aiBullets.length > 0 && (
-            <div className="ai-summary-card card-anim">
-              <div className="ai-summary-label">AI summary</div>
-              <ul className="ai-summary-list">
-                {aiBullets.map((b, i) => <li key={i}>{b}</li>)}
-              </ul>
-            </div>
-          )}
-          {aiState === 'error' && (
-            <div className="ai-summary-error">Couldn't generate a summary — try again.</div>
-          )}
-        </div>
-      )}
-      <PricingInsightsCard jobs={jobs} settings={settings} businessId={businessId} />
 
       {/* ── Daily job stats (Phase 5) ─────────────────────────── */}
       <AccordionShell
