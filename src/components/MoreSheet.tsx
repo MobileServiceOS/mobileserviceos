@@ -1,7 +1,8 @@
-import { useEffect } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import type { TabId } from '@/types';
 import { usePermissions } from '@/context/MembershipContext';
 import { useFocusTrap } from '@/lib/useFocusTrap';
+import { IconSparkle, IconWallet, IconDollar, IconChart, IconHelp, IconGear } from '@/components/ActionIcons';
 
 // ─────────────────────────────────────────────────────────────────────
 //  MoreSheet — bottom-anchored menu opened from the "More" nav button.
@@ -31,7 +32,7 @@ interface Props {
 interface Item {
   id: TabId;
   label: string;
-  icon: string;
+  icon: ReactNode;
   hint: string;
   visible: boolean;
 }
@@ -63,7 +64,7 @@ export function MoreSheet({ onClose, onPick, bandileroEnabled }: Props) {
     {
       id: 'bandilero',
       label: 'Bandilero',
-      icon: '🛰️',
+      icon: <IconSparkle />,
       hint: 'AI command center · briefing · intelligence (archived — not on Home)',
       // Archived behind the Pro feature flag and reachable here, NOT on
       // Home — Home is the operational dashboard. Hidden entirely on Core.
@@ -74,35 +75,35 @@ export function MoreSheet({ onClose, onPick, bandileroEnabled }: Props) {
     {
       id: 'payouts',
       label: 'Payouts',
-      icon: '💰',
+      icon: <IconWallet />,
       hint: 'Weekly distributable · owner splits · 8-week history',
       visible: permissions.canManageBilling,
     },
     {
       id: 'expenses',
       label: 'Expenses',
-      icon: '📊',
+      icon: <IconDollar />,
       hint: 'Monthly recurring · one-off costs · net profit',
       visible: permissions.canViewFinancials,
     },
     {
       id: 'insights',
       label: 'Insights',
-      icon: '📈',
+      icon: <IconChart />,
       hint: 'Revenue trend · top services · profit by city · unpaid aging',
       visible: permissions.canViewFinancials,
     },
     {
       id: 'help',
       label: 'Help & FAQ',
-      icon: '❓',
+      icon: <IconHelp />,
       hint: 'Common questions · contact support',
       visible: true,
     },
     {
       id: 'settings',
       label: 'Settings',
-      icon: '⚙️',
+      icon: <IconGear />,
       hint: 'Account · branding · business config',
       visible: true,
     },
@@ -164,7 +165,7 @@ export function MoreSheet({ onClose, onPick, bandileroEnabled }: Props) {
               cursor: 'pointer',
             }}
           >
-            <span style={{ fontSize: 22 }}>{item.icon}</span>
+            <span style={{ fontSize: 22, width: 26, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: 'var(--brand-primary)' }}>{item.icon}</span>
             <span style={{ flex: 1, minWidth: 0 }}>
               <span style={{ display: 'block', fontSize: 14, fontWeight: 700, marginBottom: 2 }}>
                 {item.label}
