@@ -66,6 +66,7 @@ import { shouldLockApp, isExistingCustomer } from '@/lib/planAccess';
 import { addToast, addActionToast } from '@/lib/toast';
 import { humanizeFirestoreError, logFirestoreError, isPermissionDenied } from '@/lib/firebaseErrors';
 import { applyBrandColors, planInventoryDeduction, r2, uid } from '@/lib/utils';
+import { getLastPaymentMethod, setLastPaymentMethod } from '@/lib/paymentMethodMemory';
 import { upsertCustomerFromJob } from '@/lib/customerEntity';
 import { normalizePhone } from '@/lib/phone';
 import { refundJobDeductions, extractJobDeductions } from '@/lib/inventoryRefund';
@@ -1427,13 +1428,20 @@ function AuthenticatedApp({ user }: { user: User }) {
       status: 'Completed' as const,
       paymentStatus: 'Paid' as const,
       paidAt: j.paidAt || new Date().toISOString(),
-      paymentMethod: method || j.paymentMethod || 'cash',
+      // Explicit arg wins (the command-center chip / "Change" affordance);
+      // else whatever's already on the job; else the operator's last-used
+      // method (History's quick Mark Paid passes no arg); else cash.
+      paymentMethod: method || j.paymentMethod || getLastPaymentMethod() || 'cash',
     };
     // Local view of the post-write job — used for downstream
     // review-prompt logic. The WRITE is `patch` only.
     const updated: Job = { ...j, ...patch };
     try {
       await fbSetFast(jobsCol, j.id, patch);
+      // Remember this method so the next Mark Paid defaults to it instead
+      // of cash — one fewer chip tap on every job (most shops collect the
+      // same way each time).
+      setLastPaymentMethod(patch.paymentMethod);
       // Review automation: surface a one-tap "Send review" action
       // toast at the moment payment lands — gated by shouldPromptReview
       // (per-business setting + a configured review URL + not already
