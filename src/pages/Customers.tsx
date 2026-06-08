@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Job, Settings } from '@/types';
 import { PAYMENT_METHOD_LABELS } from '@/types';
-import { fmtDate, money, paymentPillClass, resolvePaymentStatus, serviceIcon } from '@/lib/utils';
+import { fmtDate, money, paymentPillClass, resolvePaymentStatus } from '@/lib/utils';
+import { ServiceIcon } from '@/components/ServiceIcon';
 import { useScopedJobs } from '@/lib/useScopedJobs';
 import { useMembership } from '@/context/MembershipContext';
 import { scopedCol, fbSet, fbListen } from '@/lib/firebase';
@@ -754,7 +755,7 @@ function CustomerProfileView({
           const tappable = !!onViewJob;
           const content = (
             <div className="card-pad" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ fontSize: 20 }}>{serviceIcon(j.service)}</div>
+              <div style={{ fontSize: 20, display: 'inline-flex' }}><ServiceIcon name={j.service} /></div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {j.service}

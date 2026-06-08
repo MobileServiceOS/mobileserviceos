@@ -3,7 +3,8 @@ import { getFunctions, httpsCallable, connectFunctionsEmulator } from 'firebase/
 import type { Job, Settings, InventoryDeduction, PaymentMethod } from '@/types';
 import { useFocusTrap } from '@/lib/useFocusTrap';
 import { PAYMENT_METHOD_LABELS } from '@/types';
-import { fmtDate, jobGrossProfit, money, paymentPillClass, resolvePaymentStatus, serviceIcon } from '@/lib/utils';
+import { fmtDate, jobGrossProfit, money, paymentPillClass, resolvePaymentStatus } from '@/lib/utils';
+import { ServiceIcon } from '@/components/ServiceIcon';
 import { useActiveVertical } from '@/lib/useActiveVertical';
 import { useMembership } from '@/context/MembershipContext';
 import { RoadsideActions } from '@/components/RoadsideActions';
@@ -152,7 +153,7 @@ export function JobDetailModal({
       <div ref={trapRef} tabIndex={-1} className="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="job-modal-title">
         <div className="modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 24 }}>{serviceIcon(job.service)}</span>
+            <span style={{ fontSize: 24, display: 'inline-flex' }}><ServiceIcon name={job.service} /></span>
             <div>
               <div id="job-modal-title" style={{ fontWeight: 700, fontSize: 16 }}>
                 {job.customerName || job.service}

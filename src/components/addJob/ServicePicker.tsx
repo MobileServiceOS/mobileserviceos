@@ -21,7 +21,7 @@
 import { memo, useMemo, useState } from 'react';
 import type { BusinessTypeService } from '@/config/businessTypes/registry';
 import type { Job } from '@/types';
-import { serviceIcon } from '@/lib/utils';
+import { ServiceIcon } from '@/components/ServiceIcon';
 import { rankByUsage } from '@/lib/chipFrequency';
 
 interface Props {
@@ -95,7 +95,7 @@ function FlatPicker({
           className={'chip' + (selected === s.id ? ' active' : '')}
           onClick={() => onSelect(s.id)}
         >
-          <span style={{ marginRight: 6 }}>{serviceIcon(s.id)}</span>{s.label}
+          <span style={{ marginRight: 6, display: 'inline-flex', alignItems: 'center' }}><ServiceIcon name={s.id} /></span>{s.label}
         </button>
       ))}
     </div>

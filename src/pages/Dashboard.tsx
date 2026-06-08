@@ -4,8 +4,9 @@ import { QuickExpenseSheet } from '@/components/QuickExpenseSheet';
 import {
   calcQuote, clamp, fmtDate, fmtDateShort, getWeekStart,
   jobGrossProfit, money, normalizeTireSize, paymentPillClass,
-  r2, resolvePaymentStatus, serviceIcon, weekSummary,
+  r2, resolvePaymentStatus, weekSummary,
 } from '@/lib/utils';
+import { ServiceIcon } from '@/components/ServiceIcon';
 import {
   expenseTotalsInRange,
   monthlyRecurringTotal,
@@ -1131,7 +1132,7 @@ function RecentJobCard({
         }}
       >
         <div className="job-card-main" onClick={onView}>
-          <div className="job-icon">{serviceIcon(job.service)}</div>
+          <div className="job-icon"><ServiceIcon name={job.service} /></div>
           <div className="job-main">
             <div className="job-title">{job.customerName || job.service}</div>
             <div className="job-meta">
