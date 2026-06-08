@@ -13,8 +13,15 @@
 //  Bandilero drafts replies for a human to post; it never auto-publishes.
 // ═══════════════════════════════════════════════════════════════════
 
-import { type Metric, notConnected } from '../confidence';
+import { type Metric, notConnected, estimated } from '../confidence';
 import type { Connectivity } from '../types';
+
+/** Owner-entered reputation (interim until live Google sync). */
+export interface ManualReputation {
+  rating?: number;
+  reviewCount?: number;
+  updatedAt?: string;   // ISO date
+}
 
 export interface ReputationMetrics {
   /** Average inbound review rating. NOT_CONNECTED — no GBP/Facebook API. */
@@ -56,13 +63,28 @@ const GSC_STEPS = [
  * automatically if/when those integrations are added — without faking
  * anything in the meantime.
  */
-export function reputationStatus(conn: Pick<Connectivity, 'gbp' | 'seo'>): ReputationStatus {
+export function reputationStatus(
+  conn: Pick<Connectivity, 'gbp' | 'seo'>,
+  manual?: ManualReputation,
+): ReputationStatus {
   const ncGbp = (reason: string) => notConnected<number>(reason, 'gbp');
   const ncSeo = (reason: string) => notConnected<number>(reason, 'seo');
+
+  // Owner-entered values surface as ESTIMATED (NOT live/measured) with an
+  // honest "entered by you" assumption — never presented as API data.
+  const when = manual?.updatedAt ? ` (${manual.updatedAt})` : '';
+  const enteredNote = `Entered by you${when} — connect Google Business Profile for live sync`;
+  const hasRating = typeof manual?.rating === 'number' && manual.rating > 0;
+  const hasCount = typeof manual?.reviewCount === 'number' && manual.reviewCount > 0;
+
   return {
     metrics: {
-      reviewScore: conn.gbp ? ncGbp('GBP connected but review sync not yet implemented') : ncGbp('Google Business Profile not connected'),
-      reviewCount: conn.gbp ? ncGbp('GBP connected but review sync not yet implemented') : ncGbp('Google Business Profile not connected'),
+      reviewScore: hasRating
+        ? estimated<number>(manual!.rating as number, enteredNote, 'You (manual)', manual?.updatedAt)
+        : (conn.gbp ? ncGbp('GBP connected but review sync not yet implemented') : ncGbp('Google Business Profile not connected')),
+      reviewCount: hasCount
+        ? estimated<number>(manual!.reviewCount as number, enteredNote, 'You (manual)', manual?.updatedAt)
+        : (conn.gbp ? ncGbp('GBP connected but review sync not yet implemented') : ncGbp('Google Business Profile not connected')),
       searchImpressions: conn.seo ? ncSeo('Search Console connected but sync not yet implemented') : ncSeo('Search Console not connected'),
       gbpViews: conn.gbp ? ncGbp('GBP connected but views sync not yet implemented') : ncGbp('Google Business Profile not connected'),
     },
