@@ -53,6 +53,7 @@ import { InstallBanner } from '@/components/InstallBanner';
 import { UpdateBanner } from '@/components/UpdateBanner';
 import { MoreSheet } from '@/components/MoreSheet';
 import { NavHome, NavLeads, NavJobs, NavCustomers, NavInventory, NavLog, NavMore } from '@/components/NavIcons';
+import { VoiceCommand } from '@/components/VoiceCommand';
 import { IncomingCallNotification } from '@/components/IncomingCallNotification';
 import { EmailVerificationBanner } from '@/components/EmailVerificationBanner';
 import { TrialCountdownBanner } from '@/components/TrialCountdownBanner';
@@ -1790,6 +1791,18 @@ function AuthenticatedApp({ user }: { user: User }) {
             <span className="nav-ico" aria-hidden="true"><NavMore /></span><span>More</span>
           </button>
         </nav>
+      )}
+      {/* Free, deterministic voice commands (renders nothing on browsers
+          without speech recognition, e.g. iPhones). Hidden on the Add
+          form where the save-footer occupies the bottom. */}
+      {tab !== 'add' && (
+        <VoiceCommand
+          onNavigate={setTab}
+          onNewJob={startNewJob}
+          jobs={jobs}
+          settings={settings}
+          canViewFinancials={canViewFinancials}
+        />
       )}
       {moreOpen && (
         <MoreSheet
