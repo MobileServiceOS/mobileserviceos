@@ -47,12 +47,18 @@ export interface UseCustomerPatch {
   vehicleSize?: string;
   tireBrand?: string;
   qty?: string | number;
+  // Operator note assembled from the customer's access info (gate code,
+  // wheel-lock key, parking) + general note — so it travels with the job.
+  note?: string;
 }
 
 interface Props {
   businessId: string;
   rawPhone: string;
-  onApplyPatch: (patch: UseCustomerPatch) => void;
+  /** opts.fillEmptyOnly = auto-fill mode: only populate blank fields, so
+   *  it never clobbers what the operator already typed. Manual buttons
+   *  omit it (overwrite). */
+  onApplyPatch: (patch: UseCustomerPatch, opts?: { fillEmptyOnly?: boolean }) => void;
   onContinueAsNew?: () => void;
 }
 
@@ -101,6 +107,20 @@ function _deriveUseCustomerPatch(customer: Customer, vehicle: Vehicle | null): U
     else if (vehicle.make && vehicle.model) patch.vehicleMakeModel = `${vehicle.make} ${vehicle.model}`;
     if (vehicle.tireSize)         patch.tireSize         = vehicle.tireSize;
   }
+  // Assemble a job note from the access info the tech needs on-site.
+  const c = customer as Customer & {
+    gateCode?: string; apartmentNumber?: string; wheelLockKeyLocation?: string;
+    parkingInstructions?: string; generalNotes?: string;
+  };
+  const noteBits = [
+    c.note,
+    c.gateCode && `Gate: ${c.gateCode}`,
+    c.apartmentNumber && `Apt: ${c.apartmentNumber}`,
+    c.wheelLockKeyLocation && `Wheel-lock key: ${c.wheelLockKeyLocation}`,
+    c.parkingInstructions && `Parking: ${c.parkingInstructions}`,
+    c.generalNotes,
+  ].filter(Boolean) as string[];
+  if (noteBits.length) patch.note = noteBits.join(' · ');
   return patch;
 }
 
@@ -176,6 +196,25 @@ function CustomerLookupCardImpl({ businessId, rawPhone, onApplyPatch, onContinue
     () => _deriveCardState({ rawPhone, lookupInFlight, lookupResult, error }),
     [rawPhone, lookupInFlight, lookupResult, error],
   );
+
+  // ─── Auto-fill on match (Priority 1: fewer taps) ────────────────
+  // The moment the phone resolves to a customer, fill the job from them —
+  // name, vehicle, tire size, city, notes, and most-recent service (via
+  // the repeat-last-job patch). fillEmptyOnly means it never overwrites
+  // anything the operator already typed. Fires once per matched customer.
+  const autoFilledIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (lookupInFlight) return;
+    if (!lookupResult) { autoFilledIdRef.current = null; return; }
+    const c = lookupResult.customer;
+    if (autoFilledIdRef.current === c.id) return;
+    autoFilledIdRef.current = c.id;
+    const vehicle = lookupResult.vehicles[0] ?? null;
+    const patch = lookupResult.lastJob
+      ? _deriveRepeatLastServicePatch(c, vehicle, lookupResult.lastJob)
+      : _deriveUseCustomerPatch(c, vehicle);
+    onApplyPatch(patch, { fillEmptyOnly: true });
+  }, [lookupResult, lookupInFlight, onApplyPatch]);
 
   if (state.kind === 'idle') return null;
 

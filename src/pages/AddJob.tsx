@@ -270,27 +270,24 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
   // ─── SP2: Customer lookup patch handler ──────────────────────
   // CustomerLookupCard's Use Customer / Repeat Last Service buttons
   // dispatch a UseCustomerPatch — apply it to the job draft.
-  const applyCustomerPatch = useCallback((patch: UseCustomerPatch) => {
-    setJob((prev) => ({
-      ...prev,
-      ...(patch.customerId !== undefined       ? { customerId: patch.customerId }             : {}),
-      ...(patch.vehicleId  !== undefined       ? { vehicleId:  patch.vehicleId }              : {}),
-      ...(patch.customerName !== undefined     ? { customerName: patch.customerName }         : {}),
-      ...(patch.customerPhone !== undefined    ? { customerPhone: patch.customerPhone }       : {}),
-      ...(patch.customerEmail !== undefined    ? { customerEmail: patch.customerEmail }       : {}),
-      ...(patch.city           !== undefined   ? { city: patch.city }                         : {}),
-      ...(patch.state          !== undefined   ? { state: patch.state }                       : {}),
-      ...(patch.addressLine    !== undefined   ? { addressLine: patch.addressLine }           : {}),
-      ...(patch.zipCode        !== undefined   ? { zipCode: patch.zipCode }                   : {}),
-      ...(patch.vehicleType    !== undefined   ? { vehicleType: patch.vehicleType }           : {}),
-      ...(patch.vehicleMakeModel !== undefined ? { vehicleMakeModel: patch.vehicleMakeModel } : {}),
-      ...(patch.tireSize       !== undefined   ? { tireSize: patch.tireSize }                 : {}),
-      ...(patch.service        !== undefined   ? { service: patch.service }                   : {}),
-      ...(patch.vehicleSize    !== undefined   ? { vehicleSize: patch.vehicleSize }           : {}),
-      ...(patch.tireBrand      !== undefined   ? { tireBrand: patch.tireBrand }               : {}),
-      ...(patch.qty            !== undefined   ? { qty: patch.qty as Job['qty'] }             : {}),
-    } as Job));
-    addToast('Customer info applied', 'success');
+  // Apply a returning-customer patch. fillEmptyOnly (auto-fill on phone
+  // match) populates only blank fields, so it never clobbers what the
+  // operator already typed; the manual buttons overwrite. Patch keys map
+  // 1:1 onto job fields.
+  const applyCustomerPatch = useCallback((patch: UseCustomerPatch, opts?: { fillEmptyOnly?: boolean }) => {
+    const fillOnly = !!opts?.fillEmptyOnly;
+    setJob((prev) => {
+      const next = { ...prev } as Record<string, unknown>;
+      const isEmpty = (v: unknown) => v === undefined || v === null || v === '';
+      (Object.keys(patch) as (keyof UseCustomerPatch)[]).forEach((k) => {
+        const val = patch[k];
+        if (val === undefined) return;
+        if (fillOnly && !isEmpty(next[k as string])) return;
+        next[k as string] = val;
+      });
+      return next as unknown as Job;
+    });
+    addToast(fillOnly ? `${patch.customerName ?? 'Customer'} — details filled` : 'Customer info applied', 'success');
   }, [setJob]);
 
   // ─── SP2: Address-value adapter ──────────────────────────────
