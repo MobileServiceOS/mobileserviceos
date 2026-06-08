@@ -1,0 +1,95 @@
+# Mobile Service OS — Deploy Cloud Functions
+# Repository: MobileServiceOS/mobileserviceos
+#
+# Why this exists:
+#   Cloud Functions (functions/) are NOT shipped by the app or rules
+#   deploys. This keeps them in sync on push so server changes (e.g. the
+#   Google OAuth connect flow) ship without a manual `firebase deploy`.
+#
+# ── ONE-TIME SETUP ──────────────────────────────────────────────────────
+#   Uses the same service-account secret as the rules workflow
+#   (FIREBASE_SERVICE_ACCOUNT, or the MSOS alias on this repo). That
+#   service account needs these IAM roles for a Functions (gen-2) deploy:
+#     • Cloud Functions Admin        (roles/cloudfunctions.admin)
+#     • Cloud Run Admin              (roles/run.admin)            [gen-2]
+#     • Service Account User         (roles/iam.serviceAccountUser)
+#     • Cloud Build Editor           (roles/cloudbuild.builds.editor)
+#     • Artifact Registry Writer     (roles/artifactregistry.writer)
+#     • Secret Manager Secret Accessor (roles/secretmanager.secretAccessor)
+#       — only needed for functions that reference secrets (e.g. the
+#         GOOGLE_OAUTH_* ones); those secrets must EXIST in Secret Manager
+#         (set via `firebase functions:secrets:set` or the GCP console)
+#         BEFORE this deploys, or the referencing functions fail to deploy.
+#   Grant them in Google Cloud Console → IAM, on the same service account
+#   whose key is in the MSOS secret. Until the secret is present this
+#   workflow self-skips with a notice.
+#
+# Triggers: push to main touching functions/**, or manual dispatch.
+
+name: Deploy Cloud Functions
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'functions/**'
+      - '.github/workflows/functions.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-functions:
+    name: Build + deploy functions
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT || secrets.MSOS }}
+      FIREBASE_PROJECT_ID: mobile-service-os
+
+    steps:
+      - name: Skip notice (no credentials yet)
+        if: ${{ env.FIREBASE_SERVICE_ACCOUNT == '' }}
+        run: |
+          echo "::warning::No service-account secret (FIREBASE_SERVICE_ACCOUNT / MSOS) — skipping functions deploy."
+          echo "::warning::See the header of this workflow for the one-time IAM + secrets setup."
+
+      - name: Checkout
+        if: ${{ env.FIREBASE_SERVICE_ACCOUNT != '' }}
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        if: ${{ env.FIREBASE_SERVICE_ACCOUNT != '' }}
+        uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+
+      - name: Write service account key
+        if: ${{ env.FIREBASE_SERVICE_ACCOUNT != '' }}
+        run: |
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/sa.json" >> "$GITHUB_ENV"
+
+      - name: Install functions dependencies
+        if: ${{ env.FIREBASE_SERVICE_ACCOUNT != '' }}
+        working-directory: functions
+        run: npm ci --no-audit --no-fund
+
+      - name: Build functions
+        if: ${{ env.FIREBASE_SERVICE_ACCOUNT != '' }}
+        working-directory: functions
+        run: npm run build
+
+      - name: Deploy functions
+        if: ${{ env.FIREBASE_SERVICE_ACCOUNT != '' }}
+        run: |
+          npx --yes firebase-tools@latest deploy \
+            --only functions \
+            --project "$FIREBASE_PROJECT_ID" \
+            --non-interactive \
+            --force
+
+      - name: Cleanup credentials
+        if: ${{ always() && env.FIREBASE_SERVICE_ACCOUNT != '' }}
+        run: rm -f "$RUNNER_TEMP/sa.json"
