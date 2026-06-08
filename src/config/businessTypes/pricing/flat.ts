@@ -35,7 +35,7 @@ export interface FlatBreakdown {
  * "Suggested price" preview in AddJob / Dashboard's Quick Quote
  * produces byte-identical numbers.
  *
- *   directCost = tireCost * qty + materialCost + travel
+ *   directCost = tireCost + materialCost + travel   (tireCost is a TOTAL)
  *   targetProfit = service.minProfit + vehicle.addOnProfit
  *   suggested = ceil((dc + tp) / 5) * 5
  *              + surcharges (emergency 30 / lateNight 25 / highway 20 / weekend 15)
