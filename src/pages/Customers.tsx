@@ -576,10 +576,10 @@ function CustomerProfileView({
       {(phoneDigits || profile.email) && (
         <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
           {phoneDigits && (
-            <a className="btn sm secondary" href={`tel:${phoneDigits}`} style={{ flex: 1, minWidth: 90, textAlign: 'center' }}>📞 Call</a>
+            <a className="btn sm secondary" href={`tel:${phoneDigits}`} style={{ flex: 1, minWidth: 90, textAlign: 'center' }}>Call</a>
           )}
           {phoneDigits && (
-            <a className="btn sm secondary" href={`sms:${phoneDigits}`} style={{ flex: 1, minWidth: 90, textAlign: 'center' }}>💬 Text</a>
+            <a className="btn sm secondary" href={`sms:${phoneDigits}`} style={{ flex: 1, minWidth: 90, textAlign: 'center' }}>Text</a>
           )}
           {profile.email && (
             <a
@@ -587,7 +587,7 @@ function CustomerProfileView({
               href={`mailto:${profile.email}`}
               style={{ flex: 1, minWidth: 90, textAlign: 'center' }}
             >
-              ✉ Email
+              Email
             </a>
           )}
         </div>

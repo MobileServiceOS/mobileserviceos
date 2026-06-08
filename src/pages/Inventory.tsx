@@ -584,7 +584,7 @@ function TireInventoryView({ inventory, onSave, jobs }: InternalViewProps) {
             onClick={handleAiInsight}
             disabled={aiStatus === 'loading'}
           >
-            {aiStatus === 'loading' ? 'Thinking…' : '✨ AI inventory insight'}
+            {aiStatus === 'loading' ? 'Thinking…' : 'AI inventory insight'}
           </button>
           {aiStatus === 'done' && aiBullets.length > 0 && (
             <div className="ai-summary-card card-anim" style={{ marginTop: 8 }}>
@@ -664,7 +664,7 @@ function TireInventoryView({ inventory, onSave, jobs }: InternalViewProps) {
             fontSize: 10, fontWeight: 800, color: 'var(--t3)',
             textTransform: 'uppercase', letterSpacing: '1.5px', marginBottom: 6,
           }}>
-            🔥 Hot Sizes · tap to add
+            Hot Sizes · tap to add
           </div>
           <div style={{
             display: 'flex', gap: 6, overflowX: 'auto',
