@@ -25,6 +25,7 @@ import {
   type CSSProperties } from 'react';
 import {
   collection,
+  doc,
   limit,
   onSnapshot,
   orderBy,
@@ -39,6 +40,7 @@ import { renderTemplate } from '@/lib/reviewTemplate';
 import { DEFAULT_REVIEW_TEMPLATE } from '@/lib/defaults';
 import { usePermissions, useMembership } from '@/context/MembershipContext';
 import { useBrand } from '@/context/BrandContext';
+import { startGoogleConnect } from '@/lib/googleConnect';
 import type { Job, Settings } from '@/types';
 
 interface Props {
@@ -131,6 +133,32 @@ function ReviewAutomationSectionImpl({
     } as Partial<Settings>);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canEdit, ratingLocal, countLocal, onSaveSettings]);
+
+  // Google connection status (written by the googleOAuthCallback fn).
+  const [googleConn, setGoogleConn] = useState<{ status?: string; connectedAt?: { toDate?: () => Date }; lastSyncAt?: { toDate?: () => Date } | null } | null>(null);
+  const [connectInFlight, setConnectInFlight] = useState(false);
+  const [connectError, setConnectError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!_db || !businessId) return;
+    const unsub = onSnapshot(
+      doc(requireDb(), 'businesses', businessId, 'integrations', 'google'),
+      (snap) => setGoogleConn(snap.exists() ? (snap.data() as typeof googleConn) : null),
+      () => setGoogleConn(null),
+    );
+    return () => unsub();
+  }, [businessId]);
+  const onConnectGoogle = useCallback(async () => {
+    if (!canEdit || !businessId) return;
+    setConnectError(null);
+    setConnectInFlight(true);
+    try {
+      await startGoogleConnect(businessId); // redirects on success
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setConnectError(/failed-precondition/.test(msg) ? 'Google OAuth isn’t configured yet — see setup steps.' : msg);
+      setConnectInFlight(false);
+    }
+  }, [canEdit, businessId]);
 
   // Last-completed job → preview source. Optional; falls back to a
   // static sample customer if nothing's available.
@@ -352,6 +380,35 @@ function ReviewAutomationSectionImpl({
               Twilio is not connected. Test sends queue up; they'll deliver automatically once you configure a Twilio number in Missed Call Recovery.
             </p>
           )}
+        </div>
+      )}
+
+      {/* 7a. Connect Google (Search Console + Business Profile). */}
+      {isOwnerOrAdmin && (
+        <div className="field" style={{ marginBottom: 12, paddingTop: 10, borderTop: '1px solid var(--border, #2a2a2a)' }}>
+          <label style={labelStyle}>Connect Google Business Profile</label>
+          {googleConn?.status === 'connected' ? (
+            <>
+              <p style={{ ...helpStyle, color: 'var(--ok, #4ade80)' }}>
+                Connected{googleConn.connectedAt?.toDate ? ` on ${googleConn.connectedAt.toDate().toLocaleDateString()}` : ''}.
+                {googleConn.lastSyncAt?.toDate ? ` Last sync ${googleConn.lastSyncAt.toDate().toLocaleString()}.` : ' Review sync begins once Google approves Business Profile API access for this project.'}
+              </p>
+              <button type="button" className="btn sm secondary" disabled={connectInFlight || !canEdit} onClick={onConnectGoogle} style={{ marginTop: 4 }}>
+                {connectInFlight ? 'Redirecting…' : 'Reconnect'}
+              </button>
+            </>
+          ) : (
+            <>
+              <p style={helpStyle}>
+                Authorize Google to sync Search Console (live now) and Business Profile reviews
+                (once Google approves API access). You&rsquo;ll be redirected to Google to grant access.
+              </p>
+              <button type="button" className="btn sm primary" disabled={connectInFlight || !canEdit} onClick={onConnectGoogle} style={{ marginTop: 4 }}>
+                {connectInFlight ? 'Redirecting…' : 'Connect Google'}
+              </button>
+            </>
+          )}
+          {connectError && <p style={{ ...helpStyle, color: 'var(--danger, #f87171)', marginTop: 6 }}>{connectError}</p>}
         </div>
       )}
 

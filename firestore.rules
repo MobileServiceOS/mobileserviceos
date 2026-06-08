@@ -781,6 +781,21 @@ service cloud.firestore {
         allow write: if false;
       }
 
+      // ─── integrations — connection STATUS only (no secrets) ──────
+      // Written by the googleOAuthCallback function (admin SDK). Members
+      // may read connection status / lastSyncAt; clients never write.
+      match /integrations/{docId} {
+        allow read:  if isMemberOfBusiness(businessId);
+        allow write: if false;
+      }
+
+      // ─── integrations_private — OAuth refresh tokens ─────────────
+      // Holds Google refresh tokens. Admin SDK ONLY — never readable or
+      // writable from any client path, ever.
+      match /integrations_private/{docId} {
+        allow read, write: if false;
+      }
+
       // Technicians collection: legacy collection (Phase 1 stub);
       // restrict writes to owner/admin.
       match /technicians/{docId} {

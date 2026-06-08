@@ -112,6 +112,14 @@ export { sendManualOutboundSms } from './sendManualOutboundSms';
 // Spec: docs/superpowers/specs/2026-06-05-incoming-call-screenpop-design.md
 export { twilioIncomingCall }    from './twilioIncomingCall';
 
+// Google OAuth connect flow (Search Console + Business Profile). Ships
+// DORMANT — googleOAuthStart throws 'failed-precondition' until the
+// GOOGLE_OAUTH_CLIENT_ID / _SECRET / _STATE_SECRET secrets are set and
+// the OAuth client's redirect URI points at googleOAuthCallback. Search
+// Console flows once connected; Business Profile review data also needs
+// Google to approve the project for Business Profile API access.
+export { googleOAuthStart, googleOAuthCallback } from './googleOAuth';
+
 // Supplementary Firestore triggers — defensive consistency layer.
 // Safe to deploy alongside onSubscriptionWrite; idempotent via the
 // _counterIncremented marker on referral docs.
