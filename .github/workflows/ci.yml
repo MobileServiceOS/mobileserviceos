@@ -39,6 +39,14 @@ jobs:
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
 
+      # Several logic tests import from functions/src/** (drain queues,
+      # callables, triggers), whose imports resolve against functions'
+      # OWN node_modules. Without this the suite crashes in CI with
+      # MODULE_NOT_FOUND while passing locally (where functions deps are
+      # already installed) — the reason CI was silently red.
+      - name: Install functions dependencies
+        run: npm ci --prefix functions --no-audit --no-fund
+
       - name: Typecheck
         run: npm run typecheck
 
@@ -69,7 +77,8 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          # firebase-tools 15+ requires a JDK ≥ 21 for the emulator.
+          java-version: '21'
 
       # Cache the emulator JAR so we don't re-download it every run.
       - name: Cache Firebase emulators
