@@ -67,7 +67,7 @@ import { addToast, addActionToast } from '@/lib/toast';
 import { humanizeFirestoreError, logFirestoreError, isPermissionDenied } from '@/lib/firebaseErrors';
 import { applyBrandColors, planInventoryDeduction, r2, uid } from '@/lib/utils';
 import { getLastPaymentMethod, setLastPaymentMethod } from '@/lib/paymentMethodMemory';
-import { upsertCustomerFromJob } from '@/lib/customerEntity';
+import { upsertCustomerFromJob, reverseCustomerFromJob } from '@/lib/customerEntity';
 import { normalizePhone } from '@/lib/phone';
 import { refundJobDeductions, extractJobDeductions } from '@/lib/inventoryRefund';
 import { getBusinessTypeConfig } from '@/config/businessTypes/registry';
@@ -1176,13 +1176,21 @@ function AuthenticatedApp({ user }: { user: User }) {
       const autoSave = settings.autoSaveCustomersFromJobs ?? true;
       if (autoSave) {
         const upsertStart = performance.now();
+        // On an EDIT, hand the customer rollup the revenue change (new −
+        // old) so lifetimeRevenue tracks edits. The rollup is absorb-once
+        // (keyed by jobId), so without this delta a revenue edit never
+        // reached the customer's lifetime total. undefined ⇒ new job ⇒
+        // full revenue absorbed as before.
+        const upsertOpts = isEditing
+          ? { revenueDelta: Number(finalJob.revenue || 0) - Number(jobs.find((x) => x.id === editingJobId)?.revenue || 0) }
+          : undefined;
         try {
           const UPSERT_TIMEOUT_MS = 2500;
           const timeoutSentinel: { customerId: string; vehicleId: string; timedOut: true } = {
             customerId: '', vehicleId: '', timedOut: true,
           };
           const raceResult = await Promise.race([
-            upsertCustomerFromJob(businessId, finalJob)
+            upsertCustomerFromJob(businessId, finalJob, upsertOpts)
               .then((r) => ({ ...r, timedOut: false as const })),
             new Promise<typeof timeoutSentinel>((resolve) =>
               setTimeout(() => resolve(timeoutSentinel), UPSERT_TIMEOUT_MS),
@@ -1308,6 +1316,13 @@ function AuthenticatedApp({ user }: { user: User }) {
         await Promise.all(restoreWrites);
       }
       await fbDelete(jobsCol, id);
+      // Reverse the customer rollup so lifetimeRevenue / jobCount don't keep
+      // counting a job that no longer exists. Best-effort + idempotent
+      // (no-op if the job was never absorbed); never blocks the delete.
+      if (j) {
+        try { await reverseCustomerFromJob(businessId, j); }
+        catch (re) { console.warn('[deleteJob] customer rollup reversal failed', re); }
+      }
       addToast('Job deleted', 'success');
     } catch (e) {
       setSyncStatus('sync_failed');
