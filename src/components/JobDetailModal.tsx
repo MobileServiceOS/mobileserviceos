@@ -2,7 +2,7 @@ import { useState, type CSSProperties, type ReactNode } from 'react';
 import type { Job, Settings, InventoryDeduction, PaymentMethod } from '@/types';
 import { useFocusTrap } from '@/lib/useFocusTrap';
 import { PAYMENT_METHOD_LABELS } from '@/types';
-import { fmtDate, jobGrossProfit, money, paymentPillClass, resolvePaymentStatus } from '@/lib/utils';
+import { fmtDate, jobGrossProfit, money, paymentPillClass, resolvePaymentStatus, travelCost } from '@/lib/utils';
 import { getLastPaymentMethod } from '@/lib/paymentMethodMemory';
 import { ServiceIcon } from '@/components/ServiceIcon';
 import { useActiveVertical } from '@/lib/useActiveVertical';
@@ -236,7 +236,11 @@ export function JobDetailModal({
               <Row label="Material Cost" value={'-' + money(job.materialCost || job.miscCost)} className="red" />
             )}
             {canViewProfit && (
-              <Row label={`Travel (${job.miles || 0} mi)`} value={'-' + money(Number(job.miles || 0) * Number(settings.costPerMile || 0))} className="red" />
+              <Row
+                label={`Travel (${job.miles || 0} mi${Number(settings.freeMilesIncluded || 0) > 0 ? `, ${settings.freeMilesIncluded} free` : ''})`}
+                value={'-' + money(travelCost(job, settings))}
+                className="red"
+              />
             )}
             {canViewProfit && (
               <Row label="Profit" value={money(profit)} className={profit >= 0 ? 'green' : 'red'} bold />

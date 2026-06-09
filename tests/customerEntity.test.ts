@@ -10,6 +10,7 @@
 //  the shim recognises on set/update.
 // ═══════════════════════════════════════════════════════════════════
 import { __testHooks } from '@/lib/customerEntity';
+const { runReverseWithShim } = __testHooks;
 
 let passed = 0;
 let failed = 0;
@@ -144,6 +145,62 @@ console.log('\n┌─ SP2: empty companyName does NOT clobber ──────
   const c = store.get('businesses/biz-1/customers/p_13058977030') as Record<string, unknown>;
   check('companyName preserved on second job with blank companyName', c?.companyName === 'Uber Fleet LLC');
   check('companyLower preserved', c?.companyLower === 'uber fleet llc');
+}
+
+console.log('\n┌─ EDIT applies revenueDelta to lifetimeRevenue ──');
+{
+  const store = new Map<string, Record<string, unknown>>();
+  runUpsertWithShim(store, 'biz-1', makeJob({ id: 'job-1', revenue: 400 }));
+  // Re-save the SAME job with revenue 550 and delta +150 (550 − 400).
+  runUpsertWithShim(store, 'biz-1', makeJob({ id: 'job-1', revenue: 550 }), { revenueDelta: 150 });
+  const c = store.get('businesses/biz-1/customers/p_13058977030') as Record<string, unknown>;
+  check('jobCount stays 1 on edit', c?.jobCount === 1);
+  check('lifetimeRevenue tracks edit → 550', c?.lifetimeRevenue === 550, String(c?.lifetimeRevenue));
+  check('averageTicket recomputed → 550', c?.averageTicket === 550);
+  // A downward edit applies a negative delta.
+  runUpsertWithShim(store, 'biz-1', makeJob({ id: 'job-1', revenue: 500 }), { revenueDelta: -50 });
+  const c2 = store.get('businesses/biz-1/customers/p_13058977030') as Record<string, unknown>;
+  check('downward edit → 500', c2?.lifetimeRevenue === 500, String(c2?.lifetimeRevenue));
+}
+
+console.log('\n┌─ first absorb ignores revenueDelta ─────────────');
+{
+  // A brand-new job must add its FULL revenue, not the delta — delta only
+  // applies when re-absorbing an already-counted job.
+  const store = new Map<string, Record<string, unknown>>();
+  runUpsertWithShim(store, 'biz-1', makeJob({ id: 'job-9', revenue: 300 }), { revenueDelta: 999 });
+  const c = store.get('businesses/biz-1/customers/p_13058977030') as Record<string, unknown>;
+  check('new job absorbs full 300 (delta ignored)', c?.lifetimeRevenue === 300, String(c?.lifetimeRevenue));
+}
+
+console.log('\n┌─ DELETE reverses the rollup ────────────────────');
+{
+  const store = new Map<string, Record<string, unknown>>();
+  runUpsertWithShim(store, 'biz-1', makeJob({ id: 'job-1', date: '2026-05-10', revenue: 200 }));
+  runUpsertWithShim(store, 'biz-1', makeJob({ id: 'job-2', date: '2026-05-30', revenue: 300 }));
+  // Now delete job-2 (revenue 300).
+  runReverseWithShim(store, 'biz-1', makeJob({ id: 'job-2', revenue: 300 }));
+  const c = store.get('businesses/biz-1/customers/p_13058977030') as Record<string, unknown>;
+  check('jobCount decremented to 1', c?.jobCount === 1, String(c?.jobCount));
+  check('lifetimeRevenue reduced to 200', c?.lifetimeRevenue === 200, String(c?.lifetimeRevenue));
+  check('averageTicket recomputed → 200', c?.averageTicket === 200);
+  check('processedJobIds drops job-2', !(c?.processedJobIds as string[]).includes('job-2'));
+  check('processedJobIds keeps job-1', (c?.processedJobIds as string[]).includes('job-1'));
+  // Idempotent: a second reversal of the same job is a no-op.
+  runReverseWithShim(store, 'biz-1', makeJob({ id: 'job-2', revenue: 300 }));
+  const c2 = store.get('businesses/biz-1/customers/p_13058977030') as Record<string, unknown>;
+  check('second reversal is a no-op (count stays 1)', c2?.jobCount === 1);
+  check('second reversal is a no-op (revenue stays 200)', c2?.lifetimeRevenue === 200);
+}
+
+console.log('\n┌─ reversing an unknown job is a no-op ───────────');
+{
+  const store = new Map<string, Record<string, unknown>>();
+  runUpsertWithShim(store, 'biz-1', makeJob({ id: 'job-1', revenue: 400 }));
+  runReverseWithShim(store, 'biz-1', makeJob({ id: 'never-counted', revenue: 999 }));
+  const c = store.get('businesses/biz-1/customers/p_13058977030') as Record<string, unknown>;
+  check('lifetimeRevenue untouched (400)', c?.lifetimeRevenue === 400);
+  check('jobCount untouched (1)', c?.jobCount === 1);
 }
 
 console.log('\n══════════════════════════════════════════════════');

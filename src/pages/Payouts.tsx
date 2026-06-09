@@ -86,12 +86,23 @@ export function Payouts({ jobs, settings }: Props) {
     return Object.entries(months)
       .sort((a, b) => b[0].localeCompare(a[0]))
       .slice(0, 6)
-      .map(([m, d]) => ({
-        month: m,
-        ...d,
-        net: d.profit - fixed,
-      }));
-  }, [completedJobs, settings, fixed]);
+      .map(([m, d]) => {
+        // Net = jobs gross MINUS every expense dated in the month
+        // (one-time, job-linked, prorated recurring) — the same canonical
+        // businessNetProfit the week hero + Dashboard use. The old
+        // `profit - fixed` only subtracted recurring, so a month's
+        // one-time costs (e.g. a tool purchase) silently inflated net.
+        const [yy, mm] = m.split('-').map(Number);
+        const lastDay = new Date(yy, mm, 0).getDate();
+        const net = businessNetProfit({
+          jobsProfitSum: d.profit,
+          expenses: settings.expenses || [],
+          startISO: `${m}-01`,
+          endISO: `${m}-${String(lastDay).padStart(2, '0')}`,
+        });
+        return { month: m, ...d, net };
+      });
+  }, [completedJobs, settings]);
 
   return (
     <div className="page page-enter">

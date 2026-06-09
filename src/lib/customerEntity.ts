@@ -222,6 +222,7 @@ function _buildCustomerPatch(
   },
   nowIso: string,
   actorUid: string,
+  opts?: { revenueDelta?: number },
 ): { patch: Record<string, unknown>; skipRollup: boolean } {
   const phone = normalizePhone(String(job.customerPhone ?? ''));
   const processed = (existing?.processedJobIds as string[] | undefined) ?? [];
@@ -229,7 +230,13 @@ function _buildCustomerPatch(
 
   const rev = Number(job.revenue ?? 0) || 0;
   const newJobCount = skipRollup ? Number(existing?.jobCount ?? 0) : Number(existing?.jobCount ?? 0) + 1;
-  const newRevenue = skipRollup ? Number(existing?.lifetimeRevenue ?? 0) : Number(existing?.lifetimeRevenue ?? 0) + rev;
+  // Re-absorbing an already-counted job (an EDIT): keep the count, but
+  // apply the caller's revenueDelta (new − old revenue) so lifetimeRevenue
+  // tracks edits instead of being frozen at the first-save value. First
+  // absorb of a job adds its full revenue. Floored at 0 defensively.
+  const newRevenue = skipRollup
+    ? Math.max(0, Number(existing?.lifetimeRevenue ?? 0) + Number(opts?.revenueDelta ?? 0))
+    : Number(existing?.lifetimeRevenue ?? 0) + rev;
   const newLastJobAt = skipRollup
     ? (existing?.lastJobAt as string | undefined)
     : (() => {
@@ -348,6 +355,57 @@ function _buildVehiclePatch(
 }
 
 /** Transactionally upsert the Customer + Vehicle from a saved Job. */
+/** Reverse a customer's rollup when a job is DELETED. Pure: returns the
+ *  decrement patch, or null when the job was never absorbed (nothing to
+ *  undo). jobCount −1, lifetimeRevenue − the job's revenue, and the jobId
+ *  pulled from processedJobIds so a later re-create re-absorbs cleanly.
+ *  lastJobAt / lastJobId are intentionally left as-is — recomputing them
+ *  would require reading every other job; a slightly stale "last seen" is
+ *  far cheaper than count/revenue drift. */
+function _buildCustomerReversalPatch(
+  existing: Record<string, unknown> | undefined,
+  job: { id: string; revenue?: number | string },
+  nowIso: string,
+  actorUid: string,
+): Record<string, unknown> | null {
+  const processed = (existing?.processedJobIds as string[] | undefined) ?? [];
+  if (!processed.includes(job.id)) return null; // never counted → no-op
+  const rev = Number(job.revenue ?? 0) || 0;
+  const newJobCount = Math.max(0, Number(existing?.jobCount ?? 0) - 1);
+  const newRevenue = Math.max(0, Number(existing?.lifetimeRevenue ?? 0) - rev);
+  const newAvg = newJobCount > 0 ? newRevenue / newJobCount : 0;
+  return {
+    jobCount: newJobCount,
+    lifetimeRevenue: newRevenue,
+    averageTicket: newAvg,
+    vipTier: deriveVipTier(newRevenue),
+    processedJobIds: processed.filter((id) => id !== job.id),
+    updatedAt: nowIso,
+    lastEditedByUid: actorUid,
+    lastEditedAt: nowIso,
+  };
+}
+
+/** Reverse the customer rollup for a deleted job. Transactional + safe to
+ *  call when no customer doc exists (no-op). Idempotent: a second call
+ *  finds the jobId already gone from processedJobIds and does nothing. */
+export async function reverseCustomerFromJob(
+  businessId: string,
+  job: { id: string; customerPhone?: string; customerName?: string; revenue?: number | string; createdByUid?: string },
+): Promise<void> {
+  const customerId = customerIdForJob(job);
+  if (!customerId) return;
+  const nowIso = new Date().toISOString();
+  const actorUid = job.createdByUid ?? '';
+  const customerRef = doc(requireDb(), `businesses/${businessId}/customers/${customerId}`);
+  await runTransaction(requireDb(), async (tx) => {
+    const snap = await tx.get(customerRef);
+    if (!snap.exists()) return;
+    const patch = _buildCustomerReversalPatch(snap.data() as Record<string, unknown>, job, nowIso, actorUid);
+    if (patch) tx.set(customerRef, patch, { merge: true });
+  });
+}
+
 export async function upsertCustomerFromJob(
   businessId: string,
   job: {
@@ -375,6 +433,7 @@ export async function upsertCustomerFromJob(
     tireCondition?: string;
     createdByUid?: string;
   },
+  opts?: { revenueDelta?: number },
 ): Promise<UpsertResult> {
   const customerId = customerIdForJob(job);
   if (!customerId) {
@@ -392,7 +451,7 @@ export async function upsertCustomerFromJob(
     const cExisting = cSnap.exists() ? (cSnap.data() as Record<string, unknown>) : undefined;
     const vExisting = vSnap.exists() ? (vSnap.data() as Record<string, unknown>) : undefined;
 
-    const { patch: cPatch } = _buildCustomerPatch(cExisting, job, nowIso, actorUid);
+    const { patch: cPatch } = _buildCustomerPatch(cExisting, job, nowIso, actorUid, opts);
     const { patch: vPatch } = _buildVehiclePatch(businessId, vExisting, job, nowIso);
 
     tx.set(customerRef, cPatch, { merge: true });
@@ -412,6 +471,7 @@ export const __testHooks = {
     store: Map<string, Record<string, unknown>>,
     businessId: string,
     job: Parameters<typeof upsertCustomerFromJob>[1],
+    opts?: { revenueDelta?: number },
   ): UpsertResult {
     const customerId = customerIdForJob(job);
     if (!customerId) throw new Error('runUpsertWithShim: cannot derive customerId');
@@ -422,10 +482,26 @@ export const __testHooks = {
     const vPath = `businesses/${businessId}/customers/${customerId}/vehicles/${vehicleId}`;
     const cExisting = store.get(cPath);
     const vExisting = store.get(vPath);
-    const { patch: cPatch } = _buildCustomerPatch(cExisting, job, nowIso, actorUid);
+    const { patch: cPatch } = _buildCustomerPatch(cExisting, job, nowIso, actorUid, opts);
     const { patch: vPatch } = _buildVehiclePatch(businessId, vExisting, job, nowIso);
     store.set(cPath, { ...(cExisting ?? {}), ...cPatch });
     store.set(vPath, { ...(vExisting ?? {}), ...vPatch });
     return { customerId, vehicleId };
+  },
+  /** Pure-shim version of reverseCustomerFromJob for the in-memory store. */
+  runReverseWithShim(
+    store: Map<string, Record<string, unknown>>,
+    businessId: string,
+    job: { id: string; customerPhone?: string; customerName?: string; revenue?: number | string; createdByUid?: string },
+  ): void {
+    const customerId = customerIdForJob(job);
+    if (!customerId) return;
+    const nowIso = new Date().toISOString();
+    const actorUid = job.createdByUid ?? '';
+    const cPath = `businesses/${businessId}/customers/${customerId}`;
+    const cExisting = store.get(cPath);
+    if (!cExisting) return;
+    const patch = _buildCustomerReversalPatch(cExisting, job, nowIso, actorUid);
+    if (patch) store.set(cPath, { ...cExisting, ...patch });
   },
 };

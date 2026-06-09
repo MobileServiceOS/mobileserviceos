@@ -342,21 +342,25 @@ export function MembershipProvider({ settings, children }: ProviderProps) {
 
     // Diagnostic log on every recompute — surfaces the full state for
     // DevTools-based debugging of "why does my owner not see X" cases.
-    // eslint-disable-next-line no-console
-    console.log('[permissions]', {
-      uid: _auth?.currentUser?.uid ?? null,
-      businessId: businessId ?? null,
-      businessOwnerUid: bizOwner.ownerUid ?? null,
-      membershipRole: effectiveMember?.role ?? null,
-      rawMemberRole: member?.role ?? null,
-      ownerByIdentity: effectiveMember?.role === 'owner' && member?.role !== 'owner',
-      isOwner: effectiveMember?.role === 'owner',
-      plan: settings.plan ?? 'undefined',
-      planEffective: permsInput.plan,
-      billingExempt: exempt,
-      canViewFinancials: p.canViewFinancials,
-      loading,
-    });
+    // Gated to dev: this memo recomputes on every permission-dependent
+    // render, so an unconditional log spammed the on-device console.
+    if (import.meta.env?.DEV) {
+      // eslint-disable-next-line no-console
+      console.log('[permissions]', {
+        uid: _auth?.currentUser?.uid ?? null,
+        businessId: businessId ?? null,
+        businessOwnerUid: bizOwner.ownerUid ?? null,
+        membershipRole: effectiveMember?.role ?? null,
+        rawMemberRole: member?.role ?? null,
+        ownerByIdentity: effectiveMember?.role === 'owner' && member?.role !== 'owner',
+        isOwner: effectiveMember?.role === 'owner',
+        plan: settings.plan ?? 'undefined',
+        planEffective: permsInput.plan,
+        billingExempt: exempt,
+        canViewFinancials: p.canViewFinancials,
+        loading,
+      });
+    }
 
     return p;
     // eslint-disable-next-line react-hooks/exhaustive-deps
