@@ -71,7 +71,7 @@ import { computeJobTireCost } from '@/lib/jobTireCost';
 import { planJobInventory } from '@/lib/planJobInventory';
 import { upsertCustomerFromJob, reverseCustomerFromJob } from '@/lib/customerEntity';
 import { normalizePhone } from '@/lib/phone';
-import { refundJobDeductions, extractJobDeductions, planJobCancelRefund } from '@/lib/inventoryRefund';
+import { planJobCancelRefund } from '@/lib/inventoryRefund';
 import { getBusinessTypeConfig } from '@/config/businessTypes/registry';
 import {
   diffPartsForDeduction,
@@ -1263,26 +1263,15 @@ function AuthenticatedApp({ user }: { user: User }) {
     const invCol = scopedCol(businessId, 'inventory');
     try {
       const j = jobs.find((x) => x.id === id);
-      const { tireDeds, partsDeds } = extractJobDeductions(j);
-      if (tireDeds || partsDeds) {
-        // Same pure helper the cancel branch uses (see saveJob).
-        // Math is covered by tests/inventoryRefund.test.ts — 29 cases.
-        const refund = refundJobDeductions(
-          inventoryRef.current || [],
-          tireDeds,
-          partsDeds,
-        );
-        const touchedIds = new Set<string>([
-          ...(tireDeds ?? []).map((d) => d.id),
-          ...(partsDeds ?? []).map((d) => d.id),
-        ]);
-        const restoreWrites: Promise<void>[] = [];
-        for (const item of refund.inventory) {
-          if (touchedIds.has(item.id)) {
-            restoreWrites.push(fbSetFast(invCol, item.id, item));
-          }
-        }
-        setInventoryRaw(refund.inventory);
+      // Restock the deleted job's deductions via the SAME tested plan the
+      // cancel branch uses (planJobCancelRefund), instead of duplicating
+      // the extract→refund→touched dance. touchedIds is diff-based, so only
+      // genuinely-changed items are written.
+      const refundPlan = planJobCancelRefund(j, inventoryRef.current || []);
+      if (refundPlan.touchedIds.length > 0) {
+        const byId = new Map(refundPlan.nextInventory.map((i) => [i.id, i]));
+        const restoreWrites = refundPlan.touchedIds.map((rid) => fbSetFast(invCol, rid, byId.get(rid)!));
+        setInventoryRaw(refundPlan.nextInventory);
         await Promise.all(restoreWrites);
       }
       await fbDelete(jobsCol, id);
