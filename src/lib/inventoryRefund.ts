@@ -117,3 +117,33 @@ export function extractJobDeductions(
     partsDeds: Array.isArray(p) ? (p as DeductionEntry[]) : null,
   };
 }
+
+export interface CancelRefundPlan {
+  /** Inventory after the cancelled job's deductions are restored. */
+  nextInventory: InventoryItem[];
+  /** Item ids whose qty actually changed — the ones saveJob persists. */
+  touchedIds: string[];
+  /** Total units restored (drives the "restored N items" toast). */
+  totalRestored: number;
+}
+
+/**
+ * Plan the inventory restore for a job being CANCELLED. Composes the two
+ * tested helpers (extractJobDeductions + refundJobDeductions) and resolves
+ * which items must be written — by diffing the restored inventory against
+ * the input, the same way planJobInventory does, so saveJob keeps only the
+ * Firestore writes + toast. Pure; safe when the job had no deductions
+ * (returns the inventory unchanged with no touched items).
+ */
+export function planJobCancelRefund(
+  prevJob: Job | null | undefined,
+  inventory: ReadonlyArray<InventoryItem>,
+): CancelRefundPlan {
+  const { tireDeds, partsDeds } = extractJobDeductions(prevJob);
+  const refund = refundJobDeductions(inventory, tireDeds, partsDeds);
+  const origQty = new Map(inventory.map((i) => [i.id, Number(i.qty || 0)]));
+  const touchedIds = refund.inventory
+    .filter((i) => Number(i.qty || 0) !== origQty.get(i.id))
+    .map((i) => i.id);
+  return { nextInventory: refund.inventory, touchedIds, totalRestored: refund.totalRestored };
+}
