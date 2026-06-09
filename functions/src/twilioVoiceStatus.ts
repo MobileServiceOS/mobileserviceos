@@ -31,6 +31,7 @@
 // ═══════════════════════════════════════════════════════════════════
 
 import { onRequest } from 'firebase-functions/v2/https';
+import { TWILIO_ENABLED } from './lib/twilioEnabled';
 import * as admin from 'firebase-admin';
 import { Timestamp } from 'firebase-admin/firestore';
 import { renderTemplate } from './lib/reviewTemplate';
@@ -206,6 +207,9 @@ export const twilioVoiceStatus = onRequest(
     secrets: ['TWILIO_AUTH_TOKEN'],
   },
   async (req, res) => {
+    // Twilio disconnected in-app — acknowledge without creating a Lead or
+    // enqueuing a missed-call auto-text.
+    if (!TWILIO_ENABLED) { res.status(200).send('ok'); return; }
     if (req.method !== 'POST') {
       res.status(405).send('method not allowed');
       return;

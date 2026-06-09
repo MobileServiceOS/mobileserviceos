@@ -19,6 +19,8 @@
 //  SP4B's "Messaging Service routing" deliverable.
 // ═══════════════════════════════════════════════════════════════════
 
+import { TWILIO_ENABLED } from './twilioEnabled';
+
 export class TwilioError extends Error {
   constructor(
     message: string,
@@ -51,6 +53,14 @@ export interface SendSmsResult {
  *     increments retryCount and leaves pending until cap exhausted.
  */
 export async function sendSms(args: SendSmsArgs): Promise<SendSmsResult> {
+  // Twilio disconnected in-app (TWILIO_ENABLED=false). Throw the same
+  // dormant sentinel the drainers already handle — every outbound text
+  // (review automation, missed-call auto-text, manual SMS) goes quietly
+  // dormant with no send, no retry/failure churn. Flip TWILIO_ENABLED to
+  // reconnect. See functions/src/lib/twilioEnabled.ts.
+  if (!TWILIO_ENABLED) {
+    throw new Error('TWILIO_NOT_CONFIGURED');
+  }
   const sid   = process.env.TWILIO_ACCOUNT_SID;
   const token = process.env.TWILIO_AUTH_TOKEN;
   const from  = process.env.TWILIO_PHONE_NUMBER;

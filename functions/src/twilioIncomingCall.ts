@@ -53,6 +53,7 @@
 // ═══════════════════════════════════════════════════════════════════
 
 import { onRequest } from 'firebase-functions/v2/https';
+import { TWILIO_ENABLED } from './lib/twilioEnabled';
 import * as admin from 'firebase-admin';
 import { Timestamp } from 'firebase-admin/firestore';
 import { assertValidTwilioSignature } from './lib/twilioSignatureValidator';
@@ -165,6 +166,9 @@ export const twilioIncomingCall = onRequest(
     const sendHangup = (status: number): void => {
       res.status(status).type('text/xml').send(TWIML_HANGUP);
     };
+
+    // Twilio disconnected in-app — hang up without handling the call.
+    if (!TWILIO_ENABLED) { sendHangup(200); return; }
 
     if (req.method !== 'POST') {
       res.status(405).send('method not allowed');
