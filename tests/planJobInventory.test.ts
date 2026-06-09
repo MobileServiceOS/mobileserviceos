@@ -70,6 +70,7 @@ console.log('\n── edit: restore prev deductions before re-planning ──');
   const p = planJobInventory({ tireSize: '225/45R17', qty: 4, inventory, prevDeductions, fallbackTireCost: 0 });
   check('net qty unchanged at 6', qtyOf(p.nextInventory, 'a') === 6, String(qtyOf(p.nextInventory, 'a')));
   check('tireCost = 4 × 80 = 320', p.tireCost === 320, String(p.tireCost));
+  check('net-zero change writes nothing', p.touchedIds.length === 0, JSON.stringify(p.touchedIds));
 }
 
 console.log('\n── edit: changing qty up restores then deducts more ──');
@@ -81,6 +82,24 @@ console.log('\n── edit: changing qty up restores then deducts more ──');
   const p = planJobInventory({ tireSize: '225/45R17', qty: 5, inventory, prevDeductions, fallbackTireCost: 0 });
   check('restored to 10 then deducted 5 → 5', qtyOf(p.nextInventory, 'a') === 5, String(qtyOf(p.nextInventory, 'a')));
   check('tireCost = 5 × 80 = 400', p.tireCost === 400, String(p.tireCost));
+  check('changed item is persisted', p.touchedIds.includes('a'));
+}
+
+console.log('\n── edit: tire SIZE change persists the restore (bug fix) ──');
+{
+  // Job moves from size A (4 taken) to size B. The restored A stock MUST
+  // be written back — previously the restore was local-only and lost on
+  // sync. Plus B's new deduction.
+  const inventory = [
+    inv({ id: 'a', size: '225/45R17', qty: 6, cost: 80 }),   // prev took 4 of A
+    inv({ id: 'b', size: '205/55R16', qty: 10, cost: 60 }),
+  ];
+  const prevDeductions = [{ id: 'a', size: '225/45R17', qty: 4, cost: 80 }];
+  const p = planJobInventory({ tireSize: '205/55R16', qty: 2, inventory, prevDeductions, fallbackTireCost: 0 });
+  check('A restored to 10', qtyOf(p.nextInventory, 'a') === 10, String(qtyOf(p.nextInventory, 'a')));
+  check('B deducted to 8', qtyOf(p.nextInventory, 'b') === 8, String(qtyOf(p.nextInventory, 'b')));
+  check('BOTH the A restore and the B deduction are persisted', p.touchedIds.includes('a') && p.touchedIds.includes('b'), JSON.stringify(p.touchedIds));
+  check('tireCost from B = 2 × 60 = 120', p.tireCost === 120, String(p.tireCost));
 }
 
 console.log(`\n── DONE: ${passed} passed, ${failed} failed ──`);
