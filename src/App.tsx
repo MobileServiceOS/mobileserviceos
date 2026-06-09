@@ -71,7 +71,7 @@ import { computeJobTireCost } from '@/lib/jobTireCost';
 import { planJobInventory } from '@/lib/planJobInventory';
 import { upsertCustomerFromJob, reverseCustomerFromJob } from '@/lib/customerEntity';
 import { normalizePhone } from '@/lib/phone';
-import { refundJobDeductions, extractJobDeductions } from '@/lib/inventoryRefund';
+import { refundJobDeductions, extractJobDeductions, planJobCancelRefund } from '@/lib/inventoryRefund';
 import { getBusinessTypeConfig } from '@/config/businessTypes/registry';
 import {
   diffPartsForDeduction,
@@ -932,47 +932,35 @@ function AuthenticatedApp({ user }: { user: User }) {
     try {
       if (isCanceling && isEditing) {
         const prev = jobs.find((x) => x.id === editingJobId);
-        const { tireDeds: prevTireDeds, partsDeds: prevMechDeds } = extractJobDeductions(prev);
-        if (prevTireDeds || prevMechDeds) {
-          // Compute the refunded inventory via the pure helper. Math
-          // identical to what tests/inventoryRefund.test.ts exercises
-          // (29 cases). Mutates a local copy; we then issue per-item
-          // Firestore writes for every TOUCHED item.
-          const refund = refundJobDeductions(workingInv, prevTireDeds, prevMechDeds);
-          workingInv = [...refund.inventory];
-          const totalRestored = refund.totalRestored;
-          const touchedIds = new Set<string>([
-            ...(prevTireDeds ?? []).map((d) => d.id),
-            ...(prevMechDeds ?? []).map((d) => d.id),
-          ]);
-          const restoreWrites: Promise<void>[] = [];
-          for (const item of workingInv) {
-            if (touchedIds.has(item.id)) {
-              restoreWrites.push(fbSetFast(invCol, item.id, item));
-            }
-          }
+        // Restore math is pure — see planJobCancelRefund (composes the
+        // refund helpers tested in inventoryRefund.test). saveJob keeps
+        // only the writes + toast.
+        const refundPlan = planJobCancelRefund(prev, workingInv);
+        if (refundPlan.touchedIds.length > 0) {
+          workingInv = refundPlan.nextInventory;
+          const byId = new Map(workingInv.map((i) => [i.id, i]));
+          const restoreWrites = refundPlan.touchedIds.map((id) => fbSetFast(invCol, id, byId.get(id)!));
           setInventoryRaw(workingInv);
           log('cancel-restore-issued');
-          // Promise.allSettled instead of Promise.all so a single
-          // failed inventory write doesn't throw out of the whole
-          // save path. If we threw, the job doc would never save
-          // with cleared deductions — a retry would then re-restore
-          // the inventory items that DID succeed, double-counting.
-          // Robust path: surface partial failures via the toast,
-          // always continue to save the job with deductions=null
-          // so the job's accounting is authoritative regardless of
-          // which inventory writes the network ate.
+          // Promise.allSettled instead of Promise.all so a single failed
+          // inventory write doesn't throw out of the whole save path. If
+          // we threw, the job doc would never save with cleared deductions
+          // — a retry would then re-restore the items that DID succeed,
+          // double-counting. We surface partial failures via the toast and
+          // always continue to save the job with deductions=null so the
+          // job's accounting is authoritative regardless of which writes
+          // the network ate.
           const results = await Promise.allSettled(restoreWrites);
           const failed = results.filter((r) => r.status === 'rejected').length;
           log('cancel-restore-acked');
           if (failed > 0) {
             addToast(
-              `Cancelled — ${totalRestored - failed} restored, ${failed} could not save (open inventory to retry)`,
+              `Cancelled — ${refundPlan.totalRestored - failed} restored, ${failed} could not save (open inventory to retry)`,
               'warn',
             );
-          } else if (totalRestored > 0) {
+          } else if (refundPlan.totalRestored > 0) {
             addToast(
-              `Cancelled — restored ${totalRestored} item${totalRestored !== 1 ? 's' : ''} to inventory`,
+              `Cancelled — restored ${refundPlan.totalRestored} item${refundPlan.totalRestored !== 1 ? 's' : ''} to inventory`,
               'success',
             );
           }

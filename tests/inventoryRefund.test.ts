@@ -9,6 +9,7 @@
 import {
   refundJobDeductions,
   extractJobDeductions,
+  planJobCancelRefund,
 } from '@/lib/inventoryRefund';
 import type { InventoryItem, Job } from '@/types';
 
@@ -185,6 +186,43 @@ console.log('\n┌─ Realistic cancel scenario ──────────�
   check('bin-a restored to 8', Number(r.inventory.find((x) => x.id === 'bin-a')!.qty) === 8);
   check('bin-b restored to 4', Number(r.inventory.find((x) => x.id === 'bin-b')!.qty) === 4);
   check('totalRestored = 6', r.totalRestored === 6);
+}
+
+console.log('\n┌─ planJobCancelRefund: restores a cancelled job + touched ids ──');
+{
+  const inventory = [inv({ id: 'a', qty: 6, cost: 80 }), inv({ id: 'b', qty: 2, cost: 60 })];
+  const prevJob = {
+    id: 'j1',
+    inventoryDeductions: [{ id: 'a', size: '225/45R17', qty: 4, cost: 80 }],
+    partsInventoryDeductions: [{ id: 'b', size: 'pad', qty: 2, cost: 60 }],
+  } as unknown as Job;
+  const p = planJobCancelRefund(prevJob, inventory);
+  check('a restored 6 → 10', Number(p.nextInventory.find((x) => x.id === 'a')!.qty) === 10);
+  check('b restored 2 → 4', Number(p.nextInventory.find((x) => x.id === 'b')!.qty) === 4);
+  check('both items touched', p.touchedIds.includes('a') && p.touchedIds.includes('b'));
+  check('totalRestored = 6', p.totalRestored === 6);
+  check('input inventory not mutated', Number(inventory[0].qty) === 6);
+}
+
+console.log('\n┌─ planJobCancelRefund: no prior deductions ⇒ no-op ──');
+{
+  const inventory = [inv({ id: 'a', qty: 10, cost: 80 })];
+  const p = planJobCancelRefund({ id: 'j2' } as unknown as Job, inventory);
+  check('inventory unchanged', Number(p.nextInventory.find((x) => x.id === 'a')!.qty) === 10);
+  check('nothing touched', p.touchedIds.length === 0);
+  check('totalRestored = 0', p.totalRestored === 0);
+}
+
+console.log('\n┌─ planJobCancelRefund: deduction for a deleted item is skipped ──');
+{
+  const inventory = [inv({ id: 'a', qty: 5, cost: 80 })];
+  const prevJob = {
+    id: 'j3',
+    inventoryDeductions: [{ id: 'gone', size: '225/45R17', qty: 4, cost: 80 }],
+  } as unknown as Job;
+  const p = planJobCancelRefund(prevJob, inventory);
+  check('surviving item untouched', Number(p.nextInventory.find((x) => x.id === 'a')!.qty) === 5);
+  check('no phantom touch for deleted item', p.touchedIds.length === 0);
 }
 
 console.log(`\n  ${passed} passed, ${failed} failed`);
