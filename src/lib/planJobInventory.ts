@@ -63,15 +63,26 @@ export function planJobInventory(args: {
   // 2. Plan against the restored snapshot.
   const plan = planInventoryDeduction(args.tireSize, Number(args.qty || 1), working);
 
-  // 3. Apply, recording touched + (defensively) skipped.
-  const touchedIds: string[] = [];
+  // 3. Apply, defensively recording any deduction whose item vanished.
   const skipped: InventoryDeduction[] = [];
   for (const d of plan.deductions) {
     const idx = working.findIndex((i) => i.id === d.id);
     if (idx < 0) { skipped.push(d); continue; }
     working[idx] = { ...working[idx], qty: Math.max(0, Number(working[idx].qty || 0) - Number(d.qty || 0)) };
-    touchedIds.push(working[idx].id);
   }
+
+  // Touched = every item whose qty actually changed vs the input snapshot.
+  // This is what saveJob must persist. Diffing (rather than collecting only
+  // the deducted ids) is what makes an EDIT correct: when the tire size
+  // changes, the old size's RESTORED stock has changed too and must be
+  // written back — previously the restore was applied locally but never
+  // persisted, so it was silently lost on the next sync. A same-size edit
+  // nets to zero change and writes nothing (the stored value is already
+  // right), so the fix also trims redundant writes.
+  const origQty = new Map(args.inventory.map((i) => [i.id, Number(i.qty || 0)]));
+  const touchedIds = working
+    .filter((i) => Number(i.qty || 0) !== origQty.get(i.id))
+    .map((i) => i.id);
 
   const planTotal = plan.deductions.reduce((s, d) => s + d.cost * d.qty, 0);
   const tireCost = computeJobTireCost({
