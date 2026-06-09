@@ -18,6 +18,7 @@ import {
   useEffect,
   useState,
   type CSSProperties } from 'react';
+import { TWILIO_ENABLED } from '@/lib/twilioEnabled';
 import {
   addDoc,
   collection,
@@ -57,7 +58,10 @@ function CommunicationsSettingsSectionImpl({
   // from the canonical signal instead. Mirrors the pattern landed in
   // MissedCallRecoverySection.tsx (commit a903201).
   const twilioPhoneNumber           = settings.twilioPhoneNumber?.trim() ?? '';
-  const twilioConnected             = !!twilioPhoneNumber;
+  // Twilio is disconnected in-app (TWILIO_ENABLED=false): report "Not
+  // connected" regardless of any saved number, since nothing routes
+  // through Twilio. Flip the flag to restore the number-derived status.
+  const twilioConnected             = TWILIO_ENABLED && !!twilioPhoneNumber;
   const incomingCallLookupEnabled   = settings.incomingCallLookupEnabled ?? true;
   const incomingSMSLoggingEnabled   = settings.incomingSMSLoggingEnabled ?? true;
   const missedCallAutoTextEnabled   = settings.missedCallAutoTextEnabled ?? false;

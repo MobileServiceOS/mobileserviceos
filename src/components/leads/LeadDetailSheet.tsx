@@ -33,6 +33,7 @@ import {
   Timestamp,
 } from 'firebase/firestore';
 import { getFunctions, httpsCallable, connectFunctionsEmulator } from 'firebase/functions';
+import { TWILIO_ENABLED } from '@/lib/twilioEnabled';
 import { _auth, requireDb } from '@/lib/firebase';
 import { usePermissions } from '@/context/MembershipContext';
 import { useFocusTrap } from '@/lib/useFocusTrap';
@@ -181,6 +182,15 @@ export function LeadDetailSheet({
 
   const onSendComposer = useCallback(async () => {
     if (!lead || !composerBody.trim()) return;
+    // Twilio disconnected — text from the operator's own phone (free
+    // native SMS) instead of the backend sender, which is dormant.
+    if (!TWILIO_ENABLED) {
+      const digits = (lead.phoneE164 || '').replace(/[^\d+]/g, '');
+      const body = encodeURIComponent(composerBody);
+      window.open(digits ? `sms:${digits}?body=${body}` : `sms:?body=${body}`);
+      setComposerBody('');
+      return;
+    }
     setComposerError(null);
     setComposerInFlight(true);
     try {
