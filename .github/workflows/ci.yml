@@ -39,6 +39,14 @@ jobs:
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
 
+      # Several logic tests import from functions/src/** (drain queues,
+      # callables, triggers), whose imports resolve against functions'
+      # OWN node_modules. Without this the suite crashes in CI with
+      # MODULE_NOT_FOUND while passing locally (where functions deps are
+      # already installed) — the reason CI was silently red.
+      - name: Install functions dependencies
+        run: npm ci --prefix functions --no-audit --no-fund
+
       - name: Typecheck
         run: npm run typecheck
 
@@ -50,3 +58,39 @@ jobs:
 
       - name: Production build
         run: npm run build
+
+  rules:
+    name: Firestore security rules
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      # The Firestore emulator is a Java process — no JRE, no rules tests.
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          # firebase-tools 15+ requires a JDK ≥ 21 for the emulator.
+          java-version: '21'
+
+      # Cache the emulator JAR so we don't re-download it every run.
+      - name: Cache Firebase emulators
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-${{ runner.os }}
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      # Boots the firestore emulator (demo- project ⇒ no auth/secrets) and
+      # runs the rules suite against the real firestore.rules.
+      - name: Firestore rules tests
+        run: npm run test:rules
