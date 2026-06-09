@@ -67,6 +67,7 @@ import { addToast, addActionToast } from '@/lib/toast';
 import { humanizeFirestoreError, logFirestoreError, isPermissionDenied } from '@/lib/firebaseErrors';
 import { applyBrandColors, planInventoryDeduction, r2, uid } from '@/lib/utils';
 import { getLastPaymentMethod, setLastPaymentMethod } from '@/lib/paymentMethodMemory';
+import { computeJobTireCost } from '@/lib/jobTireCost';
 import { upsertCustomerFromJob, reverseCustomerFromJob } from '@/lib/customerEntity';
 import { normalizePhone } from '@/lib/phone';
 import { refundJobDeductions, extractJobDeductions } from '@/lib/inventoryRefund';
@@ -998,9 +999,12 @@ function AuthenticatedApp({ user }: { user: User }) {
         }
         const plan = planInventoryDeduction(j.tireSize, Number(j.qty || 1), workingInv);
         deductions = plan.deductions;
-        // Compute weighted tire cost from FIFO plan
+        // Weighted tire cost from the FIFO plan (TOTAL). Decision logic
+        // lives in computeJobTireCost (pure + tested in jobTireCost.test).
         const planTotal = plan.deductions.reduce((s, d) => s + d.cost * d.qty, 0);
-        if (planTotal > 0) computedTireCost = r2(planTotal);
+        computedTireCost = computeJobTireCost({
+          tireSource: 'Inventory', fifoPlanTotal: planTotal, fallbackTireCost: j.tireCost,
+        });
         // Apply deductions to working inventory.
         // CRITICAL: fbSetFast writes to local cache instantly + queues
         // server sync in background. The await unblocks in <2.5s even
@@ -1037,18 +1041,15 @@ function AuthenticatedApp({ user }: { user: User }) {
         log('inv-writes-acked');
         if (plan.shortfall > 0) addToast(`Logged with shortfall of ${plan.shortfall} tire(s)`, 'warn');
       } else if (j.tireSource === 'Bought for this job') {
-        // Store the TOTAL tire cost (qty baked in), matching the
-        // inventory branch above and the TOTAL convention consumed by
-        // computeFlatPrice / jobCOGS / weekSummary. tirePurchasePrice is
-        // PER-UNIT (the "Purchase price ($)" field), so scale by qty.
-        // (2026-06-05 audit: previously stored per-unit, which made
-        // jobCOGS/payouts undercount multi-tire "bought" jobs.)
-        const tireQty = Math.max(1, Math.floor(Number(j.qty) || 1));
-        computedTireCost = Number(j.tirePurchasePrice)
-          ? r2(Number(j.tirePurchasePrice) * tireQty)
-          : Number(j.tireCost || 0);
+        // TOTAL tire cost = PER-UNIT tirePurchasePrice × qty (see
+        // computeJobTireCost). Matches the inventory branch + the TOTAL
+        // convention in computeFlatPrice / jobCOGS / weekSummary.
+        computedTireCost = computeJobTireCost({
+          tireSource: 'Bought for this job',
+          tirePurchasePrice: j.tirePurchasePrice, qty: j.qty, fallbackTireCost: j.tireCost,
+        });
       } else if (j.tireSource === 'Customer supplied') {
-        computedTireCost = 0;
+        computedTireCost = computeJobTireCost({ tireSource: 'Customer supplied', fallbackTireCost: j.tireCost });
       }
 
       // ─── Mechanic parts deduction branch (Phase 2.2) ────────────────
