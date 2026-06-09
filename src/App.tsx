@@ -68,6 +68,7 @@ import { humanizeFirestoreError, logFirestoreError, isPermissionDenied } from '@
 import { applyBrandColors, planInventoryDeduction, r2, uid } from '@/lib/utils';
 import { getLastPaymentMethod, setLastPaymentMethod } from '@/lib/paymentMethodMemory';
 import { computeJobTireCost } from '@/lib/jobTireCost';
+import { planJobInventory } from '@/lib/planJobInventory';
 import { upsertCustomerFromJob, reverseCustomerFromJob } from '@/lib/customerEntity';
 import { normalizePhone } from '@/lib/phone';
 import { refundJobDeductions, extractJobDeductions } from '@/lib/inventoryRefund';
@@ -986,60 +987,40 @@ function AuthenticatedApp({ user }: { user: User }) {
       }
 
       if (!isCanceling && j.tireSource === 'Inventory' && j.tireSize) {
-        // If editing, restore previous deductions first
-        if (isEditing) {
-          const prev = jobs.find((x) => x.id === editingJobId);
-          const oldDeds = prev && Array.isArray(prev.inventoryDeductions) ? prev.inventoryDeductions : null;
-          if (oldDeds) {
-            for (const d of oldDeds) {
-              const idx = workingInv.findIndex((i) => i.id === d.id);
-              if (idx >= 0) workingInv[idx] = { ...workingInv[idx], qty: Number(workingInv[idx].qty || 0) + Number(d.qty || 0) };
-            }
-          }
-        }
-        const plan = planInventoryDeduction(j.tireSize, Number(j.qty || 1), workingInv);
-        deductions = plan.deductions;
-        // Weighted tire cost from the FIFO plan (TOTAL). Decision logic
-        // lives in computeJobTireCost (pure + tested in jobTireCost.test).
-        const planTotal = plan.deductions.reduce((s, d) => s + d.cost * d.qty, 0);
-        computedTireCost = computeJobTireCost({
-          tireSource: 'Inventory', fifoPlanTotal: planTotal, fallbackTireCost: j.tireCost,
+        // Restore (on edit) + FIFO plan + apply is pure — see
+        // planJobInventory (tested in planJobInventory.test). saveJob keeps
+        // only the I/O: persist the touched items, mirror to local state,
+        // warn on any defensive skip, toast on shortfall.
+        const prevDeds = isEditing
+          ? (jobs.find((x) => x.id === editingJobId)?.inventoryDeductions ?? null)
+          : null;
+        const invPlan = planJobInventory({
+          tireSize: j.tireSize,
+          qty: j.qty,
+          inventory: workingInv,
+          prevDeductions: Array.isArray(prevDeds) ? prevDeds : null,
+          fallbackTireCost: j.tireCost,
         });
-        // Apply deductions to working inventory.
-        // CRITICAL: fbSetFast writes to local cache instantly + queues
-        // server sync in background. The await unblocks in <2.5s even
-        // on a stalled network. Combined with Promise.all for
-        // independence, multi-deduction saves complete in well under
-        // a second.
-        const invWrites: Promise<void>[] = [];
-        for (const d of plan.deductions) {
-          const idx = workingInv.findIndex((i) => i.id === d.id);
-          if (idx < 0) {
-            // Audit P1 (2026-05-31): a deduction's target id can be
-            // absent from the working inventory snapshot when there's
-            // a race with a concurrent edit/delete on another tab.
-            // The previous code fell back to workingInv[0] — writing
-            // the FIRST inventory item's data into the doc at d.id,
-            // silently corrupting an unrelated tire entry. Now we
-            // skip the deduction (with a warn) instead of writing.
-            // The job save itself continues — the unwritten quantity
-            // surfaces as a stock discrepancy the operator can
-            // reconcile rather than a phantom data-loss event.
-            // eslint-disable-next-line no-console
-            console.warn('[saveJob] inventory item not in working snapshot — skipping deduction', { itemId: d.id, size: d.size, qty: d.qty });
-            continue;
-          }
-          workingInv[idx] = { ...workingInv[idx], qty: Math.max(0, Number(workingInv[idx].qty || 0) - Number(d.qty || 0)) };
-          invWrites.push(fbSetFast(invCol, workingInv[idx].id, workingInv[idx]));
+        deductions = invPlan.deductions;
+        computedTireCost = invPlan.tireCost;
+        for (const d of invPlan.skipped) {
+          // A deduction's target id was absent from the snapshot (defensive
+          // — see planJobInventory). Skip rather than corrupt another item;
+          // the unwritten qty surfaces as a stock discrepancy to reconcile.
+          // eslint-disable-next-line no-console
+          console.warn('[saveJob] inventory item not in working snapshot — skipping deduction', { itemId: d.id, size: d.size, qty: d.qty });
         }
-        // Fire all inventory writes concurrently. We also kick off
-        // the local-state update immediately so the UI reflects the
-        // new quantities without waiting on Firestore.
+        // Persist each touched item. fbSetFast writes local cache instantly
+        // + queues server sync, so multi-deduction saves complete well
+        // under a second even on a stalled network.
+        const byId = new Map(invPlan.nextInventory.map((i) => [i.id, i]));
+        const invWrites = invPlan.touchedIds.map((id) => fbSetFast(invCol, id, byId.get(id)!));
+        workingInv = invPlan.nextInventory;
         setInventoryRaw(workingInv);
         log('inv-writes-issued');
         await Promise.all(invWrites);
         log('inv-writes-acked');
-        if (plan.shortfall > 0) addToast(`Logged with shortfall of ${plan.shortfall} tire(s)`, 'warn');
+        if (invPlan.shortfall > 0) addToast(`Logged with shortfall of ${invPlan.shortfall} tire(s)`, 'warn');
       } else if (j.tireSource === 'Bought for this job') {
         // TOTAL tire cost = PER-UNIT tirePurchasePrice × qty (see
         // computeJobTireCost). Matches the inventory branch + the TOTAL
