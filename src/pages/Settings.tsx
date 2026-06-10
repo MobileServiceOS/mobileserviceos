@@ -13,6 +13,7 @@ import { CustomerDirectorySettingsSection } from '@/components/settings/Customer
 import { CommunicationsSettingsSection } from '@/components/settings/CommunicationsSettingsSection';
 import { ReviewAutomationSection } from '@/components/settings/ReviewAutomationSection';
 import { MissedCallRecoverySection } from '@/components/settings/MissedCallRecoverySection';
+import { ZettleSettingsSection } from '@/components/settings/ZettleSettingsSection';
 import { OwnersAccordion } from '@/components/settings/OwnersSection';
 import { PricingAccordion } from '@/components/settings/PricingSection';
 import { VehicleAddonsAccordion } from '@/components/settings/VehiclePricingSection';
@@ -123,6 +124,10 @@ export function Settings({ settings, onSave }: Props) {
   // edit operational settings without seeing owner split %.
   const canSeeBusinessSettings = permissions.canEditBusinessSettings;
   const canSeeTeam = permissions.canManageTeam;
+  // PayPal Zettle payment integration — owner/admin only. Same HIDE-not-
+  // disable strategy: technicians never render the section, and the
+  // server callables + Firestore rules block the sensitive data too.
+  const canSeePaymentIntegrations = permissions.canViewPaymentIntegrations;
 
   // Stripe → Firestore subscription mirror. While the Settings page is
   // mounted, listen to the Stripe Extension's per-user subscription
@@ -243,6 +248,19 @@ export function Settings({ settings, onSave }: Props) {
           settings={settings}
           open={openSection === 'missedCallRecovery'}
           onToggle={() => setOpenSection(openSection === 'missedCallRecovery' ? null : 'missedCallRecovery')}
+          onSaveSettings={onSave}
+        />
+      )}
+
+      {/* PayPal Zettle — connect a Zettle account to auto-import card
+          payments, match them to jobs, and mark paid. Owner/admin only.
+          Ships dormant until the Zettle app secrets are set server-side. */}
+      {canSeePaymentIntegrations && businessId && (
+        <ZettleSettingsSection
+          businessId={businessId}
+          settings={settings}
+          open={openSection === 'zettle'}
+          onToggle={() => setOpenSection(openSection === 'zettle' ? null : 'zettle')}
           onSaveSettings={onSave}
         />
       )}

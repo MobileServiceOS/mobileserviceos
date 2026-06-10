@@ -51,6 +51,7 @@ beforeEach(async () => {
     const db = ctx.firestore();
     // Membership (the unforgeable source of truth).
     await setDoc(doc(db, `businesses/${BIZ_A}/members/ownerA`), { role: 'owner' });
+    await setDoc(doc(db, `businesses/${BIZ_A}/members/adminA`), { role: 'admin' });
     await setDoc(doc(db, `businesses/${BIZ_A}/members/techA`), { role: 'technician' });
     await setDoc(doc(db, `businesses/${BIZ_B}/members/ownerB`), { role: 'owner' });
     // User docs (self-only collection).
@@ -69,10 +70,21 @@ beforeEach(async () => {
     await setDoc(doc(db, `businesses/${BIZ_A}/jobs/jobOwner`), {
       createdByUid: 'ownerA', assignedToUid: 'ownerA', revenue: 200,
     });
+    // Zettle SENSITIVE docs — top-level zettleSecure/{businessId}/...
+    // (outside the businesses subtree so the member-read wildcard can't
+    // reach them). Owner/admin read only; tokens never client-readable.
+    await setDoc(doc(db, `zettleSecure/${BIZ_A}/payments/pay1`), {
+      amount: 150, cardBrand: 'VISA', mapImageData: 'data:image/png;base64,xxx',
+      paymentLocation: { latitude: 25.7, longitude: -80.2, source: 'zettle' },
+    });
+    await setDoc(doc(db, `zettleSecure/${BIZ_A}/reviewQueue/rev1`), { amount: 150, status: 'pending' });
+    await setDoc(doc(db, `zettleSecure/${BIZ_A}/private/tokens`), { signingKey: 'sk', accessTokenEnc: 'enc' });
+    await setDoc(doc(db, 'zettleOrgs/org1'), { businessId: BIZ_A });
   });
 });
 
 const asOwnerA = () => env.authenticatedContext('ownerA').firestore();
+const asAdminA = () => env.authenticatedContext('adminA').firestore();
 const asTechA = () => env.authenticatedContext('techA').firestore();
 const asOwnerB = () => env.authenticatedContext('ownerB').firestore();
 const asOutsider = () => env.authenticatedContext('stranger').firestore(); // signed in, no membership
@@ -190,6 +202,43 @@ describe('leads — no client create/delete, bounded update', () => {
   });
   it('a member cannot delete a lead (delete: false)', async () => {
     await assertFails(deleteDoc(doc(asOwnerA(), `businesses/${BIZ_A}/leads/lead1`)));
+  });
+});
+
+// The load-bearing "tech-safe" guarantee for the Zettle integration:
+// sensitive payment/transaction/location data is OWNER/ADMIN ONLY at the
+// collection level (Firestore can't redact fields on read), and OAuth
+// tokens are NEVER client-readable.
+describe('zettle — owner/admin only, tech-safe, tokens locked', () => {
+  it('owner can read a payments doc', async () => {
+    await assertSucceeds(getDoc(doc(asOwnerA(), `zettleSecure/${BIZ_A}/payments/pay1`)));
+  });
+  it('admin can read a payments doc', async () => {
+    await assertSucceeds(getDoc(doc(asAdminA(), `zettleSecure/${BIZ_A}/payments/pay1`)));
+  });
+  it('TECHNICIAN CANNOT read a payments doc (fees/coords/txn id)', async () => {
+    await assertFails(getDoc(doc(asTechA(), `zettleSecure/${BIZ_A}/payments/pay1`)));
+  });
+  it('no client (even owner) can write payments — Functions only', async () => {
+    await assertFails(setDoc(doc(asOwnerA(), `zettleSecure/${BIZ_A}/payments/pay1`), { amount: 1 }, { merge: true }));
+  });
+  it('a member of another business cannot read A payments', async () => {
+    await assertFails(getDoc(doc(asOwnerB(), `zettleSecure/${BIZ_A}/payments/pay1`)));
+  });
+  it('owner can read the review queue; technician cannot', async () => {
+    await assertSucceeds(getDoc(doc(asOwnerA(), `zettleSecure/${BIZ_A}/reviewQueue/rev1`)));
+    await assertFails(getDoc(doc(asTechA(), `zettleSecure/${BIZ_A}/reviewQueue/rev1`)));
+  });
+  it('NOBODY can read OAuth tokens (not even owner)', async () => {
+    await assertFails(getDoc(doc(asOwnerA(), `zettleSecure/${BIZ_A}/private/tokens`)));
+    await assertFails(getDoc(doc(asTechA(), `zettleSecure/${BIZ_A}/private/tokens`)));
+  });
+  it('nobody can write OAuth tokens', async () => {
+    await assertFails(setDoc(doc(asOwnerA(), `zettleSecure/${BIZ_A}/private/tokens`), { signingKey: 'x' }, { merge: true }));
+  });
+  it('the zettleOrgs routing index is not client-readable or writable', async () => {
+    await assertFails(getDoc(doc(asOwnerA(), 'zettleOrgs/org1')));
+    await assertFails(setDoc(doc(asOwnerA(), 'zettleOrgs/org2'), { businessId: BIZ_A }));
   });
 });
 

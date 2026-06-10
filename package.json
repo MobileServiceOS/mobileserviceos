@@ -14,6 +14,7 @@
     "test": "for f in tests/*.test.ts; do echo \"\\n\\u25b6 $f\"; tsx \"$f\" || exit 1; done",
     "test:ui": "vitest run",
     "test:rules": "firebase emulators:exec --only firestore --project demo-msos \"vitest run --config vitest.rules.config.ts\"",
+    "test:zettle-e2e": "firebase emulators:exec --only firestore --project demo-msos \"cd functions && npx tsx scripts/zettleE2E.ts\"",
     "deploy:rules": "firebase deploy --only firestore:rules,storage",
     "emulator:start": "firebase emulators:start --only auth,firestore,storage,functions --project mobile-service-os",
     "emulator:seed": "tsx scripts/seed-emulator.ts"

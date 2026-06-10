@@ -198,6 +198,19 @@ export interface InvoiceOptions {
    *  Caller (App.tsx) owns the resolution since it has access to the
    *  members directory. Pass undefined to skip the Technician line. */
   technicianName?: string | null;
+  /** Zettle Phase 2 — Service Location Verification block. CUSTOMER-
+   *  FACING: address + map pin ONLY. Raw GPS coordinates are never
+   *  included here by contract. The caller (owner/admin only) decides
+   *  whether to populate this from the gated zettlePayments doc + the
+   *  customer-invoice settings toggles; technicians never receive it. */
+  verification?: {
+    address?: string | null;
+    serviceDateTime?: string | null;
+    paymentTime?: string | null;
+    /** base64 PNG data URI of the static map. Included only when the
+     *  owner enabled "include map on invoice" AND the map exists. */
+    mapDataUri?: string | null;
+  } | null;
 }
 
 /**
@@ -619,6 +632,45 @@ export async function generateInvoicePDF(
     const noteLines = doc.splitTextToSize(job.note, W - 2 * M);
     doc.text(noteLines, M, y);
     y += noteLines.length * 4.5 + 4;
+  }
+
+  // ═════════════════════════════════════════════════════════════════
+  //  SERVICE LOCATION VERIFICATION (Zettle Phase 2) — only when the
+  //  caller passes verification data. CUSTOMER-FACING: service address +
+  //  map pin only. Raw GPS coordinates are intentionally NEVER printed.
+  //  The caller (owner/admin) gates inclusion on the customer-invoice
+  //  settings toggles + permissions; technicians never receive the map.
+  // ═════════════════════════════════════════════════════════════════
+  const verification = opts.verification;
+  if (verification && (verification.address || verification.mapDataUri)) {
+    y += 3;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(...GRAY);
+    doc.text('SERVICE LOCATION VERIFICATION', M, y);
+    y += 4.8;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(...NEAR_BLK);
+    if (verification.address) {
+      const addrLines = doc.splitTextToSize(verification.address, W - 2 * M);
+      doc.text(addrLines, M, y);
+      y += addrLines.length * 4.5 + 1;
+    }
+    doc.setFontSize(8);
+    doc.setTextColor(...GRAY);
+    if (verification.serviceDateTime) { doc.text(`Service: ${verification.serviceDateTime}`, M, y); y += 4; }
+    if (verification.paymentTime) { doc.text(`Payment received: ${verification.paymentTime}`, M, y); y += 4; }
+    // Map pin — skip if too close to the page bottom to avoid overflow.
+    if (verification.mapDataUri && y < 225) {
+      const mapW = 120;
+      const mapH = 60;
+      try {
+        doc.addImage(verification.mapDataUri, 'PNG', M, y + 1, mapW, mapH);
+        y += mapH + 4;
+      } catch { /* malformed image — skip silently, keep the address */ }
+    }
+    y += 3;
   }
 
   // ═════════════════════════════════════════════════════════════════

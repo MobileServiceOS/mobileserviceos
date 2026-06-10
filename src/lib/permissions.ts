@@ -36,6 +36,7 @@ const ALL_FALSE: Permissions = {
   canDeleteJobs: false,
   canViewAdvancedReports: false,
   canManageBilling: false,
+  canViewPaymentIntegrations: false,
 };
 
 const OWNER_PERMISSIONS: Permissions = {
@@ -59,6 +60,7 @@ const OWNER_PERMISSIONS: Permissions = {
   canDeleteJobs: true,
   canViewAdvancedReports: true,
   canManageBilling: true,
+  canViewPaymentIntegrations: true,
 };
 
 /**

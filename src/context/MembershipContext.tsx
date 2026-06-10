@@ -74,7 +74,7 @@ const ALL_FALSE: Permissions = {
   canManageTeam: false, canManageOwners: false, canEditBusinessSettings: false, canUploadLogo: false,
   canGenerateInvoices: false, canSendReviews: false, canCreateJobs: false,
   canEditJobs: false, canDeleteJobs: false, canViewAdvancedReports: false,
-  canManageBilling: false,
+  canManageBilling: false, canViewPaymentIntegrations: false,
 };
 
 const MembershipContext = createContext<MembershipState>({

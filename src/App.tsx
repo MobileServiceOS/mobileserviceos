@@ -1299,7 +1299,24 @@ function AuthenticatedApp({ user }: { user: User }) {
     // fetch before rendering; the await covers both that and the
     // dynamic import.
     const { generateInvoicePDF } = await import('@/lib/invoice');
-    const result = await generateInvoicePDF(j, settings, brand);
+    // Zettle Phase 2 — Service Location Verification on the invoice.
+    // Only for Zettle-paid jobs when the owner enabled address/map on
+    // customer invoices. The zettlePayments read is rule-gated to owner/
+    // admin, so a technician generating the invoice gets null here (no
+    // map) — tech-safety is enforced by Firestore rules, not just the UI.
+    let verification: import('@/lib/invoice').InvoiceOptions['verification'] = null;
+    if (
+      businessId && j.paymentSource === 'zettle' && j.paymentImportId
+      && (settings.zettleIncludeMapOnInvoice || settings.zettleIncludeAddressOnInvoice)
+    ) {
+      const { getZettlePaymentForInvoice } = await import('@/lib/zettlePayments');
+      verification = await getZettlePaymentForInvoice(businessId, j.paymentImportId, {
+        includeMap: settings.zettleIncludeMapOnInvoice ?? false,
+        includeAddress: settings.zettleIncludeAddressOnInvoice ?? false,
+        job: j,
+      });
+    }
+    const result = await generateInvoicePDF(j, settings, brand, verification ? { verification } : {});
     if (!result || !businessId) return;
     const jobsCol = scopedCol(businessId, 'jobs');
     // Write ONLY the fields we're changing. fbSetFast already does
