@@ -66,6 +66,8 @@ function ZettleSettingsSectionImpl({ businessId, settings, open, onToggle, onSav
   const includeMap = settings.zettleIncludeMapOnInvoice ?? false;
 
   const [connecting, setConnecting] = useState(false);
+  const [apiKey, setApiKey] = useState('');
+  const [connectingKey, setConnectingKey] = useState(false);
   const [range, setRange] = useState<RangeKey>('30');
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
@@ -133,6 +135,31 @@ function ZettleSettingsSectionImpl({ businessId, settings, open, onToggle, onSav
     }
   }, [businessId]);
 
+  // Path A — own-organization connect: paste the Zettle API key, the backend
+  // exchanges it for a token (assertion grant) and flips zettleConnected via
+  // the operational_settings write, which the live snapshot reflects.
+  const onConnectApiKey = useCallback(async () => {
+    const key = apiKey.trim();
+    if (!key) return;
+    setError(null);
+    setConnectingKey(true);
+    try {
+      const fn = httpsCallable<
+        { businessId: string; apiKey: string },
+        { ok: boolean; accountName: string; webhook: boolean }
+      >(_getEmulatorAwareFunctions(), 'connectZettleApiKey');
+      const { data } = await fn({ businessId, apiKey: key });
+      setApiKey('');
+      if (!data.webhook) {
+        setError('Connected — but real-time auto-import (webhook) was not available for this account. Use "Import" below to pull payments on demand.');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setConnectingKey(false);
+    }
+  }, [businessId, apiKey]);
+
   const flip = useCallback(async (key: keyof Settings, next: boolean) => {
     try { await onSaveSettings({ [key]: next } as Partial<Settings>); }
     catch (err) { setError(err instanceof Error ? err.message : String(err)); }
@@ -171,16 +198,50 @@ function ZettleSettingsSectionImpl({ businessId, settings, open, onToggle, onSav
           verification. Sensitive transaction data is visible to owners/admins only.
         </p>
 
-        {/* Connect */}
+        {/* Connect — own-organization API key (Path A) is the primary path;
+            OAuth (multi-merchant) is offered below for completeness. */}
         {!connected ? (
-          <button
-            type="button"
-            className="btn"
-            disabled={!canEdit || connecting}
-            onClick={onConnect}
-          >
-            {connecting ? 'Opening Zettle…' : 'Connect Zettle'}
-          </button>
+          <div style={{ display: 'grid', gap: 8 }}>
+            <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--t2)' }}>Zettle API key</label>
+            <p style={{ fontSize: 12, color: 'var(--t3)', margin: 0, lineHeight: 1.4 }}>
+              In your Zettle account → <strong>Settings → Integrations → API keys</strong>, create a key for your
+              own organization (scopes: read purchases + finance), then paste it here.
+            </p>
+            <input
+              type="password"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder="Paste your Zettle API key"
+              disabled={!canEdit || connectingKey}
+              autoComplete="off"
+              spellCheck={false}
+              style={{
+                width: '100%', padding: '9px 11px', fontSize: 13,
+                background: 'var(--s2)', color: 'var(--t1)',
+                border: '1px solid var(--border)', borderRadius: 8,
+              }}
+            />
+            <button
+              type="button"
+              className="btn"
+              disabled={!canEdit || connectingKey || !apiKey.trim()}
+              onClick={onConnectApiKey}
+            >
+              {connectingKey ? 'Connecting…' : 'Connect with API key'}
+            </button>
+            <button
+              type="button"
+              disabled={!canEdit || connecting}
+              onClick={onConnect}
+              style={{
+                background: 'none', border: 'none', padding: 0,
+                color: 'var(--t3)', fontSize: 11, cursor: 'pointer', textDecoration: 'underline',
+                justifySelf: 'start',
+              }}
+            >
+              {connecting ? 'Opening Zettle…' : 'Or connect via OAuth (for connecting other merchants)'}
+            </button>
+          </div>
         ) : (
           <div style={{ fontSize: 13, color: 'var(--good, #2ecc71)' }}>
             ✅ Connected{accountName ? ` to ${accountName}` : ''}

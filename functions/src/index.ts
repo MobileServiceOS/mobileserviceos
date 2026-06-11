@@ -132,7 +132,7 @@ export {
 // Sensitive data is written by these (Admin SDK) into the owner/admin-only
 // zettlePayments collection; the Job gets only tech-safe booleans.
 // Spec: docs/.../zettle plan (recursive-wishing-pascal.md).
-export { connectZettle, zettleOAuthCallback } from './zettle/oauth';
+export { connectZettle, zettleOAuthCallback, connectZettleApiKey } from './zettle/oauth';
 export { zettleWebhook }                      from './zettle/webhook';
 export { importZettlePayments }               from './zettle/importHistorical';
 // Owner/admin review-queue actions for low-confidence imports.
