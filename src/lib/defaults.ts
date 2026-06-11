@@ -217,7 +217,7 @@ export const SERVICE_ICONS: Record<string, string> = {
   'Heavy-Duty Tire Service': '🚜',
 };
 
-export const PAYMENT_STATUSES: PaymentStatus[] = ['Paid', 'Pending Payment', 'Partial Payment', 'Cancelled'];
+export const PAYMENT_STATUSES: PaymentStatus[] = ['Paid', 'Pending Payment', 'Partial Payment', 'Refunded', 'Cancelled'];
 export const JOB_STATUSES: JobStatus[] = ['Completed', 'Pending', 'Cancelled'];
 
 export const TIRE_MATERIAL_SERVICES = [
@@ -245,7 +245,10 @@ export const EMPTY_JOB = (): Job => ({
   // touch vehicle pricing get a 'Sedan'-defaulted draft.
   vehicleType: 'Sedan',
   area: '',
-  payment: 'Cash',
+  // Payment is collected as a deliberate step, not assumed at logging.
+  // Leave the legacy free-text method empty (no method until paid) and
+  // start every job unpaid — see paymentStatus below.
+  payment: '',
   status: 'Completed',
   source: 'Google',
   customerName: '',
@@ -272,7 +275,10 @@ export const EMPTY_JOB = (): Job => ({
   tireNotes: '',
   inventoryDeductions: null,
   inventoryUsed: null,
-  paymentStatus: 'Paid',
+  // Every new job is born unpaid. The operator collects payment as an
+  // explicit step (Mark Paid / Take Payment with Zettle), or marks it
+  // paid on the spot via the Payment Status chips in the New Job form.
+  paymentStatus: 'Pending Payment',
   invoiceGenerated: false,
   invoiceGeneratedAt: null,
   invoiceNumber: null,

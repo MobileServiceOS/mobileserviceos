@@ -23,7 +23,7 @@ import type { Timestamp } from 'firebase/firestore';
 //  Status / enum types
 // ─────────────────────────────────────────────────────────────────────
 
-export type PaymentStatus = 'Paid' | 'Pending Payment' | 'Partial Payment' | 'Cancelled';
+export type PaymentStatus = 'Paid' | 'Pending Payment' | 'Partial Payment' | 'Refunded' | 'Cancelled';
 export type JobStatus = 'Completed' | 'Pending' | 'Cancelled';
 export type TireSource = 'Inventory' | 'Bought for this job' | 'Customer supplied';
 

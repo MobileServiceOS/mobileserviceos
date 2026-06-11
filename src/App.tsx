@@ -1549,7 +1549,15 @@ function AuthenticatedApp({ user }: { user: User }) {
   const handleViewJob = useCallback((j: Job) => setDetailJob(j), []);
 
   const handleDuplicate = useCallback((j: Job) => {
-    setJobDraft({ ...j, id: '', date: new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' }), revenue: '', paymentStatus: 'Paid', status: 'Completed', invoiceGenerated: false, invoiceSent: false, reviewRequested: false, lastEditedAt: null });
+    // A duplicate is a NEW job: born unpaid, with all of the original's
+    // payment/collection state cleared so it can't appear pre-paid or
+    // carry the source job's Zettle link.
+    setJobDraft({
+      ...j, id: '', date: new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' }), revenue: '',
+      paymentStatus: 'Pending Payment', status: 'Completed',
+      payment: '', paymentMethod: undefined, paymentSource: undefined, paymentImportId: undefined, paidAt: undefined,
+      invoiceGenerated: false, invoiceSent: false, reviewRequested: false, lastEditedAt: null,
+    });
     setEditingJobId(null);
     setPrefilledFromQuote(false);
     setDetailJob(null);
