@@ -20,10 +20,11 @@
 import { useState } from 'react';
 import type { PaymentMethod } from '@/types';
 import { money } from '@/lib/utils';
+import { ZETTLE_ENABLED } from '@/lib/zettleEnabled';
 import { TakePaymentButton } from '@/components/zettle/TakePaymentButton';
 
 const METHODS: { key: PaymentMethod; label: string }[] = [
-  { key: 'card', label: 'Card (Zettle)' },
+  { key: 'card', label: ZETTLE_ENABLED ? 'Card (Zettle)' : 'Card' },
   { key: 'cash', label: 'Cash' },
   { key: 'zelle', label: 'Zelle' },
   { key: 'venmo', label: 'Venmo' },
@@ -58,7 +59,9 @@ export function CollectPayment({ businessId, amount, zettleConnected, canSync, o
     );
   }
 
-  const isCard = method === 'card';
+  // Card routes to Zettle only while the integration is enabled. With the
+  // kill switch off, Card behaves like any other manual method (Mark Paid).
+  const isCard = ZETTLE_ENABLED && method === 'card';
   return (
     <div style={wrap}>
       <div style={prompt}>How did the customer pay?</div>

@@ -28,6 +28,7 @@ import { JobTimer } from '@/components/JobDetailModal/JobTimer';
 import { JobPhotoCapture } from '@/components/JobPhotoCapture';
 import { CollectPayment } from '@/components/payments/CollectPayment';
 import { ZettlePaymentBlock } from '@/components/zettle/ZettlePaymentBlock';
+import { ZETTLE_ENABLED } from '@/lib/zettleEnabled';
 
 interface Props {
   job: Job;
@@ -196,7 +197,7 @@ export function JobDetailModal({
           {/* Zettle payment status — renders only for jobs paid via
               Zettle. Tech-safe summary (amount/date/matched) for everyone;
               transaction id / fees / confidence gated to owner/admin. */}
-          {job.paymentSource === 'zettle' && businessId && (
+          {ZETTLE_ENABLED && job.paymentSource === 'zettle' && businessId && (
             <ZettlePaymentBlock
               businessId={businessId}
               job={job}

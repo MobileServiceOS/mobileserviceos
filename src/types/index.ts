@@ -1571,7 +1571,7 @@ export interface ToastItem {
 
 export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   cash: 'Cash',
-  card: 'Card (Zettle)',
+  card: 'Card',
   zelle: 'Zelle',
   venmo: 'Venmo',
   cashapp: 'Cash App',

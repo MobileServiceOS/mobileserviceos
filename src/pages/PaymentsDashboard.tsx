@@ -25,6 +25,7 @@ import {
   listZettlePayments, listZettleReviewQueue, type ZettlePaymentRow,
 } from '@/lib/zettlePayments';
 import { syncZettlePayments } from '@/lib/zettleTakePayment';
+import { ZETTLE_ENABLED } from '@/lib/zettleEnabled';
 
 function startOfTodayMs(): number {
   const d = new Date();
@@ -70,7 +71,7 @@ export function PaymentsDashboard({ jobs, workWeekStartDay }: { jobs: Job[]; wor
   const wk = typeof workWeekStartDay === 'number' ? workWeekStartDay : 1;
 
   const load = useCallback(async () => {
-    if (!businessId) return;
+    if (!businessId || !ZETTLE_ENABLED) { setLoading(false); return; }
     setLoading(true);
     const [rows, queue] = await Promise.all([
       listZettlePayments(businessId),
@@ -177,7 +178,9 @@ export function PaymentsDashboard({ jobs, workWeekStartDay }: { jobs: Job[]; wor
   return (
     <div className="page page-enter" style={{ paddingTop: 16 }}>
       <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>Payments</h2>
-      <div style={{ fontSize: 12, color: 'var(--t3)', marginBottom: 16 }}>Collections · outstanding · Zettle reporting</div>
+      <div style={{ fontSize: 12, color: 'var(--t3)', marginBottom: 16 }}>
+        {ZETTLE_ENABLED ? 'Collections · outstanding · Zettle reporting' : 'Collections · outstanding'}
+      </div>
 
       {/* ═══ Section 1 — Payments (jobs) ═══ */}
       <SectionTitle>Outstanding</SectionTitle>
@@ -200,7 +203,7 @@ export function PaymentsDashboard({ jobs, workWeekStartDay }: { jobs: Job[]; wor
 
       <SectionTitle>Today by method</SectionTitle>
       <div className="kpi-grid" style={{ marginBottom: 24 }}>
-        <Kpi label="Card (Zettle)" value={money(jobStats.todayCard)} />
+        <Kpi label="Card" value={money(jobStats.todayCard)} />
         <Kpi label="Cash" value={money(jobStats.todayCash)} />
         <Kpi label="Zelle" value={money(jobStats.todayZelle)} />
         <Kpi label="Venmo" value={money(jobStats.todayVenmo)} />
@@ -228,7 +231,9 @@ export function PaymentsDashboard({ jobs, workWeekStartDay }: { jobs: Job[]; wor
         </>
       )}
 
-      {/* ═══ Section 2 — Zettle ═══ */}
+      {/* ═══ Section 2 — Zettle (hidden while the integration is off) ═══ */}
+      {ZETTLE_ENABLED && (
+      <>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
         <SectionTitle>Zettle</SectionTitle>
         <button type="button" className="btn" disabled={syncing} onClick={onSync}>
@@ -312,6 +317,8 @@ export function PaymentsDashboard({ jobs, workWeekStartDay }: { jobs: Job[]; wor
           </div>
         )}
       </div>
+      </>
+      )}
     </div>
   );
 }
