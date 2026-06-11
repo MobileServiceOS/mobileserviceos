@@ -2,6 +2,8 @@ import type { Job, Settings, Brand } from '@/types';
 import { jobGrossProfit, money, paymentPillClass, resolvePaymentStatus } from '@/lib/utils';
 import { addToast } from '@/lib/toast';
 import { usePermissions } from '@/context/MembershipContext';
+import { useBrand } from '@/context/BrandContext';
+import { TakePaymentButton } from '@/components/zettle/TakePaymentButton';
 import { IconDollar, IconInvoice, IconStar, IconEdit, IconEye, IconCopy, IconPlus, IconHome } from '@/components/ActionIcons';
 
 interface Props {
@@ -40,8 +42,11 @@ export function JobSuccessPanel({
   const ps = resolvePaymentStatus(job);
   const header = buildHeader(job, ps);
   // Technicians see revenue + payment but not the profit tile.
-  const canViewProfit = usePermissions().canViewProfit;
+  const permissions = usePermissions();
+  const canViewProfit = permissions.canViewProfit;
+  const { businessId } = useBrand();
   const isCompleted = job.status === 'Completed';
+  const unpaid = ps !== 'Paid' && ps !== 'Cancelled' && job.status !== 'Cancelled';
   const location =
     job.fullLocationLabel ||
     (job.city && job.state ? `${job.city}, ${job.state}` : job.city || job.area || '—');
@@ -143,6 +148,18 @@ export function JobSuccessPanel({
           <span className="action-ico"><IconHome /></span><span>Back to Dashboard</span>
         </button>
       </div>
+      {/* Take Payment with Zettle — only when still unpaid and Zettle is
+          connected. Charge in the Zettle app, then Sync auto-marks Paid. */}
+      {unpaid && settings.zettleConnected && businessId && (
+        <div className="card-anim" style={{ marginTop: 12 }}>
+          <TakePaymentButton
+            businessId={businessId}
+            connected={settings.zettleConnected}
+            amount={job.revenue}
+            canSync={permissions.canViewPaymentIntegrations}
+          />
+        </div>
+      )}
     </div>
   );
 }
