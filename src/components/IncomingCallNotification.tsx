@@ -323,6 +323,37 @@ function IncomingCallNotificationImpl({
     return () => unsub();
   }, [businessId]);
 
+  // Listen for the in-app "Fire Test Call" path. Clients can only write
+  // the camelCase `incomingCalls` collection (firestore.rules), so the
+  // Settings test button lands here — we treat it identically to a real
+  // ring so it exercises the actual popup end to end.
+  useEffect(() => {
+    if (!businessId) return;
+    const mountTime = mountTimeRef.current;
+    const q = query(
+      collection(requireDb(), 'businesses', businessId, 'incomingCalls'),
+      where('createdAt', '>', mountTime),
+      orderBy('createdAt', 'desc'),
+      limit(1),
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      if (snap.empty) return;
+      const docSnap = snap.docs[0];
+      const d = docSnap.data() as Record<string, unknown>;
+      const call: IncomingCallDoc = {
+        id: docSnap.id,
+        from: String(d.from ?? ''),
+        customerId: (d.customerId as string | null) ?? null,
+        customerExists: d.customerExists === true,
+      };
+      const createdAtMs = (d.createdAt as { toMillis?: () => number } | undefined)?.toMillis?.() ?? 0;
+      if (!shouldShowIncomingCall(call, mountTime.toMillis(), createdAtMs)) return;
+      if (call.from && dismissedPhonesRef.current.has(call.from)) return;
+      setActiveSource((prev) => prev ?? { kind: 'incoming_call', call });
+    });
+    return () => unsub();
+  }, [businessId]);
+
   // Resolve Customer for the active source
   useEffect(() => {
     if (!businessId || !activeSource) { setCustomer(null); return; }

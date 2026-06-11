@@ -94,38 +94,49 @@ function CommunicationsSettingsSectionImpl({
     setTestCallError(null);
     setTestCallStatus(null);
     try {
-      let snapshot: Array<{ customerId: string; name: string; phoneE164: string }> = [];
+      let from = '';
       let customerId: string | null = null;
+      let name = 'a new caller';
       if (variant === 'known') {
         const picked = customers.find(c => c.id === pickedId);
         if (!picked) {
           setTestCallError('Pick a customer first');
           return;
         }
-        snapshot = [{ customerId: picked.id, name: picked.name, phoneE164: picked.phoneE164 ?? '' }];
         customerId = picked.id;
+        name = picked.name;
+        // The popup resolves the customer by customerId, but it also needs
+        // a non-empty `from` to fire. Fall back to a synthetic number when
+        // the customer has no phone on file.
+        from = picked.phoneE164 || `+1555${String(Date.now()).slice(-7)}`;
+      } else {
+        // A number that won't match any customer → "Unknown caller" popup.
+        from = `+1555${String(Date.now()).slice(-7)}`;
       }
+      const now = Timestamp.now();
+      // NOTE: clients may only write the camelCase `incomingCalls` test
+      // collection (firestore.rules requires provider:'test'). The popup
+      // listens to BOTH this and the snake_case `incoming_calls` the Twilio
+      // webhook writes — so this exercises the real popup path end to end.
       await addDoc(
         collection(requireDb(), 'businesses', businessId, 'incomingCalls'),
         {
           provider: 'test',
           status: 'ringing',
-          customersSnapshot: snapshot,
-          additionalMatchesCount: 0,
+          from,
+          to: twilioPhoneNumber,
           customerId,
-          assignedToUid: null,
-          createdAt: Timestamp.now(),
+          customerExists: variant === 'known',
+          direction: 'inbound',
+          createdAt: now,
+          receivedAt: now,
         },
       );
-      setTestCallStatus(
-        variant === 'known'
-          ? `Synthetic call doc written for ${snapshot[0]?.name}. SP6 popup will fire when SP6 ships.`
-          : 'Synthetic NEW CALLER doc written. SP6 popup will fire when SP6 ships.',
-      );
+      setTestCallStatus(`Test call fired for ${name} — the popup should appear now.`);
     } catch (err) {
       setTestCallError(err instanceof Error ? err.message : String(err));
     }
-  }, [businessId, customers, pickedId]);
+  }, [businessId, customers, pickedId, twilioPhoneNumber]);
 
   return (
     <AccordionShell
