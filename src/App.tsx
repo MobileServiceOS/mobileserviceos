@@ -1922,7 +1922,7 @@ function AuthenticatedApp({ user }: { user: User }) {
       <InstallBanner />
       <UpdateBanner />
       <ToastHost />
-      {businessId && (
+      {businessId && settings.incomingCallLookupEnabled !== false && (
         <IncomingCallNotification
           onOpenCustomer={(cid) => { setSelectedCustomerId(cid); setTab('customerProfile'); }}
           // CustomerProfile is a single-page view (Service History is a

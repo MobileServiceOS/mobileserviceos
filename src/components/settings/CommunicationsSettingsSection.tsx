@@ -71,6 +71,7 @@ function CommunicationsSettingsSectionImpl({
   const [pickedId, setPickedId] = useState<string>('');
   const [testCallStatus, setTestCallStatus] = useState<string | null>(null);
   const [testCallError, setTestCallError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   // Load customers (sorted by lastJobAt desc, limit 50) for the
   // Test Incoming Call picker. Only fetches when the section is open.
@@ -162,30 +163,61 @@ function CommunicationsSettingsSectionImpl({
         </div>
       </div>
 
-      {/* Item 3: Connect summary — SP4 moved the active Connect flow into
-          the Missed Call Recovery accordion. This row is now a pointer,
-          not a form. */}
+      {/* Item 3: Twilio number — editable here. This is the number Twilio
+          SimRing forwards to; the incoming-call webhook matches calls to
+          your business by it. */}
       <div className="field" style={rowStyle}>
         <label>Twilio Number</label>
-        <div style={readOnlyStyle}>
-          {twilioConnected ? twilioPhoneNumber : 'Not set'}
+        <input
+          type="tel"
+          defaultValue={twilioPhoneNumber}
+          placeholder="+1 555 123 4567"
+          disabled={!canEdit}
+          onBlur={(e) => {
+            const v = e.target.value.trim();
+            if (v !== twilioPhoneNumber) void onSaveSettings({ twilioPhoneNumber: v });
+          }}
+          style={selectStyle}
+        />
+        <p style={helpStyle}>Your Twilio number (not your T-Mobile number). Used to match incoming calls to your business.</p>
+      </div>
+
+      {/* Item 3b: the webhook URL to paste into Twilio. */}
+      <div className="field" style={rowStyle}>
+        <label>Incoming-call webhook URL</label>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'stretch' }}>
+          <code style={{ ...readOnlyStyle, flex: 1, overflowX: 'auto', whiteSpace: 'nowrap', fontSize: 11 }}>{TWILIO_WEBHOOK_URL}</code>
+          <button
+            type="button" className="btn sm secondary"
+            onClick={() => {
+              void navigator.clipboard?.writeText(TWILIO_WEBHOOK_URL)
+                .then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); })
+                .catch(() => { /* clipboard blocked — user can select manually */ });
+            }}
+          >
+            {copied ? 'Copied' : 'Copy'}
+          </button>
         </div>
         <p style={helpStyle}>
-          {twilioConnected
-            ? 'Manage this number in the Missed Call Recovery section below.'
-            : 'Configure your Twilio number in the Missed Call Recovery section below.'}
+          Twilio Console → Phone Numbers → your number → Voice &amp; Fax → "A call comes in" → Webhook (HTTP POST).
         </p>
       </div>
 
       {/* Items 4-7: event toggles */}
-      <ToggleRow label="Enable incoming call lookup" checked={incomingCallLookupEnabled}
+      <ToggleRow label="Caller-ID popup on incoming calls"
+                 hint="Shows the caller's name, vehicle & history when the phone rings."
+                 checked={incomingCallLookupEnabled}
                  canEdit={canEdit} onChange={(v) => flip('incomingCallLookupEnabled', v)} />
-      <ToggleRow label="Enable incoming SMS logging" checked={incomingSMSLoggingEnabled}
+      <ToggleRow label="Incoming SMS logging"
+                 hint="Texting is turned off — no effect right now."
+                 checked={incomingSMSLoggingEnabled}
                  canEdit={canEdit} onChange={(v) => flip('incomingSMSLoggingEnabled', v)} />
-      <ToggleRow label="Enable missed-call auto text" hint="SP7 wires the rule engine"
+      <ToggleRow label="Missed-call auto text"
+                 hint="Texts callers you miss. Texting is turned off — no effect right now."
                  checked={missedCallAutoTextEnabled}
                  canEdit={canEdit} onChange={(v) => flip('missedCallAutoTextEnabled', v)} />
-      <ToggleRow label="Enable outbound SMS" hint="SP4 wires the sendSMS callable"
+      <ToggleRow label="Outbound SMS"
+                 hint="Texting is turned off — no effect right now."
                  checked={outboundSMSEnabled}
                  canEdit={canEdit} onChange={(v) => flip('outboundSMSEnabled', v)} />
 
@@ -201,8 +233,9 @@ function CommunicationsSettingsSectionImpl({
         <div className="field" style={{ ...rowStyle, borderTop: '1px solid var(--border, #2a2a2a)', paddingTop: 12 }}>
           <label style={{ fontWeight: 600, fontSize: 13 }}>Test Incoming Call</label>
           <p style={helpStyle}>
-            Writes a synthetic ringing-call doc to exercise the SP6 popup path
-            (works without Twilio being connected).
+            Fires the caller-ID popup with a test call so you can see it in
+            action — works without Twilio or T-Mobile set up. Keep this tab in
+            front; the popup appears over the app.
           </p>
           <select
             value={pickedId}
@@ -250,20 +283,34 @@ interface ToggleRowProps {
 }
 function ToggleRow({ label, hint, checked, canEdit, onChange }: ToggleRowProps) {
   return (
-    <div className="field" style={{ marginBottom: 8 }}>
-      <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: canEdit ? 'pointer' : 'not-allowed' }}>
+    <div style={{ marginBottom: 10 }}>
+      {/* justifyContent:flex-start + width:100% override the global
+          `label { justify-content: space-between }`, which otherwise
+          shoves the checkbox far-left and the text off-screen on mobile.
+          alignItems:flex-start + a wrapping span keep long labels readable
+          on narrow widths. */}
+      <label style={{
+        display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-start',
+        width: '100%', gap: 10, cursor: canEdit ? 'pointer' : 'not-allowed',
+        textTransform: 'none',
+      }}>
         <input
           type="checkbox"
           checked={checked}
           disabled={!canEdit}
           onChange={(e) => onChange(e.target.checked)}
+          style={{ flexShrink: 0, width: 18, height: 18, marginTop: 1 }}
         />
-        <span>{label}</span>
+        <span style={{ fontSize: 13, lineHeight: 1.35, color: 'var(--t1)' }}>
+          {label}
+          {hint && <span style={{ display: 'block', fontSize: 11, color: 'var(--t3)', marginTop: 2 }}>{hint}</span>}
+        </span>
       </label>
-      {hint && <p style={{ ...helpStyle, marginLeft: 24, marginTop: 2 }}>{hint}</p>}
     </div>
   );
 }
+
+const TWILIO_WEBHOOK_URL = 'https://us-central1-mobile-service-os.cloudfunctions.net/twilioIncomingCall';
 
 const rowStyle: CSSProperties = { marginBottom: 12 };
 const helpStyle: CSSProperties = { fontSize: 11, color: 'var(--t3)', marginTop: 4, marginBottom: 6 };
