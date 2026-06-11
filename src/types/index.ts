@@ -729,6 +729,11 @@ export interface Job {
   paymentStatus: PaymentStatus;
   /** ISO timestamp of when the job was marked Paid. Stamped by handleMarkPaid. */
   paidAt?: string;
+  /** Who collected the payment (the member who tapped Mark Paid). For
+   *  Zettle auto-matched payments this is left unset — the UI shows
+   *  "Zettle" from paymentSource. Owner/admin reporting only. */
+  collectedByUid?: string;
+  collectedByName?: string;
   invoiceGenerated: boolean;
   invoiceGeneratedAt?: string | null;
   invoiceNumber?: string | null;
