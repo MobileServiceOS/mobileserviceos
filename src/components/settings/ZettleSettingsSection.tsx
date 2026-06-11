@@ -173,6 +173,10 @@ function ZettleSettingsSectionImpl({ businessId, settings, open, onToggle, onSav
       const fn = httpsCallable<{ businessId: string; range: RangeKey }, ImportResult>(
         _getEmulatorAwareFunctions(),
         'importZettlePayments',
+        // A real back-fill paginates the Purchase API + matches each payment,
+        // which routinely exceeds the 70s default. Wait up to the function's
+        // own 9-minute budget so the result shows instead of deadline-exceeded.
+        { timeout: 540_000 },
       );
       const { data } = await fn({ businessId, range });
       setImportResult(data);
