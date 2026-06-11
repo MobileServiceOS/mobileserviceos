@@ -125,6 +125,8 @@ export function deserializeJob(raw: RawDoc): Job {
     // stripping these silently before, so even when handleMarkPaid
     // (or backup-import) wrote them, the UI never saw them.
     paidAt: raw.paidAt == null ? undefined : asString(raw.paidAt),
+    collectedByUid: raw.collectedByUid == null ? undefined : asString(raw.collectedByUid),
+    collectedByName: raw.collectedByName == null ? undefined : asString(raw.collectedByName),
     paymentMethod: raw.paymentMethod == null
       ? undefined
       : asEnum(raw.paymentMethod, VALID_PAYMENT_METHODS, 'other'),

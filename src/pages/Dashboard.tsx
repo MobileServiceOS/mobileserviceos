@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { Job, Settings, InventoryItem, QuoteForm, TabId, Expense } from '@/types';
+import type { Job, Settings, InventoryItem, QuoteForm, TabId, Expense, PaymentMethod } from '@/types';
+import { PAYMENT_METHOD_LABELS } from '@/types';
 import { QuickExpenseSheet } from '@/components/QuickExpenseSheet';
 import {
   calcQuote, clamp, fmtDate, fmtDateShort, getWeekStart,
@@ -1250,8 +1251,32 @@ function RecentJobCard({
               {money(pr)} profit
             </div>
             <span className={'pill ' + paymentPillClass(ps)} style={{ marginTop: 4 }}>{ps}</span>
+            {/* When paid: "Paid via X · time" (collect buttons hidden). */}
+            {ps === 'Paid' && (
+              <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 2, textAlign: 'right' }}>
+                {job.paymentSource === 'zettle'
+                  ? 'via Zettle'
+                  : job.paymentMethod
+                    ? `via ${PAYMENT_METHOD_LABELS[job.paymentMethod as PaymentMethod] ?? job.paymentMethod}`
+                    : ''}
+                {job.paidAt ? ` · ${new Date(job.paidAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : ''}
+              </div>
+            )}
           </div>
         </div>
+        {/* When unpaid: an explicit Collect Payment CTA (opens the job's
+            command center — method chips + Take Payment with Zettle).
+            The swipe gesture stays as the power-user shortcut. */}
+        {ps !== 'Paid' && ps !== 'Cancelled' && (
+          <button
+            type="button"
+            className="btn xs"
+            onClick={(e) => { e.stopPropagation(); onView(); }}
+            style={{ margin: '0 12px 12px', width: 'calc(100% - 24px)', fontWeight: 700 }}
+          >
+            Collect Payment
+          </button>
+        )}
       </div>
     </div>
   );

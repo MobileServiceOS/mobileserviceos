@@ -434,6 +434,9 @@ function AuthenticatedApp({ user }: { user: User }) {
   const [searchOpen, setSearchOpen] = useState(false);
   // SP3: permissions for the new Customer Hub + Profile RBAC gating.
   const { canViewFinancials, canEditBusinessSettings } = usePermissions();
+  // The current member — stamped onto a manually-collected payment so
+  // the job records WHO collected it (owner/admin reporting).
+  const { member: currentMember } = useMembership();
   // Bottom-sheet visibility for the "More" tab. Replaces the previous
   // behavior of routing the More button straight to Settings, since
   // owners also need access to Payouts, Expenses, and Customers —
@@ -1436,6 +1439,11 @@ function AuthenticatedApp({ user }: { user: User }) {
       // else whatever's already on the job; else the operator's last-used
       // method (History's quick Mark Paid passes no arg); else cash.
       paymentMethod: method || j.paymentMethod || getLastPaymentMethod() || 'cash',
+      // Record WHO collected — the member tapping Mark Paid. Preserve an
+      // existing collector (e.g. a "Change method" re-fire) rather than
+      // overwriting it. Zettle auto-matches don't pass through here.
+      collectedByUid: j.collectedByUid || user.uid,
+      collectedByName: j.collectedByName || currentMember?.displayName || user.displayName || user.email || 'Unknown',
     };
     // Local view of the post-write job — used for downstream
     // review-prompt logic. The WRITE is `patch` only.
