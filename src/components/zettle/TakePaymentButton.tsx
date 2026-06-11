@@ -29,6 +29,11 @@ interface Props {
   canSync: boolean;
   /** Fired after a successful sync so the parent can refresh the job. */
   onSynced?: (result: ZettleImportResult) => void;
+  /** Collapsed-button label. Defaults to "Take Payment with Zettle";
+   *  the card-method branch passes "Take Card Payment". */
+  label?: string;
+  /** Start expanded (the operator already chose Card → skip the collapse). */
+  startOpen?: boolean;
 }
 
 function fmtMoney(v: number | string): string {
@@ -36,8 +41,8 @@ function fmtMoney(v: number | string): string {
   return Number.isFinite(n) ? `$${n.toFixed(2)}` : String(v);
 }
 
-export function TakePaymentButton({ businessId, connected, amount, canSync, onSynced }: Props) {
-  const [open, setOpen] = useState(false);
+export function TakePaymentButton({ businessId, connected, amount, canSync, onSynced, label = 'Take Payment with Zettle', startOpen = false }: Props) {
+  const [open, setOpen] = useState(startOpen);
   const [syncing, setSyncing] = useState(false);
   const [result, setResult] = useState<ZettleImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -67,7 +72,7 @@ export function TakePaymentButton({ businessId, connected, amount, canSync, onSy
         onClick={() => setOpen(true)}
       >
         <span aria-hidden style={{ fontSize: 16 }}>💳</span>
-        Take Payment with Zettle
+        {label}
       </button>
     );
   }

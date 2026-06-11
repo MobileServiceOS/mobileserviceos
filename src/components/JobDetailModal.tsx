@@ -3,7 +3,6 @@ import type { Job, Settings, InventoryDeduction, PaymentMethod } from '@/types';
 import { useFocusTrap } from '@/lib/useFocusTrap';
 import { PAYMENT_METHOD_LABELS } from '@/types';
 import { fmtDate, jobGrossProfit, money, paymentPillClass, resolvePaymentStatus, travelCost } from '@/lib/utils';
-import { getLastPaymentMethod } from '@/lib/paymentMethodMemory';
 import { ServiceIcon } from '@/components/ServiceIcon';
 import { useActiveVertical } from '@/lib/useActiveVertical';
 import { useMembership } from '@/context/MembershipContext';
@@ -22,13 +21,12 @@ const IcoCopy     = () => <Svg><rect x="9" y="9" width="13" height="13" rx="2" /
 const IcoEdit     = () => <Svg><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z" /></Svg>;
 const IcoTrash    = () => <Svg><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></Svg>;
 const IcoCheck    = () => <Svg><polyline points="20 6 9 17 4 12" /></Svg>;
-const IcoDollar   = () => <Svg><line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></Svg>;
 const IcoBox      = () => <Svg><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /><polyline points="3.27 6.96 12 12.01 20.73 6.96" /><line x1="12" y1="22.08" x2="12" y2="12" /></Svg>;
 import { useBrand } from '@/context/BrandContext';
 import { useMembersDirectory } from '@/lib/useMembersDirectory';
 import { JobTimer } from '@/components/JobDetailModal/JobTimer';
 import { JobPhotoCapture } from '@/components/JobPhotoCapture';
-import { TakePaymentButton } from '@/components/zettle/TakePaymentButton';
+import { CollectPayment } from '@/components/payments/CollectPayment';
 import { ZettlePaymentBlock } from '@/components/zettle/ZettlePaymentBlock';
 
 interface Props {
@@ -81,10 +79,6 @@ export function JobDetailModal({
   // the recorded value rather than flipping back to cash.
   // Default to the job's own method if set, else the operator's last-used
   // method (memory), else cash — so a Zelle shop isn't re-tapping the chip
-  // on every job.
-  const [payMethod, setPayMethod] = useState<PaymentMethod>(
-    (job.paymentMethod as PaymentMethod | undefined) || getLastPaymentMethod() || 'cash',
-  );
   // Edit affordance for a paid job's method. Closed by default —
   // expands to a chip row when the operator taps "Change" next to
   // the timestamp. Fires onMarkPaid(method) which re-runs the same
@@ -155,39 +149,20 @@ export function JobDetailModal({
                 />
               )}
 
-              {/* 2 · Mark Paid (with method chips when unpaid) */}
+              {/* 2 · Collect Payment — the unpaid primary action. Choose a
+                  method, then Card (Zettle) routes to Take Card Payment
+                  (no manual mark-paid), everything else to Mark Paid. */}
               {isPaid ? (
                 <CmdDone label={`Paid${job.paymentMethod ? ` · ${PAYMENT_METHOD_LABELS[job.paymentMethod as PaymentMethod] ?? job.paymentMethod}` : ''}`} />
-              ) : (
-                <div>
-                  <div style={cmdChips}>
-                    {PAY_METHODS.map((m) => (
-                      <button
-                        key={m} type="button" onClick={() => setPayMethod(m)} aria-pressed={payMethod === m}
-                        style={cmdChip(payMethod === m)}
-                      >{PAYMENT_METHOD_LABELS[m]}</button>
-                    ))}
-                  </div>
-                  <CmdAction
-                    label={`Mark Paid · ${money(job.revenue)}`} sub={`via ${PAYMENT_METHOD_LABELS[payMethod]}`}
-                    icon={<IcoDollar />} tone="green"
-                    onClick={() => onMarkPaid(payMethod)}
-                  />
-                </div>
-              )}
-
-              {/* 2b · Take Payment with Zettle — only when still unpaid and
-                  the business has connected Zettle. Opens the Zettle app to
-                  charge, then Sync pulls the purchase in and the matcher
-                  auto-marks this job Paid. */}
-              {!isPaid && settings.zettleConnected && businessId && (
-                <TakePaymentButton
+              ) : businessId ? (
+                <CollectPayment
                   businessId={businessId}
-                  connected={settings.zettleConnected}
                   amount={job.revenue}
+                  zettleConnected={!!settings.zettleConnected}
                   canSync={permissions.canViewPaymentIntegrations}
+                  onMarkPaid={(m) => onMarkPaid(m)}
                 />
-              )}
+              ) : null}
 
               {/* 3 · Send Invoice (generates if needed, then texts it) */}
               {job.invoiceSent ? (
@@ -500,23 +475,10 @@ export function JobDetailModal({
 }
 
 // ─── Complete Job Command Center helpers ──────────────────────────────
-const PAY_METHODS: PaymentMethod[] = ['cash', 'card', 'zelle', 'venmo', 'cashapp', 'check', 'apple_pay', 'google_pay', 'other'];
-
 const cmdWrap: CSSProperties = {
   marginBottom: 14, padding: 12,
   background: 'var(--s2)', border: '1px solid var(--border)', borderRadius: 14,
 };
-const cmdChips: CSSProperties = { display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 };
-function cmdChip(on: boolean): CSSProperties {
-  return {
-    padding: '6px 10px', borderRadius: 8,
-    background: on ? 'rgba(34,197,94,.10)' : 'var(--s3)',
-    border: on ? '1px solid var(--green)' : '1px solid var(--border)',
-    color: on ? 'var(--green)' : 'var(--t2)',
-    fontSize: 11, fontWeight: on ? 700 : 600, cursor: 'pointer', lineHeight: 1.2,
-  };
-}
-
 /** A tappable command-center action row — icon + label/sub + chevron.
  *  `tone` raises it to a filled primary/green CTA; otherwise it's a
  *  bordered secondary row. Full-width + ≥56px tall for one-thumb use. */

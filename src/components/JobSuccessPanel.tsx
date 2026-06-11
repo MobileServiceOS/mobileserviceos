@@ -1,10 +1,10 @@
-import type { Job, Settings, Brand } from '@/types';
+import type { Job, Settings, Brand, PaymentMethod } from '@/types';
 import { jobGrossProfit, money, paymentPillClass, resolvePaymentStatus } from '@/lib/utils';
 import { addToast } from '@/lib/toast';
 import { usePermissions } from '@/context/MembershipContext';
 import { useBrand } from '@/context/BrandContext';
-import { TakePaymentButton } from '@/components/zettle/TakePaymentButton';
-import { IconDollar, IconInvoice, IconStar, IconEdit, IconEye, IconCopy, IconPlus, IconHome } from '@/components/ActionIcons';
+import { CollectPayment } from '@/components/payments/CollectPayment';
+import { IconInvoice, IconStar, IconEdit, IconEye, IconCopy, IconPlus, IconHome } from '@/components/ActionIcons';
 
 interface Props {
   job: Job;
@@ -16,7 +16,7 @@ interface Props {
   onViewJob: () => void;
   onDuplicate: () => void;
   onClose: () => void;
-  onMarkPaid: () => void;
+  onMarkPaid: (method?: PaymentMethod) => void;
   /** Start a fresh blank job — the continuous-flow path: log a
    *  job, see the success panel, one tap straight into the next. */
   onNewJob: () => void;
@@ -90,24 +90,20 @@ export function JobSuccessPanel({
           </div>
         </div>
       </div>
+      {/* Collect Payment — the primary action while unpaid. Choose a
+          method; Card (Zettle) → Take Card Payment, others → Mark Paid. */}
+      {unpaid && businessId && (
+        <div className="card card-anim" style={{ marginTop: 16, padding: 16 }}>
+          <CollectPayment
+            businessId={businessId}
+            amount={job.revenue}
+            zettleConnected={!!settings.zettleConnected}
+            canSync={permissions.canViewPaymentIntegrations}
+            onMarkPaid={(m) => onMarkPaid(m)}
+          />
+        </div>
+      )}
       <div className="action-grid card-anim">
-        {/* Mark Paid — first action when payment is outstanding.
-            Spans both columns. One tap = paid. */}
-        {ps !== 'Paid' && ps !== 'Cancelled' && job.status !== 'Cancelled' && (
-          <button
-            className="action-btn wide"
-            onClick={onMarkPaid}
-            style={{
-              background: 'linear-gradient(135deg, var(--green) 0%, #16a34a 100%)',
-              color: '#fff',
-              border: 'none',
-              boxShadow: '0 6px 20px rgba(34,197,94,.25)',
-            }}
-          >
-            <span className="action-ico"><IconDollar /></span>
-            <span style={{ fontWeight: 800 }}>Mark Paid · {money(job.revenue)}</span>
-          </button>
-        )}
         {isCompleted ? (
           <>
             <button className="action-btn" onClick={onGenerateInvoice}>
@@ -148,18 +144,6 @@ export function JobSuccessPanel({
           <span className="action-ico"><IconHome /></span><span>Back to Dashboard</span>
         </button>
       </div>
-      {/* Take Payment with Zettle — only when still unpaid and Zettle is
-          connected. Charge in the Zettle app, then Sync auto-marks Paid. */}
-      {unpaid && settings.zettleConnected && businessId && (
-        <div className="card-anim" style={{ marginTop: 12 }}>
-          <TakePaymentButton
-            businessId={businessId}
-            connected={settings.zettleConnected}
-            amount={job.revenue}
-            canSync={permissions.canViewPaymentIntegrations}
-          />
-        </div>
-      )}
     </div>
   );
 }
