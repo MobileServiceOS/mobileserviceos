@@ -254,8 +254,7 @@ function sourceId(s: PopupSource): string {
 // ─── Component ─────────────────────────────────────────────────────
 
 function IncomingCallNotificationImpl({
-  onOpenCustomer, onOpenCustomerHistory, onCreateNewJob,
-  onCreateCustomer, onCreateLead,
+  onOpenCustomerHistory, onCreateNewJob, onCreateLead,
 }: Props): JSX.Element | null {
   const { businessId } = useBrand();
   // Tech-safety: technicians (canViewFinancials = false) see the customer
@@ -501,20 +500,12 @@ function IncomingCallNotificationImpl({
   };
 
   const cid = sourceCustomerId(activeSource);
-  const handleOpenCustomer = (): void => {
-    if (cid) onOpenCustomer(cid);
-    handleDismiss();
-  };
   const handleOpenHistory = (): void => {
     if (cid) onOpenCustomerHistory(cid);
     handleDismiss();
   };
   const handleCreateNewJob = (): void => {
     if (phoneRaw) onCreateNewJob(phoneRaw);
-    handleDismiss();
-  };
-  const handleCreateCustomer = (): void => {
-    if (phoneRaw) onCreateCustomer(phoneRaw);
     handleDismiss();
   };
   const handleCreateLead = (): void => {
@@ -580,7 +571,7 @@ function IncomingCallNotificationImpl({
             {vehicleLabel && <Row label="Vehicle" value={vehicleLabel} />}
             {tireSize     && <Row label="Tire Size" value={tireSize} />}
             {lastService  && <Row label="Last Service:" value={lastService} />}
-            {lastJobDate  && <Row label="Last Job:" value={lastJobDate} />}
+            {lastJobDate  && <Row label="Last Service Date:" value={lastJobDate} />}
             {cityState    && <RowPlain value={cityState} />}
             {/* Financials are owner/admin-only — hidden from technicians. */}
             {canViewFinancials && <Row label="Lifetime Spend:" value={money(lifetimeSpend)} />}
@@ -614,24 +605,21 @@ function IncomingCallNotificationImpl({
         <div style={actionRow}>
           {isKnown && cid && (
             <>
-              <button type="button" className="btn primary" onClick={handleOpenCustomer}>
-                Open Customer
+              <button type="button" className="btn primary" onClick={handleCreateNewJob} disabled={!phoneRaw}>
+                Create Job
               </button>
               <button type="button" className="btn secondary" onClick={handleOpenHistory}>
-                Open History
-              </button>
-              <button type="button" className="btn secondary" onClick={handleCreateNewJob} disabled={!phoneRaw}>
-                Create New Job
+                View History
               </button>
             </>
           )}
           {!isKnown && (
             <>
-              <button type="button" className="btn primary" onClick={handleCreateCustomer} disabled={!phoneRaw}>
-                Create Customer
-              </button>
-              <button type="button" className="btn secondary" onClick={handleCreateLead} disabled={!phoneRaw}>
+              <button type="button" className="btn primary" onClick={handleCreateLead} disabled={!phoneRaw}>
                 Create Lead
+              </button>
+              <button type="button" className="btn secondary" onClick={handleCreateNewJob} disabled={!phoneRaw}>
+                Create Job
               </button>
             </>
           )}

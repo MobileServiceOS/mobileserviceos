@@ -1165,6 +1165,11 @@ export interface Settings {
   communicationProvider?: 'twilio';
   /** Per-business Twilio connect status. Default false. */
   twilioConnected?: boolean;
+  /** Front-door answer number (E.164). Twilio <Dial>s this after the popup
+   *  fires. MUST be a SEPARATE line from the forwarded business number — a
+   *  2nd eSIM on the operator's phone — or the forward-all loops back to
+   *  Twilio. Empty ⇒ Twilio drops the leg after the popup (no bridge). */
+  callForwardNumber?: string;
   /** Voice webhook customer-lookup gate. Default true. */
   incomingCallLookupEnabled?: boolean;
   /** SMS webhook logging gate. Default true. */

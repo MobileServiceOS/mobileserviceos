@@ -58,6 +58,7 @@ function CommunicationsSettingsSectionImpl({
   // from the canonical signal instead. Mirrors the pattern landed in
   // MissedCallRecoverySection.tsx (commit a903201).
   const twilioPhoneNumber           = settings.twilioPhoneNumber?.trim() ?? '';
+  const callForwardNumber           = settings.callForwardNumber?.trim() ?? '';
   // Twilio is disconnected in-app (TWILIO_ENABLED=false): report "Not
   // connected" regardless of any saved number, since nothing routes
   // through Twilio. Flip the flag to restore the number-derived status.
@@ -180,6 +181,27 @@ function CommunicationsSettingsSectionImpl({
           style={selectStyle}
         />
         <p style={helpStyle}>Your Twilio number (not your T-Mobile number). Used to match incoming calls to your business.</p>
+      </div>
+
+      {/* Forward-to (answer) number — Twilio <Dial>s this after the popup. */}
+      <div className="field" style={rowStyle}>
+        <label>Forward calls to</label>
+        <input
+          type="tel"
+          defaultValue={callForwardNumber}
+          placeholder="+1 555 987 6543"
+          disabled={!canEdit}
+          onBlur={(e) => {
+            const v = e.target.value.trim();
+            if (v !== callForwardNumber) void onSaveSettings({ callForwardNumber: v });
+          }}
+          style={selectStyle}
+        />
+        <p style={helpStyle}>
+          The number you answer on — must be a <strong>different line</strong> than your
+          business number (e.g. a 2nd eSIM on your phone). Dialing the forwarded business
+          number would loop. Leave blank to show the popup without bridging the call.
+        </p>
       </div>
 
       {/* Item 3b: the webhook URL to paste into Twilio. */}
