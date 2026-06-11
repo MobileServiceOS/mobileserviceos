@@ -64,9 +64,6 @@ function CommunicationsSettingsSectionImpl({
   // through Twilio. Flip the flag to restore the number-derived status.
   const twilioConnected             = TWILIO_ENABLED && !!twilioPhoneNumber;
   const incomingCallLookupEnabled   = settings.incomingCallLookupEnabled ?? true;
-  const incomingSMSLoggingEnabled   = settings.incomingSMSLoggingEnabled ?? true;
-  const missedCallAutoTextEnabled   = settings.missedCallAutoTextEnabled ?? false;
-  const outboundSMSEnabled          = settings.outboundSMSEnabled ?? true;
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [pickedId, setPickedId] = useState<string>('');
@@ -225,23 +222,13 @@ function CommunicationsSettingsSectionImpl({
         </p>
       </div>
 
-      {/* Items 4-7: event toggles */}
+      {/* Event toggles. Only the caller-ID popup is wired today; the SMS
+          toggles (incoming logging / outbound) were never read by anything,
+          so they're removed rather than left as switches that do nothing. */}
       <ToggleRow label="Caller-ID popup on incoming calls"
                  hint="Shows the caller's name, vehicle & history when the phone rings."
                  checked={incomingCallLookupEnabled}
                  canEdit={canEdit} onChange={(v) => flip('incomingCallLookupEnabled', v)} />
-      <ToggleRow label="Incoming SMS logging"
-                 hint="Texting is turned off — no effect right now."
-                 checked={incomingSMSLoggingEnabled}
-                 canEdit={canEdit} onChange={(v) => flip('incomingSMSLoggingEnabled', v)} />
-      <ToggleRow label="Missed-call auto text"
-                 hint="Texts callers you miss. Texting is turned off — no effect right now."
-                 checked={missedCallAutoTextEnabled}
-                 canEdit={canEdit} onChange={(v) => flip('missedCallAutoTextEnabled', v)} />
-      <ToggleRow label="Outbound SMS"
-                 hint="Texting is turned off — no effect right now."
-                 checked={outboundSMSEnabled}
-                 canEdit={canEdit} onChange={(v) => flip('outboundSMSEnabled', v)} />
 
       {/* Item 8: cross-link to Customer Directory section */}
       <div className="field" style={rowStyle}>

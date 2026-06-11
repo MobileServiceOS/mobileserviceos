@@ -301,10 +301,12 @@ function HistoryJobCard({
   isSelected?: boolean;
   onToggleSelect?: () => void;
 }) {
-  const pr = jobGrossProfit(job, settings);
   const ps = resolvePaymentStatus(job);
-  // Technicians see revenue but not the per-job profit line.
+  // Technicians see revenue but not the per-job profit line. Don't even
+  // compute profit for them — keeps the cost-derived figure out of the
+  // tech's client entirely (defense in depth alongside the UI gate).
   const canViewProfit = usePermissions().canViewProfit;
+  const pr = canViewProfit ? jobGrossProfit(job, settings) : 0;
   const lp = useLongPress(onLongPress);
 
   // Swipe-to-mark-paid (power-user shortcut). Disabled while selecting

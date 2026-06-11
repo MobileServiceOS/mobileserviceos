@@ -1425,7 +1425,7 @@ function AuthenticatedApp({ user }: { user: User }) {
       // existing collector (e.g. a "Change method" re-fire) rather than
       // overwriting it. Zettle auto-matches don't pass through here.
       collectedByUid: j.collectedByUid || user.uid,
-      collectedByName: j.collectedByName || currentMember?.displayName || user.displayName || user.email || 'Unknown',
+      collectedByName: j.collectedByName || currentMember?.displayName || user.displayName || user.email || 'Team member',
     };
     // Local view of the post-write job — used for downstream
     // review-prompt logic. The WRITE is `patch` only.
@@ -1924,27 +1924,14 @@ function AuthenticatedApp({ user }: { user: User }) {
       <ToastHost />
       {businessId && settings.incomingCallLookupEnabled !== false && (
         <IncomingCallNotification
-          onOpenCustomer={(cid) => { setSelectedCustomerId(cid); setTab('customerProfile'); }}
-          // CustomerProfile is a single-page view (Service History is a
-          // section, not a tab). Open Customer + Open History resolve
-          // to the same route today — the latter scrolls/focuses into
-          // the history section once tab-aware navigation lands. The
-          // separation is preserved at the API boundary so a future
-          // CustomerProfile refactor can implement deep-link behavior
-          // without re-touching this callsite.
+          // CustomerProfile is a single-page view — View History opens the
+          // customer profile (history is a section there).
           onOpenCustomerHistory={(cid) => { setSelectedCustomerId(cid); setTab('customerProfile'); }}
           onCreateNewJob={(phoneE164) => {
             // Pre-fill the AddJob phone field. CustomerLookupCard
             // detects the populated phone on mount and auto-resolves
             // the customer if one exists — same path Leads → Create
             // Job uses.
-            setJobDraft({ ...EMPTY_JOB(), customerPhone: phoneE164 } as Job);
-            setTab('add');
-          }}
-          onCreateCustomer={(phoneE164) => {
-            // Same path as "no record on file" — Add Job is the
-            // customer-creation surface (saveJob upserts the Customer
-            // doc). Pre-fill phone so the operator types name first.
             setJobDraft({ ...EMPTY_JOB(), customerPhone: phoneE164 } as Job);
             setTab('add');
           }}

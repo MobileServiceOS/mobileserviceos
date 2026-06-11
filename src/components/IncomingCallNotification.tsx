@@ -75,10 +75,8 @@ import type { Customer, Vehicle } from '@/lib/customerEntity';
 import type { Job, Lead } from '@/types';
 
 interface Props {
-  onOpenCustomer: (customerId: string) => void;
   onOpenCustomerHistory: (customerId: string) => void;
   onCreateNewJob: (phoneE164: string) => void;
-  onCreateCustomer: (phoneE164: string) => void;
   onCreateLead: (phoneE164: string) => void;
 }
 
