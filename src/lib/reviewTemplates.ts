@@ -580,21 +580,35 @@ const BUCKETS: Record<TemplateBucket, Variant[]> = {
 //  Context resolution — applies all the fallback rules in one place.
 // ─────────────────────────────────────────────────────────────────────
 
+// Placeholder "names" that get written when a job/customer has no real
+// name (see customers.ts / customerEntity.ts / the unknown-caller path).
+// These must NEVER be addressed as a first name — fall back to "there".
+const PLACEHOLDER_NAMES = new Set([
+  'unknown', 'unknown caller', 'unknown customer', 'unnamed', 'no name',
+  'customer', 'guest', 'n/a', 'na', 'none', 'null', 'undefined', 'test',
+]);
+function isPlaceholderName(s: string): boolean {
+  return PLACEHOLDER_NAMES.has(s.trim().toLowerCase());
+}
+
 function resolveContext(opts: ReviewMessageOptions): TplContext {
   // Customer name — first word only (most reviewers expect first-name
   // address). If the value contains an email or numeric junk, fall
   // back to "there".
   const rawName = (opts.customerName || '').trim();
   let name = 'there';
-  if (rawName) {
+  if (rawName && !isPlaceholderName(rawName)) {
     const first = rawName.split(/\s+/)[0];
     // Reject obvious non-name values (emails, all digits, very long
-    // strings) — these would feel weird in a casual greeting.
+    // strings, placeholder labels) — these would read wrong in a
+    // greeting. Anything rejected leaves the clean "there" fallback,
+    // so the message never addresses a customer as "Unknown".
     if (
       first &&
       first.length <= 30 &&
       !/[@\d]/.test(first) &&
-      /[A-Za-z]/.test(first)
+      /[A-Za-z]/.test(first) &&
+      !isPlaceholderName(first)
     ) {
       name = first;
     }
