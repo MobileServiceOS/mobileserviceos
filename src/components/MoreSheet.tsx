@@ -2,7 +2,7 @@ import { useEffect, type ReactNode } from 'react';
 import type { TabId } from '@/types';
 import { usePermissions } from '@/context/MembershipContext';
 import { useFocusTrap } from '@/lib/useFocusTrap';
-import { IconWallet, IconDollar, IconChart, IconHelp, IconGear } from '@/components/ActionIcons';
+import { IconWallet, IconDollar, IconChart, IconHelp, IconGear, IconInvoice } from '@/components/ActionIcons';
 
 // ─────────────────────────────────────────────────────────────────────
 //  MoreSheet — bottom-anchored menu opened from the "More" nav button.
@@ -66,6 +66,13 @@ export function MoreSheet({ onClose, onPick }: Props) {
       icon: <IconWallet />,
       hint: 'Weekly distributable · owner splits · 8-week history',
       visible: permissions.canManageBilling,
+    },
+    {
+      id: 'payments',
+      label: 'Payments',
+      icon: <IconInvoice />,
+      hint: 'Zettle sales · matched/unmatched · review queue',
+      visible: permissions.canViewPaymentIntegrations,
     },
     {
       id: 'expenses',

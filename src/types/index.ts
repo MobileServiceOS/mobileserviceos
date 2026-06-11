@@ -64,6 +64,7 @@ export type TabId =
   | 'customerProfile'
   | 'insights'
   | 'payouts'
+  | 'payments'
   | 'expenses'
   | 'inventory'
   | 'settings'
