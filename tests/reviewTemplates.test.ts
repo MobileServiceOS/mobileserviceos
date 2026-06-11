@@ -89,6 +89,15 @@ section('NAME FALLBACKS');
   });
   check('digit-prefixed name rejected', !digits.includes('123'));
 
+  // Placeholder names must NEVER be addressed as a real first name —
+  // "Hi Unknown" / "Hi Unknown caller" reads as unprofessional.
+  for (const ph of ['Unknown', 'unknown', 'Unknown caller', 'Customer', 'Guest']) {
+    const m = buildReviewMessage({ customerName: ph, businessName: 'Biz', reviewUrl: 'u' });
+    check(`placeholder name "${ph}" rejected → "there" fallback`,
+      !/unknown|guest/i.test(m) && !new RegExp(`\\b${ph}\\b`).test(m) && /\bthere[,.]/i.test(m),
+      `got: ${m}`);
+  }
+
   const firstNameOnly = buildReviewMessage({
     customerName: 'Maria Garcia',
     businessName: 'Biz',
