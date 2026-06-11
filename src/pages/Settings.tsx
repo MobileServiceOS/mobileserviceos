@@ -14,6 +14,7 @@ import { CommunicationsSettingsSection } from '@/components/settings/Communicati
 import { ReviewAutomationSection } from '@/components/settings/ReviewAutomationSection';
 import { MissedCallRecoverySection } from '@/components/settings/MissedCallRecoverySection';
 import { ZettleSettingsSection } from '@/components/settings/ZettleSettingsSection';
+import { ZETTLE_ENABLED } from '@/lib/zettleEnabled';
 import { OwnersAccordion } from '@/components/settings/OwnersSection';
 import { PricingAccordion } from '@/components/settings/PricingSection';
 import { VehicleAddonsAccordion } from '@/components/settings/VehiclePricingSection';
@@ -255,7 +256,7 @@ export function Settings({ settings, onSave }: Props) {
       {/* PayPal Zettle — connect a Zettle account to auto-import card
           payments, match them to jobs, and mark paid. Owner/admin only.
           Ships dormant until the Zettle app secrets are set server-side. */}
-      {canSeePaymentIntegrations && businessId && (
+      {ZETTLE_ENABLED && canSeePaymentIntegrations && businessId && (
         <ZettleSettingsSection
           businessId={businessId}
           settings={settings}
