@@ -44,25 +44,30 @@ export function emulatorAwareFunctions() {
 }
 
 /**
- * Best-effort app-switch to Zettle Go so the operator can charge the card.
- * There is no public deep link that pre-fills an amount, so we just open
- * the app (the operator types the amount). Returns false when we can't
- * launch it (e.g. desktop) so the caller can show the manual instruction.
+ * A VALID https URL for opening Zettle. We deliberately do NOT use the
+ * `izettle://` custom scheme: from a PWA that throws Safari's
+ * "address is invalid" error when the app isn't installed/registered.
+ * Zettle also has no public deep link that pre-fills a charge amount, so
+ * the operator opens Zettle, charges manually, returns, and taps Sync.
+ *
+ * On a phone the platform store link hands off to the installed app /
+ * its listing; on desktop it opens the Zettle web portal. Either way it
+ * is a real https URL, so it never errors.
  */
-export function openZettleApp(): boolean {
-  if (typeof window === 'undefined') return false;
-  const ua = window.navigator.userAgent || '';
-  const isMobile = /iphone|ipad|ipod|android/i.test(ua);
-  if (!isMobile) return false;
-  // Zettle Go registers the izettle:// scheme on both platforms. If the
-  // app isn't installed the navigation simply no-ops; the caller's
-  // fallback copy ("Take payment in the Zettle app, then sync") covers it.
-  try {
-    window.location.href = 'izettle://';
-    return true;
-  } catch {
-    return false;
+export function zettleAppUrl(): string {
+  if (typeof navigator !== 'undefined') {
+    const ua = navigator.userAgent || '';
+    if (/android/i.test(ua)) return 'https://play.google.com/store/apps/details?id=com.izettle.android';
+    if (/iphone|ipad|ipod/i.test(ua)) return 'https://apps.apple.com/app/id920305846';
   }
+  return 'https://my.zettle.com';
+}
+
+/** Open Zettle in a new tab/window via a valid https URL (no custom
+ *  scheme, so no Safari "invalid address" error). */
+export function openZettle(): void {
+  if (typeof window === 'undefined') return;
+  window.open(zettleAppUrl(), '_blank', 'noopener,noreferrer');
 }
 
 /**

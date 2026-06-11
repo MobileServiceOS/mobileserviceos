@@ -68,7 +68,7 @@ function deserializeReservations(v: unknown): ReservedSlot[] | undefined {
 }
 
 const VALID_STATUSES: JobStatus[] = ['Completed', 'Pending', 'Cancelled'];
-const VALID_PAYMENT_STATUSES: PaymentStatus[] = ['Paid', 'Pending Payment', 'Partial Payment', 'Cancelled'];
+const VALID_PAYMENT_STATUSES: PaymentStatus[] = ['Paid', 'Pending Payment', 'Partial Payment', 'Refunded', 'Cancelled'];
 const VALID_PAYMENT_METHODS: PaymentMethod[] = ['cash', 'card', 'zelle', 'venmo', 'cashapp', 'check', 'apple_pay', 'google_pay', 'other'];
 const VALID_TIRE_SOURCES: TireSource[] = ['Inventory', 'Bought for this job', 'Customer supplied'];
 

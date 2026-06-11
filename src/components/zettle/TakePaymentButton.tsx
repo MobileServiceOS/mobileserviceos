@@ -17,7 +17,7 @@
 // ═══════════════════════════════════════════════════════════════════
 
 import { useState, useCallback } from 'react';
-import { openZettleApp, syncZettlePayments, type ZettleImportResult } from '@/lib/zettleTakePayment';
+import { openZettle, syncZettlePayments, type ZettleImportResult } from '@/lib/zettleTakePayment';
 
 interface Props {
   businessId: string;
@@ -38,17 +38,9 @@ function fmtMoney(v: number | string): string {
 
 export function TakePaymentButton({ businessId, connected, amount, canSync, onSynced }: Props) {
   const [open, setOpen] = useState(false);
-  const [appOpened, setAppOpened] = useState(false);
-  const [showManual, setShowManual] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [result, setResult] = useState<ZettleImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  const onOpenApp = useCallback(() => {
-    const launched = openZettleApp();
-    setAppOpened(launched);
-    setShowManual(!launched); // desktop / app not installed → show instruction
-  }, []);
 
   const onSync = useCallback(async () => {
     setSyncing(true);
@@ -82,52 +74,55 @@ export function TakePaymentButton({ businessId, connected, amount, canSync, onSy
 
   return (
     <div style={panel}>
-      {/* Step 1 — charge in the Zettle app */}
-      <div style={step}>
-        <div style={stepNum}>1</div>
-        <div style={{ flex: 1 }}>
-          <div style={stepTitle}>Charge {fmtMoney(amount)} in Zettle</div>
-          <button type="button" className="btn" style={btnLine} onClick={onOpenApp}>
-            Open Zettle app
+      {/* Step 1 — open Zettle (valid https; never a Safari error) */}
+      <Step n={1} title={`Open Zettle and charge ${fmtMoney(amount)}`}>
+        <button type="button" className="btn" style={btnLine} onClick={openZettle}>
+          Open Zettle
+        </button>
+      </Step>
+
+      {/* Step 2 — collect in Zettle */}
+      <Step n={2} title="Collect the payment in Zettle" />
+
+      {/* Step 3 — back to MSOS */}
+      <Step n={3} title="Return to MSOS" />
+
+      {/* Step 4 — sync (owner/admin only); 5+6 happen automatically */}
+      {canSync ? (
+        <Step n={4} title="Sync Zettle Payments">
+          <button type="button" className="btn" style={btnLine} disabled={syncing} onClick={onSync}>
+            {syncing ? 'Syncing…' : 'Sync Zettle Payments'}
           </button>
-          {appOpened && (
-            <div style={hint}>Opened Zettle — take the payment, then come back and Sync.</div>
-          )}
-          {showManual && (
-            <div style={hint}>
-              Take the payment in the Zettle app, then tap Sync below to pull it in.
+          <div style={hint}>The payment auto-matches to this job and marks it Paid.</div>
+          {result && (
+            <div style={{ ...hint, color: 'var(--brand-primary)' }}>
+              Synced · {result.imported} imported · {result.matched} matched · {result.review} need review.
             </div>
           )}
-        </div>
-      </div>
-
-      {/* Step 2 — sync (owner/admin only) */}
-      {canSync ? (
-        <div style={step}>
-          <div style={stepNum}>2</div>
-          <div style={{ flex: 1 }}>
-            <div style={stepTitle}>Sync the payment</div>
-            <button type="button" className="btn" style={btnLine} disabled={syncing} onClick={onSync}>
-              {syncing ? 'Syncing…' : 'Sync Zettle Payments'}
-            </button>
-            {result && (
-              <div style={{ ...hint, color: 'var(--brand-primary)' }}>
-                Synced · {result.imported} imported · {result.matched} matched · {result.review} need review.
-                {result.matched > 0 ? ' Paid jobs update automatically.' : ''}
-              </div>
-            )}
-            {error && <div style={{ ...hint, color: 'var(--danger, #c0392b)' }}>{error}</div>}
-          </div>
-        </div>
+          {error && <div style={{ ...hint, color: 'var(--danger, #c0392b)' }}>{error}</div>}
+        </Step>
       ) : (
         <div style={hint}>
-          Take the payment in the Zettle app — it'll be matched to this job automatically.
+          After you collect in Zettle, the owner's next Sync (or the real-time
+          feed) matches it to this job and marks it Paid automatically.
         </div>
       )}
 
       <button type="button" className="btn-text" style={dismiss} onClick={() => setOpen(false)}>
         Done
       </button>
+    </div>
+  );
+}
+
+function Step({ n, title, children }: { n: number; title: string; children?: React.ReactNode }) {
+  return (
+    <div style={step}>
+      <div style={stepNum}>{n}</div>
+      <div style={{ flex: 1 }}>
+        <div style={stepTitle}>{title}</div>
+        {children}
+      </div>
     </div>
   );
 }

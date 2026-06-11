@@ -1418,12 +1418,13 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
             ))}
           </div>
         </div>
-        {/* Batch C (2026-06-05): Job Status + Payment Status default
-            collapsed. The vast majority of jobs are logged as
-            "Completed · Paid" (the EMPTY_JOB defaults), so showing a
-            7-chip stack at all times wasted scroll on the rare edit.
-            Tap the summary row to expand both editors inline. Once
-            expanded, they stay open for the form's lifetime. */}
+        {/* Job Status + Payment Status default collapsed to a summary
+            row. New jobs are born "Completed · Pending Payment" (the
+            EMPTY_JOB defaults) — the operator collects payment as a
+            deliberate step afterward, OR expands here to mark it Paid +
+            pick a method on the spot. Tap the summary to expand both
+            editors inline; once expanded they stay open for the form's
+            lifetime. */}
         {!statusExpanded ? (
           <button
             type="button"
