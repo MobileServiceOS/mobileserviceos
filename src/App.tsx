@@ -361,11 +361,11 @@ function PayoutsGate({ jobs, settings }: { jobs: Job[]; settings: SettingsT }) {
 /** Payments (Zettle) tab gate — owner / admin only. The page reads the
  *  owner/admin-only zettleSecure collection; techs are blocked here and
  *  by firestore.rules. */
-function PaymentsGate({ settings }: { settings: SettingsT }) {
+function PaymentsGate({ jobs, settings }: { jobs: Job[]; settings: SettingsT }) {
   const { canViewPaymentIntegrations } = usePermissions();
   return (
     <PermissionGate title="Payments" granted={canViewPaymentIntegrations}>
-      <PaymentsDashboard workWeekStartDay={settings.workWeekStartDay} />
+      <PaymentsDashboard jobs={jobs} workWeekStartDay={settings.workWeekStartDay} />
     </PermissionGate>
   );
 }
@@ -1692,7 +1692,7 @@ function AuthenticatedApp({ user }: { user: User }) {
     );
     if (tab === 'insights') return <InsightsGate jobs={jobs} settings={settings} />;
     if (tab === 'payouts') return <PayoutsGate jobs={jobs} settings={settings} />;
-    if (tab === 'payments') return <PaymentsGate settings={settings} />;
+    if (tab === 'payments') return <PaymentsGate jobs={jobs} settings={settings} />;
     if (tab === 'expenses') return <ExpensesGate expenses={settings.expenses || []} jobs={jobs} settings={settings} onSave={persistExpenses} />;
     if (tab === 'inventory') return <Inventory inventory={inventory} onSave={persistInventory} settings={settings} jobs={jobs} />;
     if (tab === 'settings') return <Settings settings={settings} onSave={persistSettings} />;
