@@ -29,6 +29,7 @@ import { useMembersDirectory } from '@/lib/useMembersDirectory';
 import { JobTimer } from '@/components/JobDetailModal/JobTimer';
 import { JobPhotoCapture } from '@/components/JobPhotoCapture';
 import { TakePaymentButton } from '@/components/zettle/TakePaymentButton';
+import { ZettlePaymentBlock } from '@/components/zettle/ZettlePaymentBlock';
 
 interface Props {
   job: Job;
@@ -215,6 +216,17 @@ export function JobDetailModal({
                 )
               )}
             </div>
+          )}
+
+          {/* Zettle payment status — renders only for jobs paid via
+              Zettle. Tech-safe summary (amount/date/matched) for everyone;
+              transaction id / fees / confidence gated to owner/admin. */}
+          {job.paymentSource === 'zettle' && businessId && (
+            <ZettlePaymentBlock
+              businessId={businessId}
+              job={job}
+              canViewDetails={permissions.canViewPaymentIntegrations}
+            />
           )}
 
           {/* Cost breakdown. Technicians (canViewProfit false) see a
