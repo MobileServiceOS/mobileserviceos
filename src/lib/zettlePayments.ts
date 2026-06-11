@@ -86,6 +86,50 @@ export async function listZettleReviewQueue(businessId: string): Promise<ZettleR
   }
 }
 
+// ── Payments dashboard (owner/admin reads; rule-gated) ───────────────
+
+/** Lean payment row for dashboard aggregation. Deliberately omits the
+ *  sensitive map/location fields — the dashboard only needs money, time,
+ *  match state, and payment method. */
+export interface ZettlePaymentRow {
+  id: string;
+  amount: number;
+  timestamp: string;
+  jobId: string | null;
+  matchConfidence: 'high' | 'low' | 'none' | string;
+  cardBrand: string | null;
+  paymentType: string | null;
+  feeAmount: number | null;
+  netAmount: number | null;
+}
+
+/** All imported Zettle payments for the business, newest first. Returns
+ *  [] for technicians (their read of zettleSecure is denied) or on any
+ *  failure — the dashboard is owner/admin-only, gated upstream too. */
+export async function listZettlePayments(businessId: string): Promise<ZettlePaymentRow[]> {
+  try {
+    const snap = await getDocs(collection(requireDb(), `zettleSecure/${businessId}/payments`));
+    return snap.docs
+      .map((d) => {
+        const v = d.data() as Record<string, unknown>;
+        return {
+          id: String(v.id ?? d.id),
+          amount: Number(v.amount ?? 0),
+          timestamp: String(v.timestamp ?? ''),
+          jobId: (v.jobId as string | null) ?? null,
+          matchConfidence: String(v.matchConfidence ?? 'none'),
+          cardBrand: (v.cardBrand as string | null) ?? null,
+          paymentType: (v.paymentType as string | null) ?? null,
+          feeAmount: v.feeAmount == null ? null : Number(v.feeAmount),
+          netAmount: v.netAmount == null ? null : Number(v.netAmount),
+        };
+      })
+      .sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1));
+  } catch {
+    return [];
+  }
+}
+
 export interface JobBrief { id: string; customerName: string; revenue: number | string; date: string }
 
 /** Minimal job info for rendering review candidates (owner reads jobs). */

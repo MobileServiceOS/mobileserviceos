@@ -44,6 +44,7 @@ const CustomerProfile = lazy(() => import('@/pages/CustomerProfile'));
 const Leads = lazy(() => import('@/pages/Leads'));
 const Insights  = lazy(() => import('@/pages/Insights').then((m)  => ({ default: m.Insights })));
 const Payouts   = lazy(() => import('@/pages/Payouts').then((m)   => ({ default: m.Payouts })));
+const PaymentsDashboard = lazy(() => import('@/pages/PaymentsDashboard').then((m) => ({ default: m.PaymentsDashboard })));
 const Expenses  = lazy(() => import('@/pages/Expenses').then((m)  => ({ default: m.Expenses })));
 const Settings  = lazy(() => import('@/pages/Settings').then((m)  => ({ default: m.Settings })));
 import { Header } from '@/components/Header';
@@ -353,6 +354,18 @@ function PayoutsGate({ jobs, settings }: { jobs: Job[]; settings: SettingsT }) {
   return (
     <PermissionGate title="Payouts" granted={canManageBilling}>
       <Payouts jobs={jobs} settings={settings} />
+    </PermissionGate>
+  );
+}
+
+/** Payments (Zettle) tab gate — owner / admin only. The page reads the
+ *  owner/admin-only zettleSecure collection; techs are blocked here and
+ *  by firestore.rules. */
+function PaymentsGate({ settings }: { settings: SettingsT }) {
+  const { canViewPaymentIntegrations } = usePermissions();
+  return (
+    <PermissionGate title="Payments" granted={canViewPaymentIntegrations}>
+      <PaymentsDashboard workWeekStartDay={settings.workWeekStartDay} />
     </PermissionGate>
   );
 }
@@ -1663,6 +1676,7 @@ function AuthenticatedApp({ user }: { user: User }) {
     );
     if (tab === 'insights') return <InsightsGate jobs={jobs} settings={settings} />;
     if (tab === 'payouts') return <PayoutsGate jobs={jobs} settings={settings} />;
+    if (tab === 'payments') return <PaymentsGate settings={settings} />;
     if (tab === 'expenses') return <ExpensesGate expenses={settings.expenses || []} jobs={jobs} settings={settings} onSave={persistExpenses} />;
     if (tab === 'inventory') return <Inventory inventory={inventory} onSave={persistInventory} settings={settings} jobs={jobs} />;
     if (tab === 'settings') return <Settings settings={settings} onSave={persistSettings} />;
@@ -1868,7 +1882,7 @@ function AuthenticatedApp({ user }: { user: User }) {
             <span className="nav-ico" aria-hidden="true"><NavLog /></span><span>Log</span>
           </button>
           <button
-            className={'nav-btn' + ((tab === 'settings' || tab === 'payouts' || tab === 'expenses' || tab === 'insights' || tab === 'help') ? ' active' : '')}
+            className={'nav-btn' + ((tab === 'settings' || tab === 'payouts' || tab === 'payments' || tab === 'expenses' || tab === 'insights' || tab === 'help') ? ' active' : '')}
             aria-haspopup="dialog"
             aria-expanded={moreOpen}
             onClick={() => setMoreOpen(true)}
