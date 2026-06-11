@@ -126,6 +126,36 @@ export function refreshAccessToken(refreshToken: string): Promise<ZettleTokens> 
   }));
 }
 
+/**
+ * Own-organization grant (Path A): exchange a Zettle API key for an access
+ * token via the JWT-bearer assertion grant. This is the self-service flow
+ * for a business reading its OWN Zettle account — no merchant redirect, no
+ * client_secret, and NO refresh token (the API key itself is the long-lived
+ * credential; re-call this to renew). client_id is the one tied to the API
+ * key — set ZETTLE_CLIENT_ID to the own-org integration's client id.
+ */
+export async function getTokenFromApiKey(apiKey: string): Promise<{ accessToken: string; expiresAtMs: number }> {
+  const res = await fetch(OAUTH_TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      client_id: process.env.ZETTLE_CLIENT_ID ?? '',
+      assertion: apiKey,
+    }).toString(),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`zettle api-key token request failed: HTTP ${res.status} ${detail.slice(0, 200)}`);
+  }
+  const json = await res.json() as { access_token?: string; expires_in?: number };
+  if (!json.access_token) throw new Error('zettle api-key token response missing access_token');
+  return {
+    accessToken: json.access_token,
+    expiresAtMs: Date.now() + Math.max(0, (json.expires_in ?? 7200) - 60) * 1000,
+  };
+}
+
 async function apiGet(url: string, accessToken: string): Promise<unknown> {
   const res = await fetch(url, {
     headers: { 'Authorization': `Bearer ${accessToken}`, 'Accept': 'application/json' },
