@@ -53,7 +53,7 @@
 // ═══════════════════════════════════════════════════════════════════
 
 import { onRequest } from 'firebase-functions/v2/https';
-import { TWILIO_ENABLED } from './lib/twilioEnabled';
+import { CALLER_ID_ENABLED } from './lib/callerIdEnabled';
 import * as admin from 'firebase-admin';
 import { Timestamp } from 'firebase-admin/firestore';
 import { assertValidTwilioSignature } from './lib/twilioSignatureValidator';
@@ -168,7 +168,9 @@ export const twilioIncomingCall = onRequest(
     };
 
     // Twilio disconnected in-app — hang up without handling the call.
-    if (!TWILIO_ENABLED) { sendHangup(200); return; }
+    // Voice-only caller-ID switch — independent of the SMS kill switch
+    // so the popup runs while review/missed-call texts stay disabled.
+    if (!CALLER_ID_ENABLED) { sendHangup(200); return; }
 
     if (req.method !== 'POST') {
       res.status(405).send('method not allowed');

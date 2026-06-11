@@ -69,6 +69,7 @@ import { requireDb } from '@/lib/firebase';
 import { formatPhoneForDisplay } from '@/lib/phone';
 import { money, resolvePaymentStatus } from '@/lib/utils';
 import { useBrand } from '@/context/BrandContext';
+import { usePermissions } from '@/context/MembershipContext';
 import { useFocusTrap } from '@/lib/useFocusTrap';
 import type { Customer, Vehicle } from '@/lib/customerEntity';
 import type { Job, Lead } from '@/types';
@@ -257,6 +258,10 @@ function IncomingCallNotificationImpl({
   onCreateCustomer, onCreateLead,
 }: Props): JSX.Element | null {
   const { businessId } = useBrand();
+  // Tech-safety: technicians (canViewFinancials = false) see the customer
+  // identity + vehicle + service history, but NOT money — no lifetime
+  // spend, no outstanding balance. Owner/admin see the full picture.
+  const { canViewFinancials } = usePermissions();
   const [activeSource, setActiveSource] = useState<PopupSource | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [customer, setCustomer] = useState<Customer | null>(null);
@@ -546,10 +551,11 @@ function IncomingCallNotificationImpl({
             {lastService  && <Row label="Last Service:" value={lastService} />}
             {lastJobDate  && <Row label="Last Job:" value={lastJobDate} />}
             {cityState    && <RowPlain value={cityState} />}
-            <Row label="Lifetime Spend:" value={money(lifetimeSpend)} />
+            {/* Financials are owner/admin-only — hidden from technicians. */}
+            {canViewFinancials && <Row label="Lifetime Spend:" value={money(lifetimeSpend)} />}
             <Row label="Completed Jobs:" value={String(completedJobs.length)} />
 
-            {balance.showBalance && (
+            {canViewFinancials && balance.showBalance && (
               <div style={balancePillRow}>
                 <span style={balancePill}>{balance.label}</span>
               </div>
