@@ -71,7 +71,7 @@ export function MoreSheet({ onClose, onPick }: Props) {
       id: 'payments',
       label: 'Payments',
       icon: <IconInvoice />,
-      hint: 'Zettle sales · matched/unmatched · review queue',
+      hint: 'Collected · outstanding · by method · by technician',
       visible: permissions.canViewPaymentIntegrations,
     },
     {

@@ -122,22 +122,6 @@ export {
   onReferralCodeDeleted,
 } from './firestoreTriggers';
 
-// PayPal Zettle payment import (Phase 1). Ships DORMANT — every function
-// short-circuits until the MSOS Zettle app secrets are set
-// (ZETTLE_CLIENT_ID / ZETTLE_CLIENT_SECRET / ZETTLE_TOKEN_ENC_KEY /
-// ZETTLE_REDIRECT_URI) and an owner connects a merchant account.
-//   - connectZettle / zettleOAuthCallback  OAuth connect (PKCE).
-//   - zettleWebhook                         PurchaseCreated ingestion.
-//   - importZettlePayments                  historical back-fill (callable).
-// Sensitive data is written by these (Admin SDK) into the owner/admin-only
-// zettlePayments collection; the Job gets only tech-safe booleans.
-// Spec: docs/.../zettle plan (recursive-wishing-pascal.md).
-export { connectZettle, zettleOAuthCallback, connectZettleApiKey } from './zettle/oauth';
-export { zettleWebhook }                      from './zettle/webhook';
-export { importZettlePayments }               from './zettle/importHistorical';
-// Owner/admin review-queue actions for low-confidence imports.
-export { resolveZettlePayment, dismissZettlePayment } from './zettle/reviewActions';
-
 // Standalone Stripe webhook — kept as source for future migration
 // flexibility but NOT exported here. Production uses the Firebase
 // Stripe Extension's webhook (ext-firestore-stripe-payments-

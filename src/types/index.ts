@@ -823,80 +823,6 @@ export interface Job {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-//  PayPal Zettle payment integration
-//
-//  Sensitive transaction + location data imported from Zettle. Stored
-//  ONLY in the owner/admin-only `zettleSecure/{businessId}/payments`
-//  collection — TOP-LEVEL, deliberately OUTSIDE businesses/{businessId}
-//  so the member-read wildcard in firestore.rules can't reach it (a
-//  narrower rule under businesses/ would be a no-op; rules are a
-//  permissive union — verified by tests/rules/firestore.rules.test.ts).
-//  Written exclusively by Cloud Functions via the Admin SDK — no client
-//  writes. The Job carries only tech-safe booleans (paymentStatus /
-//  paymentSource / paymentImportId).
-// ─────────────────────────────────────────────────────────────────────
-
-export type PaymentLocationSource = 'zettle' | 'job_gps' | 'geocoded';
-
-export interface PaymentLocation {
-  latitude: number;
-  longitude: number;
-  /** Where the coordinates came from: the Zettle purchase's own
-   *  gpsCoordinates, the job's captured GPS, or a geocoded address. */
-  source: PaymentLocationSource;
-  accuracyMeters?: number;
-  address?: string;
-  /** ISO timestamp the coordinates were captured / the payment occurred. */
-  timestamp?: string;
-}
-
-export type ZettleMatchConfidence = 'high' | 'low' | 'none';
-
-export interface ZettlePayment {
-  id: string;                  // = Zettle purchaseUUID (idempotency key)
-  transactionId: string;       // purchaseUUID
-  receiptNumber?: string;      // purchaseNumber
-  amount: number;              // gross, major currency units (dollars)
-  tax?: number;                // vatAmount, major units
-  currency?: string;
-  timestamp: string;           // ISO purchase time
-  paymentType?: string;        // e.g. 'IZETTLE_CARD'
-  cardBrand?: string | null;   // payments[].attributes.cardType
-  maskedPan?: string | null;
-  deviceName?: string | null;  // payments[].attributes.applicationName
-  processedByName?: string | null; // userDisplayName (who rang it up)
-  feeAmount?: number | null;   // Finance API, when available
-  netAmount?: number | null;
-  customerId?: string | null;
-  jobId?: string | null;
-  invoiceId?: string | null;
-  matchConfidence: ZettleMatchConfidence;
-  matchReasons?: string[];
-  paymentLocation?: PaymentLocation | null;
-  /** Static verification-map PNG as a base64 data URI. Stored on this
-   *  owner/admin-only doc (NOT in Storage — Storage rules can't read
-   *  Firestore to check role, so role-gating the map comes free from
-   *  this collection's rule). Embedded into the customer invoice by an
-   *  owner/admin; technicians can't read this doc so never get the map. */
-  mapImageData?: string | null;
-  importedFrom: 'webhook' | 'historical';
-  syncSource: 'zettle';
-  createdAt: string;
-}
-
-/** A low-confidence Zettle import awaiting one-tap owner resolution.
- *  Lives in `zettleSecure/{businessId}/reviewQueue` (owner/admin read). */
-export interface ZettleReviewItem {
-  id: string;                  // = purchaseUUID
-  amount: number;
-  timestamp: string;
-  candidateJobIds: string[];
-  reasons: string[];
-  status: 'pending' | 'resolved' | 'dismissed';
-  createdAt: string;
-}
-
-// ─────────────────────────────────────────────────────────────────────
 //  Settings
 // ─────────────────────────────────────────────────────────────────────
 
@@ -956,24 +882,6 @@ export interface Settings {
   freeMilesIncluded?: number;
   tireRepairTargetProfit?: number;
   tireReplacementTargetProfit?: number;
-
-  // ─── PayPal Zettle integration (payment import) ──────────────────
-  /** True once the owner has connected a Zettle account. The OAuth
-   *  tokens live in the Functions-only private path, never here. */
-  zettleConnected?: boolean;
-  /** Display-only Zettle org / merchant name, shown in Settings. */
-  zettleAccountName?: string;
-  /** Auto-match imported Zettle payments to jobs. Only HIGH-confidence
-   *  matches auto-apply; low-confidence always routes to the owner
-   *  review queue. Defaults on once connected. */
-  zettleAutoMatchEnabled?: boolean;
-  /** Auto-generate + send the invoice when a payment auto-matches. */
-  zettleAutoInvoiceEnabled?: boolean;
-  /** Phase 2: include a service-location map pin on the CUSTOMER invoice. */
-  zettleIncludeMapOnInvoice?: boolean;
-  /** Phase 2: include the service address on the CUSTOMER invoice. Raw
-   *  GPS coordinates are NEVER shown on customer-facing documents. */
-  zettleIncludeAddressOnInvoice?: boolean;
 
   // ─── Mechanic-related (Phase 2.2 Sub-Project A) ──────────────────
   /** Hourly labor rate. Mechanic uses this; falls back to
