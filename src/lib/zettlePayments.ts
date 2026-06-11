@@ -130,6 +130,45 @@ export async function listZettlePayments(businessId: string): Promise<ZettlePaym
   }
 }
 
+/** Owner/admin-only detail for a single matched payment, for the job's
+ *  payment block. Omits map/location. Returns null for technicians (read
+ *  denied) or when the payment isn't found. */
+export interface ZettlePaymentDetail {
+  transactionId: string;
+  amount: number;
+  timestamp: string;
+  cardBrand: string | null;
+  paymentType: string | null;
+  maskedPan: string | null;
+  feeAmount: number | null;
+  netAmount: number | null;
+  matchConfidence: string;
+}
+
+export async function getZettlePaymentDetails(
+  businessId: string,
+  paymentId: string,
+): Promise<ZettlePaymentDetail | null> {
+  try {
+    const snap = await getDoc(doc(requireDb(), `zettleSecure/${businessId}/payments/${paymentId}`));
+    if (!snap.exists()) return null;
+    const v = snap.data() as Record<string, unknown>;
+    return {
+      transactionId: String(v.transactionId ?? v.id ?? paymentId),
+      amount: Number(v.amount ?? 0),
+      timestamp: String(v.timestamp ?? ''),
+      cardBrand: (v.cardBrand as string | null) ?? null,
+      paymentType: (v.paymentType as string | null) ?? null,
+      maskedPan: (v.maskedPan as string | null) ?? null,
+      feeAmount: v.feeAmount == null ? null : Number(v.feeAmount),
+      netAmount: v.netAmount == null ? null : Number(v.netAmount),
+      matchConfidence: String(v.matchConfidence ?? ''),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export interface JobBrief { id: string; customerName: string; revenue: number | string; date: string }
 
 /** Minimal job info for rendering review candidates (owner reads jobs). */
