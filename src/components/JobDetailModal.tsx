@@ -27,8 +27,6 @@ import { useMembersDirectory } from '@/lib/useMembersDirectory';
 import { JobTimer } from '@/components/JobDetailModal/JobTimer';
 import { JobPhotoCapture } from '@/components/JobPhotoCapture';
 import { CollectPayment } from '@/components/payments/CollectPayment';
-import { ZettlePaymentBlock } from '@/components/zettle/ZettlePaymentBlock';
-import { ZETTLE_ENABLED } from '@/lib/zettleEnabled';
 
 interface Props {
   job: Job;
@@ -151,19 +149,12 @@ export function JobDetailModal({
               )}
 
               {/* 2 · Collect Payment — the unpaid primary action. Choose a
-                  method, then Card (Zettle) routes to Take Card Payment
-                  (no manual mark-paid), everything else to Mark Paid. */}
+                  method, then Mark Paid (stores the method). */}
               {isPaid ? (
                 <CmdDone label={`Paid${job.paymentMethod ? ` · ${PAYMENT_METHOD_LABELS[job.paymentMethod as PaymentMethod] ?? job.paymentMethod}` : ''}`} />
-              ) : businessId ? (
-                <CollectPayment
-                  businessId={businessId}
-                  amount={job.revenue}
-                  zettleConnected={!!settings.zettleConnected}
-                  canSync={permissions.canViewPaymentIntegrations}
-                  onMarkPaid={(m) => onMarkPaid(m)}
-                />
-              ) : null}
+              ) : (
+                <CollectPayment amount={job.revenue} onMarkPaid={(m) => onMarkPaid(m)} />
+              )}
 
               {/* 3 · Send Invoice (generates if needed, then texts it) */}
               {job.invoiceSent ? (
@@ -192,17 +183,6 @@ export function JobDetailModal({
                 )
               )}
             </div>
-          )}
-
-          {/* Zettle payment status — renders only for jobs paid via
-              Zettle. Tech-safe summary (amount/date/matched) for everyone;
-              transaction id / fees / confidence gated to owner/admin. */}
-          {ZETTLE_ENABLED && job.paymentSource === 'zettle' && businessId && (
-            <ZettlePaymentBlock
-              businessId={businessId}
-              job={job}
-              canViewDetails={permissions.canViewPaymentIntegrations}
-            />
           )}
 
           {/* Cost breakdown. Technicians (canViewProfit false) see a

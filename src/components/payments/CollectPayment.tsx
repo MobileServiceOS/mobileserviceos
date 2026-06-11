@@ -5,26 +5,17 @@
 //
 //  Flow:
 //    1. Payment Due badge + a single "Collect Payment" button.
-//    2. Tap → choose a method (Card (Zettle) first, then the rest).
-//    3. Branch on the method:
-//         • Card (Zettle) → NO manual Mark Paid. Show "Take Card Payment"
-//           (the Zettle launch → Sync → auto-match → auto-Paid flow).
-//         • Cash / Zelle / Venmo / Cash App / Apple Pay / Google Pay /
-//           Check / Other → "Mark Paid", storing the chosen method.
-//
-//  Card payments can ONLY be completed through Zettle — never marked paid
-//  by hand — so the recorded method always reflects how money actually
-//  moved.
+//    2. Tap → choose a method (Card / Cash / Zelle / Venmo / Cash App /
+//       Apple Pay / Google Pay / Check / Other).
+//    3. Mark Paid, storing the chosen method.
 // ═══════════════════════════════════════════════════════════════════
 
 import { useState } from 'react';
 import type { PaymentMethod } from '@/types';
 import { money } from '@/lib/utils';
-import { ZETTLE_ENABLED } from '@/lib/zettleEnabled';
-import { TakePaymentButton } from '@/components/zettle/TakePaymentButton';
 
 const METHODS: { key: PaymentMethod; label: string }[] = [
-  { key: 'card', label: ZETTLE_ENABLED ? 'Card (Zettle)' : 'Card' },
+  { key: 'card', label: 'Card' },
   { key: 'cash', label: 'Cash' },
   { key: 'zelle', label: 'Zelle' },
   { key: 'venmo', label: 'Venmo' },
@@ -36,15 +27,11 @@ const METHODS: { key: PaymentMethod; label: string }[] = [
 ];
 
 interface Props {
-  businessId: string;
   amount: number | string;
-  zettleConnected: boolean;
-  /** Owner/admin may trigger the Zettle Sync. */
-  canSync: boolean;
   onMarkPaid: (method: PaymentMethod) => void;
 }
 
-export function CollectPayment({ businessId, amount, zettleConnected, canSync, onMarkPaid }: Props) {
+export function CollectPayment({ amount, onMarkPaid }: Props) {
   const [collecting, setCollecting] = useState(false);
   const [method, setMethod] = useState<PaymentMethod | null>(null);
 
@@ -59,9 +46,6 @@ export function CollectPayment({ businessId, amount, zettleConnected, canSync, o
     );
   }
 
-  // Card routes to Zettle only while the integration is enabled. With the
-  // kill switch off, Card behaves like any other manual method (Mark Paid).
-  const isCard = ZETTLE_ENABLED && method === 'card';
   return (
     <div style={wrap}>
       <div style={prompt}>How did the customer pay?</div>
@@ -76,21 +60,7 @@ export function CollectPayment({ businessId, amount, zettleConnected, canSync, o
         ))}
       </div>
 
-      {isCard ? (
-        zettleConnected ? (
-          // Card → Zettle only. No manual Mark Paid path is rendered.
-          <TakePaymentButton
-            businessId={businessId} connected={zettleConnected}
-            amount={amount} canSync={canSync}
-            label="Take Card Payment" startOpen
-          />
-        ) : (
-          <div style={note}>
-            Connect PayPal Zettle in Settings to take card payments. Card can't
-            be marked paid by hand — pick another method, or connect Zettle.
-          </div>
-        )
-      ) : method ? (
+      {method ? (
         <button type="button" className="btn" style={paidBtn} onClick={() => onMarkPaid(method)}>
           Mark Paid · {money(amount)}
         </button>

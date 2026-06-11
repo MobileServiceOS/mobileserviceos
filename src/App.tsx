@@ -358,9 +358,8 @@ function PayoutsGate({ jobs, settings }: { jobs: Job[]; settings: SettingsT }) {
   );
 }
 
-/** Payments (Zettle) tab gate — owner / admin only. The page reads the
- *  owner/admin-only zettleSecure collection; techs are blocked here and
- *  by firestore.rules. */
+/** Payments tab gate — owner / admin only. Shows job-based collections:
+ *  outstanding, collected by window/method, and sales by technician. */
 function PaymentsGate({ jobs, settings }: { jobs: Job[]; settings: SettingsT }) {
   const { canViewPaymentIntegrations } = usePermissions();
   return (
@@ -1315,24 +1314,7 @@ function AuthenticatedApp({ user }: { user: User }) {
     // fetch before rendering; the await covers both that and the
     // dynamic import.
     const { generateInvoicePDF } = await import('@/lib/invoice');
-    // Zettle Phase 2 — Service Location Verification on the invoice.
-    // Only for Zettle-paid jobs when the owner enabled address/map on
-    // customer invoices. The zettlePayments read is rule-gated to owner/
-    // admin, so a technician generating the invoice gets null here (no
-    // map) — tech-safety is enforced by Firestore rules, not just the UI.
-    let verification: import('@/lib/invoice').InvoiceOptions['verification'] = null;
-    if (
-      businessId && j.paymentSource === 'zettle' && j.paymentImportId
-      && (settings.zettleIncludeMapOnInvoice || settings.zettleIncludeAddressOnInvoice)
-    ) {
-      const { getZettlePaymentForInvoice } = await import('@/lib/zettlePayments');
-      verification = await getZettlePaymentForInvoice(businessId, j.paymentImportId, {
-        includeMap: settings.zettleIncludeMapOnInvoice ?? false,
-        includeAddress: settings.zettleIncludeAddressOnInvoice ?? false,
-        job: j,
-      });
-    }
-    const result = await generateInvoicePDF(j, settings, brand, verification ? { verification } : {});
+    const result = await generateInvoicePDF(j, settings, brand, {});
     if (!result || !businessId) return;
     const jobsCol = scopedCol(businessId, 'jobs');
     // Write ONLY the fields we're changing. fbSetFast already does

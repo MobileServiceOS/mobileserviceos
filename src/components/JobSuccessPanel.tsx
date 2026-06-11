@@ -2,7 +2,6 @@ import type { Job, Settings, Brand, PaymentMethod } from '@/types';
 import { jobGrossProfit, money, paymentPillClass, resolvePaymentStatus } from '@/lib/utils';
 import { addToast } from '@/lib/toast';
 import { usePermissions } from '@/context/MembershipContext';
-import { useBrand } from '@/context/BrandContext';
 import { CollectPayment } from '@/components/payments/CollectPayment';
 import { IconInvoice, IconStar, IconEdit, IconEye, IconCopy, IconPlus, IconHome } from '@/components/ActionIcons';
 
@@ -42,9 +41,7 @@ export function JobSuccessPanel({
   const ps = resolvePaymentStatus(job);
   const header = buildHeader(job, ps);
   // Technicians see revenue + payment but not the profit tile.
-  const permissions = usePermissions();
-  const canViewProfit = permissions.canViewProfit;
-  const { businessId } = useBrand();
+  const canViewProfit = usePermissions().canViewProfit;
   const isCompleted = job.status === 'Completed';
   const unpaid = ps !== 'Paid' && ps !== 'Cancelled' && job.status !== 'Cancelled';
   const location =
@@ -91,16 +88,10 @@ export function JobSuccessPanel({
         </div>
       </div>
       {/* Collect Payment — the primary action while unpaid. Choose a
-          method; Card (Zettle) → Take Card Payment, others → Mark Paid. */}
-      {unpaid && businessId && (
+          method, then Mark Paid (stores the method). */}
+      {unpaid && (
         <div className="card card-anim" style={{ marginTop: 16, padding: 16 }}>
-          <CollectPayment
-            businessId={businessId}
-            amount={job.revenue}
-            zettleConnected={!!settings.zettleConnected}
-            canSync={permissions.canViewPaymentIntegrations}
-            onMarkPaid={(m) => onMarkPaid(m)}
-          />
+          <CollectPayment amount={job.revenue} onMarkPaid={(m) => onMarkPaid(m)} />
         </div>
       )}
       <div className="action-grid card-anim">
