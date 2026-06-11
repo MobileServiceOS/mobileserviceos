@@ -24,8 +24,6 @@ const check = (label: string, cond: boolean): void => {
 };
 
 const tire = getBusinessTypeConfig('tire');
-const mech = getBusinessTypeConfig('mechanic');
-const detail = getBusinessTypeConfig('detailing');
 
 console.log('\n┌─ Tire vertical conditions ────────────────────────');
 check('tire declares conditions', Array.isArray(tire.conditions));
@@ -35,30 +33,12 @@ check('tire includes lateNight', !!tire.conditions?.some((c) => c.key === 'lateN
 check('tire includes weekend', !!tire.conditions?.some((c) => c.key === 'weekend'));
 check('tire has exactly 4 conditions', tire.conditions?.length === 4);
 
-console.log('\n┌─ Mechanic vertical conditions ────────────────────');
-check('mechanic declares conditions', Array.isArray(mech.conditions));
-check('mechanic includes highway (battery on shoulder case)',
-  !!mech.conditions?.some((c) => c.key === 'highway'));
-check('mechanic has exactly 4 conditions', mech.conditions?.length === 4);
-
-console.log('\n┌─ Detailing vertical conditions ───────────────────');
-check('detailing declares conditions', Array.isArray(detail.conditions));
-check('detailing OMITS highway (no one washes cars on highway)',
-  !detail.conditions?.some((c) => c.key === 'highway'));
-check('detailing keeps emergency',
-  !!detail.conditions?.some((c) => c.key === 'emergency'));
-check('detailing keeps lateNight',
-  !!detail.conditions?.some((c) => c.key === 'lateNight'));
-check('detailing keeps weekend',
-  !!detail.conditions?.some((c) => c.key === 'weekend'));
-check('detailing has exactly 3 conditions', detail.conditions?.length === 3);
-
 console.log('\n┌─ Cross-vertical invariant ────────────────────────');
 // Every declared condition key must be one of the 4 canonical Job
 // boolean fields. Adding a 5th condition would require widening the
 // Job type — this test catches that mistake.
 const validKeys = new Set(['emergency', 'lateNight', 'highway', 'weekend']);
-for (const v of [tire, mech, detail]) {
+for (const v of [tire]) {
   for (const c of v.conditions ?? []) {
     check(`${v.key}.${c.key} maps to a known Job field`, validKeys.has(c.key));
   }

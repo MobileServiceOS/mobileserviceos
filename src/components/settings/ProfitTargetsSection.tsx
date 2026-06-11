@@ -40,16 +40,9 @@ export function ProfitTargetsAccordion({
 }: Props & { open: boolean; onToggle: () => void }) {
   const vertical = useActiveVertical();
 
-  // Tire shows the two profit-target inputs. Mechanic shows labor /
-  // markup / low-stock. Detailing has no editable targets yet, so
-  // the section is hidden via the visibility check below.
-  const isTire = vertical.key === 'tire';
-  const isMechanic = vertical.key === 'mechanic';
-  if (!isTire && !isMechanic) return null;
+  if (vertical.key !== 'tire') return null;
 
-  const summary = isTire
-    ? `Repair ${money(settings.tireRepairTargetProfit || 0)} · Replace ${money(settings.tireReplacementTargetProfit || 0)}`
-    : `Labor ${money(settings.laborRate ?? 95)}/hr · Parts ×${settings.partsMarkupDefault ?? 1.5}`;
+  const summary = `Repair ${money(settings.tireRepairTargetProfit || 0)} · Replace ${money(settings.tireReplacementTargetProfit || 0)}`;
 
   return (
     <AccordionShell title="Profit Targets" icon="💰" summary={summary} open={open} onToggle={onToggle}>
@@ -89,43 +82,6 @@ function ProfitTargetsForm({ settings, onSave }: Props) {
             />
           </div>
         </div>
-      )}
-
-      {vertical.key === 'mechanic' && (
-        <>
-          <div className="field-row">
-            <div className="field">
-              <label htmlFor="settings-labor-rate">Labor rate ($/hr)</label>
-              <NumberField
-                id="settings-labor-rate"
-                value={draft.laborRate ?? 95}
-                onChange={(n) => set('laborRate', n)}
-                placeholder="95"
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="settings-parts-markup">Parts markup default (×)</label>
-              <NumberField
-                id="settings-parts-markup"
-                value={draft.partsMarkupDefault ?? 1.5}
-                onChange={(n) => set('partsMarkupDefault', n)}
-                placeholder="1.5"
-              />
-            </div>
-          </div>
-          <div className="field-row">
-            <div className="field">
-              <label htmlFor="settings-low-stock-threshold">Low-stock threshold</label>
-              <NumberField
-                id="settings-low-stock-threshold"
-                value={draft.lowStockThreshold ?? 2}
-                onChange={(n) => set('lowStockThreshold', n)}
-                decimals={false}
-                placeholder="2"
-              />
-            </div>
-          </div>
-        </>
       )}
 
       {dirty && (

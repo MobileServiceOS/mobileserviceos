@@ -7,13 +7,9 @@
 import type { BusinessTypeKey } from '../types';
 import type { InvoiceTemplate } from './types';
 import { TIRE_INVOICE_TEMPLATE } from './tire';
-import { MECHANIC_INVOICE_TEMPLATE } from './mechanic';
-import { DETAILING_INVOICE_TEMPLATE } from './detailing';
 
 export const INVOICE_TEMPLATE_REGISTRY: Readonly<Record<BusinessTypeKey, InvoiceTemplate>> = {
   tire: TIRE_INVOICE_TEMPLATE,
-  mechanic: MECHANIC_INVOICE_TEMPLATE,
-  detailing: DETAILING_INVOICE_TEMPLATE,
 };
 
 export function getInvoiceTemplate(

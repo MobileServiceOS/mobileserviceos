@@ -45,12 +45,6 @@ export function useActiveTimer(jobs: ReadonlyArray<Job>): UseActiveTimerResult {
   const { member } = useMembership();
   const uid = member?.uid;
   const businessId = member?.businessId;
-  // laborHours feeds the mechanic labor_parts pricing model only.
-  // Tire (flat) and detailing (package_multiplier) ignore it — so
-  // the "Fill labor hours" action on the stop-timer toast is a
-  // no-op for those verticals and shouldn't be offered.
-  const isMechanic = useActiveVertical().key === 'mechanic';
-
   const active = useMemo(
     () => findActiveSessionAcrossJobs(jobs, uid),
     [jobs, uid],
@@ -93,32 +87,14 @@ export function useActiveTimer(jobs: ReadonlyArray<Job>): UseActiveTimerResult {
       await writeJob(stopped);
 
       const totalMs = totalElapsedMs(stopped);
-      const suggested = suggestedLaborHours(totalMs);
-      const existing = Number(job.laborHours || 0);
-      // Offer the labor-hours autofill ONLY for mechanic jobs —
-      // it's a no-op for tire / detailing pricing models.
-      if (isMechanic && suggested > existing) {
-        addActionToast(
-          `Stopped at ${formatDuration(totalMs)}.`,
-          {
-            label: 'Fill labor hours',
-            onTap: () => {
-              const withHours: Job = { ...stopped, laborHours: suggested };
-              void writeJob(withHours);
-            },
-          },
-          'success',
-        );
-      } else {
-        addToast(`Stopped at ${formatDuration(totalMs)}.`, 'success');
-      }
+      addToast(`Stopped at ${formatDuration(totalMs)}.`, 'success');
     } catch (e) {
       console.error('[useActiveTimer.stopTimer]', e);
       addToast(`Stop failed: ${humanizeFirestoreError(e)}`, 'error');
     } finally {
       writingRef.current = false;
     }
-  }, [uid, writeJob, isMechanic]);
+  }, [uid, writeJob]);
 
   const startTimer = useCallback(async (job: Job): Promise<void> => {
     if (!uid || writingRef.current) return;

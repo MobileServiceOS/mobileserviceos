@@ -7,13 +7,9 @@
 
 import type { BusinessTypeConfig, BusinessTypeKey } from './types';
 import { TIRE_CONFIG } from './tire';
-import { MECHANIC_CONFIG } from './mechanic';
-import { DETAILING_CONFIG } from './detailing';
 
 export const BUSINESS_TYPE_REGISTRY: Readonly<Record<BusinessTypeKey, BusinessTypeConfig>> = {
   tire: TIRE_CONFIG,
-  mechanic: MECHANIC_CONFIG,
-  detailing: DETAILING_CONFIG,
 };
 
 /**
@@ -56,8 +52,6 @@ export type {
   DashboardMetricSpec,
   PricingModel,
   FlatPricingModel,
-  LaborPartsPricingModel,
-  PackageMultiplierPricingModel,
 } from './types';
 
 export { DEFAULT_BUSINESS_TYPE_KEY } from './types';

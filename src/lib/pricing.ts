@@ -61,55 +61,20 @@ export function computeBreakdown(
   const config = resolveVertical(s);
   const tagged = computePrice(j, s, config.pricingModel);
 
-  switch (tagged.model) {
-    case 'flat':
-      return {
-        revenue: tagged.revenue,
-        tireCost: tagged.tireCost,
-        materialCost: tagged.materialCost,
-        travelCost: tagged.travelCost,
-        travelMiles: tagged.travelMiles,
-        travelChargeable: tagged.travelChargeable,
-        freeMilesIncluded: tagged.freeMilesIncluded,
-        directCost: tagged.directCost,
-        profit: tagged.profit,
-        profitMargin: tagged.profitMargin,
-        quantity: tagged.quantity,
-      };
-    case 'labor_parts':
-      return {
-        revenue: tagged.revenue,
-        tireCost: 0,
-        materialCost: r2sum(
-          tagged.laborCost,
-          tagged.partsCost,
-          tagged.partsMarkupAmount,
-          tagged.diagnosticFee,
-        ),
-        travelCost: tagged.travelCost,
-        travelMiles: tagged.travelMiles,
-        travelChargeable: tagged.travelChargeable,
-        freeMilesIncluded: tagged.freeMilesIncluded,
-        directCost: tagged.directCost,
-        profit: tagged.profit,
-        profitMargin: tagged.profitMargin,
-        quantity: tagged.quantity,
-      };
-    case 'package_multiplier':
-      return {
-        revenue: tagged.revenue,
-        tireCost: 0,
-        materialCost: 0,
-        travelCost: 0,
-        travelMiles: 0,
-        travelChargeable: 0,
-        freeMilesIncluded: 0,
-        directCost: tagged.directCost,
-        profit: tagged.profit,
-        profitMargin: tagged.profitMargin,
-        quantity: tagged.quantity,
-      };
-  }
+  // Tire/roadside flat pricing is the only model.
+  return {
+    revenue: tagged.revenue,
+    tireCost: tagged.tireCost,
+    materialCost: tagged.materialCost,
+    travelCost: tagged.travelCost,
+    travelMiles: tagged.travelMiles,
+    travelChargeable: tagged.travelChargeable,
+    freeMilesIncluded: tagged.freeMilesIncluded,
+    directCost: tagged.directCost,
+    profit: tagged.profit,
+    profitMargin: tagged.profitMargin,
+    quantity: tagged.quantity,
+  };
 }
 
 /**
