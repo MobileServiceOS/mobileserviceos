@@ -19,7 +19,9 @@
 
 import type { Job, Settings } from '@/types';
 
-export type BusinessTypeKey = 'tire' | 'mechanic' | 'detailing';
+// Roadside / mobile-tire is the only supported business type. The
+// mechanic and detailing verticals were removed.
+export type BusinessTypeKey = 'tire';
 
 export const DEFAULT_BUSINESS_TYPE_KEY: BusinessTypeKey = 'tire';
 
@@ -29,27 +31,9 @@ export interface FlatPricingModel {
   kind: 'flat';
 }
 
-export interface LaborPartsPricingModel {
-  kind: 'labor_parts';
-  defaultLaborRate: number;
-  defaultPartsMarkupPct: number;
-  defaultDiagnosticFee: number;
-  defaultMinServiceCharge: number;
-}
-
-export interface PackageMultiplierPricingModel {
-  kind: 'package_multiplier';
-  vehicleSizeMultipliers: Record<string, number>;
-  /** Service-floor minimum; the engine raises the suggested price to
-   *  this when the computed value would be lower. Mirrors the
-   *  labor_parts engine's defaultMinServiceCharge. Added Phase 2.3. */
-  defaultMinServiceCharge?: number;
-}
-
-export type PricingModel =
-  | FlatPricingModel
-  | LaborPartsPricingModel
-  | PackageMultiplierPricingModel;
+// Tire/roadside uses flat pricing only. (labor_parts/package_multiplier
+// models were removed with the mechanic/detailing verticals.)
+export type PricingModel = FlatPricingModel;
 
 // ─── Service / field / copy shapes ─────────────────────────────────
 

@@ -25,15 +25,11 @@ check("'tire' → key 'tire'",
 check("'tire' → displayName 'Mobile Tire & Roadside'",
   verticalFromBusinessType('tire').displayName === 'Mobile Tire & Roadside');
 
-check("'mechanic' → key 'mechanic'",
-  verticalFromBusinessType('mechanic').key === 'mechanic');
-check("'mechanic' → displayName 'Mobile Mechanic'",
-  verticalFromBusinessType('mechanic').displayName === 'Mobile Mechanic');
-
-check("'detailing' → key 'detailing'",
-  verticalFromBusinessType('detailing').key === 'detailing');
-check("'detailing' → displayName 'Mobile Car Wash & Detailing'",
-  verticalFromBusinessType('detailing').displayName === 'Mobile Car Wash & Detailing');
+// Mechanic/detailing were removed — any non-tire key falls back to tire.
+check("'mechanic' (removed) → tire fallback",
+  verticalFromBusinessType('mechanic').key === 'tire');
+check("'detailing' (removed) → tire fallback",
+  verticalFromBusinessType('detailing').key === 'tire');
 
 console.log('\n┌─ verticalFromBusinessType — legacy/fallback ──────');
 
@@ -64,7 +60,7 @@ console.log('\n┌─ Header subtitle invariant ──────────�
 // every valid VerticalKey produces a human-readable displayName that
 // does NOT equal the raw key string. Without this, the Header would
 // fall back to "mechanic · Tampa" instead of "Mobile Mechanic · Tampa".
-const keys: Array<'tire' | 'mechanic' | 'detailing'> = ['tire', 'mechanic', 'detailing'];
+const keys: Array<'tire'> = ['tire'];
 let allHuman = true;
 for (const k of keys) {
   const dn = verticalFromBusinessType(k).displayName;

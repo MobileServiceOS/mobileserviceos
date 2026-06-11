@@ -73,14 +73,6 @@ import { planJobInventory } from '@/lib/planJobInventory';
 import { upsertCustomerFromJob, reverseCustomerFromJob } from '@/lib/customerEntity';
 import { normalizePhone } from '@/lib/phone';
 import { planJobCancelRefund } from '@/lib/inventoryRefund';
-import { getBusinessTypeConfig } from '@/config/businessTypes/registry';
-import {
-  diffPartsForDeduction,
-  buildPartsInventoryDeductions,
-  deriveLegacyPartsCost,
-  derivePartsMarginSnapshot,
-  shouldWarnOnDeduction,
-} from '@/lib/mechanicJob';
 // invoice.ts is lazy-imported in handleGenerateInvoice — see comment
 // there. Keeps jspdf (358 KB) + html2canvas (201 KB) out of the main
 // bundle until the operator actually generates an invoice.
@@ -1042,9 +1034,6 @@ function AuthenticatedApp({ user }: { user: User }) {
       // never leaves inventory ahead of the job doc. The deduction
       // diff handles edit semantics (refund + rededuct) and source
       // changes uniformly.
-      let mechanicDeductions: { id: string; size: string; qty: number; cost: number }[] | null = null;
-      let mechanicPartsCost = 0;
-      let mechanicMarginSnapshot: ReturnType<typeof derivePartsMarginSnapshot> = undefined;
 
       // Audit P1 (2026-05-31): read businessType through settingsRef
       // instead of the closed-over `settings`. The useCallback dep
@@ -1054,46 +1043,6 @@ function AuthenticatedApp({ user }: { user: User }) {
       // job after the operator switched business type mid-edit).
       // Same pattern persistExpenses uses (see settingsRef block at
       // line 427).
-      const verticalConfig = getBusinessTypeConfig(settingsRef.current.businessType);
-      if (!isCanceling && verticalConfig.key === 'mechanic' && Array.isArray(j.parts) && j.parts.length > 0) {
-        // Soft-warn at save-time for any line that would push qty
-        // negative. Single confirm() per offending line; tech can
-        // override or cancel the save outright.
-        const oldJob = isEditing ? jobs.find((x) => x.id === editingJobId) : undefined;
-        const oldParts = oldJob?.parts ?? [];
-        for (const line of j.parts) {
-          if (line.source !== 'inventory' || !line.inventoryItemId) continue;
-          const oldLine = oldParts.find((p) => p.inventoryItemId === line.inventoryItemId);
-          const oldQty = oldLine ? Number(oldLine.qty || 0) : 0;
-          if (shouldWarnOnDeduction(line, workingInv, oldQty)) {
-            const item = workingInv.find((i) => i.id === line.inventoryItemId);
-            const onHand = Number(item?.qty || 0);
-            // eslint-disable-next-line no-alert
-            const confirmed = window.confirm(`Only ${onHand} in stock for "${line.name}" — deduct anyway?`);
-            if (!confirmed) return null;
-          }
-        }
-
-        // Compute signed deltas (negative = deduct, positive = refund)
-        const delta = diffPartsForDeduction(oldParts, j.parts);
-        const invWrites: Promise<void>[] = [];
-        for (const [itemId, change] of Object.entries(delta)) {
-          const idx = workingInv.findIndex((i) => i.id === itemId);
-          if (idx < 0) continue;
-          const cur = Number(workingInv[idx].qty || 0);
-          workingInv[idx] = { ...workingInv[idx], qty: cur + change };
-          invWrites.push(fbSetFast(invCol, itemId, workingInv[idx]));
-        }
-        setInventoryRaw(workingInv);
-        log('mechanic-inv-writes-issued');
-        await Promise.all(invWrites);
-        log('mechanic-inv-writes-acked');
-
-        mechanicDeductions = buildPartsInventoryDeductions(j.parts);
-        mechanicPartsCost = deriveLegacyPartsCost(j.parts);
-        mechanicMarginSnapshot = derivePartsMarginSnapshot(j.parts);
-      }
-
       const currentUid = _auth?.currentUser?.uid || '';
       // SP4B Task 16: pluck the UI-only leadId sentinel off the draft so it
       // never reaches the Job doc. Carried in via Leads.tsx → onCreateJob
@@ -1123,14 +1072,6 @@ function AuthenticatedApp({ user }: { user: User }) {
         // scoped list. The picker's "Unassigned" choice sets
         // assignedToUid = undefined which we preserve here.
         assignedToUid: 'assignedToUid' in j ? j.assignedToUid : currentUid,
-        // Phase 2.2 mechanic mirrors (only populated for mechanic
-        // vertical with parts[] entries; tire / detailing get
-        // undefined here and stay byte-identical to today)
-        partsInventoryDeductions: mechanicDeductions,
-        partsCost: verticalConfig.key === 'mechanic' && Array.isArray(j.parts) && j.parts.length > 0
-          ? mechanicPartsCost
-          : j.partsCost,
-        partsMarginSnapshot: mechanicMarginSnapshot,
       };
 
       // ─── SP1: Customer + Vehicle auto-upsert ──────────────────────

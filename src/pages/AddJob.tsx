@@ -17,7 +17,6 @@ import { formatPhone, formatPhonePartial } from '@/lib/formatPhone';
 import { searchCities } from '@/lib/locations';
 import { useActiveVertical } from '@/lib/useActiveVertical';
 import type { BusinessTypeJobField } from '@/config/businessTypes/registry';
-import { PartsSection } from '@/components/addJob/PartsSection';
 import { AssignmentPicker } from '@/components/addJob/AssignmentPicker';
 import { ServicePicker } from '@/components/addJob/ServicePicker';
 import { MemoInput, MemoTextarea, MemoSelect } from '@/components/addJob/MemoInput';
@@ -213,13 +212,6 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
     );
     return enabledServices.filter((id) => addOnSet.has(id));
   }, [enabledServices, vertical.services]);
-
-  // Vehicle-size options from the package_multiplier pricing model
-  // (detailing). Empty array for verticals that don't use multipliers.
-  const vehicleSizes = useMemo(() => {
-    if (vertical.pricingModel.kind !== 'package_multiplier') return [];
-    return Object.keys(vertical.pricingModel.vehicleSizeMultipliers);
-  }, [vertical.pricingModel]);
 
   const vehicles = useMemo(() => Object.keys(settings.vehiclePricing || DEFAULT_VEHICLE_PRICING), [settings.vehiclePricing]);
 
@@ -917,64 +909,6 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
             </div>
           </div>
         )}
-        {permissions.canViewProfit && breakdown.model === 'labor_parts' && (
-          <div className="pricing-breakdown">
-            <div className="pricing-breakdown-row"><span>Revenue</span><span className="num green">{money(breakdown.revenue)}</span></div>
-            {breakdown.laborCost > 0 && (
-              <div className="pricing-breakdown-row">
-                <span>Labor ({breakdown.laborHours} hrs × ${breakdown.laborRate}/hr)</span>
-                <span className="num red">-{money(breakdown.laborCost)}</span>
-              </div>
-            )}
-            {breakdown.partsCost > 0 && (
-              <div className="pricing-breakdown-row">
-                <span>Parts</span>
-                <span className="num red">-{money(breakdown.partsCost)}</span>
-              </div>
-            )}
-            {breakdown.partsMarkupAmount > 0 && (
-              <div className="pricing-breakdown-row">
-                <span>Parts handling ({breakdown.partsMarkupPct}%)</span>
-                <span className="num red">-{money(breakdown.partsMarkupAmount)}</span>
-              </div>
-            )}
-            {breakdown.diagnosticFee > 0 && (
-              <div className="pricing-breakdown-row">
-                <span>Diagnostic fee</span>
-                <span className="num red">-{money(breakdown.diagnosticFee)}</span>
-              </div>
-            )}
-            {breakdown.travelCost > 0 && (
-              <div className="pricing-breakdown-row">
-                <span>Travel ({breakdown.travelMiles} mi{breakdown.freeMilesIncluded ? `, ${breakdown.freeMilesIncluded} free` : ''})</span>
-                <span className="num red">-{money(breakdown.travelCost)}</span>
-              </div>
-            )}
-            {breakdown.belowMinServiceCharge && (
-              <div className="pricing-breakdown-row" style={{ fontSize: 10, color: 'var(--t3)' }}>
-                <span>Min service charge</span>
-                <span>{money(breakdown.minServiceCharge)}</span>
-              </div>
-            )}
-            <div className="pricing-breakdown-row total">
-              <span>Profit</span>
-              <span className={'num ' + (breakdown.profit >= 0 ? 'green' : 'red')}>{money(breakdown.profit)}</span>
-            </div>
-          </div>
-        )}
-        {permissions.canViewProfit && breakdown.model === 'package_multiplier' && (
-          <div className="pricing-breakdown">
-            <div className="pricing-breakdown-row"><span>Revenue</span><span className="num green">{money(breakdown.revenue)}</span></div>
-            <div className="pricing-breakdown-row">
-              <span>Vehicle size</span>
-              <span>{breakdown.vehicleSize} (×{breakdown.vehicleSizeMultiplier})</span>
-            </div>
-            <div className="pricing-breakdown-row total">
-              <span>Profit</span>
-              <span className={'num ' + (breakdown.profit >= 0 ? 'green' : 'red')}>{money(breakdown.profit)}</span>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* ─── SP2 Step 1: Phone ──────────────────────────────────
@@ -1062,22 +996,6 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
               onClick={() => set('vehicleType', v)} type="button">{v}</button>
           ))}
         </div>
-        {vertical.features.vehicleSizeMultiplier && vehicleSizes.length > 0 && (
-          <div className="field" style={{ marginTop: 8 }}>
-            <label id="addjob-vehicle-size-label">Vehicle size</label>
-            <div className="chip-grid" role="group" aria-labelledby="addjob-vehicle-size-label">
-              {vehicleSizes.map((sz) => (
-                <button
-                  key={sz}
-                  type="button"
-                  className={'chip' + (job.vehicleSize === sz ? ' active' : '')}
-                  aria-pressed={job.vehicleSize === sz}
-                  onClick={() => set('vehicleSize', sz)}
-                >{sz}</button>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
 
       {/* ─── Step 4: Service ────────────────────────────────────
@@ -1307,20 +1225,6 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
               />
             ))}
           </div>
-        </div>
-      )}
-
-      {/* Mechanic-specific structured parts entry. Lives here because
-          it's interaction-rich (autocomplete, source picker, soft-
-          warn at save) and would be awkward inside a DynamicJobField
-          loop. Tire / detailing skip this block. */}
-      {vertical.key === 'mechanic' && (
-        <div className="card-anim" style={{ marginBottom: 12 }}>
-          <PartsSection
-            parts={job.parts ?? []}
-            inventory={inventory}
-            onChange={(parts) => setJob((prev) => ({ ...prev, parts } as Job))}
-          />
         </div>
       )}
 

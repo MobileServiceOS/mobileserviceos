@@ -26,8 +26,6 @@ import type {
   BusinessTypeCopy,
   PricingModel,
   FlatPricingModel,
-  LaborPartsPricingModel,
-  PackageMultiplierPricingModel,
 } from '@/config/businessTypes/types';
 
 // ─── Back-compat type aliases ──────────────────────────────────────
@@ -53,15 +51,13 @@ export type VerticalInventoryField = BusinessTypeInventoryField;
 export type VerticalCopy = BusinessTypeCopy;
 
 /** @deprecated use PricingModel from '@/config/businessTypes/registry' */
-export type { PricingModel, FlatPricingModel, LaborPartsPricingModel, PackageMultiplierPricingModel };
+export type { PricingModel, FlatPricingModel };
 
 // ─── Back-compat constants / functions ─────────────────────────────
 
 /** @deprecated import { TIRE_CONFIG } from '@/config/businessTypes/tire' */
 export { TIRE_CONFIG as TIRE_VERTICAL } from '@/config/businessTypes/tire';
 
-/** @deprecated import { MECHANIC_CONFIG } from '@/config/businessTypes/mechanic' */
-export { MECHANIC_CONFIG as MECHANIC_VERTICAL } from '@/config/businessTypes/mechanic';
 
 /** @deprecated import { BUSINESS_TYPE_REGISTRY } from '@/config/businessTypes/registry' */
 export const VERTICAL_REGISTRY: Partial<Record<BusinessTypeKey, BusinessTypeConfig>> =

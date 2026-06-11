@@ -64,11 +64,8 @@ export function Onboarding({ settings, onComplete }: Props) {
   // settings/main (resolveVerticalKey falls back to 'tire' when blank),
   // so a re-entering user sees their prior choice instead of being
   // silently reset.
-  const [businessType, setBusinessType] = useState<VerticalKey>(() => {
-    const raw = brand.businessType;
-    if (raw === 'mechanic' || raw === 'detailing' || raw === 'tire') return raw;
-    return 'tire';
-  });
+  // Roadside / mobile-tire is the only business type.
+  const [businessType] = useState<VerticalKey>('tire');
   // Reactive vertical config — re-resolves whenever the user changes
   // the picker. Tire renders the legacy three-tire-service profit-
   // targets UI; mechanic / detailing render a read-only "model
@@ -418,40 +415,7 @@ export function Onboarding({ settings, onComplete }: Props) {
           {step === 1 && (
             <div className="onboarding-step page-enter">
               <div className="onboarding-step-title">Brand</div>
-              <div className="onboarding-step-sub">Pick your service type — it shapes services, pricing, and inventory.</div>
-              <div className="field">
-                <label id="onb-business-type-label">Business type *</label>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }} role="group" aria-labelledby="onb-business-type-label">
-                  {([
-                    { key: 'tire' as VerticalKey, label: '🛞 Tire & Roadside' },
-                    { key: 'mechanic' as VerticalKey, label: '🔧 Mobile Mechanic' },
-                    { key: 'detailing' as VerticalKey, label: '🚗 Car Wash & Detailing' },
-                  ]).map((opt) => {
-                    const selected = businessType === opt.key;
-                    return (
-                      <button
-                        key={opt.key}
-                        type="button"
-                        onClick={() => setBusinessType(opt.key)}
-                        aria-pressed={selected}
-                        style={{
-                          flex: '1 1 30%', minWidth: 0,
-                          padding: '11px 8px', borderRadius: 9,
-                          background: selected ? 'rgba(200,164,74,0.10)' : 'var(--s3)',
-                          border: selected
-                            ? '1px solid var(--brand-primary)'
-                            : '1px solid var(--border)',
-                          color: selected ? 'var(--brand-primary)' : 'var(--t2)',
-                          fontSize: 12.5, fontWeight: selected ? 700 : 600,
-                          cursor: 'pointer', lineHeight: 1.3,
-                        }}
-                      >
-                        {opt.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
+              <div className="onboarding-step-sub">Mobile tire &amp; roadside — let's set up your business.</div>
               <div className="field">
                 <label htmlFor="onb-business-name">Business name *</label>
                 <input id="onb-business-name" value={businessName} onChange={(e) => setBusinessName(e.target.value)} placeholder="Your business name" />
@@ -540,57 +504,6 @@ export function Onboarding({ settings, onComplete }: Props) {
             </div>
           )}
 
-          {step === 3 && vertical.pricingModel.kind === 'labor_parts' && (
-            <div className="onboarding-step page-enter">
-              <div className="onboarding-step-title">Labor & Parts defaults</div>
-              <div className="onboarding-step-sub">
-                These power the suggested price on every job. You can fine-tune each value in Settings later.
-              </div>
-              <div className="field">
-                <label htmlFor="onb-weekly-goal-mech">Weekly revenue goal ($)</label>
-                <input id="onb-weekly-goal-mech" type="number" inputMode="decimal" value={weeklyGoal} onChange={(e) => setWeeklyGoal(Number(e.target.value))} />
-              </div>
-              <div className="onboarding-summary" style={{ marginTop: 14 }}>
-                <div className="onboarding-summary-row"><span>Labor rate</span><strong>{money(vertical.pricingModel.defaultLaborRate)} / hour</strong></div>
-                <div className="onboarding-summary-row"><span>Parts markup</span><strong>{vertical.pricingModel.defaultPartsMarkupPct}%</strong></div>
-                <div className="onboarding-summary-row"><span>Diagnostic fee</span><strong>{money(vertical.pricingModel.defaultDiagnosticFee)}</strong></div>
-                <div className="onboarding-summary-row"><span>Min service charge</span><strong>{money(vertical.pricingModel.defaultMinServiceCharge)}</strong></div>
-              </div>
-              <div style={{
-                marginTop: 12, fontSize: 11, color: 'var(--t3)', lineHeight: 1.4,
-              }}>
-                Mechanic-specific defaults. Read-only here; editing
-                arrives in Settings during Phase 2.2.
-              </div>
-            </div>
-          )}
-
-          {step === 3 && vertical.pricingModel.kind === 'package_multiplier' && (
-            <div className="onboarding-step page-enter">
-              <div className="onboarding-step-title">Vehicle Size Multipliers</div>
-              <div className="onboarding-step-sub">
-                Package prices scale by vehicle size. You can edit these in Settings after onboarding.
-              </div>
-              <div className="field">
-                <label htmlFor="onb-weekly-goal-det">Weekly revenue goal ($)</label>
-                <input id="onb-weekly-goal-det" type="number" inputMode="decimal" value={weeklyGoal} onChange={(e) => setWeeklyGoal(Number(e.target.value))} />
-              </div>
-              <div className="onboarding-summary" style={{ marginTop: 14 }}>
-                {Object.entries(vertical.pricingModel.vehicleSizeMultipliers).map(([size, mult]) => (
-                  <div key={size} className="onboarding-summary-row">
-                    <span>{size}</span><strong>×{mult}</strong>
-                  </div>
-                ))}
-              </div>
-              <div style={{
-                marginTop: 12, fontSize: 11, color: 'var(--t3)', lineHeight: 1.4,
-              }}>
-                Detailing-specific defaults. Add-ons + maintenance plans
-                land in Phase 2.3.
-              </div>
-            </div>
-          )}
-
           {step === 4 && (
             <div className="onboarding-step page-enter">
               <div className="onboarding-step-title">Travel & mileage</div>
@@ -609,24 +522,7 @@ export function Onboarding({ settings, onComplete }: Props) {
                 <div className="onboarding-summary-row"><span>Business</span><strong>{businessName || '—'}</strong></div>
                 <div className="onboarding-summary-row"><span>Service area</span><strong>{mainCity}{stateCode ? `, ${stateCode}` : ''}</strong></div>
                 <div className="onboarding-summary-row"><span>Weekly goal</span><strong>${weeklyGoal.toLocaleString()}</strong></div>
-                {/* Tire shows the three profit-target inputs from step 3;
-                    mechanic / detailing show their pricing model defaults
-                    from MECHANIC_CONFIG / DETAILING_CONFIG.pricingModel so
-                    the summary always reflects what step 3 confirmed. */}
-                {vertical.pricingModel.kind === 'flat' && (
-                  <div className="onboarding-summary-row"><span>Profit targets</span><strong>${tireRepairProfit} / ${tireReplaceProfit} / ${installationProfit}</strong></div>
-                )}
-                {vertical.pricingModel.kind === 'labor_parts' && (
-                  <div className="onboarding-summary-row">
-                    <span>Labor / Parts</span>
-                    <strong>{money(vertical.pricingModel.defaultLaborRate)}/hr · +{vertical.pricingModel.defaultPartsMarkupPct}%</strong>
-                  </div>
-                )}
-                {vertical.pricingModel.kind === 'package_multiplier' && (
-                  <div className="onboarding-summary-row">
-                    <span>Vertical</span><strong>{vertical.displayName}</strong>
-                  </div>
-                )}
+                <div className="onboarding-summary-row"><span>Profit targets</span><strong>${tireRepairProfit} / ${tireReplaceProfit} / ${installationProfit}</strong></div>
                 <div className="onboarding-summary-row"><span>Travel</span><strong>${costPerMile.toFixed(2)}/mi · {freeMiles} free</strong></div>
               </div>
               <div style={{

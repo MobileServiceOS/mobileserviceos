@@ -279,37 +279,6 @@ export function JobDetailModal({
             </div>
           )}
 
-          {/* Mechanic-specific service details. Only renders when the
-              job actually carries any of these fields, so a tire job
-              accidentally viewed in mechanic mode stays clean. */}
-          {vertical.key === 'mechanic' && (
-            job.laborHours || job.partsCost || job.diagnosticCode ||
-            job.vehicleMakeModel || job.mileage || job.diagnosticFee
-          ) ? (
-            <div className="form-group" style={{ marginBottom: 12 }}>
-              <div className="form-group-title">Service Details</div>
-              {job.vehicleMakeModel ? <Row label="Vehicle" value={job.vehicleMakeModel} /> : null}
-              {job.mileage ? <Row label="Mileage" value={String(job.mileage)} /> : null}
-              {job.diagnosticCode ? <Row label="Diagnostic" value={job.diagnosticCode} /> : null}
-              {job.laborHours ? <Row label="Labor (hrs)" value={String(job.laborHours)} /> : null}
-              {job.diagnosticFee ? <Row label="Diagnostic Fee" value={money(Number(job.diagnosticFee))} /> : null}
-              {Array.isArray(job.parts) && job.parts.length > 0 ? (
-                <Row label="Parts" value={`${job.parts.length} line${job.parts.length === 1 ? '' : 's'}`} />
-              ) : null}
-            </div>
-          ) : null}
-
-          {/* Detailing-specific service details. Vehicle size + add-ons. */}
-          {vertical.key === 'detailing' && (job.vehicleSize || (Array.isArray(job.detailingAddons) && job.detailingAddons.length > 0)) ? (
-            <div className="form-group" style={{ marginBottom: 12 }}>
-              <div className="form-group-title">Service Details</div>
-              {job.vehicleSize ? <Row label="Vehicle Size" value={job.vehicleSize} /> : null}
-              {Array.isArray(job.detailingAddons) && job.detailingAddons.length > 0 ? (
-                <Row label="Add-ons" value={job.detailingAddons.join(', ')} />
-              ) : null}
-            </div>
-          ) : null}
-
           {invDeds && invDeds.length > 0 ? (
             <div className="form-group" style={{ marginBottom: 12 }}>
               <div className="form-group-title">Inventory Used</div>

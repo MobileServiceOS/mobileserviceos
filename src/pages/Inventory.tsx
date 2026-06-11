@@ -12,7 +12,6 @@ import { InventoryIntelPanel } from '@/components/inventory/InventoryIntelPanel'
 import { NumberField } from '@/components/NumberField';
 import { useActiveVertical } from '@/lib/useActiveVertical';
 import type { BusinessTypeInventoryField, BusinessTypeConfig } from '@/config/businessTypes/registry';
-import { MechanicInventoryView } from '@/components/inventory/MechanicInventoryView';
 import { SMART_CHIPS, matchesSmartChip, type SmartChip } from '@/lib/inventoryFilters';
 import { TODAY } from '@/lib/defaults';
 import {
@@ -113,16 +112,6 @@ function parseCsv(text: string): ParsedRow[] {
 // category/dilutionRatio fields).
 export function Inventory({ inventory, onSave, settings, jobs }: Props) {
   const vertical = useActiveVertical();
-  if (vertical.key === 'mechanic') {
-    return (
-      <MechanicInventoryView
-        inventory={inventory}
-        onSave={onSave}
-        vertical={vertical}
-        settings={settings}
-      />
-    );
-  }
   if (!vertical.features.inventoryDeduction) {
     return <GenericInventoryView inventory={inventory} onSave={onSave} vertical={vertical} />;
   }
