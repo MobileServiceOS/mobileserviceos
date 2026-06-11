@@ -1,36 +1,32 @@
 // functions/src/twilioIncomingCall.ts
 // ═══════════════════════════════════════════════════════════════════
-//  twilioIncomingCall — Phase 1 real-time caller-ID webhook.
+//  twilioIncomingCall — real-time caller-ID webhook (front-door bridge).
 //
 //  Spec: docs/superpowers/specs/2026-06-05-incoming-call-screenpop-design.md
 //
-//  This function ships DORMANT. It only fires when the operator points
-//  the Twilio Voice URL (Phone Numbers → [Number] → Voice & Fax →
-//  "A Call Comes In" → Webhook) at this endpoint. Until then it is
-//  bytecode in the Cloud Functions runtime with no traffic.
+//  Architecture (front-door — Twilio receives the call FIRST):
+//    1. Customer dials the operator's T-Mobile business number.
+//    2. T-Mobile UNCONDITIONAL forward-all (*21*) sends the call to the
+//       operator's Twilio number.
+//    3. Twilio hits this Voice URL → we look up the caller, write a
+//       businesses/{bid}/incoming_calls/{callSid} doc (the popup fires on
+//       every connected device), then respond with TwiML:
+//         • <Dial> the operator's configured `callForwardNumber` so they
+//           answer normally. callerId = the customer's number so their
+//           phone shows who's calling. No <Record> → nothing recorded;
+//           an unanswered ring rolls to that line's own voicemail.
+//         • If no valid answer number is configured → <Hangup/> (popup
+//           still fired). Safe default.
 //
-//  Activation path (operator-driven, no code change required):
-//    1. Operator confirms their T-Mobile plan supports SimRing /
-//       Multi-Ring (DIGITS or carrier-equivalent on other carriers).
-//    2. Operator configures SimRing in the T-Mobile portal to ring
-//       the Twilio number in PARALLEL with their personal cell.
-//    3. Operator points the Twilio Voice URL at:
-//         https://us-central1-mobile-service-os.cloudfunctions.net/twilioIncomingCall
+//  ⚠️ LOOP GUARD: `callForwardNumber` MUST be a DIFFERENT line from the
+//  forwarded business number. The business number forward-alls to Twilio,
+//  so dialing it back would forward to Twilio again → infinite loop. We
+//  hard-refuse to dial the Twilio number itself or the caller; the
+//  operator is responsible for not pointing it at the forwarded line
+//  (use a 2nd eSIM line on the same phone).
 //
-//  After activation, every inbound call to the business line rings
-//  BOTH (a) the operator's cell over T-Mobile (with real audio) AND
-//  (b) the Twilio leg, which routes here. We write a
-//  businesses/{bid}/incoming_calls/{callSid} doc and respond with
-//  <Hangup/> — the Twilio leg has no audio purpose, it exists purely
-//  as a real-time popup trigger. The operator answers on their cell
-//  while the IncomingCallNotification component on every connected
-//  device pops within 1-2 seconds of the live ring.
-//
-//  Distinct from twilioVoiceStatus:
-//    - twilioVoiceStatus is the STATUS CALLBACK (post-call) and
-//      represents missed calls under carrier-forwarding.
-//    - twilioIncomingCall is the VOICE URL (mid-call) and represents
-//      a live ringing call under SimRing.
+//  Distinct from twilioVoiceStatus (STATUS CALLBACK; missed-call SMS path,
+//  currently dormant behind TWILIO_ENABLED=false).
 //
 //  Component-side subscription: IncomingCallNotification.tsx subscribes
 //  to BOTH businesses/{bid}/leads (missed-call source, active today)
@@ -64,6 +60,21 @@ void admin;
 // rings the operator's cell via T-Mobile SimRing, so Twilio's leg has
 // no purpose past triggering the popup.
 const TWIML_HANGUP = '<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>';
+
+/**
+ * Front-door bridge TwiML. After the popup fires we <Dial> the operator's
+ * configured answer number so they pick up normally.
+ *   • callerId = the original caller's number → the operator's phone shows
+ *     the CUSTOMER's number, not the Twilio number.
+ *   • answerOnBridge keeps the caller hearing ringback (and delays billing)
+ *     until the operator actually answers.
+ *   • No <Record> → nothing is recorded. An unanswered ring rolls to the
+ *     dialed line's own carrier voicemail (no Twilio voicemail/transcription).
+ * Phone numbers are digits + '+', so no XML escaping is required.
+ */
+function twimlDial(destinationE164: string, callerIdE164: string): string {
+  return `<?xml version="1.0" encoding="UTF-8"?><Response><Dial callerId="${callerIdE164}" timeout="25" answerOnBridge="true">${destinationE164}</Dial></Response>`;
+}
 
 // 60-second TTL — the popup's auto-dismiss window is 30s; a 60s TTL
 // gives a comfortable buffer for late-arriving subscribers (slow
@@ -271,6 +282,30 @@ export const twilioIncomingCall = onRequest(
         customerExists: decision.doc.customerExists,
       });
 
+      // 6. Front-door bridge — <Dial> the operator's configured answer
+      //    number so they pick up. This MUST be a DIFFERENT line from the
+      //    forwarded business number: dialing the number that forwards to
+      //    Twilio creates an infinite loop, so we hard-refuse that case.
+      const dest        = String(opsDoc.get('callForwardNumber') ?? '').trim();
+      const destDigits  = _digitsOnly(dest);
+      const toDigits    = _digitsOnly(form.To ?? '');
+      const fromDigits  = _digitsOnly(form.From ?? '');
+      const canDial =
+        _isValidE164(dest) &&
+        destDigits.length > 0 &&
+        destDigits !== toDigits &&   // never dial the Twilio number (self-loop)
+        destDigits !== fromDigits;   // never dial the caller back
+      if (canDial && form.From) {
+        res.status(200).type('text/xml').send(twimlDial(dest, form.From));
+        return;
+      }
+      if (dest && !canDial) {
+        console.warn('[twilioIncomingCall] answer number rejected (loop/invalid) — popup only', {
+          businessId, dest, to: form.To,
+        });
+      }
+      // No valid answer number configured → drop the Twilio leg cleanly.
+      // The popup already fired; nothing is bridged.
       sendHangup(200);
     } catch (err) {
       console.error('[twilioIncomingCall] internal error', err);
