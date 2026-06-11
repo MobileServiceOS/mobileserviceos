@@ -403,8 +403,8 @@ service cloud.firestore {
       // READ to every member, so an owner/admin-only rule placed here
       // would be a no-op (rules are a permissive union — a narrow rule
       // can't restrict what the wildcard already allows; verified by
-      // tests/rules/firestore.rules.test.ts). They live OUTSIDE this
-      // subtree under top-level `zettleSecure/{businessId}/...` instead.
+      // tests/rules/firestore.rules.test.ts). Sensitive data must live in
+      // a TOP-LEVEL collection outside this member-readable subtree.
 
       match /expenses/{docId} {
         allow read: if isMemberOfBusiness(businessId);
@@ -860,37 +860,10 @@ service cloud.firestore {
       }
     }
 
-    // Zettle org → business routing index. Written by the OAuth callback
-    // (Admin SDK) so the public webhook can resolve which business an
-    // incoming PurchaseCreated event belongs to. Never client-accessible.
-    match /zettleOrgs/{orgId} {
-      allow read, write: if false;
-    }
-
-    // ─── PayPal Zettle SENSITIVE data — top-level on purpose ─────────
-    // Deliberately OUTSIDE businesses/{businessId} so the member-read
-    // wildcard there can't reach it. This is the ONLY way to keep
-    // fees / card brand / GPS coords / transaction ids away from
-    // technicians, because Firestore rules cannot redact fields on read
-    // and cannot subtract access a broader matching rule grants. All
-    // writes are Cloud Functions (Admin SDK, bypasses rules).
-    match /zettleSecure/{businessId} {
-      // Imported transaction records (incl. rendered map + paymentLocation).
-      match /payments/{paymentId} {
-        allow read: if isOwnerOrAdmin(businessId);
-        allow write: if false;
-      }
-      // Owner review queue for low-confidence auto-matches.
-      match /reviewQueue/{itemId} {
-        allow read: if isOwnerOrAdmin(businessId);
-        allow write: if false;
-      }
-      // OAuth tokens (encrypted) + webhook signingKey. Never client-
-      // readable or writable — Cloud Functions only.
-      match /private/{docId} {
-        allow read, write: if false;
-      }
-    }
+    // (The PayPal Zettle integration was removed. Its top-level
+    // collections — zettleOrgs and zettleSecure/{businessId}/... — no
+    // longer have rules, so they default-deny. Any orphaned historical
+    // docs are inert and unreadable.)
 
     // ─────────────────────────────────────────────────────────────────
     // REFERRAL SYSTEM
