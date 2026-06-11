@@ -63,10 +63,29 @@ export function zettleAppUrl(): string {
   return 'https://my.zettle.com';
 }
 
-/** Open Zettle in a new tab/window via a valid https URL (no custom
- *  scheme, so no Safari "invalid address" error). */
+/**
+ * Launch the Zettle Go app using the platform-correct method, with a safe
+ * fallback so it NEVER throws Safari's "address is invalid" error:
+ *
+ *   • Android — an `intent://` URL with the Zettle package and a
+ *     `browser_fallback_url`. Chrome opens the app if installed, else
+ *     follows the fallback. This is the supported Android app-launch.
+ *   • iOS / desktop — a valid https URL (App Store listing on iOS, the
+ *     Zettle web portal elsewhere). No custom scheme, so no error; on a
+ *     device with the app, the universal-link handoff opens it.
+ *
+ * Zettle publishes no public deep link that pre-fills a charge amount, so
+ * the operator types the amount in Zettle, then returns and taps Sync.
+ */
 export function openZettle(): void {
   if (typeof window === 'undefined') return;
+  const ua = navigator.userAgent || '';
+  if (/android/i.test(ua)) {
+    const fallback = encodeURIComponent('https://play.google.com/store/apps/details?id=com.izettle.android');
+    window.location.href =
+      `intent://#Intent;package=com.izettle.android;scheme=izettle;S.browser_fallback_url=${fallback};end`;
+    return;
+  }
   window.open(zettleAppUrl(), '_blank', 'noopener,noreferrer');
 }
 

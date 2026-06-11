@@ -1712,7 +1712,7 @@ function AuthenticatedApp({ user }: { user: User }) {
           onEditJob={() => handleEditJob(liveSavedJob)}
           onViewJob={() => handleViewJob(liveSavedJob)}
           onDuplicate={() => handleDuplicate(liveSavedJob)}
-          onMarkPaid={() => handleMarkPaid(liveSavedJob)}
+          onMarkPaid={(method) => handleMarkPaid(liveSavedJob, method)}
           onClose={() => { setSavedJob(null); setTab('dashboard'); }}
           onNewJob={startNewJob}
         />
