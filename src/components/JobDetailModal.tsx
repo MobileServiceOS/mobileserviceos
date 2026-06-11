@@ -28,6 +28,7 @@ import { useBrand } from '@/context/BrandContext';
 import { useMembersDirectory } from '@/lib/useMembersDirectory';
 import { JobTimer } from '@/components/JobDetailModal/JobTimer';
 import { JobPhotoCapture } from '@/components/JobPhotoCapture';
+import { TakePaymentButton } from '@/components/zettle/TakePaymentButton';
 
 interface Props {
   job: Job;
@@ -172,6 +173,19 @@ export function JobDetailModal({
                     onClick={() => onMarkPaid(payMethod)}
                   />
                 </div>
+              )}
+
+              {/* 2b · Take Payment with Zettle — only when still unpaid and
+                  the business has connected Zettle. Opens the Zettle app to
+                  charge, then Sync pulls the purchase in and the matcher
+                  auto-marks this job Paid. */}
+              {!isPaid && settings.zettleConnected && businessId && (
+                <TakePaymentButton
+                  businessId={businessId}
+                  connected={settings.zettleConnected}
+                  amount={job.revenue}
+                  canSync={permissions.canViewPaymentIntegrations}
+                />
               )}
 
               {/* 3 · Send Invoice (generates if needed, then texts it) */}
