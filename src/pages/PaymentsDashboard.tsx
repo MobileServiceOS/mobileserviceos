@@ -103,23 +103,42 @@ export function PaymentsDashboard({ jobs, workWeekStartDay }: { jobs: Job[]; wor
     const todayMs = startOfTodayMs(), weekMs = startOfWeekMs(wk), monthMs = startOfMonthMs();
     let todaySales = 0, todayTx = 0, weekSales = 0, weekTx = 0, monthSales = 0, monthTx = 0;
     let pendingCount = 0, pendingAmt = 0, lifeGross = 0, lifeCount = 0;
+    // Today's sales split by method (card counts Zettle as card).
+    let tCard = 0, tCash = 0, tZelle = 0, tVenmo = 0;
+    // Lifetime collected per technician (who tapped Mark Paid / "Zettle").
+    const byTech = new Map<string, { amount: number; count: number }>();
     for (const j of jobs) {
       const ps = resolvePaymentStatus(j);
       const rev = Number(j.revenue || 0);
       if (ps === 'Paid') {
         lifeGross += rev; lifeCount++;
+        const method = j.paymentSource === 'zettle' ? 'card' : j.paymentMethod;
+        const who = j.collectedByName || (j.paymentSource === 'zettle' ? 'Zettle' : 'Unattributed');
+        const t = byTech.get(who) ?? { amount: 0, count: 0 };
+        t.amount += rev; t.count += 1; byTech.set(who, t);
         const paidMs = j.paidAt ? Date.parse(j.paidAt) : 0;
-        if (paidMs >= todayMs) { todaySales += rev; todayTx++; }
+        if (paidMs >= todayMs) {
+          todaySales += rev; todayTx++;
+          if (method === 'card') tCard += rev;
+          else if (method === 'cash') tCash += rev;
+          else if (method === 'zelle') tZelle += rev;
+          else if (method === 'venmo') tVenmo += rev;
+        }
         if (paidMs >= weekMs) { weekSales += rev; weekTx++; }
         if (paidMs >= monthMs) { monthSales += rev; monthTx++; }
       } else if (ps === 'Pending Payment' || ps === 'Partial Payment') {
         pendingCount++; pendingAmt += rev;
       }
     }
+    const techRows = [...byTech.entries()]
+      .map(([name, v]) => ({ name, ...v }))
+      .sort((a, b) => b.amount - a.amount);
     return {
       todaySales, todayTx, weekSales, weekTx, monthSales, monthTx,
+      todayCard: tCard, todayCash: tCash, todayZelle: tZelle, todayVenmo: tVenmo,
       pendingCount, pendingAmt,
       lifeGross, lifeCount, avgTicket: lifeCount > 0 ? lifeGross / lifeCount : 0,
+      techRows,
     };
   }, [jobs, wk]);
 
@@ -179,12 +198,35 @@ export function PaymentsDashboard({ jobs, workWeekStartDay }: { jobs: Job[]; wor
         <Kpi label="Month txns" value={String(jobStats.monthTx)} />
       </div>
 
+      <SectionTitle>Today by method</SectionTitle>
+      <div className="kpi-grid" style={{ marginBottom: 24 }}>
+        <Kpi label="Card (Zettle)" value={money(jobStats.todayCard)} />
+        <Kpi label="Cash" value={money(jobStats.todayCash)} />
+        <Kpi label="Zelle" value={money(jobStats.todayZelle)} />
+        <Kpi label="Venmo" value={money(jobStats.todayVenmo)} />
+      </div>
+
       <SectionTitle>Lifetime</SectionTitle>
       <div className="kpi-grid" style={{ marginBottom: 24 }}>
-        <Kpi label="Gross Revenue" value={money(jobStats.lifeGross)} accent />
+        <Kpi label="Total Collected" value={money(jobStats.lifeGross)} accent />
         <Kpi label="Payments" value={String(jobStats.lifeCount)} />
         <Kpi label="Avg Ticket" value={money(jobStats.avgTicket)} />
       </div>
+
+      {jobStats.techRows.length > 0 && (
+        <>
+          <SectionTitle>Sales by Technician</SectionTitle>
+          <div className="form-group" style={{ marginBottom: 24 }}>
+            {jobStats.techRows.map((t) => (
+              <div key={t.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, padding: '8px 0', borderBottom: '1px solid var(--border, #eee)' }}>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>{t.name}</span>
+                <span style={{ fontSize: 12, color: 'var(--t3)' }}>{t.count} job{t.count === 1 ? '' : 's'}</span>
+                <span style={{ fontSize: 14, fontWeight: 800, color: 'var(--green)' }}>{money(t.amount)}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
 
       {/* ═══ Section 2 — Zettle ═══ */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
