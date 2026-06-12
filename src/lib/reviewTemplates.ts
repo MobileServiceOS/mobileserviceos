@@ -133,14 +133,6 @@ const SERVICE_NATURAL: Record<string, string> = {
   'Emergency Highway Service': 'the emergency highway service',
   'Commercial Truck Tire Service': 'the commercial truck tire service',
   'RV Tire Service': 'the RV tire service',
-  // Mechanic vertical
-  'Mobile Mechanic Services': 'the mobile mechanic service',
-  'Battery Replacement': 'the battery replacement',
-  'Oil Change': 'the oil change',
-  'Brake Service': 'the brake service',
-  // Detailing vertical
-  'Car Wash': 'the car wash',
-  'Detailing': 'the detail',
 };
 
 /** Service bucket → which template set applies. Keeps the variant
@@ -178,20 +170,6 @@ function bucketFor(service: ServiceKey | undefined): TemplateBucket {
     case 'Commercial Truck Tire Service':
     case 'RV Tire Service':
       return 'commercial';
-    // ─── Mechanic vertical ──────────────────────────────────
-    case 'Mobile Mechanic Services':
-      return 'mechanic_general';
-    case 'Battery Replacement':
-      return 'battery';
-    case 'Oil Change':
-      return 'oil_change';
-    case 'Brake Service':
-      return 'brake';
-    // ─── Detailing vertical ─────────────────────────────────
-    case 'Car Wash':
-      return 'car_wash';
-    case 'Detailing':
-      return 'detailing';
     default:
       return 'generic';
   }
@@ -205,14 +183,6 @@ type TemplateBucket =
   | 'valve_stem'
   | 'roadside'
   | 'commercial'
-  // Mechanic vertical
-  | 'mechanic_general'
-  | 'battery'
-  | 'oil_change'
-  | 'brake'
-  // Detailing vertical
-  | 'car_wash'
-  | 'detailing'
   | 'generic';
 
 // ─────────────────────────────────────────────────────────────────────
@@ -405,109 +375,6 @@ const VALVE_STEM: Variant[] = [
     `${salutation}, thank you for choosing ${biz} in ${city}. A quick Google review helps other drivers find us for the same service.`,
 ];
 
-/**
- * MECHANIC GENERAL — fallback for mobile mechanic services that
- * don't slot into battery / oil / brake. Convenience-focused tone
- * (mobile means we came to you).
- */
-const MECHANIC_GENERAL: Variant[] = [
-  ({ name, city, biz, vehicleClause }) =>
-    `Hi ${name}, thank you for choosing ${biz} for mobile mechanic service in ${city}${vehicleClause}. If you were happy with today's service, we'd appreciate a quick Google review.`,
-  ({ salutation, biz }) =>
-    `${salutation}, thank you for choosing ${biz} for mobile service. A short Google review would help more drivers find a reliable mechanic who comes to them.`,
-  ({ name, city, biz }) =>
-    `Hi ${name}, thank you for your business in ${city} today. A quick Google review really helps ${biz} keep serving local drivers.`,
-  ({ name, biz }) =>
-    `Thank you, ${name}. A brief Google review about ${biz} would help other drivers find dependable mobile mechanic service in the area.`,
-  ({ salutation, city, biz }) =>
-    `${salutation}, thank you for choosing ${biz} in ${city}. A quick Google review helps more drivers find a mechanic who comes to them.`,
-];
-
-/**
- * BATTERY REPLACEMENT — emergency-adjacent. Most calls are
- * stranded drivers. Tone leans toward "saved your day" framing.
- */
-const BATTERY: Variant[] = [
-  ({ name, city, biz, vehicleClause }) =>
-    `Hi ${name}, thank you for choosing ${biz} for your battery replacement in ${city}${vehicleClause}. If you were happy with the service, we'd appreciate a quick Google review.`,
-  ({ salutation, biz }) =>
-    `${salutation}, thank you for trusting ${biz} with your battery replacement. A short Google review would help the next driver with a dead start find us.`,
-  ({ name, city, biz }) =>
-    `Hi ${name}, thank you for calling ${biz} today. If the battery replacement in ${city} went well, a quick Google review would help more drivers find fast service.`,
-  ({ name, biz }) =>
-    `Thank you, ${name}. A brief Google review about ${biz} helps other drivers find dependable mobile battery service when they need it.`,
-  ({ salutation, city, biz }) =>
-    `${salutation}, thank you for your business in ${city}. A short Google review helps ${biz} reach more drivers when their car won't start.`,
-];
-
-/**
- * OIL CHANGE — routine maintenance, low-emotion service. Friendly
- * "you took care of it" tone rather than dramatic "saved your day."
- */
-const OIL_CHANGE: Variant[] = [
-  ({ name, city, biz, vehicleClause }) =>
-    `Hi ${name}, thank you for choosing ${biz} for your oil change in ${city}${vehicleClause}. If you were happy with today's service, we'd appreciate a quick Google review.`,
-  ({ salutation, biz }) =>
-    `${salutation}, thank you for trusting ${biz} with your maintenance. A short Google review would help more drivers find mobile oil service at home.`,
-  ({ name, biz }) =>
-    `Thank you, ${name}. A brief Google review about your oil change helps ${biz} stay in front of other drivers due for service.`,
-  ({ salutation, city, biz }) =>
-    `${salutation}, thank you for your business in ${city}. A short Google review helps ${biz} keep serving local drivers.`,
-  ({ name, city, biz }) =>
-    `Hi ${name}, thank you for choosing ${biz} today. A quick Google review helps neighbors in ${city} find reliable mobile oil service.`,
-];
-
-/**
- * BRAKE SERVICE — safety-focused service. Tone emphasizes peace of
- * mind + confidence rather than convenience.
- */
-const BRAKE: Variant[] = [
-  ({ name, city, biz, vehicleClause }) =>
-    `Hi ${name}, thank you for choosing ${biz} for your brake service in ${city}${vehicleClause}. If you were happy with the service, we'd appreciate a quick Google review.`,
-  ({ salutation, biz }) =>
-    `${salutation}, thank you for trusting ${biz} with your brake service. A short Google review would help more drivers find safe, reliable brake work.`,
-  ({ name, biz }) =>
-    `Thank you, ${name}. A brief Google review about ${biz} helps other drivers find a mobile shop that handles safety work properly.`,
-  ({ salutation, city, biz }) =>
-    `${salutation}, thank you for your business in ${city}. A short Google review helps more drivers know ${biz} handles brake service right.`,
-  ({ name, city, biz }) =>
-    `Hi ${name}, thank you for choosing ${biz} today. A quick Google review helps more drivers in ${city} find dependable brake service.`,
-];
-
-/**
- * CAR WASH — short, friendly. The service is light + pleasant
- * so the review ask matches.
- */
-const CAR_WASH: Variant[] = [
-  ({ name, city, biz, vehicleClause }) =>
-    `Hi ${name}, thank you for choosing ${biz} for your car wash in ${city}${vehicleClause}. If you were happy with today's service, we'd appreciate a quick Google review.`,
-  ({ salutation, biz }) =>
-    `${salutation}, thank you for trusting ${biz} with your car wash today. A short Google review would mean a lot to our small team.`,
-  ({ name, biz }) =>
-    `Thank you, ${name}. A brief Google review about today's wash really helps ${biz} keep the schedule full.`,
-  ({ salutation, city, biz }) =>
-    `${salutation}, thank you for choosing ${biz} in ${city}. A quick Google review helps neighbors find a mobile wash that shows up on time.`,
-  ({ name, biz }) =>
-    `Hi ${name}, thank you for your business today. A short Google review about ${biz} really helps more local drivers find us.`,
-];
-
-/**
- * DETAILING — premium service, longer-form interaction. Tone is
- * grateful and quality-focused, matching the higher ticket size.
- */
-const DETAILING: Variant[] = [
-  ({ name, city, biz, vehicleClause }) =>
-    `Hi ${name}, thank you for choosing ${biz} for your detail in ${city}${vehicleClause}. If you were happy with today's service, we'd appreciate a quick Google review.`,
-  ({ salutation, biz }) =>
-    `${salutation}, thank you for trusting ${biz} with your detail. A short Google review would help us reach more drivers looking for premium mobile detailing.`,
-  ({ name, biz }) =>
-    `Thank you, ${name}. A brief Google review really helps ${biz} grow our local detailing business.`,
-  ({ salutation, city, biz }) =>
-    `${salutation}, thank you for choosing ${biz} in ${city} today. A short Google review helps neighbors find quality mobile detailing.`,
-  ({ name, biz }) =>
-    `Hi ${name}, thank you for your business today. If the detail met your expectations, a quick Google review would mean a lot to ${biz}.`,
-];
-
 const GENERIC: Variant[] = [
   ({ name, city, biz }) =>
     `Hi ${name}, thank you for choosing ${biz} in ${city}. A quick Google review helps other local drivers find us.`,
@@ -531,12 +398,6 @@ const BUCKETS: Record<TemplateBucket, Variant[]> = {
   valve_stem: VALVE_STEM,
   roadside: ROADSIDE,
   commercial: COMMERCIAL,
-  mechanic_general: MECHANIC_GENERAL,
-  battery: BATTERY,
-  oil_change: OIL_CHANGE,
-  brake: BRAKE,
-  car_wash: CAR_WASH,
-  detailing: DETAILING,
   generic: GENERIC,
 };
 
