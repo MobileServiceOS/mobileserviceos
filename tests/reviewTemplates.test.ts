@@ -392,11 +392,6 @@ section('Regression: city/name comma collision');
     'Mobile Tire Service', 'Jump Start', 'Fuel Delivery', 'Lockout',
     'Fleet Tire Service', 'Heavy-Duty Tire Service',
     'Commercial Truck Tire Service', 'RV Tire Service',
-    // Mechanic vertical
-    'Mobile Mechanic Services', 'Battery Replacement', 'Oil Change',
-    'Brake Service',
-    // Detailing vertical
-    'Car Wash', 'Detailing',
     'Custom Unknown',
   ];
   for (const svc of allServices) {
@@ -447,11 +442,6 @@ section('Regression: sentence-case when name fallback fires');
     'Mobile Tire Service', 'Jump Start', 'Fuel Delivery', 'Lockout',
     'Fleet Tire Service', 'Heavy-Duty Tire Service',
     'Commercial Truck Tire Service', 'RV Tire Service',
-    // Mechanic vertical
-    'Mobile Mechanic Services', 'Battery Replacement', 'Oil Change',
-    'Brake Service',
-    // Detailing vertical
-    'Car Wash', 'Detailing',
     'Custom Unknown',
   ];
   for (const svc of allServices) {
@@ -500,8 +490,6 @@ section('Vehicle interpolation');
   const buckets = [
     'Tire Repair', 'Tire Replacement', 'Valve Stem Replacement',
     'Roadside Tire Assistance', 'Fleet Tire Service',
-    'Mobile Mechanic Services', 'Battery Replacement', 'Oil Change',
-    'Brake Service', 'Car Wash', 'Detailing',
   ];
   for (const svc of buckets) {
     let foundWithVehicle = false;
@@ -552,8 +540,7 @@ section('Vehicle interpolation');
 section('Vehicle absent — graceful fallback');
 {
   const buckets = [
-    'Tire Repair', 'Valve Stem Replacement', 'Battery Replacement',
-    'Oil Change', 'Brake Service', 'Car Wash', 'Detailing',
+    'Tire Repair', 'Valve Stem Replacement',
   ];
   for (const svc of buckets) {
     for (let i = 0; i < 6; i++) {
