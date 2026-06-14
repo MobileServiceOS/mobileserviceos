@@ -276,8 +276,8 @@ export const EMPTY_JOB = (): Job => ({
   inventoryDeductions: null,
   inventoryUsed: null,
   // Every new job is born unpaid. The operator collects payment as an
-  // explicit step (Mark Paid / Take Payment with Zettle), or marks it
-  // paid on the spot via the Payment Status chips in the New Job form.
+  // explicit step (Mark Paid), or marks it paid on the spot via the
+  // Payment Status chips in the New Job form.
   paymentStatus: 'Pending Payment',
   invoiceGenerated: false,
   invoiceGeneratedAt: null,

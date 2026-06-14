@@ -1364,7 +1364,7 @@ function AuthenticatedApp({ user }: { user: User }) {
       paymentMethod: method || j.paymentMethod || getLastPaymentMethod() || 'cash',
       // Record WHO collected — the member tapping Mark Paid. Preserve an
       // existing collector (e.g. a "Change method" re-fire) rather than
-      // overwriting it. Zettle auto-matches don't pass through here.
+      // overwriting it.
       collectedByUid: j.collectedByUid || user.uid,
       collectedByName: j.collectedByName || currentMember?.displayName || user.displayName || user.email || 'Team member',
     };
@@ -1481,12 +1481,11 @@ function AuthenticatedApp({ user }: { user: User }) {
 
   const handleDuplicate = useCallback((j: Job) => {
     // A duplicate is a NEW job: born unpaid, with all of the original's
-    // payment/collection state cleared so it can't appear pre-paid or
-    // carry the source job's Zettle link.
+    // payment/collection state cleared so it can't appear pre-paid.
     setJobDraft({
       ...j, id: '', date: new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' }), revenue: '',
       paymentStatus: 'Pending Payment', status: 'Completed',
-      payment: '', paymentMethod: undefined, paymentSource: undefined, paymentImportId: undefined, paidAt: undefined,
+      payment: '', paymentMethod: undefined, paidAt: undefined,
       invoiceGenerated: false, invoiceSent: false, reviewRequested: false, lastEditedAt: null,
     });
     setEditingJobId(null);

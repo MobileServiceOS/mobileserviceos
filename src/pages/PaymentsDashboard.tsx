@@ -46,7 +46,7 @@ export function PaymentsDashboard({ jobs, workWeekStartDay }: { jobs: Job[]; wor
       const rev = Number(j.revenue || 0);
       if (ps === 'Paid') {
         lifeGross += rev; lifeCount++;
-        const method = j.paymentSource === 'zettle' ? 'card' : j.paymentMethod;
+        const method = j.paymentMethod;
         const who = j.collectedByName || 'Unattributed';
         const t = byTech.get(who) ?? { amount: 0, count: 0 };
         t.amount += rev; t.count += 1; byTech.set(who, t);
