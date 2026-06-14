@@ -1254,18 +1254,16 @@ function RecentJobCard({
             {/* When paid: "Paid via X · time" (collect buttons hidden). */}
             {ps === 'Paid' && (
               <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 2, textAlign: 'right' }}>
-                {job.paymentSource === 'zettle'
-                  ? 'via Zettle'
-                  : job.paymentMethod
-                    ? `via ${PAYMENT_METHOD_LABELS[job.paymentMethod as PaymentMethod] ?? job.paymentMethod}`
-                    : ''}
+                {job.paymentMethod
+                  ? `via ${PAYMENT_METHOD_LABELS[job.paymentMethod as PaymentMethod] ?? job.paymentMethod}`
+                  : ''}
                 {job.paidAt ? ` · ${new Date(job.paidAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : ''}
               </div>
             )}
           </div>
         </div>
         {/* When unpaid: an explicit Collect Payment CTA (opens the job's
-            command center — method chips + Take Payment with Zettle).
+            command center — method chips + Mark Paid).
             The swipe gesture stays as the power-user shortcut. */}
         {ps !== 'Paid' && ps !== 'Cancelled' && (
           <button

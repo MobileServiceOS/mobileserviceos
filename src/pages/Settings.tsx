@@ -123,9 +123,8 @@ export function Settings({ settings, onSave }: Props) {
   // edit operational settings without seeing owner split %.
   const canSeeBusinessSettings = permissions.canEditBusinessSettings;
   const canSeeTeam = permissions.canManageTeam;
-  // PayPal Zettle payment integration — owner/admin only. Same HIDE-not-
-  // disable strategy: technicians never render the section, and the
-  // server callables + Firestore rules block the sensitive data too.
+  // Payments — owner/admin only. Technicians never render the section,
+  // and Firestore rules block the sensitive data server-side too.
   const canSeePaymentIntegrations = permissions.canViewPaymentIntegrations;
 
   // Stripe → Firestore subscription mirror. While the Settings page is

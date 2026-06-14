@@ -353,12 +353,11 @@ export function JobDetailModal({
                   </div>
                 </div>
                 {/* Collected By + assigned technician — attribution, not
-                    sensitive money data, so visible to everyone. Zettle
-                    auto-matches have no human collector → show "Zettle". */}
-                {(job.collectedByName || job.paymentSource === 'zettle' || job.assignedToUid || job.createdByUid) && (
+                    sensitive money data, so visible to everyone. */}
+                {(job.collectedByName || job.assignedToUid || job.createdByUid) && (
                   <div style={{ marginTop: 6, fontSize: 11, color: 'var(--t3)', display: 'flex', flexWrap: 'wrap', gap: '2px 12px' }}>
-                    {(job.paymentSource === 'zettle' || job.collectedByName) && (
-                      <span>Collected by {job.paymentSource === 'zettle' ? 'Zettle' : job.collectedByName}</span>
+                    {job.collectedByName && (
+                      <span>Collected by {job.collectedByName}</span>
                     )}
                     {(job.assignedToUid || job.createdByUid) && (
                       <span>Technician: {resolveName(job.assignedToUid || job.createdByUid || '')}</span>

@@ -359,9 +359,8 @@ export interface Permissions {
   canDeleteJobs: boolean;
   // Analytics
   canViewAdvancedReports: boolean;
-  // Payment integrations — view/configure PayPal Zettle import and read
-  // sensitive transaction/location data. Owner + admin only; technicians
-  // never get this (enforced server-side, not just in the UI).
+  // Payment integrations + payments reporting. Owner + admin only;
+  // technicians never get this (enforced server-side, not just the UI).
   canViewPaymentIntegrations: boolean;
 }
 
@@ -680,16 +679,6 @@ export interface Job {
    * both fields on save until a future migration drops `payment`.
    */
   paymentMethod?: PaymentMethod;
-  /** Where the recorded payment came from. 'manual' = operator chip-tap
-   *  (the existing flow), 'zettle' = auto-imported from a PayPal Zettle
-   *  card transaction. Tech-safe: carries no sensitive data — the full
-   *  transaction record lives in the owner/admin-only zettlePayments
-   *  collection. Undefined on legacy jobs (treat as 'manual'). */
-  paymentSource?: 'manual' | 'zettle';
-  /** Pointer to the zettlePayments doc (= Zettle purchaseUUID) that paid
-   *  this job. Tech-safe pointer only; the referenced doc is gated to
-   *  owner/admin by Firestore rules. */
-  paymentImportId?: string;
   status: JobStatus;
   source: string;
   customerName: string;
@@ -729,9 +718,8 @@ export interface Job {
   paymentStatus: PaymentStatus;
   /** ISO timestamp of when the job was marked Paid. Stamped by handleMarkPaid. */
   paidAt?: string;
-  /** Who collected the payment (the member who tapped Mark Paid). For
-   *  Zettle auto-matched payments this is left unset — the UI shows
-   *  "Zettle" from paymentSource. Owner/admin reporting only. */
+  /** Who collected the payment (the member who tapped Mark Paid).
+   *  Owner/admin reporting only. */
   collectedByUid?: string;
   collectedByName?: string;
   invoiceGenerated: boolean;
