@@ -44,35 +44,65 @@ export interface ConsolidateResult {
 }
 
 const num = (v: unknown): number => Number(v ?? 0) || 0;
-const filled = (s: string | undefined): boolean => !!(s || '').trim();
+
+interface Agg {
+  /** First-seen entry id — survivor keeps it so the card's position / React
+   *  key stays stable. */
+  firstId: string;
+  /** First-seen raw size string — used for display. */
+  size: string;
+  qty: number;
+  reservations: NonNullable<InventoryItem['reservations']>;
+  reorderPoint: number;
+  /** The entry holding the most stock — its descriptors (brand / model /
+   *  condition / cost / notes) represent the merged row, so the surviving
+   *  card reflects where the stock actually is rather than an arbitrary
+   *  first entry (e.g. a New entry with 2 wins over a Used entry with 0). */
+  dominant: InventoryItem;
+}
 
 export function consolidateInventoryBySize(items: ReadonlyArray<InventoryItem>): ConsolidateResult {
-  // Pass 1 — build the survivor (summed) record for each size.
-  const survivors = new Map<string, InventoryItem>();
+  // Pass 1 — accumulate per size: summed qty, merged reservations, max
+  // reorder point, and the dominant (most-stock) entry for descriptors.
+  const aggs = new Map<string, Agg>();
   const counts = new Map<string, number>();
   for (const i of items) {
     const raw = (i.size || '').trim();
     const key = raw ? sizeKey(raw) : '';
     if (!key) continue; // blank / unparseable → handled in pass 2
     counts.set(key, (counts.get(key) ?? 0) + 1);
-    const prev = survivors.get(key);
+    const q = num(i.qty);
+    const prev = aggs.get(key);
     if (!prev) {
-      survivors.set(key, { ...i, size: raw, qty: num(i.qty) });
-    } else {
-      survivors.set(key, {
-        ...prev,
-        qty: num(prev.qty) + num(i.qty),
-        reservations: [...(prev.reservations || []), ...(i.reservations || [])],
-        reorderPoint: Math.max(num(prev.reorderPoint ?? 1), num(i.reorderPoint ?? 1)),
-        // Keep the survivor's descriptors; fall back to the folded entry
-        // only where the survivor's field is empty.
-        brand: filled(prev.brand) ? prev.brand : i.brand,
-        model: filled(prev.model) ? prev.model : i.model,
-        cost: num(prev.cost) > 0 ? prev.cost : num(i.cost),
-        notes: filled(prev.notes) ? prev.notes : i.notes,
-        condition: filled(prev.condition) ? prev.condition : i.condition,
+      aggs.set(key, {
+        firstId: i.id,
+        size: raw,
+        qty: q,
+        reservations: [...(i.reservations || [])],
+        reorderPoint: num(i.reorderPoint ?? 1),
+        dominant: i,
       });
+    } else {
+      prev.qty += q;
+      prev.reservations.push(...(i.reservations || []));
+      prev.reorderPoint = Math.max(prev.reorderPoint, num(i.reorderPoint ?? 1));
+      // Strictly greater so ties keep the earlier (first-seen) entry.
+      if (q > num(prev.dominant.qty)) prev.dominant = i;
     }
+  }
+
+  // Build the survivor record for each size from its dominant entry, with
+  // the accumulated totals layered on top.
+  const survivors = new Map<string, InventoryItem>();
+  for (const [key, a] of aggs) {
+    survivors.set(key, {
+      ...a.dominant,
+      id: a.firstId,
+      size: a.size,
+      qty: a.qty,
+      reservations: a.reservations,
+      reorderPoint: a.reorderPoint,
+    });
   }
 
   // Pass 2 — emit survivors at the position of their first occurrence and
