@@ -25,7 +25,8 @@ interface Props {
 }
 
 export function BestSellersCard({ jobs }: Props) {
-  const [window, setWindow] = useState<BestSellerWindow>(90);
+  // Default to the weekly view — "which tire is selling best this week".
+  const [window, setWindow] = useState<BestSellerWindow>(7);
   const [sortBy, setSortBy] = useState<BestSellerSort>('quantity');
 
   const rows = useMemo(
@@ -34,6 +35,7 @@ export function BestSellersCard({ jobs }: Props) {
   );
 
   const windowLabel: Record<BestSellerWindow, string> = {
+    7: 'last 7 days',
     30: 'last 30 days',
     90: 'last 90 days',
     all: 'all time',
@@ -70,11 +72,16 @@ export function BestSellersCard({ jobs }: Props) {
       }}>
         <span style={labelStyle}>Window</span>
         <div style={{ display: 'flex', gap: 4 }}>
-          {(['30', '90', 'all'] as const).map((w) => {
-            const val: BestSellerWindow = w === 'all' ? 'all' : (Number(w) as 30 | 90);
+          {([
+            ['7', 'Week'],
+            ['30', '30d'],
+            ['90', '90d'],
+            ['all', 'All'],
+          ] as const).map(([w, label]) => {
+            const val: BestSellerWindow = w === 'all' ? 'all' : (Number(w) as 7 | 30 | 90);
             return (
               <button key={w} onClick={() => setWindow(val)} style={pillStyle(window === val)}>
-                {w === 'all' ? 'All' : `${w}d`}
+                {label}
               </button>
             );
           })}
