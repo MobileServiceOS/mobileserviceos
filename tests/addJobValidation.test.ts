@@ -167,5 +167,23 @@ console.log('\n── isValidAddJobPhone: helper-level coverage ──');
   check('reject non-string number',      isValidAddJobPhone(1234567890) === false);
 }
 
+console.log('\n── phoneOptional (no-phone walk-in path) ──');
+{
+  const v = validateAddJob({ customerPhone: '', service: 'Flat Tire Repair', revenue: 90 }, { phoneOptional: true });
+  check('no phone allowed when phoneOptional', v.canSave === true && !v.missing.includes('phone'),
+    `got ${JSON.stringify(v.missing)}`);
+
+  const v2 = validateAddJob({ customerPhone: '', service: 'Flat Tire Repair', revenue: 90 });
+  check('no phone still blocked by default', v2.canSave === false && v2.missing.includes('phone'));
+
+  const v3 = validateAddJob({ customerPhone: '123', service: 'Flat Tire Repair', revenue: 90 }, { phoneOptional: true });
+  check('invalid partial phone rejected even when optional', v3.missing.includes('phone'));
+
+  const v4 = validateAddJob({ customerPhone: '', service: '', revenue: 0 }, { phoneOptional: true });
+  check('service+revenue still required when phoneOptional',
+    JSON.stringify(v4.missing) === JSON.stringify(['service', 'revenue']),
+    `got ${JSON.stringify(v4.missing)}`);
+}
+
 console.log(`\n── DONE: ${passed} passed, ${failed} failed ──`);
 if (failed > 0) process.exit(1);

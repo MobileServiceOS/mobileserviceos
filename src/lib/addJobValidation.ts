@@ -65,10 +65,20 @@ export function isValidAddJobPhone(raw: unknown): boolean {
  * `missing` order is stable: phone → service → revenue. Drives the
  * comma-joined hint string and is what tests assert against.
  */
-export function validateAddJob(job: Pick<Job, 'customerPhone' | 'service' | 'revenue'>): AddJobValidation {
+export function validateAddJob(
+  job: Pick<Job, 'customerPhone' | 'service' | 'revenue'>,
+  opts?: { phoneOptional?: boolean },
+): AddJobValidation {
   const missing: AddJobMissingField[] = [];
 
-  if (!isValidAddJobPhone(job.customerPhone)) {
+  // Phone is normally required. When the operator marks the job as
+  // "no phone" (walk-in / number not collected), it's optional — but a
+  // number that IS typed must still be a valid one (no half-entered junk).
+  const phoneRaw = typeof job.customerPhone === 'string' ? job.customerPhone.trim() : '';
+  const phoneValid = isValidAddJobPhone(job.customerPhone);
+  if (opts?.phoneOptional) {
+    if (phoneRaw && !phoneValid) missing.push('phone');
+  } else if (!phoneValid) {
     missing.push('phone');
   }
 
