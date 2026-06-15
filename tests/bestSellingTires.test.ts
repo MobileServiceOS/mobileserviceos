@@ -216,19 +216,44 @@ console.log('\n┌─ Sort: by revenue ─────────────�
     out[0].tireSize === '275/35R20' && out[1].tireSize === '245/40R18' && out[2].tireSize === '225/65R17');
 }
 
-console.log('\n┌─ Sort: default is quantity (no regression) ──');
+console.log('\n┌─ Sort: default is JOBS (demand events, not units) ──');
 {
+  // Size A sold once as a set of 4 (1 job, 4 units). Size B sold across
+  // three single-tire jobs (3 jobs, 3 units). By JOBS, B wins; by UNITS,
+  // A wins. Confirms default ranks demand events, not tire count.
   const jobs: Job[] = [
-    makeJob({ tireSize: '225/65R17', qty: 4, revenue: 800, date: '2026-05-20' }),
-    makeJob({ tireSize: '245/40R18', qty: 8, revenue: 1600, date: '2026-05-20' }),
+    makeJob({ tireSize: '275/40R20', qty: 4, revenue: 400, date: '2026-05-20' }),
+    makeJob({ tireSize: '225/45R17', qty: 1, revenue: 100, date: '2026-05-20' }),
+    makeJob({ tireSize: '225/45R17', qty: 1, revenue: 100, date: '2026-05-21' }),
+    makeJob({ tireSize: '225/45R17', qty: 1, revenue: 100, date: '2026-05-22' }),
   ];
-  const outDefault = computeBestSellingTires(jobs, { now: NOW });
-  const outExplicit = computeBestSellingTires(jobs, { now: NOW, sortBy: 'quantity' });
-  check('default sort matches explicit quantity sort',
-    outDefault.length === outExplicit.length
-    && outDefault[0].tireSize === outExplicit[0].tireSize
-    && outDefault[1].tireSize === outExplicit[1].tireSize
-    && outDefault[0].tireSize === '245/40R18');
+  const byJobs = computeBestSellingTires(jobs, { now: NOW });               // default = jobs
+  const byUnits = computeBestSellingTires(jobs, { now: NOW, sortBy: 'quantity' });
+  check('default sort is jobs → 3-job size ranks first', byJobs[0].tireSize === '225/45R17');
+  check('jobCount: set-of-4 = 1 job, singles = 3 jobs',
+    byJobs.find((r) => r.tireSize === '275/40R20')!.jobCount === 1
+    && byJobs.find((r) => r.tireSize === '225/45R17')!.jobCount === 3);
+  check('a one-job set-of-4 does NOT outrank three single-tire jobs',
+    byJobs[0].tireSize !== '275/40R20');
+  check('explicit quantity sort still ranks by units (set-of-4 first)',
+    byUnits[0].tireSize === '275/40R20');
+  check('units are still visible alongside (set-of-4 quantity = 4)',
+    byJobs.find((r) => r.tireSize === '275/40R20')!.quantity === 4);
+}
+
+console.log('\n┌─ Sort: jobs tie-break — out-of-stock first, then revenue ──');
+{
+  // Equal job counts; tie-break should surface the OUT-of-stock size first.
+  const jobs: Job[] = [
+    makeJob({ tireSize: '215/55R17', qty: 1, revenue: 999, date: '2026-05-20' }),
+    makeJob({ tireSize: '215/60R17', qty: 1, revenue: 100, date: '2026-05-20' }),
+  ];
+  const onHand = new Map<string, number>([['215/55R17', 5], ['215/60R17', 0]]);
+  const out = computeBestSellingTires(jobs, { now: NOW, onHandBySize: onHand });
+  check('equal jobs → out-of-stock size ranks first', out[0].tireSize === '215/60R17');
+  // Without stock info, equal jobs fall back to revenue (215/55 has more).
+  const noStock = computeBestSellingTires(jobs, { now: NOW });
+  check('no stock map → tie-break falls to revenue', noStock[0].tireSize === '215/55R17');
 }
 
 console.log(`\n  ${passed} passed, ${failed} failed`);

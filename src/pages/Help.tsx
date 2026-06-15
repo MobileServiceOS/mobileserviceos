@@ -172,9 +172,14 @@ const FAQ: FaqItem[] = [
     q: 'How does Low Stock Alert work?',
     a: (
       <>
-        The Dashboard highlights tire sizes that were sold often recently
-        but have ≤1 unit left on hand. Only the top 3 sizes are shown to
-        keep the alert focused. Open the Inventory tab to restock.
+        Inventory Intelligence highlights tire sizes that are in demand but
+        low or out of stock. Demand is measured by the number of <strong>jobs</strong>
+        {' '}that called for a size in the last 30 days — so one job that
+        mounts a set of four counts the same as one single-tire job (it's
+        one demand event, not four). On-hand is the <strong>combined total
+        across every line item</strong> of that size (e.g. New + Used, or
+        duplicate entries), so a size never reads "out" when stock exists in
+        another line. Open the Inventory tab to restock.
       </>
     ),
   },
