@@ -3,6 +3,7 @@ import type { InventoryItem, Job, Settings } from '@/types';
 import { money, sanitizeInvItem, uid } from '@/lib/utils';
 import { parseInventoryNotes, normalizeTireSizeQuery } from '@/lib/inventoryNotesParser';
 import { mergeBulkRows } from '@/lib/inventoryBulkMerge';
+import { consolidateInventoryBySize } from '@/lib/inventoryConsolidate';
 import {
   availableQty, reservedQty, addReservation, removeReservation,
 } from '@/lib/inventoryReservations';
@@ -348,50 +349,32 @@ function TireInventoryView({ inventory, onSave, jobs, onStartJob }: InternalView
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // True duplicates = same normalized size + same condition on multiple
-  // cards (a cost/notes edit should never split a SKU). Drives the
-  // "Merge duplicates" button. New vs Used of the same size are NOT
-  // duplicates — different stock — so they're keyed apart here.
-  const dupKey = (i: InventoryItem) =>
-    sizeKey(i.size || '') + '|' + ((i.condition || 'New') === 'Used' ? 'Used' : 'New');
-  const duplicateCount = useMemo(() => {
-    const seen = new Map<string, number>();
-    let dups = 0;
-    for (const i of list) {
-      if (!(i.size || '').trim()) continue;
-      const k = dupKey(i);
-      const n = (seen.get(k) ?? 0) + 1;
-      seen.set(k, n);
-      if (n > 1) dups++;
-    }
-    return dups;
-  }, [list]);
+  // Duplicate = the same normalized SIZE on more than one card. On-hand is
+  // read as the SUM across every entry of a size (inventoryIntel.sizeKey),
+  // so the durable cleanup collapses them to ONE row per size — New + Used
+  // and "205/55R16" vs "205/55/16" variants included. Pure, idempotent
+  // helper at @/lib/inventoryConsolidate (see inventoryConsolidate.spec.ts).
+  const { mergedCount: duplicateCount, sizesAffected: duplicateSizes } = useMemo(
+    () => consolidateInventoryBySize(list),
+    [list],
+  );
 
   const mergeDuplicates = () => {
     if (duplicateCount === 0) return;
     // eslint-disable-next-line no-alert
-    if (!window.confirm(`Merge ${duplicateCount} duplicate card${duplicateCount === 1 ? '' : 's'}? Quantities and reservations are combined; New and Used stay separate.`)) return;
-    const keep = new Map<string, InventoryItem>();
-    const order: string[] = [];
-    for (const i of list) {
-      // Blank/in-progress rows are left untouched (unique key per id).
-      const k = (i.size || '').trim() ? dupKey(i) : `blank:${i.id}`;
-      const prev = keep.get(k);
-      if (!prev || !(i.size || '').trim()) {
-        if (!prev) order.push(k);
-        keep.set(k, i);
-      } else {
-        keep.set(k, {
-          ...prev,
-          qty: Number(prev.qty || 0) + Number(i.qty || 0),
-          reservations: [...(prev.reservations || []), ...(i.reservations || [])],
-          brand: (prev.brand || '').trim() || i.brand,
-          cost: prev.cost > 0 ? prev.cost : i.cost,
-          notes: (prev.notes || '').trim() || i.notes,
-        });
-      }
-    }
-    update(order.map((k) => keep.get(k)!));
+    if (!window.confirm(
+      `Consolidate ${duplicateSizes} size${duplicateSizes === 1 ? '' : 's'} with duplicate entries into one row each? ` +
+      `Quantities and reservations are summed (New + Used combined). This rewrites the saved inventory.`,
+    )) return;
+    // Persist immediately as one atomic write: the combined totals become
+    // the source of truth before the extra rows are gone (no qty can be
+    // lost mid-migration). Mirrors applyBulk's setList + onSave pattern.
+    const { next, mergedCount } = consolidateInventoryBySize(list);
+    const cleaned = next.filter((i) => (i.size || '').trim()).map(sanitizeInvItem);
+    setList(cleaned);
+    setDirty(false);
+    onSave(cleaned);
+    addToast(`Consolidated ${mergedCount} duplicate entr${mergedCount === 1 ? 'y' : 'ies'} into ${duplicateSizes} size${duplicateSizes === 1 ? '' : 's'}`, 'success');
   };
 
   const remove = (id: string) => update(list.filter((i) => i.id !== id));
@@ -609,7 +592,7 @@ function TireInventoryView({ inventory, onSave, jobs, onStartJob }: InternalView
           <button className="btn xs secondary" onClick={() => { setPasteText(''); setShowPaste(true); }}>📝 Paste Notes</button>
           {duplicateCount > 0 && (
             <button className="btn xs" style={{ background: 'var(--amber)', color: '#0a0a0a', fontWeight: 700 }} onClick={mergeDuplicates}>
-              ⚠ Merge {duplicateCount} duplicate{duplicateCount === 1 ? '' : 's'}
+              ⚠ Consolidate {duplicateSizes} size{duplicateSizes === 1 ? '' : 's'}
             </button>
           )}
           {list.length > 0 && <button className="btn xs danger" onClick={() => setShowDeleteAll(true)}>Delete All</button>}

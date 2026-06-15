@@ -179,7 +179,10 @@ const FAQ: FaqItem[] = [
         one demand event, not four). On-hand is the <strong>combined total
         across every line item</strong> of that size (e.g. New + Used, or
         duplicate entries), so a size never reads "out" when stock exists in
-        another line. Open the Inventory tab to restock.
+        another line. When a size has duplicate entries, the Inventory tab
+        shows a <strong>Consolidate</strong> button that merges them into a
+        single row — quantities and reservations are summed, nothing is
+        lost. Open the Inventory tab to restock.
       </>
     ),
   },

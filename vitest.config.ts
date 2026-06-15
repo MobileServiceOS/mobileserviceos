@@ -20,7 +20,11 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
-    include: ['tests/components/**/*.test.{ts,tsx}'],
+    // Component/hook tests (*.test.tsx) plus pure-logic specs authored for
+    // the vitest runner (*.spec.ts — e.g. the inventory consolidation /
+    // acceptance suites). The hand-rolled tsx suites (tests/*.test.ts) stay
+    // on `npm test`.
+    include: ['tests/components/**/*.test.{ts,tsx}', 'tests/**/*.spec.ts'],
     setupFiles: ['tests/components/setup.ts'],
   },
 });
