@@ -309,6 +309,22 @@ function TireInventoryView({ inventory, onSave, jobs, onStartJob }: InternalView
    * card so it's immediately editable.
    */
   const addHotSize = (size: string) => {
+    // Hot sizes are sizes you ALREADY stock (top by qty), so the common
+    // case is bumping an existing New card — NOT creating a second one.
+    // Bump the existing New item of this size if present; only create a
+    // fresh card when none exists. (Prevents the duplicate-card bug.)
+    const norm = normalizeTireSize(size);
+    const existingIdx = list.findIndex(
+      (i) => normalizeTireSize(i.size || '') === norm && (i.condition || 'New') !== 'Used',
+    );
+    if (existingIdx >= 0) {
+      const existing = list[existingIdx];
+      const rest = list.filter((_, idx) => idx !== existingIdx);
+      update([{ ...existing, qty: Number(existing.qty || 0) + 1 }, ...rest]);
+      setExpanded((prev) => new Set(prev).add(existing.id));
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
     const lastWithSize = [...list].reverse().find((i) => i.size === size && (i.brand || '').trim());
     const lastWithSizeForCost = [...list].reverse().find((i) => i.size === size && i.cost > 0);
     const newId = uid();
@@ -328,6 +344,52 @@ function TireInventoryView({ inventory, onSave, jobs, onStartJob }: InternalView
     ]);
     setExpanded((prev) => new Set(prev).add(newId));
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // True duplicates = same normalized size + same condition on multiple
+  // cards (a cost/notes edit should never split a SKU). Drives the
+  // "Merge duplicates" button. New vs Used of the same size are NOT
+  // duplicates — different stock — so they're keyed apart here.
+  const dupKey = (i: InventoryItem) =>
+    normalizeTireSize(i.size || '') + '|' + ((i.condition || 'New') === 'Used' ? 'Used' : 'New');
+  const duplicateCount = useMemo(() => {
+    const seen = new Map<string, number>();
+    let dups = 0;
+    for (const i of list) {
+      if (!(i.size || '').trim()) continue;
+      const k = dupKey(i);
+      const n = (seen.get(k) ?? 0) + 1;
+      seen.set(k, n);
+      if (n > 1) dups++;
+    }
+    return dups;
+  }, [list]);
+
+  const mergeDuplicates = () => {
+    if (duplicateCount === 0) return;
+    // eslint-disable-next-line no-alert
+    if (!window.confirm(`Merge ${duplicateCount} duplicate card${duplicateCount === 1 ? '' : 's'}? Quantities and reservations are combined; New and Used stay separate.`)) return;
+    const keep = new Map<string, InventoryItem>();
+    const order: string[] = [];
+    for (const i of list) {
+      // Blank/in-progress rows are left untouched (unique key per id).
+      const k = (i.size || '').trim() ? dupKey(i) : `blank:${i.id}`;
+      const prev = keep.get(k);
+      if (!prev || !(i.size || '').trim()) {
+        if (!prev) order.push(k);
+        keep.set(k, i);
+      } else {
+        keep.set(k, {
+          ...prev,
+          qty: Number(prev.qty || 0) + Number(i.qty || 0),
+          reservations: [...(prev.reservations || []), ...(i.reservations || [])],
+          brand: (prev.brand || '').trim() || i.brand,
+          cost: prev.cost > 0 ? prev.cost : i.cost,
+          notes: (prev.notes || '').trim() || i.notes,
+        });
+      }
+    }
+    update(order.map((k) => keep.get(k)!));
   };
 
   const remove = (id: string) => update(list.filter((i) => i.id !== id));
@@ -534,6 +596,11 @@ function TireInventoryView({ inventory, onSave, jobs, onStartJob }: InternalView
             onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); if (fileInputRef.current) fileInputRef.current.value = ''; }} />
           <button className="btn xs secondary" onClick={() => fileInputRef.current?.click()}>⬆ Bulk Upload</button>
           <button className="btn xs secondary" onClick={() => { setPasteText(''); setShowPaste(true); }}>📝 Paste Notes</button>
+          {duplicateCount > 0 && (
+            <button className="btn xs" style={{ background: 'var(--amber)', color: '#0a0a0a', fontWeight: 700 }} onClick={mergeDuplicates}>
+              ⚠ Merge {duplicateCount} duplicate{duplicateCount === 1 ? '' : 's'}
+            </button>
+          )}
           {list.length > 0 && <button className="btn xs danger" onClick={() => setShowDeleteAll(true)}>Delete All</button>}
           <button className="btn xs primary" onClick={add}>＋ Add Tire</button>
         </div>
@@ -733,11 +800,12 @@ function TireInventoryView({ inventory, onSave, jobs, onStartJob }: InternalView
                   <div className="inv-card-sub">
                     {(() => {
                       const brand = (i.brand || '').trim() || 'No brand';
-                      const cond = i.condition === 'Used' ? 'Used' : '';
+                      // Always show the condition so a New and a Used card of
+                      // the same size are clearly distinct (not duplicates).
+                      const cond = (i.condition || 'New') === 'Used' ? 'Used' : 'New';
                       const normSize = normalizeTireSize(i.size || '');
                       const vel = velocityBySize.get(normSize) || 0;
-                      const parts = [brand];
-                      if (cond) parts.push(cond);
+                      const parts = [brand, cond];
                       if (vel > 0) parts.push(`${vel}↗30d`);
                       return parts.join(' · ');
                     })()}
