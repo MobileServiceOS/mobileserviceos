@@ -331,11 +331,11 @@ function PermissionGate({
 }
 
 /** Insights tab gate — owner / admin only (canViewFinancials). */
-function InsightsGate({ jobs, settings }: { jobs: Job[]; settings: SettingsT }) {
+function InsightsGate({ jobs, settings, inventory }: { jobs: Job[]; settings: SettingsT; inventory: InventoryItem[] }) {
   const { canViewFinancials } = usePermissions();
   return (
     <PermissionGate title="Insights" granted={canViewFinancials}>
-      <Insights jobs={jobs} settings={settings} />
+      <Insights jobs={jobs} settings={settings} inventory={inventory} />
     </PermissionGate>
   );
 }
@@ -1612,7 +1612,7 @@ function AuthenticatedApp({ user }: { user: User }) {
         }}
       />
     );
-    if (tab === 'insights') return <InsightsGate jobs={jobs} settings={settings} />;
+    if (tab === 'insights') return <InsightsGate jobs={jobs} settings={settings} inventory={inventory} />;
     if (tab === 'payouts') return <PayoutsGate jobs={jobs} settings={settings} />;
     if (tab === 'payments') return <PaymentsGate jobs={jobs} settings={settings} />;
     if (tab === 'expenses') return <ExpensesGate expenses={settings.expenses || []} jobs={jobs} settings={settings} onSave={persistExpenses} />;

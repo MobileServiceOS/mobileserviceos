@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
-import type { Job } from '@/types';
+import type { Job, InventoryItem } from '@/types';
 import { money } from '@/lib/utils';
+import { extractTireSize } from '@/lib/inventoryNotesParser';
 import {
   computeBestSellingTires,
   type BestSellerWindow,
@@ -22,9 +23,10 @@ import {
 
 interface Props {
   jobs: Job[];
+  inventory: InventoryItem[];
 }
 
-export function BestSellersCard({ jobs }: Props) {
+export function BestSellersCard({ jobs, inventory }: Props) {
   // Default to the weekly view — "which tire is selling best this week".
   const [window, setWindow] = useState<BestSellerWindow>(7);
   const [sortBy, setSortBy] = useState<BestSellerSort>('quantity');
@@ -33,6 +35,19 @@ export function BestSellersCard({ jobs }: Props) {
     () => computeBestSellingTires(jobs, { windowDays: window, sortBy, limit: 10 }),
     [jobs, window, sortBy],
   );
+
+  // Current in-stock qty per canonical size — same extractTireSize used to
+  // key the best-seller rows, so a "215/55R17" row matches the inventory
+  // item regardless of how the size was typed. Sums qty across items.
+  const stockBySize = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const it of inventory ?? []) {
+      const key = extractTireSize((it.size || '').trim());
+      if (!key) continue;
+      m.set(key, (m.get(key) ?? 0) + (Number(it.qty) || 0));
+    }
+    return m;
+  }, [inventory]);
 
   const windowLabel: Record<BestSellerWindow, string> = {
     7: 'last 7 days',
@@ -152,6 +167,16 @@ export function BestSellersCard({ jobs }: Props) {
                   <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 1 }}>
                     {r.jobCount} job{r.jobCount === 1 ? '' : 's'} · {money(r.avgPerTire)} avg/tire
                   </div>
+                  {/* Current stock for this size — red when none left so a
+                      hot seller you're out of jumps out. */}
+                  {(() => {
+                    const stock = stockBySize.get(r.tireSize) ?? 0;
+                    return (
+                      <div style={{ fontSize: 11, marginTop: 1, fontWeight: 700, color: stock > 0 ? 'var(--green)' : 'var(--red)' }}>
+                        {stock > 0 ? `${stock} in stock` : 'Out of stock'}
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Qty + revenue */}
