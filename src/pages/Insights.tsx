@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import type { Job, Settings } from '@/types';
+import type { Job, Settings, InventoryItem } from '@/types';
 import { money, fmtDate } from '@/lib/utils';
 import { TODAY } from '@/lib/defaults';
 import { computeInsights } from '@/lib/insights';
@@ -10,6 +10,7 @@ import { AccordionShell } from '@/components/settings/AccordionShell';
 interface Props {
   jobs: Job[];
   settings: Settings;
+  inventory: InventoryItem[];
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -18,7 +19,7 @@ interface Props {
 //  CSS tokens — no charting library.
 // ─────────────────────────────────────────────────────────────────────
 
-export function Insights({ jobs, settings }: Props) {
+export function Insights({ jobs, settings, inventory }: Props) {
   const ins = useMemo(
     () => computeInsights(jobs, settings, TODAY()),
     [jobs, settings],
@@ -231,7 +232,7 @@ export function Insights({ jobs, settings }: Props) {
         open={openSections.bestSellers}
         onToggle={toggle('bestSellers')}
       >
-        <BestSellersCard jobs={jobs} />
+        <BestSellersCard jobs={jobs} inventory={inventory} />
       </AccordionShell>
 
       {/* ── Unpaid aging ───────────────────────────────────────── */}

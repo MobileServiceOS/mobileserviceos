@@ -669,6 +669,9 @@ function TireInventoryView({ inventory, onSave, jobs, onStartJob }: InternalView
           const qty = Number(i.qty || 0);
           const cost = Number(i.cost || 0);
           const value = qty * cost;
+          // All-time tires sold of this size (Completed jobs) — paired with
+          // the in-stock count on the right so demand vs. supply is obvious.
+          const soldAllTime = soldAllTimeBySize.get(normalizeTireSize(i.size || '')) || 0;
           // Per-item reorderPoint with global default of 1 — preserves
           // current behavior for legacy items while letting an operator
           // set "warn me when this SKU drops to 4 or fewer" for hot
@@ -733,11 +736,9 @@ function TireInventoryView({ inventory, onSave, jobs, onStartJob }: InternalView
                       const cond = i.condition === 'Used' ? 'Used' : '';
                       const normSize = normalizeTireSize(i.size || '');
                       const vel = velocityBySize.get(normSize) || 0;
-                      const allTime = soldAllTimeBySize.get(normSize) || 0;
                       const parts = [brand];
                       if (cond) parts.push(cond);
                       if (vel > 0) parts.push(`${vel}↗30d`);
-                      if (allTime > 0) parts.push(`${allTime} sold`);
                       return parts.join(' · ');
                     })()}
                   </div>
@@ -787,6 +788,10 @@ function TireInventoryView({ inventory, onSave, jobs, onStartJob }: InternalView
                   </div>
                   <div style={{ fontSize: 9, color: 'var(--t3)', marginTop: 3, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                     in stock
+                  </div>
+                  {/* Lifetime tires sold of this size — demand at a glance. */}
+                  <div style={{ fontSize: 11, color: 'var(--t2)', marginTop: 4, fontWeight: 700 }}>
+                    {soldAllTime} sold
                   </div>
                 </div>
                 <div
