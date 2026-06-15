@@ -54,8 +54,39 @@ keeps the `R` and so failed to unify slash-vs-R variants — the duplicate
 bug). The Best Seller card keys by `extractTireSize` (canonical display
 form), which also unifies these variants.
 
+### 3. One-time consolidation migration (durable cleanup)
+Read-time aggregation fixes on-hand for *display*; this aligns the
+*stored* data. `consolidateInventoryBySize()`
+(`src/lib/inventoryConsolidate.ts`) collapses duplicate entries to **one
+row per size**, grouped by `sizeKey` (so New + Used and formatting variants
+fold together). It is:
+- **Non-destructive** — quantities and reservations are SUMMED into one
+  surviving record; the survivor keeps its descriptors (brand / model /
+  cost / condition / notes), falling back to a folded entry only where its
+  own field is blank. No qty is ever dropped.
+- **Atomic** — inventory persists as a single array document, so the
+  combined totals are written in one `onSave` before the extra rows cease
+  to exist; there is no partial state that could lose qty.
+- **Idempotent** — re-running on consolidated data is a no-op
+  (`mergedCount === 0`), so the Inventory **Consolidate** button is safe to
+  tap repeatedly.
+
+Note this supersedes the earlier New-vs-Used-stay-separate behavior: the
+operator-triggered consolidation now merges a size's conditions into one
+row (the survivor's condition is kept). On-hand was already counted
+per-size at read time, so this only changes the stored shape, not the
+numbers.
+
 ## Tests
 `tests/inventoryIntel.test.ts` and `tests/bestSellingTires.test.ts` cover:
 job-count vs unit ranking divergence (set-of-4 vs single), per-size on-hand
 aggregation across duplicate entries, size-key normalization, per-window
 job counts, dead-stock exclusion, and the out-of-stock tie-break.
+
+`tests/inventoryConsolidate.spec.ts` and `tests/inventoryAcceptance.spec.ts`
+(vitest, fixtures in `tests/fixtures/inventoryExport.ts`) validate the
+migration (aggregation, idempotency, normalization, blank-row passthrough,
+reservation/field preservation) and the spec's named export values:
+235/40R18 → 2, 225/55R18 → 4, 205/55R16 → 2; exactly 18 duplicate sizes;
+Reorder Now top = 235/45R18 (8 jobs) → 205/55R16 (7) → 205/65R16 (6) with
+the out-of-stock 205/65R16 surfacing; set-buys ranked by jobs not units.

@@ -112,6 +112,35 @@ vite.config.ts
 tsconfig.json
 ```
 
+## Inventory intelligence
+
+Two rules drive the Best Seller list, the Reorder Now engine, and the
+inventory stock flags (`src/lib/bestSellingTires.ts`,
+`src/lib/inventoryIntel.ts`):
+
+- **Demand is measured in JOBS, not tire units.** One job is one demand
+  event regardless of how many tires it moved — a set-of-4 job counts the
+  same as a single-tire job. Best Sellers default to a **Jobs** sort
+  (Sold / Size / $ still available); Reorder Now ranks by jobs per window
+  (Week / 30 / 90 / All) with tie-break **out-of-stock → revenue → units**.
+  Unit counts stay visible ("N sold"); they just don't drive ranking. This
+  surfaces hot-but-out-of-stock sizes that unit-based top-N used to hide.
+
+- **On-hand is aggregated PER SIZE.** A size can exist as several entries
+  (true duplicates, or a New + Used split). On-hand, low/out flags, and
+  reorder reads **sum qty across every entry** of a size, grouped by a
+  normalized size key (`sizeKey` collapses `205/55R16` / `205/55/16` /
+  case/space, R vs slash). Aggregation happens at **read time**, so future
+  duplicates aggregate automatically. The Inventory screen's
+  **Consolidate** button additionally runs a one-time, idempotent cleanup
+  (`src/lib/inventoryConsolidate.ts`) that collapses the stored records to
+  one row per size — quantities and reservations are summed into a single
+  surviving record (no qty is dropped; safe to re-run).
+
+Tested by `tests/inventoryIntel.test.ts`, `tests/bestSellingTires.test.ts`
+(tsx) and `tests/inventoryConsolidate.spec.ts` /
+`tests/inventoryAcceptance.spec.ts` (vitest).
+
 ## Troubleshooting deployed auth errors
 
 | Error | Fix |
