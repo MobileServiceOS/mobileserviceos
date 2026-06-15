@@ -45,7 +45,7 @@ export interface BestSellerRow {
   avgPerTire: number;
 }
 
-export type BestSellerWindow = 30 | 90 | 'all';
+export type BestSellerWindow = 7 | 30 | 90 | 'all';
 export type BestSellerSort = 'quantity' | 'size' | 'revenue';
 
 export interface BestSellerOptions {

@@ -3,6 +3,7 @@ import type { Job, Settings } from '@/types';
 import { money, fmtDate } from '@/lib/utils';
 import { TODAY } from '@/lib/defaults';
 import { computeInsights } from '@/lib/insights';
+import { computeBestSellingTires } from '@/lib/bestSellingTires';
 import { BestSellersCard } from '@/components/insights/BestSellersCard';
 import { AccordionShell } from '@/components/settings/AccordionShell';
 
@@ -50,6 +51,12 @@ export function Insights({ jobs, settings }: Props) {
   // ─── Summary lines for collapsed-state preview ───────────────────
   // Each accordion shows a short data-line in its summary so the
   // value is visible without expanding. Truncated when no data.
+  // This week's #1 tire — drives the Best Sellers accordion summary so
+  // the weekly winner is visible without expanding.
+  const weeklyTopTire = useMemo(
+    () => computeBestSellingTires(jobs, { windowDays: 7, limit: 1 })[0],
+    [jobs],
+  );
   const topService = ins.topServices[0];
   const topSource = ins.topSources[0];
   const topCity = ins.topCities[0];
@@ -218,7 +225,9 @@ export function Insights({ jobs, settings }: Props) {
       <AccordionShell
         title="Best Selling Tires"
         icon="🛞"
-        summary="Top sizes by quantity sold"
+        summary={weeklyTopTire
+          ? `This week: ${weeklyTopTire.tireSize} · ${weeklyTopTire.quantity} sold`
+          : 'No tire sales this week yet'}
         open={openSections.bestSellers}
         onToggle={toggle('bestSellers')}
       >
