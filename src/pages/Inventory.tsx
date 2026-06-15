@@ -24,6 +24,10 @@ interface Props {
   onSave: (next: InventoryItem[]) => void;
   settings: Settings;
   jobs: Job[];
+  /** Start a new job pre-filled with this item's tire size/brand/model.
+   *  Used by the per-card "Log Job" button — e.g. a customer calls for a
+   *  215/55R17, the operator finds it here and logs the job in one tap. */
+  onStartJob?: (item: InventoryItem) => void;
 }
 
 type CondFilter = 'all' | 'New' | 'Used';
@@ -110,12 +114,12 @@ function parseCsv(text: string): ParsedRow[] {
 // editor over the same InventoryItem shape (now widened with
 // optional partNumber/partName/supplier/unitCost/chemicalName/
 // category/dilutionRatio fields).
-export function Inventory({ inventory, onSave, settings, jobs }: Props) {
+export function Inventory({ inventory, onSave, settings, jobs, onStartJob }: Props) {
   const vertical = useActiveVertical();
   if (!vertical.features.inventoryDeduction) {
     return <GenericInventoryView inventory={inventory} onSave={onSave} vertical={vertical} />;
   }
-  return <TireInventoryView inventory={inventory} onSave={onSave} jobs={jobs} />;
+  return <TireInventoryView inventory={inventory} onSave={onSave} jobs={jobs} onStartJob={onStartJob} />;
 }
 
 // Inline form to add a new reservation against an InventoryItem.
@@ -173,9 +177,10 @@ interface InternalViewProps {
   inventory: InventoryItem[];
   onSave: (next: InventoryItem[]) => void;
   jobs: Job[];
+  onStartJob?: (item: InventoryItem) => void;
 }
 
-function TireInventoryView({ inventory, onSave, jobs }: InternalViewProps) {
+function TireInventoryView({ inventory, onSave, jobs, onStartJob }: InternalViewProps) {
   const safe: InventoryItem[] = Array.isArray(inventory) ? inventory : [];
   const [list, setList] = useState<InventoryItem[]>(safe);
   const [search, setSearch] = useState('');
@@ -797,6 +802,23 @@ function TireInventoryView({ inventory, onSave, jobs }: InternalViewProps) {
                   ▸
                 </div>
               </button>
+
+              {/* Log Job for this size — one tap to start a job pre-filled
+                  with this tire (size + brand + model). Always visible so a
+                  customer calling for a size goes straight from lookup to
+                  logging. */}
+              {onStartJob && i.size && (
+                <div style={{ padding: '0 12px 10px' }}>
+                  <button
+                    type="button"
+                    className="btn xs primary"
+                    style={{ width: '100%' }}
+                    onClick={(e) => { e.stopPropagation(); onStartJob(i); }}
+                  >
+                    📋 Log Job for {i.size}
+                  </button>
+                </div>
+              )}
 
               {/* Expanded edit form — same fields as before but now hidden
                   by default so the compact view stays scannable. */}

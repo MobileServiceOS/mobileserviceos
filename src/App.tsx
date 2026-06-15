@@ -1616,7 +1616,21 @@ function AuthenticatedApp({ user }: { user: User }) {
     if (tab === 'payouts') return <PayoutsGate jobs={jobs} settings={settings} />;
     if (tab === 'payments') return <PaymentsGate jobs={jobs} settings={settings} />;
     if (tab === 'expenses') return <ExpensesGate expenses={settings.expenses || []} jobs={jobs} settings={settings} onSave={persistExpenses} />;
-    if (tab === 'inventory') return <Inventory inventory={inventory} onSave={persistInventory} settings={settings} jobs={jobs} />;
+    if (tab === 'inventory') return <Inventory inventory={inventory} onSave={persistInventory} settings={settings} jobs={jobs}
+      onStartJob={(item) => {
+        // Start a job pre-filled from this inventory tire. tireSource is
+        // already 'Inventory' on EMPTY_JOB; fill size/brand/model so the
+        // operator goes straight from "do I have this size?" to logging.
+        setJobDraft({
+          ...EMPTY_JOB(),
+          tireSize: item.size,
+          tireBrand: item.brand ?? '',
+          tireModel: item.model ?? '',
+        } as Job);
+        setEditingJobId(null);
+        setPrefilledFromQuote(false);
+        setTab('add');
+      }} />;
     if (tab === 'settings') return <Settings settings={settings} onSave={persistSettings} />;
     if (tab === 'help') return <Help onBack={() => setTab('dashboard')} />;
     if (tab === 'success' && savedJob) {

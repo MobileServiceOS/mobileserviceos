@@ -504,13 +504,16 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
   // city, etc.) don't churn this object. The validator's `missing`
   // list drives the inline hint above the footer; canSave drives the
   // Save Job button's disabled state.
+  // "No phone number" — for walk-ins / calls where the customer's number
+  // wasn't collected. Makes the phone field optional for this save.
+  const [noPhone, setNoPhone] = useState(false);
   const validation = useMemo(
     () => validateAddJob({
       customerPhone: job.customerPhone,
       service: job.service,
       revenue: job.revenue,
-    }),
-    [job.customerPhone, job.service, job.revenue],
+    }, { phoneOptional: noPhone }),
+    [job.customerPhone, job.service, job.revenue, noPhone],
   );
 
   // Batch C (2026-06-05): unified save-attempt path.
@@ -928,8 +931,24 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
             onChange={fieldSetters.customerPhonePartial}
             onBlur={fieldSetters.customerPhoneBlur}
             placeholder="(555) 123-4567"
+            disabled={noPhone}
           />
         </div>
+        {/* No-phone path — walk-in or a caller whose number you didn't
+            take. Drops the phone requirement for this save. */}
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 13, cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={noPhone}
+            onChange={(e) => {
+              const on = e.target.checked;
+              setNoPhone(on);
+              if (on) set('customerPhone', '');
+            }}
+            style={{ width: 18, height: 18 }}
+          />
+          <span>No phone number (walk-in / not collected)</span>
+        </label>
       </div>
 
       {/* ─── SP2 Step 2: Customer Lookup ───────────────────────
