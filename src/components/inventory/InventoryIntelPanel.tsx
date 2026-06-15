@@ -9,18 +9,39 @@
 import type { CSSProperties } from 'react';
 import { money } from '@/lib/utils';
 import type { InventoryIntel } from '@/lib/inventoryIntel';
+import type { BestSellerWindow } from '@/lib/bestSellingTires';
 
-export function InventoryIntelPanel({ intel, onViewAll }: {
+const WINDOW_TABS: ReadonlyArray<readonly [BestSellerWindow, string]> = [
+  [7, 'Week'], [30, '30d'], [90, '90d'], ['all', 'All'],
+];
+/** Short suffix for the per-row demand label, e.g. "8 jobs/90d". */
+const winSuffix = (w: BestSellerWindow): string => (w === 'all' ? '' : `/${w}d`);
+
+export function InventoryIntelPanel({ intel, window, onWindow, onViewAll }: {
   intel: InventoryIntel;
+  window: BestSellerWindow;
+  onWindow: (w: BestSellerWindow) => void;
   onViewAll: (bucket: 'low' | 'dead') => void;
 }): JSX.Element | null {
   const { reorderNow, fastMovers, reorderCount, deadStockValue, deadStockCount } = intel;
   if (reorderCount === 0 && deadStockCount === 0 && fastMovers.length === 0) return null;
   const topMover = fastMovers[0];
+  const sfx = winSuffix(window);
 
   return (
     <div className="card card-pad" style={{ marginBottom: 12 }}>
-      <div style={titleStyle}>Inventory Intelligence</div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, gap: 8 }}>
+        <div style={titleStyle}>Inventory Intelligence</div>
+        {/* Demand window — Reorder Now / dead stock / top mover all rank by
+            distinct JOBS within the selected window. */}
+        <div style={{ display: 'flex', gap: 3 }} role="group" aria-label="Demand window">
+          {WINDOW_TABS.map(([w, label]) => (
+            <button key={String(w)} type="button" onClick={() => onWindow(w)} style={tabStyle(window === w)}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: reorderNow.length ? 12 : 0 }}>
         <button type="button" onClick={() => onViewAll('low')} disabled={reorderCount === 0}
@@ -36,7 +57,7 @@ export function InventoryIntelPanel({ intel, onViewAll }: {
         {topMover && (
           <div style={statStyle()}>
             <span style={{ ...statVal, fontSize: 15 }}>{topMover.size}</span>
-            <span style={statLabel}>Top mover · {topMover.jobs} job{topMover.jobs === 1 ? '' : 's'}/30d</span>
+            <span style={statLabel}>Top mover · {topMover.jobs} job{topMover.jobs === 1 ? '' : 's'}{sfx}</span>
           </div>
         )}
       </div>
@@ -47,7 +68,7 @@ export function InventoryIntelPanel({ intel, onViewAll }: {
           {reorderNow.map((i) => (
             <div key={i.id} style={miniRow}>
               <span style={{ fontWeight: 700, color: 'var(--t1)' }}>{i.size}</span>
-              <span style={{ color: 'var(--t3)', fontSize: 11 }}>{i.jobs} job{i.jobs === 1 ? '' : 's'}/30d · {i.units} sold · {i.qty} on hand</span>
+              <span style={{ color: 'var(--t3)', fontSize: 11 }}>{i.jobs} job{i.jobs === 1 ? '' : 's'}{sfx} · {i.units} sold · {i.qty} on hand</span>
             </div>
           ))}
           {reorderCount > reorderNow.length && (
@@ -63,8 +84,17 @@ export function InventoryIntelPanel({ intel, onViewAll }: {
 
 const titleStyle: CSSProperties = {
   fontSize: 12, fontWeight: 800, color: 'var(--t2)',
-  textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10,
+  textTransform: 'uppercase', letterSpacing: '0.5px',
 };
+function tabStyle(active: boolean): CSSProperties {
+  return {
+    background: active ? 'var(--brand-primary)' : 'transparent',
+    color: active ? '#0a0a0a' : 'var(--t3)',
+    border: `1px solid ${active ? 'var(--brand-primary)' : 'var(--border)'}`,
+    borderRadius: 7, fontSize: 10, fontWeight: 700, padding: '3px 8px',
+    cursor: 'pointer', letterSpacing: 0.3,
+  };
+}
 function statStyle(accent?: string): CSSProperties {
   return {
     flex: 1, minWidth: 92,

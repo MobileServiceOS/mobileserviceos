@@ -121,10 +121,14 @@ inventory stock flags (`src/lib/bestSellingTires.ts`,
 - **Demand is measured in JOBS, not tire units.** One job is one demand
   event regardless of how many tires it moved — a set-of-4 job counts the
   same as a single-tire job. Best Sellers default to a **Jobs** sort
-  (Sold / Size / $ still available); Reorder Now ranks by jobs per window
-  (Week / 30 / 90 / All) with tie-break **out-of-stock → revenue → units**.
+  (Sold / Size / $ still available); Reorder Now ranks by jobs with
+  tie-break **out-of-stock → revenue → units**.
   Unit counts stay visible ("N sold"); they just don't drive ranking. This
   surfaces hot-but-out-of-stock sizes that unit-based top-N used to hide.
+  Both the Best Sellers screen and the Inventory Intelligence / Reorder Now
+  panel carry a **Week / 30d / 90d / All** window selector, and job counts
+  are computed **per window** (a size hot in 30d but quiet over 90d ranks
+  accordingly in each). The Reorder Now panel defaults to the **90d** view.
 
 - **On-hand is aggregated PER SIZE.** A size can exist as several entries
   (true duplicates, or a New + Used split). On-hand, low/out flags, and
