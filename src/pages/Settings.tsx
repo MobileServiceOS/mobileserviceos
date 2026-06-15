@@ -11,6 +11,7 @@ import { ProfitTargetsAccordion } from '@/components/settings/ProfitTargetsSecti
 import { InvoicesAccordion } from '@/components/settings/InvoicesSection';
 import { CustomerDirectorySettingsSection } from '@/components/settings/CustomerDirectorySettingsSection';
 import { CommunicationsSettingsSection } from '@/components/settings/CommunicationsSettingsSection';
+import { ExportDataSection } from '@/components/settings/ExportDataSection';
 import { ReviewAutomationSection } from '@/components/settings/ReviewAutomationSection';
 import { MissedCallRecoverySection } from '@/components/settings/MissedCallRecoverySection';
 import { OwnersAccordion } from '@/components/settings/OwnersSection';
@@ -298,6 +299,14 @@ export function Settings({ settings, onSave }: Props) {
           onToggle={() => setOpenSection(openSection === 'subscription' ? null : 'subscription')}
         />
       )}
+
+      {/* Export Data — owner/admin self-serve account export (JSON + CSV).
+          Self-gates on canViewFinancials. */}
+      <ExportDataSection
+        settings={settings}
+        open={openSection === 'export'}
+        onToggle={() => setOpenSection(openSection === 'export' ? null : 'export')}
+      />
 
       {/* Referrals — every business has a referral link. Free-month
           rewards apply automatically when a referred business completes
