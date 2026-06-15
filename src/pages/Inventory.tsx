@@ -9,6 +9,7 @@ import {
 } from '@/lib/inventoryReservations';
 import { addToast } from '@/lib/toast';
 import { computeInventoryIntel, computeSizeDemand, sizeKey } from '@/lib/inventoryIntel';
+import type { BestSellerWindow } from '@/lib/bestSellingTires';
 import { InventoryIntelPanel } from '@/components/inventory/InventoryIntelPanel';
 import { NumberField } from '@/components/NumberField';
 import { useActiveVertical } from '@/lib/useActiveVertical';
@@ -228,11 +229,25 @@ function TireInventoryView({ inventory, onSave, jobs, onStartJob }: InternalView
     return m;
   }, [list, jobs, today]);
 
-  // 30-day DEMAND map — per normalized size: distinct jobs (the demand
-  // signal), tire units, and revenue. Reorder/dead-stock rank by JOBS so a
-  // set-of-4 sale doesn't outweigh four single-tire jobs. Cards read units
-  // from it for the "↗30d" badge.
+  // Inventory Intelligence window — the Reorder Now / dead-stock / top-mover
+  // panel is computed within the SELECTED window (Week / 30d / 90d / All),
+  // mirroring the Best Sellers screen. Defaults to 90d so the panel matches
+  // the jobs/90d ranking operators validate against. Per-window: a size hot
+  // in 30d but quiet over 90d ranks accordingly in each.
+  const [intelWindow, setIntelWindow] = useState<BestSellerWindow>(90);
+
+  // DEMAND map for the intel panel — per normalized size: distinct JOBS (the
+  // demand signal), tire units, revenue — computed over the selected window.
+  // Reorder/dead-stock rank by JOBS so a set-of-4 sale doesn't outweigh four
+  // single-tire jobs.
   const demandBySize = useMemo(
+    () => computeSizeDemand(jobs, { windowDays: intelWindow, now: new Date(today + 'T00:00:00Z') }),
+    [jobs, today, intelWindow],
+  );
+
+  // Fixed 30-day velocity for the per-card "↗30d" badge — kept independent of
+  // the panel window so toggling the panel doesn't relabel every card.
+  const cardVel30 = useMemo(
     () => computeSizeDemand(jobs, { windowDays: 30, now: new Date(today + 'T00:00:00Z') }),
     [jobs, today],
   );
@@ -698,7 +713,7 @@ function TireInventoryView({ inventory, onSave, jobs, onStartJob }: InternalView
 
       {/* Inventory Intelligence — reorder / dead-stock / movers, tappable
           to the health filters. Deterministic, on-device. */}
-      <InventoryIntelPanel intel={inventoryIntel} onViewAll={(b) => setHealthFilter(b)} />
+      <InventoryIntelPanel intel={inventoryIntel} window={intelWindow} onWindow={setIntelWindow} onViewAll={(b) => setHealthFilter(b)} />
 
       {/* Hot Sizes — quick-add chip strip for repeat-stock sizes. */}
       {hotSizes.length > 0 && (
@@ -822,7 +837,7 @@ function TireInventoryView({ inventory, onSave, jobs, onStartJob }: InternalView
                       // the same size are clearly distinct (not duplicates).
                       const cond = (i.condition || 'New') === 'Used' ? 'Used' : 'New';
                       const normSize = sizeKey(i.size || '');
-                      const vel = demandBySize.get(normSize)?.units || 0;
+                      const vel = cardVel30.get(normSize)?.units || 0;
                       const parts = [brand, cond];
                       if (vel > 0) parts.push(`${vel}↗30d`);
                       return parts.join(' · ');

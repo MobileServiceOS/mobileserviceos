@@ -99,6 +99,41 @@ describe('dead stock excludes in-demand sizes', () => {
   });
 });
 
+describe('Reorder Now is computed PER WINDOW (independent counts)', () => {
+  // Size A: 4 jobs all in the last 20 days (hot in 30d AND 90d).
+  // Size B: 1 job in the last 20 days, 5 more 60 days ago (cold in 30d,
+  // hottest in 90d). Ranking must flip between the two windows.
+  const mk = (tireSize: string, date: string) =>
+    ({ id: tireSize + date, status: 'Completed', date, tireSize, qty: 1, revenue: 100,
+       tireCost: 0, materialCost: 0, miles: 0, note: '', emergency: false,
+       lateNight: false, highway: false, weekend: false, tireSource: 'in_stock' }) as never;
+  const windowJobs = [
+    ...Array.from({ length: 4 }, (_, k) => mk('305/30R20', `2026-06-${(1 + k).toString().padStart(2, '0')}`)),
+    mk('315/35R20', '2026-06-05'),
+    ...Array.from({ length: 5 }, (_, k) => mk('315/35R20', `2026-04-${(10 + k).toString().padStart(2, '0')}`)),
+  ];
+  const items = [
+    { id: 'a', size: '305/30R20', qty: 0, cost: 100, reorderPoint: 1 },
+    { id: 'b', size: '315/35R20', qty: 0, cost: 100, reorderPoint: 1 },
+  ];
+
+  it('30d window: the recently-hot size ranks first', () => {
+    const d30 = computeSizeDemand(windowJobs, { windowDays: 30, now: NOW });
+    expect(d30.get(sizeKey('305/30R20'))?.jobs).toBe(4);
+    expect(d30.get(sizeKey('315/35R20'))?.jobs).toBe(1);
+    const r = computeInventoryIntel(items, d30);
+    expect(sizeKey(r.reorderNow[0].size)).toBe(sizeKey('305/30R20'));
+  });
+
+  it('90d window: the older-but-bigger size ranks first (count flips)', () => {
+    const d90 = computeSizeDemand(windowJobs, { windowDays: 90, now: NOW });
+    expect(d90.get(sizeKey('305/30R20'))?.jobs).toBe(4);
+    expect(d90.get(sizeKey('315/35R20'))?.jobs).toBe(6);
+    const r = computeInventoryIntel(items, d90);
+    expect(sizeKey(r.reorderNow[0].size)).toBe(sizeKey('315/35R20'));
+  });
+});
+
 describe('Best Sellers default sort is JOBS', () => {
   const stockBySize = (() => {
     // keyed by extractTireSize canonical — but sizeKey-equivalent here.
