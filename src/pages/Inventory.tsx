@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { InventoryItem, Job, Settings } from '@/types';
-import { money, normalizeTireSize, sanitizeInvItem, uid } from '@/lib/utils';
+import { money, sanitizeInvItem, uid } from '@/lib/utils';
 import { parseInventoryNotes, normalizeTireSizeQuery } from '@/lib/inventoryNotesParser';
 import { mergeBulkRows } from '@/lib/inventoryBulkMerge';
 import {
   availableQty, reservedQty, addReservation, removeReservation,
 } from '@/lib/inventoryReservations';
 import { addToast } from '@/lib/toast';
-import { computeInventoryIntel } from '@/lib/inventoryIntel';
+import { computeInventoryIntel, computeSizeDemand, sizeKey } from '@/lib/inventoryIntel';
 import { InventoryIntelPanel } from '@/components/inventory/InventoryIntelPanel';
 import { NumberField } from '@/components/NumberField';
 import { useActiveVertical } from '@/lib/useActiveVertical';
@@ -227,25 +227,27 @@ function TireInventoryView({ inventory, onSave, jobs, onStartJob }: InternalView
     return m;
   }, [list, jobs, today]);
 
-  // 30-day sold-velocity map — one pass through jobs, keyed by
-  // normalized tire size. Each card reads from the map in O(1)
-  // instead of iterating jobs N times. Surface as a small badge in
-  // the card header so the operator sees "this SKU moves" without
-  // expanding the card or opening Insights.
-  const velocityBySize = useMemo(() => {
+  // 30-day DEMAND map — per normalized size: distinct jobs (the demand
+  // signal), tire units, and revenue. Reorder/dead-stock rank by JOBS so a
+  // set-of-4 sale doesn't outweigh four single-tire jobs. Cards read units
+  // from it for the "↗30d" badge.
+  const demandBySize = useMemo(
+    () => computeSizeDemand(jobs, { windowDays: 30, now: new Date(today + 'T00:00:00Z') }),
+    [jobs, today],
+  );
+
+  // Consolidated on-hand per normalized size — SUM across every line item
+  // (duplicates + New/Used). Drives the per-card low/out flags so a size
+  // never reads "out" when stock exists in another entry.
+  const qtyBySize = useMemo(() => {
     const m = new Map<string, number>();
-    const todayMs = new Date(today + 'T00:00:00Z').getTime();
-    const cutoffMs = todayMs - 30 * 86_400_000;
-    for (const j of jobs) {
-      if (!j.tireSize || !j.date) continue;
-      const jobMs = new Date(j.date + 'T00:00:00Z').getTime();
-      if (!Number.isFinite(jobMs) || jobMs < cutoffMs) continue;
-      const n = normalizeTireSize(j.tireSize);
+    for (const i of list) {
+      const n = sizeKey(i.size || '');
       if (!n) continue;
-      m.set(n, (m.get(n) || 0) + Number(j.qty || 1));
+      m.set(n, (m.get(n) || 0) + (Number(i.qty) || 0));
     }
     return m;
-  }, [jobs, today]);
+  }, [list]);
 
   // All-time sold count per size — surfaced as a "Sold X" badge on
   // each inventory card so the operator sees lifetime demand at a
@@ -257,7 +259,7 @@ function TireInventoryView({ inventory, onSave, jobs, onStartJob }: InternalView
     for (const j of jobs) {
       if (j.status !== 'Completed') continue;
       if (!j.tireSize) continue;
-      const n = normalizeTireSize(j.tireSize);
+      const n = sizeKey(j.tireSize);
       if (!n) continue;
       m.set(n, (m.get(n) || 0) + (Number(j.qty || 0) || 1));
     }
@@ -266,8 +268,8 @@ function TireInventoryView({ inventory, onSave, jobs, onStartJob }: InternalView
 
   // Deterministic inventory intelligence (reorder / dead-stock / movers).
   const inventoryIntel = useMemo(
-    () => computeInventoryIntel(list, velocityBySize),
-    [list, velocityBySize],
+    () => computeInventoryIntel(list, demandBySize),
+    [list, demandBySize],
   );
 
   // Phase 4 — Inventory AI insight (owner/admin only).
@@ -313,9 +315,9 @@ function TireInventoryView({ inventory, onSave, jobs, onStartJob }: InternalView
     // case is bumping an existing New card — NOT creating a second one.
     // Bump the existing New item of this size if present; only create a
     // fresh card when none exists. (Prevents the duplicate-card bug.)
-    const norm = normalizeTireSize(size);
+    const norm = sizeKey(size);
     const existingIdx = list.findIndex(
-      (i) => normalizeTireSize(i.size || '') === norm && (i.condition || 'New') !== 'Used',
+      (i) => sizeKey(i.size || '') === norm && (i.condition || 'New') !== 'Used',
     );
     if (existingIdx >= 0) {
       const existing = list[existingIdx];
@@ -351,7 +353,7 @@ function TireInventoryView({ inventory, onSave, jobs, onStartJob }: InternalView
   // "Merge duplicates" button. New vs Used of the same size are NOT
   // duplicates — different stock — so they're keyed apart here.
   const dupKey = (i: InventoryItem) =>
-    normalizeTireSize(i.size || '') + '|' + ((i.condition || 'New') === 'Used' ? 'Used' : 'New');
+    sizeKey(i.size || '') + '|' + ((i.condition || 'New') === 'Used' ? 'Used' : 'New');
   const duplicateCount = useMemo(() => {
     const seen = new Map<string, number>();
     let dups = 0;
@@ -577,14 +579,23 @@ function TireInventoryView({ inventory, onSave, jobs, onStartJob }: InternalView
     () => list.reduce((t, i) => t + Number(i.qty || 0), 0),
     [list],
   );
-  const lowStock = useMemo(
-    () => list.filter((i) => {
-      const qty = Number(i.qty || 0);
-      const threshold = Number(i.reorderPoint ?? 1);
-      return qty > 0 && qty <= threshold;
-    }).length,
-    [list],
-  );
+  // Low Stock counts distinct SIZES whose CONSOLIDATED on-hand is low
+  // (> 0 and at/below the size's reorder point) — so duplicate/New+Used
+  // entries of one size count once, matching the per-card flags.
+  const lowStock = useMemo(() => {
+    const byKey = new Map<string, { qty: number; rp: number }>();
+    for (const i of list) {
+      const n = sizeKey(i.size || '');
+      if (!n) continue;
+      const prev = byKey.get(n) ?? { qty: 0, rp: 1 };
+      prev.qty += Number(i.qty || 0);
+      prev.rp = Math.max(prev.rp, Number(i.reorderPoint ?? 1));
+      byKey.set(n, prev);
+    }
+    let count = 0;
+    for (const v of byKey.values()) if (v.qty > 0 && v.qty <= v.rp) count++;
+    return count;
+  }, [list]);
 
   return (
     <div className="page page-enter">
@@ -738,14 +749,15 @@ function TireInventoryView({ inventory, onSave, jobs, onStartJob }: InternalView
           const value = qty * cost;
           // All-time tires sold of this size (Completed jobs) — paired with
           // the in-stock count on the right so demand vs. supply is obvious.
-          const soldAllTime = soldAllTimeBySize.get(normalizeTireSize(i.size || '')) || 0;
-          // Per-item reorderPoint with global default of 1 — preserves
-          // current behavior for legacy items while letting an operator
-          // set "warn me when this SKU drops to 4 or fewer" for hot
-          // sellers.
+          const soldAllTime = soldAllTimeBySize.get(sizeKey(i.size || '')) || 0;
+          // Out/low flags read the CONSOLIDATED per-size on-hand (sum across
+          // every line item of this size), so a line isn't flagged "out"
+          // when stock exists in a sibling entry (e.g. New 2 / Used 0). The
+          // big number still shows this line's own qty.
+          const sizeQty = qtyBySize.get(sizeKey(i.size || '')) ?? qty;
           const threshold = Number(i.reorderPoint ?? 1);
-          const low = qty > 0 && qty <= threshold;
-          const outOfStock = qty === 0;
+          const low = sizeQty > 0 && sizeQty <= threshold;
+          const outOfStock = sizeQty === 0;
 
           return (
             <div key={i.id} className="card card-anim" style={{ overflow: 'hidden' }}>
@@ -803,8 +815,8 @@ function TireInventoryView({ inventory, onSave, jobs, onStartJob }: InternalView
                       // Always show the condition so a New and a Used card of
                       // the same size are clearly distinct (not duplicates).
                       const cond = (i.condition || 'New') === 'Used' ? 'Used' : 'New';
-                      const normSize = normalizeTireSize(i.size || '');
-                      const vel = velocityBySize.get(normSize) || 0;
+                      const normSize = sizeKey(i.size || '');
+                      const vel = demandBySize.get(normSize)?.units || 0;
                       const parts = [brand, cond];
                       if (vel > 0) parts.push(`${vel}↗30d`);
                       return parts.join(' · ');
@@ -1256,14 +1268,23 @@ function GenericInventoryView({
     () => list.reduce((t, i) => t + Number(i.qty || 0), 0),
     [list],
   );
-  const lowStock = useMemo(
-    () => list.filter((i) => {
-      const qty = Number(i.qty || 0);
-      const threshold = Number(i.reorderPoint ?? 1);
-      return qty > 0 && qty <= threshold;
-    }).length,
-    [list],
-  );
+  // Low Stock counts distinct SIZES whose CONSOLIDATED on-hand is low
+  // (> 0 and at/below the size's reorder point) — so duplicate/New+Used
+  // entries of one size count once, matching the per-card flags.
+  const lowStock = useMemo(() => {
+    const byKey = new Map<string, { qty: number; rp: number }>();
+    for (const i of list) {
+      const n = sizeKey(i.size || '');
+      if (!n) continue;
+      const prev = byKey.get(n) ?? { qty: 0, rp: 1 };
+      prev.qty += Number(i.qty || 0);
+      prev.rp = Math.max(prev.rp, Number(i.reorderPoint ?? 1));
+      byKey.set(n, prev);
+    }
+    let count = 0;
+    for (const v of byKey.values()) if (v.qty > 0 && v.qty <= v.rp) count++;
+    return count;
+  }, [list]);
 
   // Read the primary descriptor for a row (e.g. "Battery 12V Group 24"
   // for a mechanic part, "Wheel Cleaner" for a detailing chemical).

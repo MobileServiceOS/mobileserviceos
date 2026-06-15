@@ -29,12 +29,9 @@ interface Props {
 export function BestSellersCard({ jobs, inventory }: Props) {
   // Default to the weekly view — "which tire is selling best this week".
   const [window, setWindow] = useState<BestSellerWindow>(7);
-  const [sortBy, setSortBy] = useState<BestSellerSort>('quantity');
-
-  const rows = useMemo(
-    () => computeBestSellingTires(jobs, { windowDays: window, sortBy, limit: 10 }),
-    [jobs, window, sortBy],
-  );
+  // Default sort by JOBS (demand events) so a set-of-4 sale doesn't outrank
+  // four single-tire jobs. "Sold" (tire units) stays one tap away.
+  const [sortBy, setSortBy] = useState<BestSellerSort>('jobs');
 
   // Current in-stock qty per canonical size — same extractTireSize used to
   // key the best-seller rows, so a "215/55R17" row matches the inventory
@@ -48,6 +45,11 @@ export function BestSellersCard({ jobs, inventory }: Props) {
     }
     return m;
   }, [inventory]);
+
+  const rows = useMemo(
+    () => computeBestSellingTires(jobs, { windowDays: window, sortBy, limit: 10, onHandBySize: stockBySize }),
+    [jobs, window, sortBy, stockBySize],
+  );
 
   const windowLabel: Record<BestSellerWindow, string> = {
     7: 'last 7 days',
@@ -111,6 +113,7 @@ export function BestSellersCard({ jobs, inventory }: Props) {
         <span style={labelStyle}>Sort</span>
         <div style={{ display: 'flex', gap: 4 }}>
           {([
+            ['jobs', 'Jobs'],
             ['quantity', 'Sold'],
             ['size', 'Size'],
             ['revenue', '$'],

@@ -36,7 +36,7 @@ export function InventoryIntelPanel({ intel, onViewAll }: {
         {topMover && (
           <div style={statStyle()}>
             <span style={{ ...statVal, fontSize: 15 }}>{topMover.size}</span>
-            <span style={statLabel}>Top mover · {topMover.velocity}/30d</span>
+            <span style={statLabel}>Top mover · {topMover.jobs} job{topMover.jobs === 1 ? '' : 's'}/30d</span>
           </div>
         )}
       </div>
@@ -47,7 +47,7 @@ export function InventoryIntelPanel({ intel, onViewAll }: {
           {reorderNow.map((i) => (
             <div key={i.id} style={miniRow}>
               <span style={{ fontWeight: 700, color: 'var(--t1)' }}>{i.size}</span>
-              <span style={{ color: 'var(--t3)', fontSize: 11 }}>{i.velocity} sold/30d · {i.qty} on hand</span>
+              <span style={{ color: 'var(--t3)', fontSize: 11 }}>{i.jobs} job{i.jobs === 1 ? '' : 's'}/30d · {i.units} sold · {i.qty} on hand</span>
             </div>
           ))}
           {reorderCount > reorderNow.length && (

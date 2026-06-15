@@ -46,15 +46,22 @@ export interface BestSellerRow {
 }
 
 export type BestSellerWindow = 7 | 30 | 90 | 'all';
-export type BestSellerSort = 'quantity' | 'size' | 'revenue';
+// 'jobs' (default) ranks by demand EVENTS — distinct jobs a size appears
+// in — so a one-job set-of-4 sale doesn't outrank four separate single-tire
+// jobs. 'quantity' keeps the raw tire-unit ranking; 'size'/'revenue' as before.
+export type BestSellerSort = 'jobs' | 'quantity' | 'size' | 'revenue';
 
 export interface BestSellerOptions {
   /** Rolling window in days, or 'all' for no date filter. Default 90. */
   windowDays?: BestSellerWindow;
   /** Top-N cap. Default 10. */
   limit?: number;
-  /** Sort order. Default 'quantity'. */
+  /** Sort order. Default 'jobs' (demand events). */
   sortBy?: BestSellerSort;
+  /** Current on-hand per CANONICAL size (extractTireSize key) — used only
+   *  for the 'jobs' tie-break, where out-of-stock sizes rank first so a
+   *  hot seller you're out of surfaces. Optional. */
+  onHandBySize?: Map<string, number>;
   /** Override "now" for tests. Default `new Date()`. */
   now?: Date;
 }
@@ -76,7 +83,7 @@ export function computeBestSellingTires(
   jobs: Job[] | null | undefined,
   options: BestSellerOptions = {},
 ): BestSellerRow[] {
-  const { windowDays = 90, limit = 10, sortBy = 'quantity', now = new Date() } = options;
+  const { windowDays = 90, limit = 10, sortBy = 'jobs', now = new Date(), onHandBySize } = options;
   if (!jobs || jobs.length === 0) return [];
 
   const cutoffMs = windowDays === 'all'
@@ -130,6 +137,8 @@ export function computeBestSellingTires(
     row.avgPerTire = row.quantity > 0 ? row.revenue / row.quantity : 0;
   }
 
+  const isOut = (size: string): boolean => (onHandBySize?.get(size) ?? 0) === 0;
+
   const sorted = Array.from(buckets.values()).sort((a, b) => {
     if (sortBy === 'size') {
       const [aw, aa, ar] = tireSizeKey(a.tireSize);
@@ -142,9 +151,17 @@ export function computeBestSellingTires(
       if (b.revenue !== a.revenue) return b.revenue - a.revenue;
       return b.quantity - a.quantity;
     }
-    // 'quantity' (default)
-    if (b.quantity !== a.quantity) return b.quantity - a.quantity;
-    return b.revenue - a.revenue;
+    if (sortBy === 'quantity') {
+      if (b.quantity !== a.quantity) return b.quantity - a.quantity;
+      return b.revenue - a.revenue;
+    }
+    // 'jobs' (default) — demand events. Tie-break: out-of-stock first,
+    // then revenue, then tire units.
+    if (b.jobCount !== a.jobCount) return b.jobCount - a.jobCount;
+    const aOut = isOut(a.tireSize), bOut = isOut(b.tireSize);
+    if (aOut !== bOut) return aOut ? -1 : 1;
+    if (b.revenue !== a.revenue) return b.revenue - a.revenue;
+    return b.quantity - a.quantity;
   });
 
   return sorted.slice(0, limit);
