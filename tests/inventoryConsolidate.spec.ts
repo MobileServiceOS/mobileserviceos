@@ -40,13 +40,16 @@ describe('consolidateInventoryBySize — aggregation', () => {
     expect(next[0].qty).toBe(6);
   });
 
-  it('aggregates a New + Used (and blank-brand) split into one row', () => {
+  it('aggregates a New + Used split into one row, taking the most-stocked entry as the face', () => {
     const { next } = consolidateInventoryBySize([
       item({ id: 'used', size: '205/55R16', qty: 0, condition: 'Used', brand: '' }),
       item({ id: 'new', size: '205/55R16', qty: 2, condition: 'New', brand: 'Goodyear' }),
     ]);
     expect(next).toHaveLength(1);
-    expect(next[0].qty).toBe(2); // 0 + 2, not lost
+    expect(next[0].qty).toBe(2);          // 0 + 2, not lost
+    expect(next[0].condition).toBe('New'); // dominant (2 in stock) wins, not the 0-stock Used
+    expect(next[0].brand).toBe('Goodyear');
+    expect(next[0].id).toBe('used');       // first-seen id kept for stable position
   });
 
   it('sums reservations across folded entries', () => {
@@ -65,14 +68,14 @@ describe('consolidateInventoryBySize — aggregation', () => {
     expect(next[0].reorderPoint).toBe(4);
   });
 
-  it('survivor keeps its descriptors, falling back only when blank', () => {
+  it('survivor takes the dominant (most-stock) entry descriptors, keeps first id', () => {
     const { next } = consolidateInventoryBySize([
       item({ id: 'a', size: '215/55R17', qty: 1, brand: '', cost: 0, notes: '' }),
-      item({ id: 'b', size: '215/55R17', qty: 1, brand: 'Pirelli', cost: 88, notes: 'rear' }),
+      item({ id: 'b', size: '215/55R17', qty: 3, brand: 'Pirelli', cost: 88, notes: 'rear' }),
     ]);
-    // survivor (a) had blanks → falls back to b's values; id stays a's.
-    expect(next[0].id).toBe('a');
-    expect(next[0].brand).toBe('Pirelli');
+    expect(next[0].id).toBe('a');       // first-seen id → stable position
+    expect(next[0].qty).toBe(4);        // summed
+    expect(next[0].brand).toBe('Pirelli'); // dominant entry (3 in stock) is the face
     expect(next[0].cost).toBe(88);
     expect(next[0].notes).toBe('rear');
   });

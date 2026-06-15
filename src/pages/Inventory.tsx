@@ -296,6 +296,29 @@ function TireInventoryView({ inventory, onSave, jobs, onStartJob }: InternalView
   };
 
   const update = (next: InventoryItem[]) => { setList(next); setDirty(true); };
+
+  // Auto-consolidate duplicate size entries on load so the list NEVER shows
+  // two cards for one size (e.g. a "205/55R16" New card next to a Used one).
+  // Read-time aggregation already made the numbers correct, but the list
+  // renders one card per stored entry — so the only durable fix is to make
+  // the stored data one row per size. consolidateInventoryBySize is
+  // non-destructive (qty + reservations summed into the most-stocked entry)
+  // and idempotent, so this settles after one pass and then no-ops. Runs
+  // once per mount; the manual button stays as a fallback.
+  const autoConsolidated = useRef(false);
+  useEffect(() => {
+    if (autoConsolidated.current) return;
+    const { next, mergedCount, sizesAffected } = consolidateInventoryBySize(list);
+    if (mergedCount > 0) {
+      autoConsolidated.current = true;
+      const cleaned = next.filter((i) => (i.size || '').trim()).map(sanitizeInvItem);
+      setList(cleaned);
+      setDirty(false);
+      onSave(cleaned);
+      addToast(`Merged ${mergedCount} duplicate entr${mergedCount === 1 ? 'y' : 'ies'} into ${sizesAffected} size${sizesAffected === 1 ? '' : 's'}`, 'success');
+    }
+  }, [list, onSave]);
+
   const add = () => {
     const newId = uid();
     update([
