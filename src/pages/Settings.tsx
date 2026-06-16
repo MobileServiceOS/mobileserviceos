@@ -13,7 +13,6 @@ import { CustomerDirectorySettingsSection } from '@/components/settings/Customer
 import { CommunicationsSettingsSection } from '@/components/settings/CommunicationsSettingsSection';
 import { ExportDataSection } from '@/components/settings/ExportDataSection';
 import { ReviewAutomationSection } from '@/components/settings/ReviewAutomationSection';
-import { MissedCallRecoverySection } from '@/components/settings/MissedCallRecoverySection';
 import { OwnersAccordion } from '@/components/settings/OwnersSection';
 import { PricingAccordion } from '@/components/settings/PricingSection';
 import { VehicleAddonsAccordion } from '@/components/settings/VehiclePricingSection';
@@ -238,18 +237,6 @@ export function Settings({ settings, onSave }: Props) {
         />
       )}
 
-      {/* SP4B: Missed Call Recovery — Twilio Voice Status webhook +
-          auto-text + Lead queue. Ships OFF (operator opts in). Drainer
-          runs every 1min and is dormant when Twilio env secrets unset. */}
-      {canSeeBusinessSettings && businessId && (
-        <MissedCallRecoverySection
-          businessId={businessId}
-          settings={settings}
-          open={openSection === 'missedCallRecovery'}
-          onToggle={() => setOpenSection(openSection === 'missedCallRecovery' ? null : 'missedCallRecovery')}
-          onSaveSettings={onSave}
-        />
-      )}
 
       {/* Owners & Permissions — owner names + splits + technician
           override permission. Gated to canSeeFinancials so admins

@@ -60,7 +60,6 @@ export type TabId =
   | 'add'
   | 'history'
   | 'customers'
-  | 'leads'
   | 'customerProfile'
   | 'insights'
   | 'payouts'
@@ -1162,8 +1161,6 @@ export interface Settings {
   incomingCallLookupEnabled?: boolean;
   /** SMS webhook logging gate. Default true. */
   incomingSMSLoggingEnabled?: boolean;
-  /** SP7 future-ready flag. Default false. v1 reads only. */
-  missedCallAutoTextEnabled?: boolean;
   /** sendSMS callable master switch. Default true. */
   outboundSMSEnabled?: boolean;
   /** Outbound SMS provider. v1 default 'native' (device handoff);
@@ -1194,20 +1191,13 @@ export interface Settings {
    *  empty — see renderTemplate() consumers. Optional. */
   serviceArea?: string;
 
-  // ─── Missed Call Recovery (SP4B) ─────────────────────────────────
-  /** Operator-provided Twilio number that receives inbound calls.
-   *  E.164 format. Routing key for the twilioVoiceStatus webhook.
-   *  Default ''. Operator hand-configures the Twilio Console status
-   *  callback URL to point at the webhook. */
+  // ─── Twilio / outbound SMS config ────────────────────────────────
+  /** Operator-provided Twilio number (E.164). Used by Review Automation
+   *  and the Communications settings as the outbound SMS sender. Default ''. */
   twilioPhoneNumber?: string;
-  /** Operator-provided Twilio Phone Number SID (PNxxx). Optional
-   *  debug field — surfaced in Settings for operator reference only.
-   *  Not consumed by any code path. */
+  /** Operator-provided Twilio Phone Number SID (PNxxx). Optional debug
+   *  field — surfaced in Settings for operator reference only. */
   twilioPhoneNumberSid?: string;
-  /** Operator-editable SMS body sent on missed-call auto-text.
-   *  7-placeholder template — see src/lib/reviewTemplate.ts. Default
-   *  DEFAULT_MISSED_CALL_TEMPLATE in src/lib/defaults.ts. */
-  missedCallTemplate?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -1285,114 +1275,6 @@ export interface CommunicationEvent {
   carrierResponse?: string;
   sentAt: Timestamp;
   createdByUid: string;             // 'system:reviewAutomation' | uid
-}
-
-// ─────────────────────────────────────────────────────────────────────
-//  Missed Call Recovery (SP4B)
-//
-//  Two collections under businesses/{bid}/...:
-//    - leads/{leadId}              — Lead queue; workflow state machine
-//    - outboundSms/{smsId}         — outbound SMS queue (sibling of SP4A
-//                                    reviewRequests; separate drainer)
-//
-//  Doc id pattern for leads: lead-{phoneDigits}-{dateISO}
-//  Same caller + same day = same id = silent dedup
-// ─────────────────────────────────────────────────────────────────────
-
-export type LeadStatus =
-  | 'New'
-  | 'Contacted'
-  | 'Quoted'
-  | 'Booked'
-  | 'Closed'
-  | 'Lost';
-
-export type LeadSource = 'missed_call' | 'inbound_sms' | 'manual';
-
-export type CallStatus = 'no-answer' | 'busy' | 'failed' | 'voicemail';
-
-export interface Lead {
-  id: string;
-  customerId: string;
-  phoneE164: string;
-  source: LeadSource;
-  status: LeadStatus;
-  wasNewCustomer: boolean;       // customer-type flag (set once at create) — NOT a read-state
-
-  // ── Read state ───────────────────────────────────────────────────
-  // Written the first time the lead is opened. Absent ⇒ unread (the
-  // honest source of the "NEW"/Unread badge). Persists in Firestore so
-  // read state survives refresh, re-login, and device changes.
-  viewedAt?: Timestamp;
-
-  // ── Lifecycle stage timestamps ───────────────────────────────────
-  // Stamped when the lead is advanced into each stage. Each is written
-  // once, on transition — never inferred.
-  contactedAt?: Timestamp;
-  quotedAt?: Timestamp;
-  bookedAt?: Timestamp;
-  completedAt?: Timestamp;       // set when status → Closed
-  lostAt?: Timestamp;
-
-  // ── First-touch metadata ─────────────────────────────────────────
-  callSid?: string;
-  callStatus?: CallStatus;
-  receivedAt: Timestamp;
-
-  // ── Auto-text outcome ────────────────────────────────────────────
-  autoTextSent: boolean;
-  autoTextSentAt?: Timestamp;
-  outboundSmsId?: string;
-
-  // ── Operator workflow ────────────────────────────────────────────
-  notes?: string;
-  assignedToUid?: string;
-  jobId?: string;
-  closedAt?: Timestamp;
-  closedReason?: string;
-
-  // ── Audit ────────────────────────────────────────────────────────
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
-  lastEditedByUid: string;
-}
-
-export type OutboundSmsKind = 'missed_call_response' | 'manual_lead_reply';
-
-export type OutboundSmsStatus =
-  | 'pending'
-  | 'sending'
-  | 'sent'
-  | 'failed'
-  | 'cancelled';
-
-export interface OutboundSms {
-  id: string;
-  kind: OutboundSmsKind;
-  // Source refs — leadId always present for SP4B
-  leadId: string;
-  customerId: string;
-  phoneE164: string;
-  // Rendered content
-  templateUsed: string;
-  templateRendered: string;
-  // Scheduling
-  sendAfterAt: Timestamp;
-  status: OutboundSmsStatus;
-  retryCount: number;
-  // Outcome
-  createdAt: Timestamp;
-  sentAt?: Timestamp;
-  failedAt?: Timestamp;
-  errorMessage?: string;
-  // Twilio outcome / future-ready
-  twilioMessageSid?: string;
-  deliveryStatus?: string;
-  carrierResponse?: string;
-  // Flags
-  isTest?: boolean;
-  isManual?: boolean;
-  invokedByUid: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────

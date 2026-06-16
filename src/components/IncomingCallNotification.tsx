@@ -72,12 +72,11 @@ import { useBrand } from '@/context/BrandContext';
 import { usePermissions } from '@/context/MembershipContext';
 import { useFocusTrap } from '@/lib/useFocusTrap';
 import type { Customer, Vehicle } from '@/lib/customerEntity';
-import type { Job, Lead } from '@/types';
+import type { Job } from '@/types';
 
 interface Props {
   onOpenCustomerHistory: (customerId: string) => void;
   onCreateNewJob: (phoneE164: string) => void;
-  onCreateLead: (phoneE164: string) => void;
 }
 
 const AUTO_DISMISS_MS = 30_000;
@@ -97,18 +96,6 @@ export function computeBadgeState(completedCount: number): BadgeState {
   };
 }
 
-/** Should this missed-call Lead trigger the popup? */
-export function shouldShowLead(
-  lead: Pick<Lead, 'id' | 'source'> | null,
-  mountTimeMs: number,
-  leadReceivedAtMs: number,
-): boolean {
-  if (!lead) return false;
-  if (lead.source !== 'missed_call') return false;
-  if (lead.id.startsWith('lead-test-')) return false;
-  if (leadReceivedAtMs <= mountTimeMs) return false;
-  return true;
-}
 
 /** Shape of an incoming_calls doc — mirrors the Cloud Function write. */
 export interface IncomingCallDoc {
@@ -227,32 +214,28 @@ function sumOpenInvoices(jobs: Job[]): number {
 
 // ─── Source-merging discriminated union ───────────────────────────
 
-type PopupSource =
-  | { kind: 'lead'; lead: Lead }
-  | { kind: 'incoming_call'; call: IncomingCallDoc };
+type PopupSource = { kind: 'incoming_call'; call: IncomingCallDoc };
 
 function sourcePhone(s: PopupSource): string {
-  return s.kind === 'lead' ? s.lead.phoneE164 : s.call.from;
+  return s.call.from;
 }
 
 function sourceCustomerId(s: PopupSource): string | null {
-  if (s.kind === 'lead') return s.lead.customerId ?? null;
   return s.call.customerId ?? null;
 }
 
 function sourceKnownCustomer(s: PopupSource): boolean {
-  if (s.kind === 'lead') return s.lead.wasNewCustomer !== true;
   return s.call.customerExists === true;
 }
 
 function sourceId(s: PopupSource): string {
-  return s.kind === 'lead' ? `lead:${s.lead.id}` : `call:${s.call.id}`;
+  return `call:${s.call.id}`;
 }
 
 // ─── Component ─────────────────────────────────────────────────────
 
 function IncomingCallNotificationImpl({
-  onOpenCustomerHistory, onCreateNewJob, onCreateLead,
+  onOpenCustomerHistory, onCreateNewJob,
 }: Props): JSX.Element | null {
   const { businessId } = useBrand();
   // Tech-safety: technicians (canViewFinancials = false) see the customer
@@ -271,36 +254,11 @@ function IncomingCallNotificationImpl({
   const dismissedPhonesRef = useRef<Set<string>>(new Set());
   const mountTimeRef = useRef<Timestamp>(Timestamp.now());
 
-  // Listen for leads created AFTER mount (existing path)
+  // Listen for incoming_calls created AFTER mount (the live caller-ID popup).
   useEffect(() => {
     if (!businessId) return;
     const mountTime = Timestamp.now();
     mountTimeRef.current = mountTime;
-    const q = query(
-      collection(requireDb(), 'businesses', businessId, 'leads'),
-      where('source', '==', 'missed_call'),
-      where('receivedAt', '>', mountTime),
-      orderBy('receivedAt', 'desc'),
-      limit(1),
-    );
-    const unsub = onSnapshot(q, (snap) => {
-      if (snap.empty) return;
-      const docSnap = snap.docs[0];
-      const lead = { id: docSnap.id, ...docSnap.data() } as Lead;
-      const receivedAtMs = (lead as unknown as { receivedAt?: { toMillis?: () => number } })
-        .receivedAt?.toMillis?.() ?? 0;
-      if (!shouldShowLead(lead, mountTime.toMillis(), receivedAtMs)) return;
-      if (lead.phoneE164 && dismissedPhonesRef.current.has(lead.phoneE164)) return;
-      setActiveSource((prev) => prev ?? { kind: 'lead', lead });
-    });
-    return () => unsub();
-  }, [businessId]);
-
-  // Listen for incoming_calls created AFTER mount (Phase 1 new path —
-  // dormant in production until operator activates SimRing).
-  useEffect(() => {
-    if (!businessId) return;
-    const mountTime = mountTimeRef.current;
     const q = query(
       collection(requireDb(), 'businesses', businessId, 'incoming_calls'),
       where('receivedAt', '>', mountTime),
@@ -506,10 +464,6 @@ function IncomingCallNotificationImpl({
     if (phoneRaw) onCreateNewJob(phoneRaw);
     handleDismiss();
   };
-  const handleCreateLead = (): void => {
-    if (phoneRaw) onCreateLead(phoneRaw);
-    handleDismiss();
-  };
 
   // ── Banner mode ──────────────────────────────────────────────
   if (!expanded) {
@@ -612,14 +566,9 @@ function IncomingCallNotificationImpl({
             </>
           )}
           {!isKnown && (
-            <>
-              <button type="button" className="btn primary" onClick={handleCreateLead} disabled={!phoneRaw}>
-                Create Lead
-              </button>
-              <button type="button" className="btn secondary" onClick={handleCreateNewJob} disabled={!phoneRaw}>
-                Create Job
-              </button>
-            </>
+            <button type="button" className="btn primary" onClick={handleCreateNewJob} disabled={!phoneRaw}>
+              Create Job
+            </button>
           )}
           <button type="button" className="btn sm secondary" onClick={handleDismiss}>
             Dismiss
