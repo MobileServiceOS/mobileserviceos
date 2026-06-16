@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { collection, onSnapshot, deleteDoc, doc, setDoc, writeBatch, type Unsubscribe } from 'firebase/firestore';
 import type { InviteDoc, MemberDoc, Role } from '@/types';
 import { useBrand } from '@/context/BrandContext';
@@ -14,6 +14,7 @@ import {
 } from '@/lib/invites';
 import { _auth, _db } from '@/lib/firebase';
 import { canChangeRole, canRemoveMember, isLastOwner } from '@/lib/teamRoleChange';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 
 // ─────────────────────────────────────────────────────────────────────
 //  TeamManagement
@@ -231,6 +232,7 @@ function InviteForm({ businessId, businessName }: { businessId: string; business
 function PendingInvitesList({ businessId }: { businessId: string }) {
   const [invites, setInvites] = useState<InviteDoc[]>([]);
   const [loading, setLoading] = useState(true);
+  const [revoking, setRevoking] = useState<InviteDoc | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -241,14 +243,13 @@ function PendingInvitesList({ businessId }: { businessId: string }) {
     return () => unsub();
   }, [businessId]);
 
-  const revoke = async (inv: InviteDoc) => {
-    const ok = window.confirm(`Revoke invite for ${inv.email}?`);
-    if (!ok) return;
+  const confirmRevoke = async (inv: InviteDoc) => {
     try {
       await revokeInvite(inv.token);
       addToast(`Invite for ${inv.email} revoked`, 'info');
     } catch (e) {
       addToast((e as Error).message || 'Revoke failed', 'error');
+      throw e; // keep the dialog open for retry
     }
   };
 
@@ -345,7 +346,7 @@ function PendingInvitesList({ businessId }: { businessId: string }) {
               </button>
               <button
                 className="btn sm danger"
-                onClick={() => revoke(inv)}
+                onClick={() => setRevoking(inv)}
                 style={{ flexShrink: 0 }}
               >
                 Revoke
@@ -353,6 +354,18 @@ function PendingInvitesList({ businessId }: { businessId: string }) {
             </div>
           ))}
         </div>
+      )}
+
+      {revoking && (
+        <ConfirmDialog
+          title="Revoke invite?"
+          tone="danger"
+          confirmLabel="Revoke"
+          busyLabel="Revoking…"
+          body={<>The invite link for <strong>{revoking.email}</strong> will stop working immediately.</>}
+          onConfirm={() => confirmRevoke(revoking)}
+          onClose={() => setRevoking(null)}
+        />
       )}
     </div>
   );
@@ -369,26 +382,21 @@ function TransferOwnership({
   businessId: string;
 }) {
   const [target, setTarget] = useState('');
+  const [confirming, setConfirming] = useState(false);
   const candidates = members.filter((m) => m.role !== 'owner' && m.uid);
+  const targetMember = members.find((m) => m.uid === target);
+  const targetName = targetMember ? (targetMember.displayName || targetMember.email) : '';
 
-  const onTransfer = async (): Promise<void> => {
+  const requestTransfer = (): void => {
     if (!target) return;
-    const actorUid = _auth?.currentUser?.uid;
-    if (!actorUid) {
-      addToast('Sign-in required', 'warn');
-      return;
-    }
-    const targetMember = members.find((m) => m.uid === target);
-    if (!targetMember) {
-      addToast('Target member not found', 'warn');
-      return;
-    }
-    const name = targetMember.displayName || targetMember.email;
-    const ok = window.confirm(
-      `Transfer ownership to ${name}? You will become Admin and they will become Owner. Continue?`,
-    );
-    if (!ok) return;
+    if (!_auth?.currentUser?.uid) { addToast('Sign-in required', 'warn'); return; }
+    if (!targetMember) { addToast('Target member not found', 'warn'); return; }
+    setConfirming(true);
+  };
 
+  const confirmTransfer = async (): Promise<void> => {
+    const actorUid = _auth?.currentUser?.uid;
+    if (!actorUid || !targetMember) return;
     try {
       const db = _db; if (!db) throw new Error('Firestore not initialized');
       const batch = writeBatch(db);
@@ -406,10 +414,11 @@ function TransferOwnership({
         );
       }
       await batch.commit();
-      addToast(`Ownership transferred to ${name}`, 'info');
+      addToast(`Ownership transferred to ${targetName}`, 'info');
       setTarget('');
     } catch (e) {
       addToast((e as Error).message || 'Transfer failed', 'error');
+      throw e; // keep the dialog open for retry
     }
   };
 
@@ -433,7 +442,7 @@ function TransferOwnership({
           type="button"
           className="btn sm primary"
           disabled={!target}
-          onClick={onTransfer}
+          onClick={requestTransfer}
         >
           Transfer
         </button>
@@ -441,6 +450,26 @@ function TransferOwnership({
       <div className="team-warning">
         You will become Admin and the selected member will become Owner.
       </div>
+
+      {confirming && targetMember && (
+        <ConfirmDialog
+          title="Transfer ownership?"
+          confirmLabel="Transfer ownership"
+          busyLabel="Transferring…"
+          body={
+            <>
+              <strong>{targetName}</strong> will become <strong>Owner</strong> with full
+              permissions including billing and team management.
+              <br /><br />
+              <span style={{ color: 'var(--red)', fontWeight: 700 }}>
+                You will immediately step down to Admin.
+              </span>
+            </>
+          }
+          onConfirm={confirmTransfer}
+          onClose={() => setConfirming(false)}
+        />
+      )}
     </div>
   );
 }
@@ -449,9 +478,14 @@ function TransferOwnership({
 //  Active members list
 // ─────────────────────────────────────────────────────────────────────
 
+type PendingTeamAction =
+  | { kind: 'role'; member: MemberDoc; toRole: Role; isSelf: boolean; wasOwner: boolean; becomesOwner: boolean }
+  | { kind: 'remove'; member: MemberDoc; isSelf: boolean };
+
 function ActiveMembersList({ businessId, canManageOwners }: { businessId: string; canManageOwners: boolean }) {
   const [members, setMembers] = useState<MemberDoc[]>([]);
   const [loading, setLoading] = useState(true);
+  const [pending, setPending] = useState<PendingTeamAction | null>(null);
 
   useEffect(() => {
     const db = _db;
@@ -499,7 +533,8 @@ function ActiveMembersList({ businessId, canManageOwners }: { businessId: string
 
   const ownerCount = members.filter((m) => m.role === 'owner').length;
 
-  const changeRole = async (member: MemberDoc, toRole: Role) => {
+  // Open the confirm dialog for a role change (after permission verdict).
+  const requestRoleChange = (member: MemberDoc, toRole: Role) => {
     if (!member.uid) {
       addToast('Member uid missing — cannot change role', 'warn');
       return;
@@ -517,32 +552,17 @@ function ActiveMembersList({ businessId, canManageOwners }: { businessId: string
       addToast(verdict.reason || 'Role change not allowed', 'warn');
       return;
     }
-
-    const isSelf = member.uid === actorUid;
-    const wasOwner = member.role === 'owner';
-    const becomesOwner = toRole === 'owner';
-    let msg: string;
-    if (becomesOwner) {
-      msg = `Promote ${member.email} to Owner? They will get full permissions including billing and team management. Continue?`;
-    } else if (wasOwner) {
-      msg = `Demote owner ${member.email} to ${toRole}? They will lose owner permissions. Continue?`;
-      if (isSelf) msg += '\n\nYou will lose your owner permissions immediately.';
-    } else {
-      msg = `Set ${member.email} to ${toRole}? Continue?`;
-    }
-    if (!window.confirm(msg)) return;
-
-    try {
-      const db = _db; if (!db) throw new Error('Firestore not initialized');
-      const ref = doc(db, 'businesses', businessId, 'members', member.uid);
-      await setDoc(ref, { ...member, role: toRole }, { merge: true });
-      addToast(`${member.email} → ${toRole}`, 'info');
-    } catch (e) {
-      addToast((e as Error).message || 'Role change failed', 'error');
-    }
+    setPending({
+      kind: 'role',
+      member,
+      toRole,
+      isSelf: member.uid === actorUid,
+      wasOwner: member.role === 'owner',
+      becomesOwner: toRole === 'owner',
+    });
   };
 
-  const remove = async (member: MemberDoc) => {
+  const requestRemove = (member: MemberDoc) => {
     if (member.role === 'owner' && ownerCount <= 1) {
       addToast('Last owner — promote another member to owner first', 'warn');
       return;
@@ -552,19 +572,25 @@ function ActiveMembersList({ businessId, canManageOwners }: { businessId: string
       return;
     }
     const isSelf = !!_auth?.currentUser && member.uid === _auth.currentUser.uid;
-    let confirmMsg = member.role === 'owner'
-      ? `Remove owner ${member.email}? They will immediately lose access to this business.`
-      : `Remove ${member.email} from the team?`;
-    if (isSelf) confirmMsg += '\n\nYou will be signed out of this business.';
-    confirmMsg += '\n\nContinue?';
-    const ok = window.confirm(confirmMsg);
-    if (!ok) return;
+    setPending({ kind: 'remove', member, isSelf });
+  };
+
+  const runPending = async () => {
+    if (!pending) return;
+    const { member } = pending;
+    if (!member.uid) return;
+    const db = _db; if (!db) throw new Error('Firestore not initialized');
     try {
-      const db = _db; if (!db) throw new Error("Firestore not initialized");
-      await deleteDoc(doc(db, 'businesses', businessId, 'members', member.uid));
-      addToast(`${member.email} removed`, 'info');
+      if (pending.kind === 'role') {
+        await setDoc(doc(db, 'businesses', businessId, 'members', member.uid), { ...member, role: pending.toRole }, { merge: true });
+        addToast(`${member.email} → ${pending.toRole}`, 'info');
+      } else {
+        await deleteDoc(doc(db, 'businesses', businessId, 'members', member.uid));
+        addToast(`${member.email} removed`, 'info');
+      }
     } catch (e) {
-      addToast((e as Error).message || 'Remove failed', 'error');
+      addToast((e as Error).message || (pending.kind === 'role' ? 'Role change failed' : 'Remove failed'), 'error');
+      throw e; // keep the dialog open for retry
     }
   };
 
@@ -643,7 +669,7 @@ function ActiveMembersList({ businessId, canManageOwners }: { businessId: string
                     aria-label={`Role for ${m.email}`}
                     value={m.role}
                     disabled={!anyChangeAllowed}
-                    onChange={(e) => changeRole(m, e.target.value as Role)}
+                    onChange={(e) => requestRoleChange(m, e.target.value as Role)}
                   >
                     {roleOptions.map((r) => {
                       const v = r === m.role ? { allowed: true } : optionVerdict(r);
@@ -657,7 +683,7 @@ function ActiveMembersList({ businessId, canManageOwners }: { businessId: string
                   </select>
                   <button
                     className="btn sm danger"
-                    onClick={() => remove(m)}
+                    onClick={() => requestRemove(m)}
                     disabled={!removeVerdict.allowed}
                     title={removeVerdict.allowed ? undefined : removeVerdict.reason}
                     style={{ flexShrink: 0 }}
@@ -675,6 +701,55 @@ function ActiveMembersList({ businessId, canManageOwners }: { businessId: string
           })}
         </div>
       )}
+
+      {pending && (() => {
+        const m = pending.member;
+        const who = <strong>{m.displayName || m.email}</strong>;
+        const selfWarn = (text: string): ReactNode => (
+          <><br /><br /><span style={{ color: 'var(--red)', fontWeight: 700 }}>{text}</span></>
+        );
+        let title: string;
+        let body: ReactNode;
+        let confirmLabel: string;
+        let busyLabel: string;
+        let tone: 'danger' | 'primary';
+        if (pending.kind === 'role' && pending.becomesOwner) {
+          title = 'Promote to Owner?';
+          body = <>{who} will get full permissions, including billing and team management.</>;
+          confirmLabel = 'Promote to Owner'; busyLabel = 'Promoting…'; tone = 'primary';
+        } else if (pending.kind === 'role' && pending.wasOwner) {
+          title = 'Demote owner?';
+          body = <>{who} will lose owner permissions.{pending.isSelf && selfWarn('You will lose your owner permissions immediately.')}</>;
+          confirmLabel = `Demote to ${pending.toRole}`; busyLabel = 'Saving…'; tone = 'danger';
+        } else if (pending.kind === 'role') {
+          title = 'Change role?';
+          body = <>Set {who} to <strong>{pending.toRole}</strong>.</>;
+          confirmLabel = `Set to ${pending.toRole}`; busyLabel = 'Saving…'; tone = 'primary';
+        } else {
+          const ownerRemoval = m.role === 'owner';
+          title = ownerRemoval ? 'Remove owner?' : 'Remove member?';
+          body = (
+            <>
+              {ownerRemoval
+                ? <>{who} will immediately lose access to this business.</>
+                : <>Remove {who} from the team?</>}
+              {pending.isSelf && selfWarn('You will be signed out of this business.')}
+            </>
+          );
+          confirmLabel = 'Remove'; busyLabel = 'Removing…'; tone = 'danger';
+        }
+        return (
+          <ConfirmDialog
+            title={title}
+            body={body}
+            confirmLabel={confirmLabel}
+            busyLabel={busyLabel}
+            tone={tone}
+            onConfirm={runPending}
+            onClose={() => setPending(null)}
+          />
+        );
+      })()}
     </div>
   );
 }
