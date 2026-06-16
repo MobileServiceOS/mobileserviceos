@@ -4,6 +4,7 @@ import { money, sanitizeInvItem, uid } from '@/lib/utils';
 import { parseInventoryNotes, normalizeTireSizeQuery } from '@/lib/inventoryNotesParser';
 import { mergeBulkRows } from '@/lib/inventoryBulkMerge';
 import { consolidateInventoryBySize } from '@/lib/inventoryConsolidate';
+import { addStockForSize } from '@/lib/inventoryRestock';
 import {
   availableQty, reservedQty, addReservation, removeReservation,
 } from '@/lib/inventoryReservations';
@@ -211,12 +212,19 @@ function TireInventoryView({ inventory, onSave, jobs, onStartJob, focusSize, onF
   const [renderLimit, setRenderLimit] = useState(50);
   useEffect(() => { setRenderLimit(50); }, [search]);
 
-  // Deep-link: when arriving from a tire-size link elsewhere (e.g. History),
-  // pre-filter to that size and scroll to the top, then clear the focus so
-  // it doesn't re-fire on later visits or while editing.
+  // The size currently pinned by a SizeLink deep-link — drives the focus
+  // banner (on-hand + jobs/90d + restock) at the top of the list.
+  const [focused, setFocused] = useState<string | null>(null);
+  const [restockQty, setRestockQty] = useState(4);
+
+  // Deep-link: when arriving from a tire-size link elsewhere (History, Best
+  // Sellers, Reorder Now, Quick Quote, Low Stock, job detail…), pin the size
+  // for the banner, pre-filter the list, scroll to top, then clear the
+  // incoming focus so it doesn't re-fire on later visits or while editing.
   useEffect(() => {
     const s = (focusSize || '').trim();
     if (!s) return;
+    setFocused(s);
     setSearch(s);
     window.scrollTo({ top: 0 });
     onFocusConsumed?.();
@@ -267,6 +275,13 @@ function TireInventoryView({ inventory, onSave, jobs, onStartJob, focusSize, onF
   // the panel window so toggling the panel doesn't relabel every card.
   const cardVel30 = useMemo(
     () => computeSizeDemand(jobs, { windowDays: 30, now: new Date(today + 'T00:00:00Z') }),
+    [jobs, today],
+  );
+
+  // Fixed 90-day demand for the focus banner ("jobs/90d") — the buy-decision
+  // window, independent of the panel's selected window.
+  const demand90 = useMemo(
+    () => computeSizeDemand(jobs, { windowDays: 90, now: new Date(today + 'T00:00:00Z') }),
     [jobs, today],
   );
 
@@ -431,6 +446,21 @@ function TireInventoryView({ inventory, onSave, jobs, onStartJob, focusSize, onF
     setDirty(false);
     onSave(cleaned);
     addToast(`Consolidated ${mergedCount} duplicate entr${mergedCount === 1 ? 'y' : 'ies'} into ${duplicateSizes} size${duplicateSizes === 1 ? '' : 's'}`, 'success');
+  };
+
+  // Focus-banner "reorder" action — record restocked units for the pinned
+  // size (adds to its entry, or creates one if the size was never stocked).
+  // Persists immediately as one atomic save, mirroring applyBulk.
+  const restockFocused = () => {
+    if (!focused) return;
+    const add = Math.max(0, Math.floor(Number(restockQty) || 0));
+    if (add <= 0) { addToast('Enter a quantity to add', 'warn'); return; }
+    const next = addStockForSize(list, focused, add);
+    const cleaned = next.filter((i) => (i.size || '').trim()).map(sanitizeInvItem);
+    setList(cleaned);
+    setDirty(false);
+    onSave(cleaned);
+    addToast(`+${add} added to ${focused} stock`, 'success');
   };
 
   const remove = (id: string) => update(list.filter((i) => i.id !== id));
@@ -655,6 +685,53 @@ function TireInventoryView({ inventory, onSave, jobs, onStartJob, focusSize, onF
           <button className="btn xs primary" onClick={add}>＋ Add Tire</button>
         </div>
       </div>
+
+      {focused && (() => {
+        const k = sizeKey(focused);
+        const onHand = qtyBySize.get(k) ?? 0;
+        const d = demand90.get(k);
+        const jobs90 = d?.jobs ?? 0;
+        const sold90 = d?.units ?? 0;
+        const match = list.find((i) => sizeKey(i.size || '') === k);
+        const clearFocus = () => { setFocused(null); setSearch(''); };
+        return (
+          <div className="card card-pad" style={{
+            marginBottom: 12,
+            border: '1px solid var(--brand-primary)',
+            background: 'linear-gradient(165deg, rgba(200,164,74,.08) 0%, var(--s1) 60%)',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+              <div style={{ fontSize: 17, fontWeight: 800, color: 'var(--t1)' }}>{focused}</div>
+              <button type="button" onClick={clearFocus} aria-label="Clear" className="btn xs secondary">✕</button>
+            </div>
+            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', margin: '8px 0 12px', fontSize: 12 }}>
+              <span style={{ fontWeight: 800, color: onHand > 0 ? 'var(--green)' : 'var(--red)' }}>
+                {onHand} on hand
+              </span>
+              <span style={{ color: 'var(--t2)' }}><strong>{jobs90}</strong> job{jobs90 === 1 ? '' : 's'}/90d</span>
+              <span style={{ color: 'var(--t3)' }}>{sold90} sold (90d)</span>
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Reorder</span>
+              <input
+                type="number" min={1} inputMode="numeric"
+                value={restockQty}
+                onChange={(e) => setRestockQty(Math.max(0, Math.floor(Number(e.target.value) || 0)))}
+                style={{ width: 64, padding: '6px 8px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--s1)', color: 'var(--t1)', fontWeight: 700 }}
+                aria-label={`Quantity to add to ${focused}`}
+              />
+              <button type="button" className="btn xs primary" onClick={restockFocused}>
+                + Add to stock
+              </button>
+              {onStartJob && (
+                <button type="button" className="btn xs secondary" onClick={() => onStartJob(match ?? { id: 'focus', size: focused, qty: onHand, cost: 0 } as InventoryItem)}>
+                  Log a job
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       <div className="kpi-grid three">
         <div className="kpi"><div className="kpi-label">SKUs</div><div className="kpi-value">{list.length}</div></div>

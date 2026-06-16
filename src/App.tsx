@@ -59,6 +59,7 @@ import { EmailVerificationBanner } from '@/components/EmailVerificationBanner';
 import { TrialCountdownBanner } from '@/components/TrialCountdownBanner';
 import { JobSuccessPanel } from '@/components/JobSuccessPanel';
 import { JobDetailModal } from '@/components/JobDetailModal';
+import { SizeLinkProvider } from '@/components/SizeLink';
 import { ActiveTimerBar } from '@/components/ActiveTimerBar';
 import { OfflineBanner } from '@/components/OfflineBanner';
 import { Onboarding } from '@/components/Onboarding';
@@ -424,6 +425,8 @@ function AuthenticatedApp({ user }: { user: User }) {
   // Deep-link target for Inventory — set when a tire size is tapped elsewhere
   // (e.g. a job in History), consumed by the Inventory view on arrival.
   const [inventoryFocusSize, setInventoryFocusSize] = useState<string | null>(null);
+  // Single SizeLink navigator — every tappable size in the app routes here.
+  const openInventoryForSize = (size: string) => { setInventoryFocusSize(size); setTab('inventory'); };
   // SP3 task 10: GlobalSearchSheet open state.
   const [searchOpen, setSearchOpen] = useState(false);
   // SP3: permissions for the new Customer Hub + Profile RBAC gating.
@@ -1570,7 +1573,6 @@ function AuthenticatedApp({ user }: { user: User }) {
         onSendInvoice={handleSendInvoice}
         onSendReview={handleSendReview}
         onDuplicate={handleDuplicate}
-        onOpenInventory={(size) => { setInventoryFocusSize(size); setTab('inventory'); }}
       />
     );
     if (tab === 'leads' && businessId) return (
@@ -1753,6 +1755,7 @@ function AuthenticatedApp({ user }: { user: User }) {
     <MembershipProvider settings={settings}>
       <TechnicianLanding tab={tab} setTab={setTab} />
       <BusinessSwitcherProvider user={user} settings={settings}>
+        <SizeLinkProvider onOpen={openInventoryForSize}>
         <Header
           syncStatus={syncStatus}
           onSignOut={onSignOut}
@@ -1918,6 +1921,7 @@ function AuthenticatedApp({ user }: { user: User }) {
           }}
         />
       )}
+        </SizeLinkProvider>
       </BusinessSwitcherProvider>
     </MembershipProvider>
   );
