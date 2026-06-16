@@ -9,7 +9,7 @@ import {
 import { doc, onSnapshot, setDoc, getDoc, writeBatch } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { _db } from '@/lib/firebase';
-import { DEFAULT_BRAND } from '@/lib/defaults';
+import { DEFAULT_BRAND, resolveBrandDefaults } from '@/lib/defaults';
 import { resolveActiveBusinessId } from '@/lib/ownedBusinesses';
 import { applyBrandColors, normalizeHex } from '@/lib/utils';
 import { acceptInvite, findPendingInviteForEmail } from '@/lib/invites';
@@ -430,9 +430,14 @@ export function BrandProvider({ children, user }: { children: ReactNode; user: U
     [businessId]
   );
 
+  // Coalesce blank tagline / empty service-cities to the product defaults so
+  // they render (header, invoice, Settings) even for businesses whose stored
+  // brand predates these defaults. A business that sets its own values wins.
+  const resolvedBrand: Brand = resolveBrandDefaults(brand);
+
   return (
     <BrandContext.Provider value={{
-      brand,
+      brand: resolvedBrand,
       businessId,
       loading,
       onboardingComplete: !!brand.onboardingComplete,

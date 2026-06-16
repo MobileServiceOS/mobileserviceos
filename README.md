@@ -187,6 +187,25 @@ Tested in `tests/components/useBreakpoint.test.tsx` at all three widths.
 screen show `src/components/Skeleton.tsx` placeholders while loading instead
 of a blank screen (`tests/components/Skeleton.test.tsx`).
 
+## Branding & service area
+
+- **Tagline** defaults to **"We rush. You roll."** (`DEFAULT_BRAND.tagline`).
+  `resolveBrandDefaults` (in `src/lib/defaults.ts`) coalesces a blank stored
+  tagline to the default, so it renders under the business name on the app
+  **header** and on **invoices** (Pro) without each business having to set
+  it. A business can still type its own tagline in Settings.
+- **Service cities** use a chip multiselect with autocomplete
+  (`src/components/settings/ServiceCitiesField.tsx`): typing suggests cities
+  for the business's state (defaults to FL); Enter/comma/selection adds a
+  chip; manual entry works for cities not in the suggestion DB (e.g.
+  "West Park", "Brickell"). Saved values are normalized by
+  `normalizeServiceCities` — title-cased, trimmed, deduped
+  case-insensitively, so "Miami gardens" and "Miami Gardens" never both
+  persist. The field is pre-populated with the real service area (23 South
+  Florida cities, `DEFAULT_SERVICE_CITIES`). Tested in
+  `tests/serviceCitiesAndTagline.spec.ts` and
+  `tests/components/ServiceCitiesField.test.tsx`.
+
 ## Troubleshooting deployed auth errors
 
 | Error | Fix |

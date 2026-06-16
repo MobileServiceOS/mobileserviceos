@@ -188,6 +188,12 @@ export function generateInvoiceNumber(brand: Brand, job: Job): string {
   return slug + '-' + (job.date || '').replace(/-/g, '') + '-' + (job.id || '').slice(-4).toUpperCase();
 }
 
+/** The tagline drawn under the business name on the invoice. A Pro
+ *  white-label touch — blank on Core, and blank when no tagline is set. */
+export function invoiceTaglineFor(brand: Brand, isPro: boolean): string {
+  return isPro ? (brand.tagline || '').trim() : '';
+}
+
 export interface InvoiceResult {
   filename: string;
   invoiceNumber: string;
@@ -351,7 +357,7 @@ export async function generateInvoicePDF(
 
   // Tagline — a Pro white-label touch, between the name and the
   // contact line. Skipped on Core and when no tagline is set.
-  const invoiceTagline = isPro ? (brand.tagline || '').trim() : '';
+  const invoiceTagline = invoiceTaglineFor(brand, isPro);
   if (invoiceTagline) {
     doc.setFont('helvetica', 'italic');
     doc.setFontSize(8);

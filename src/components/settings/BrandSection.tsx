@@ -2,7 +2,9 @@ import { useRef, useState } from 'react';
 import type { Brand } from '@/types';
 import { useBrand } from '@/context/BrandContext';
 import { CityStateSelect } from '@/components/CityStateSelect';
+import { ServiceCitiesField } from '@/components/settings/ServiceCitiesField';
 import { NumberField } from '@/components/NumberField';
+import { normalizeServiceCities } from '@/lib/locations';
 import { addToast } from '@/lib/toast';
 import { enqueueLogoUpload } from '@/lib/uploadQueue';
 import { APP_LOGO } from '@/lib/defaults';
@@ -114,6 +116,9 @@ function BrandForm() {
         ...draft,
         primaryColor: normalizeHex(draft.primaryColor, '#f4b400'),
         accentColor: normalizeHex(draft.accentColor, '#f7ca4d'),
+        // Trim / title-case / dedupe service cities so "Miami gardens" and
+        // "Miami Gardens" never both persist.
+        serviceCities: normalizeServiceCities(draft.serviceCities),
       };
       // Audit a11y P1-5 (2026-05-31): reject brand colors that render
       // illegibly on the dark app surface. The brand primary is used
@@ -213,14 +218,11 @@ function BrandForm() {
         }
         cityLabel="Main city" stateLabel="State"
       />
-      <div className="field" style={{ marginTop: 14 }}>
-        <label htmlFor="settings-service-cities">Service cities (comma-separated)</label>
-        <input
-          id="settings-service-cities"
-          value={(draft.serviceCities || []).join(', ')}
-          onChange={(e) => set('serviceCities', e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean))}
-        />
-      </div>
+      <ServiceCitiesField
+        value={draft.serviceCities || []}
+        onChange={(next) => set('serviceCities', next)}
+        state={draft.state || ''}
+      />
       <div className="field-row">
         <div className="field">
           <label htmlFor="settings-service-radius">Service radius (mi)</label>
