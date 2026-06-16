@@ -67,6 +67,9 @@ export function Insights({ jobs, settings, inventory }: Props) {
     <div className="page page-enter">
       <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 14 }}>Insights</div>
 
+      {/* Cards stack on phone (single column) and split into two columns
+          on desktop (.cols-lg, ≥1024px) so the wide screen isn't wasted. */}
+      <div className="cols-lg">
       {/* ── Daily job stats (Phase 5) ─────────────────────────── */}
       <AccordionShell
         title="Daily Jobs"
@@ -345,6 +348,7 @@ export function Insights({ jobs, settings, inventory }: Props) {
           }))}
         />
       </AccordionShell>
+      </div>
     </div>
   );
 }

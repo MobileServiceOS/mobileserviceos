@@ -200,6 +200,66 @@ a { color: var(--brand-primary); text-decoration: none; }
   margin: 0 auto;
   width: 100%;
 }
+
+/* ── Mobile-first responsive scale-up ───────────────────────────────
+   Phone is the default and stays EXACTLY as above (max 760px column).
+   Tablet and desktop widen the content area so the app fills the
+   screen instead of sitting in a narrow column inside empty margins.
+   Nothing below changes phone rendering — these only raise the cap
+   once there's real width to use. */
+@media (min-width: 768px) {
+  .page { max-width: min(900px, 100%); }
+}
+@media (min-width: 1200px) {
+  .page { max-width: 1160px; padding-top: 20px; }
+  /* Float + center the bottom nav into a pill on desktop so its seven
+     buttons don't stretch edge-to-edge across a wide screen. */
+  .bottom-nav {
+    left: 50%; right: auto; transform: translateX(-50%);
+    width: min(720px, calc(100% - 32px));
+    border: 1px solid var(--border); border-radius: 16px 16px 0 0;
+  }
+}
+
+/* Opt-in two-column grid for independent read-only cards (Insights,
+   Dashboard secondary cards) once there's desktop width. Each child is
+   a self-contained card/accordion, so two columns just use the space —
+   no restructuring, and it collapses back to one column below 1024px
+   (i.e. always single-column on phone + small tablet). align-items:start
+   keeps columns from stretching to the tallest sibling. */
+.cols-lg { display: block; }
+@media (min-width: 1024px) {
+  .cols-lg {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    align-items: start;
+  }
+}
+
+/* ── Loading skeletons ──────────────────────────────────────────────
+   Shown while a screen / its data loads so it reads as "loading" rather
+   than a blank black screen. Shimmer sweeps a subtle highlight; disabled
+   under prefers-reduced-motion. */
+.skeleton {
+  background: linear-gradient(90deg, var(--s2) 25%, var(--s3) 37%, var(--s2) 63%);
+  background-size: 400% 100%;
+  animation: skeletonShimmer 1.4s ease infinite;
+}
+@keyframes skeletonShimmer {
+  from { background-position: 100% 0; }
+  to   { background-position: 0 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; }
+}
+
+/* Visually-hidden but screen-reader-available (e.g. "Loading…" labels). */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
 .page-enter { animation: fadeIn .25s ease; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
