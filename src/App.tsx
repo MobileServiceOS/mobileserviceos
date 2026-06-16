@@ -429,6 +429,9 @@ function AuthenticatedApp({ user }: { user: User }) {
   const [inventoryFocusSize, setInventoryFocusSize] = useState<string | null>(null);
   // Single SizeLink navigator — every tappable size in the app routes here.
   const openInventoryForSize = (size: string) => { setInventoryFocusSize(size); setTab('inventory'); };
+  // Reverse link: Inventory "View jobs for this size" → History filtered.
+  const [historyFocusSize, setHistoryFocusSize] = useState<string | null>(null);
+  const openJobsForSize = (size: string) => { setHistoryFocusSize(size); setTab('history'); };
   // SP3 task 10: GlobalSearchSheet open state.
   const [searchOpen, setSearchOpen] = useState(false);
   // SP3: permissions for the new Customer Hub + Profile RBAC gating.
@@ -1572,6 +1575,8 @@ function AuthenticatedApp({ user }: { user: User }) {
       <History
         jobs={jobs}
         loading={!jobsReady}
+        focusSize={historyFocusSize}
+        onFocusConsumed={() => setHistoryFocusSize(null)}
         settings={settings}
         onViewJob={handleViewJob}
         onMarkPaid={handleMarkPaid}
@@ -1646,7 +1651,8 @@ function AuthenticatedApp({ user }: { user: User }) {
         setTab('add');
       }}
       focusSize={inventoryFocusSize}
-      onFocusConsumed={() => setInventoryFocusSize(null)} />;
+      onFocusConsumed={() => setInventoryFocusSize(null)}
+      onViewJobsForSize={openJobsForSize} />;
     if (tab === 'settings') return <Settings settings={settings} onSave={persistSettings} />;
     if (tab === 'help') return <Help onBack={() => setTab('dashboard')} />;
     if (tab === 'success' && savedJob) {

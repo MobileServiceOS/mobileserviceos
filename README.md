@@ -165,6 +165,11 @@ focus banner at the top of Inventory showing **on-hand · jobs/90d · sold
 it was never stocked). Tested by `tests/components/SizeLink.test.tsx` and
 `tests/inventoryRestock.spec.ts`.
 
+**Reverse link:** the focus banner's **"View N jobs →"** button opens
+**History filtered to that size** (`filterHistoryJobs` in
+`src/lib/historyFilter.ts`, via History's `focusSize` prop), closing the
+size ↔ stock ↔ jobs loop. Tested by `tests/historyFilter.spec.ts`.
+
 ## Responsive layout (mobile-first)
 
 Phone is the default and the source of truth — `.page` is capped at

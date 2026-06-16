@@ -11,13 +11,17 @@ import { useLongPress } from '@/lib/useLongPress';
 import { useSwipeAction } from '@/lib/useSwipeAction';
 import { QuickActionSheet } from '@/components/QuickActionSheet';
 import { useScopedJobs } from '@/lib/useScopedJobs';
-import { normalizeTireSizeQuery } from '@/lib/inventoryNotesParser';
+import { filterHistoryJobs } from '@/lib/historyFilter';
 import { usePermissions, useMembership } from '@/context/MembershipContext';
 
 interface Props {
   jobs: Job[];
   /** True until the first jobs snapshot arrives — shows a skeleton. */
   loading?: boolean;
+  /** Deep-link from Inventory "View jobs for this size" — seeds the search
+   *  so History opens filtered to that tire size. Consumed once on arrival. */
+  focusSize?: string | null;
+  onFocusConsumed?: () => void;
   settings: Settings;
   onViewJob: (j: Job) => void;
   onMarkPaid: (j: Job) => void;
@@ -32,12 +36,21 @@ interface Props {
 type Filter = 'all' | 'completed' | 'pending' | 'cancelled' | 'unpaid';
 
 export function History({
-  jobs: rawJobs, loading = false, settings, onViewJob, onMarkPaid, onComplete, onEditJob,
+  jobs: rawJobs, loading = false, focusSize, onFocusConsumed, settings, onViewJob, onMarkPaid, onComplete, onEditJob,
   onGenerateInvoice, onSendInvoice, onSendReview, onDuplicate,
 }: Props) {
   // Phase 2.2 Sub-Project B: scope to what the current member sees.
   const jobs = useScopedJobs(rawJobs);
   const [query, setQuery] = useState('');
+
+  // Inventory → "View jobs for this size": seed the search with the linked
+  // size, then clear the focus so it doesn't re-apply on later visits.
+  useEffect(() => {
+    const s = (focusSize || '').trim();
+    if (!s) return;
+    setQuery(s);
+    onFocusConsumed?.();
+  }, [focusSize, onFocusConsumed]);
   const [filter, setFilter] = useState<Filter>('all');
   // Bulk delete/edit gates on canDeleteJobs — the destructive end of
   // the bulk surface. Owners + admins have it by default; techs don't.
@@ -99,27 +112,7 @@ export function History({
     [jobs, selected],
   );
 
-  const filtered = useMemo(() => {
-    let list = Array.isArray(jobs) ? [...jobs] : [];
-    if (filter === 'completed') list = list.filter((j) => j.status === 'Completed');
-    if (filter === 'pending') list = list.filter((j) => j.status === 'Pending');
-    if (filter === 'cancelled') list = list.filter((j) => j.status === 'Cancelled');
-    if (filter === 'unpaid') list = list.filter((j) => resolvePaymentStatus(j) === 'Pending Payment');
-    const qRaw = query.trim().toLowerCase();
-    if (qRaw) {
-      // Tire-size queries canonicalize: "215/55/17" matches jobs
-      // stored as "215/55R17" and vice versa. Non-size queries
-      // (customer name, service, phone, etc.) pass through.
-      const q = normalizeTireSizeQuery(qRaw).toLowerCase();
-      list = list.filter((j) => {
-        const blob = [j.customerName, j.service, j.area, j.tireSize, j.customerPhone, j.fullLocationLabel]
-          .filter(Boolean).join(' ').toLowerCase();
-        return blob.includes(q);
-      });
-    }
-    list.sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.id || '').localeCompare(a.id || ''));
-    return list;
-  }, [jobs, query, filter]);
+  const filtered = useMemo(() => filterHistoryJobs(jobs, query, filter), [jobs, query, filter]);
 
   // First load (no jobs yet) → skeleton instead of a blank screen.
   if (loading && jobs.length === 0) return <PageSkeleton />;
