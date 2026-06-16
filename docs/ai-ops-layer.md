@@ -185,6 +185,45 @@ left as documented follow-ups (not built yet):
 Until both are done, **do not expose this to a second tenant** — the blast
 radius of a tampered client is "run up the Anthropic bill."
 
+## Tracked follow-up: let CI self-deploy functions
+
+`aiOps` was deployed **manually from the owner's machine** (`firebase login`
+as the project owner `dkreid12`), because the CI workflow
+(`.github/workflows/deploy-functions.yml`, which runs on push to `main`
+touching `functions/**`) uses a **deployer service account that lacks the IAM
+to deploy 2nd-gen functions and act as the runtime SA**. The local owner
+identity has that IAM, so the manual deploy also auto-granted
+`roles/secretmanager.secretAccessor` on `ANTHROPIC_API_KEY` to the runtime SA
+(`77527561910-compute@developer.gserviceaccount.com`).
+
+Result today: **merging a `functions/**` change does NOT reliably auto-deploy**
+— the CI deploy job will fail on the ActAs/IAM permission. Functions must be
+deployed by hand from an owner machine until this is fixed.
+
+To make the pipeline self-deploy (documented, **not done** — out of scope for
+this change):
+
+- **Deployer SA** (the one CI authenticates as) needs:
+  - `roles/iam.serviceAccountUser` **on the runtime SA**
+    (`77527561910-compute@developer.gserviceaccount.com`) — the ActAs grant
+    that's currently missing.
+  - `roles/cloudfunctions.admin`
+  - `roles/cloudbuild.builds.editor`
+  - `roles/artifactregistry.writer`
+- **Runtime SA** (`77527561910-compute@developer.gserviceaccount.com`) needs
+  `roles/secretmanager.secretAccessor` on each secret it reads
+  (already granted for `ANTHROPIC_API_KEY` during the manual deploy; future
+  secrets need the same).
+
+Until those grants exist, deploy functions with:
+`npx firebase-tools deploy --only functions:<name> --project mobile-service-os`
+from an owner machine. (Note: the standalone `firebase` **firepit** binary
+bundles npm 8.19.4, whose predeploy `npm run build` crashes with
+`Cannot read properties of undefined (reading 'stdin')`; run the deploy via
+`npx firebase-tools` so the predeploy uses system npm. Also: the runtime is
+**nodejs20**, deprecated 2026-04-30 / decommissioned 2026-10-30 — bump
+`functions` to nodejs22 before then.)
+
 ## Model config
 
 - **Default model:** `claude-sonnet-4-6` (a current Sonnet-class model — the
