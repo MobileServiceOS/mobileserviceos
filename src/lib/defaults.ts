@@ -48,6 +48,32 @@ export const DEFAULT_MISSED_CALL_TEMPLATE =
   '4. Service needed\n\n' +
   "We'll get back to you shortly.";
 
+// Real service area, pulled from actual job history. Used as the default
+// service-cities list (and the BrandContext fallback when a business hasn't
+// set its own) so the Settings field is pre-populated rather than blank.
+export const DEFAULT_SERVICE_CITIES: string[] = [
+  'Miami', 'West Park', 'Hollywood', 'Miramar', 'Aventura', 'Fort Lauderdale',
+  'Miami Gardens', 'Hialeah', 'Tamiami', 'North Miami Beach', 'North Miami',
+  'Hallandale Beach', 'Plantation', 'Sunrise', 'Davie', 'Doral', 'Tamarac',
+  'Coconut Creek', 'North Lauderdale', 'Kendall', 'Brickell', 'Miami Lakes',
+  'Miami Beach',
+];
+
+/** Coalesce a stored brand to the product defaults: a blank tagline becomes
+ *  the default tagline and an empty service-cities list becomes the default
+ *  service area, so both render (header / invoice / Settings) even for
+ *  businesses whose stored brand predates these defaults. A business that
+ *  set its own non-blank tagline / non-empty cities keeps them. */
+export function resolveBrandDefaults(brand: Brand): Brand {
+  return {
+    ...brand,
+    tagline: (brand.tagline || '').trim() || DEFAULT_BRAND.tagline,
+    serviceCities: (brand.serviceCities && brand.serviceCities.length)
+      ? brand.serviceCities
+      : DEFAULT_BRAND.serviceCities,
+  };
+}
+
 export const DEFAULT_BRAND: Brand = {
   businessName: 'Mobile Service OS',
   logoUrl: '',
@@ -68,11 +94,11 @@ export const DEFAULT_BRAND: Brand = {
   // 'tire', so this rename has no behavioral impact on existing docs
   // — but new bootstraps now write the canonical key from second one.
   businessType: 'tire',
-  tagline: '',
+  tagline: 'We rush. You roll.',
   state: '',
   mainCity: '',
   fullLocationLabel: '',
-  serviceCities: [],
+  serviceCities: DEFAULT_SERVICE_CITIES,
   serviceRadius: 25,
   onboardingComplete: false,
   onboardingCompletedAt: null,

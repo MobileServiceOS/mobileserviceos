@@ -105,3 +105,31 @@ export function fullLocationLabel(city: string, stateCode: string): string {
   if (city && stateCode) return `${city}, ${stateCode}`;
   return city || stateCode || '';
 }
+
+/** Title-case a city name: trim, collapse inner whitespace, capitalize each
+ *  word. "miami gardens " → "Miami Gardens", "NORTH MIAMI" → "North Miami". */
+export function titleCaseCity(raw: string): string {
+  return (raw || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .split(' ')
+    .map((w) => (w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w))
+    .join(' ');
+}
+
+/** Normalize a service-cities list for persistence: title-case each entry,
+ *  drop blanks, and dedupe case-insensitively (first occurrence wins, order
+ *  preserved). So "Miami gardens" and "Miami Gardens" collapse to one. */
+export function normalizeServiceCities(list: ReadonlyArray<string> | null | undefined): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of list || []) {
+    const city = titleCaseCity(raw);
+    if (!city) continue;
+    const key = city.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(city);
+  }
+  return out;
+}

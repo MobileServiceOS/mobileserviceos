@@ -1310,6 +1310,32 @@ a { color: var(--brand-primary); text-decoration: none; }
 .city-autocomplete-item:hover, .city-autocomplete-item.active { background: var(--s3); color: var(--brand-primary); }
 .city-autocomplete-item.custom { border-top: 1px solid var(--border); color: var(--brand-primary); font-style: italic; font-size: 12px; }
 
+/* Service-cities chip multiselect (ServiceCitiesField). A bordered box
+   that wraps compact removable city tags + an inline text input, matching
+   the app's input styling. */
+.chip-input {
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+  background: var(--s1); border: 1px solid var(--border); border-radius: 10px;
+  padding: 8px 10px; min-height: 44px;
+}
+.chip-input input {
+  flex: 1; min-width: 120px; border: none; background: transparent;
+  color: var(--t1); font-size: 14px; padding: 4px 2px; outline: none;
+}
+.city-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: rgba(244,180,0,.12); border: 1px solid rgba(244,180,0,.32);
+  color: var(--brand-primary); border-radius: 99px;
+  padding: 4px 6px 4px 10px; font-size: 12px; font-weight: 700; white-space: nowrap;
+}
+.city-chip-x {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 99px; border: none;
+  background: rgba(244,180,0,.18); color: var(--brand-primary);
+  font-size: 13px; line-height: 1; cursor: pointer;
+}
+.city-chip-x:hover { background: rgba(244,180,0,.34); }
+
 /* ──────────────────────────────────────────────────────────
    Mobile breakpoints
    ────────────────────────────────────────────────────────── */
