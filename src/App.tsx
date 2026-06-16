@@ -421,6 +421,9 @@ function AuthenticatedApp({ user }: { user: User }) {
   // Set when a customer row is clicked; consumed by the
   // tab === 'customerProfile' render branch below.
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
+  // Deep-link target for Inventory — set when a tire size is tapped elsewhere
+  // (e.g. a job in History), consumed by the Inventory view on arrival.
+  const [inventoryFocusSize, setInventoryFocusSize] = useState<string | null>(null);
   // SP3 task 10: GlobalSearchSheet open state.
   const [searchOpen, setSearchOpen] = useState(false);
   // SP3: permissions for the new Customer Hub + Profile RBAC gating.
@@ -1567,6 +1570,7 @@ function AuthenticatedApp({ user }: { user: User }) {
         onSendInvoice={handleSendInvoice}
         onSendReview={handleSendReview}
         onDuplicate={handleDuplicate}
+        onOpenInventory={(size) => { setInventoryFocusSize(size); setTab('inventory'); }}
       />
     );
     if (tab === 'leads' && businessId) return (
@@ -1630,7 +1634,9 @@ function AuthenticatedApp({ user }: { user: User }) {
         setEditingJobId(null);
         setPrefilledFromQuote(false);
         setTab('add');
-      }} />;
+      }}
+      focusSize={inventoryFocusSize}
+      onFocusConsumed={() => setInventoryFocusSize(null)} />;
     if (tab === 'settings') return <Settings settings={settings} onSave={persistSettings} />;
     if (tab === 'help') return <Help onBack={() => setTab('dashboard')} />;
     if (tab === 'success' && savedJob) {

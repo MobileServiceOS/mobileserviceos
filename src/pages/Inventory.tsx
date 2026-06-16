@@ -30,6 +30,11 @@ interface Props {
    *  Used by the per-card "Log Job" button — e.g. a customer calls for a
    *  215/55R17, the operator finds it here and logs the job in one tap. */
   onStartJob?: (item: InventoryItem) => void;
+  /** Deep-link target: when set, the tire view opens pre-filtered to this
+   *  size (e.g. tapping a tire size in History jumps straight to its stock).
+   *  Consumed once on arrival via onFocusConsumed so it doesn't re-trigger. */
+  focusSize?: string | null;
+  onFocusConsumed?: () => void;
 }
 
 type CondFilter = 'all' | 'New' | 'Used';
@@ -116,12 +121,12 @@ function parseCsv(text: string): ParsedRow[] {
 // editor over the same InventoryItem shape (now widened with
 // optional partNumber/partName/supplier/unitCost/chemicalName/
 // category/dilutionRatio fields).
-export function Inventory({ inventory, onSave, settings, jobs, onStartJob }: Props) {
+export function Inventory({ inventory, onSave, settings, jobs, onStartJob, focusSize, onFocusConsumed }: Props) {
   const vertical = useActiveVertical();
   if (!vertical.features.inventoryDeduction) {
     return <GenericInventoryView inventory={inventory} onSave={onSave} vertical={vertical} />;
   }
-  return <TireInventoryView inventory={inventory} onSave={onSave} jobs={jobs} onStartJob={onStartJob} />;
+  return <TireInventoryView inventory={inventory} onSave={onSave} jobs={jobs} onStartJob={onStartJob} focusSize={focusSize} onFocusConsumed={onFocusConsumed} />;
 }
 
 // Inline form to add a new reservation against an InventoryItem.
@@ -180,9 +185,11 @@ interface InternalViewProps {
   onSave: (next: InventoryItem[]) => void;
   jobs: Job[];
   onStartJob?: (item: InventoryItem) => void;
+  focusSize?: string | null;
+  onFocusConsumed?: () => void;
 }
 
-function TireInventoryView({ inventory, onSave, jobs, onStartJob }: InternalViewProps) {
+function TireInventoryView({ inventory, onSave, jobs, onStartJob, focusSize, onFocusConsumed }: InternalViewProps) {
   const safe: InventoryItem[] = Array.isArray(inventory) ? inventory : [];
   const [list, setList] = useState<InventoryItem[]>(safe);
   const [search, setSearch] = useState('');
@@ -203,6 +210,17 @@ function TireInventoryView({ inventory, onSave, jobs, onStartJob }: InternalView
   // initial render on mid-range Android.
   const [renderLimit, setRenderLimit] = useState(50);
   useEffect(() => { setRenderLimit(50); }, [search]);
+
+  // Deep-link: when arriving from a tire-size link elsewhere (e.g. History),
+  // pre-filter to that size and scroll to the top, then clear the focus so
+  // it doesn't re-fire on later visits or while editing.
+  useEffect(() => {
+    const s = (focusSize || '').trim();
+    if (!s) return;
+    setSearch(s);
+    window.scrollTo({ top: 0 });
+    onFocusConsumed?.();
+  }, [focusSize, onFocusConsumed]);
 
   // Track which cards are expanded by id. Compact-by-default UX — tapping
   // a card or hitting Edit flips the expanded state. New items (_isNew)
