@@ -211,6 +211,26 @@ of a blank screen (`tests/components/Skeleton.test.tsx`).
   `tests/serviceCitiesAndTagline.spec.ts` and
   `tests/components/ServiceCitiesField.test.tsx`.
 
+## Removed: Leads tab & Missed Call Recovery
+
+The **Leads** bottom-nav tab + pipeline screen and the **Missed Call
+Recovery** feature have been removed (no longer used). Gone: `src/pages/
+Leads.tsx`, `src/components/leads/*`, `MissedCallRecoverySection`,
+`leadLifecycle`/`leadPriority` libs, the `Lead`/`OutboundSms` types, the
+`'leads'` TabId, and the missed-call branch of the incoming-call popup. The
+live **caller-ID popup** (`IncomingCallNotification`, `incoming_calls`) is
+unaffected and still works.
+
+**Lead-source attribution is preserved.** It was never sourced from the
+Leads pipeline — it's captured on `job.source` (the AddJob "Lead source"
+chips) and read directly by `computeInsights` → the Insights **"Top Lead
+Sources by Revenue"** card and the Dashboard "Lead Sources" card. Guarded by
+`tests/leadSourceAttribution.spec.ts`.
+
+Backend Cloud Functions / Firestore rules for the legacy `leads` collection
+are a separate deploy concern and are intentionally left untouched; nothing
+in the app reads or writes leads anymore.
+
 ## Troubleshooting deployed auth errors
 
 | Error | Fix |

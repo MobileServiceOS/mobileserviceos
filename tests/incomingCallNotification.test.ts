@@ -11,7 +11,6 @@
 
 import {
   computeBadgeState,
-  shouldShowLead,
   shouldShowIncomingCall,
   computeBalanceDisplay,
 } from '../src/components/IncomingCallNotification';
@@ -40,26 +39,6 @@ console.log('\n── badge thresholds ──');
     !computeBadgeState(25).isRepeat && computeBadgeState(25).isVIP);
 }
 
-console.log('\n── shouldShowLead filters ──');
-{
-  const mountMs = 1_000_000;
-  const okLead = { id: 'lead-3055551234-2026-06-05', source: 'missed_call' as const };
-
-  check('null lead: false',
-    !shouldShowLead(null, mountMs, mountMs + 1));
-  check('inbound_sms source: false',
-    !shouldShowLead({ id: 'lead-x', source: 'inbound_sms' as const }, mountMs, mountMs + 1));
-  check('manual source: false',
-    !shouldShowLead({ id: 'lead-x', source: 'manual' as const }, mountMs, mountMs + 1));
-  check('test lead: false (lead-test- prefix)',
-    !shouldShowLead({ id: 'lead-test-uid-1234', source: 'missed_call' as const }, mountMs, mountMs + 1));
-  check('receivedAt <= mountTime: false (historical)',
-    !shouldShowLead(okLead, mountMs, mountMs - 1));
-  check('receivedAt == mountTime: false (boundary)',
-    !shouldShowLead(okLead, mountMs, mountMs));
-  check('happy path: true',
-    shouldShowLead(okLead, mountMs, mountMs + 1));
-}
 
 console.log('\n── shouldShowIncomingCall filters ──');
 {

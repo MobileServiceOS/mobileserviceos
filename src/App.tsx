@@ -38,10 +38,6 @@ const Help      = lazy(() => import('@/pages/Help').then((m)      => ({ default:
 // Lazy-loaded — same pattern as the page it wraps.
 const CustomerHub = lazy(() => import('@/pages/CustomerHub'));
 const CustomerProfile = lazy(() => import('@/pages/CustomerProfile'));
-// SP4B (task 14): top-level Leads tab. Lazy-loaded — only the operators
-// who actually open the queue pull in LeadDetailSheet + LeadCard + the
-// CustomerEnrichmentPanel bundle.
-const Leads = lazy(() => import('@/pages/Leads'));
 const Insights  = lazy(() => import('@/pages/Insights').then((m)  => ({ default: m.Insights })));
 const Payouts   = lazy(() => import('@/pages/Payouts').then((m)   => ({ default: m.Payouts })));
 const PaymentsDashboard = lazy(() => import('@/pages/PaymentsDashboard').then((m) => ({ default: m.PaymentsDashboard })));
@@ -53,7 +49,7 @@ import { ToastHost } from '@/components/ToastHost';
 import { InstallBanner } from '@/components/InstallBanner';
 import { UpdateBanner } from '@/components/UpdateBanner';
 import { MoreSheet } from '@/components/MoreSheet';
-import { NavHome, NavLeads, NavJobs, NavCustomers, NavInventory, NavLog, NavMore } from '@/components/NavIcons';
+import { NavHome, NavJobs, NavCustomers, NavInventory, NavLog, NavMore } from '@/components/NavIcons';
 import { IncomingCallNotification } from '@/components/IncomingCallNotification';
 import { EmailVerificationBanner } from '@/components/EmailVerificationBanner';
 import { TrialCountdownBanner } from '@/components/TrialCountdownBanner';
@@ -91,7 +87,7 @@ import {
   stripRetiredServices,
 } from '@/lib/deserializers';
 import type {
-  Brand, Expense, InventoryItem, Job, LeadStatus, PaymentMethod, QuoteForm, Settings as SettingsT, SyncStatus, TabId,
+  Brand, Expense, InventoryItem, Job, PaymentMethod, QuoteForm, Settings as SettingsT, SyncStatus, TabId,
 } from '@/types';
 // CustomerMeta type no longer imported here — the Customers page
 // (src/pages/Customers.tsx) owns the listener + state directly.
@@ -1060,14 +1056,8 @@ function AuthenticatedApp({ user }: { user: User }) {
       // Same pattern persistExpenses uses (see settingsRef block at
       // line 427).
       const currentUid = _auth?.currentUser?.uid || '';
-      // SP4B Task 16: pluck the UI-only leadId sentinel off the draft so it
-      // never reaches the Job doc. Carried in via Leads.tsx → onCreateJob
-      // (App.tsx setJobDraft cast at the 'leads' tab branch); the linkback
-      // below uses sourceLeadId to flip lead.status='Booked' + lead.jobId
-      // post-save.
-      const { leadId: sourceLeadId, ...jWithoutLeadId } = j as Job & { leadId?: string };
       const finalJob: Job = {
-        ...jWithoutLeadId,
+        ...j,
         id: j.id || uid(),
         tireCost: computedTireCost,
         inventoryDeductions: deductions,
@@ -1171,35 +1161,6 @@ function AuthenticatedApp({ user }: { user: User }) {
       log('job-write-issued');
       await fbSetFast(jobsCol, finalJob.id, finalJob);
       log('job-write-acked');
-
-      // ─── SP4B Task 16: Lead → Job linkback ────────────────────────
-      // When this Job originated from a Lead (Leads.tsx → onCreateJob
-      // threaded leadId onto the AddJob draft), flip the originating
-      // Lead to status='Booked' + lead.jobId = finalJob.id so the
-      // missed-call recovery funnel registers the conversion.
-      //
-      // NON-BLOCKING: the Job is already persisted. A Lead-update
-      // failure logs but does NOT abort the success path — operator
-      // can manually advance the Lead later via the LeadDetailSheet
-      // status dropdown if the linkback ever fails.
-      if (sourceLeadId) {
-        try {
-          const linkbackNow = Timestamp.now();
-          await setDoc(
-            doc(requireDb(), 'businesses', businessId, 'leads', sourceLeadId),
-            {
-              status: 'Booked' as LeadStatus,
-              bookedAt: linkbackNow,           // stamp the lifecycle stage
-              jobId: finalJob.id,
-              updatedAt: linkbackNow,
-              lastEditedByUid: _auth?.currentUser?.uid ?? 'unknown',
-            },
-            { merge: true },
-          );
-        } catch (err) {
-          console.error('[SP4B linkback] failed to update lead.status=Booked', err);
-        }
-      }
 
       addToast(isEditing ? 'Job updated' : 'Job saved', 'success');
       setSavedJob(finalJob);
@@ -1588,26 +1549,6 @@ function AuthenticatedApp({ user }: { user: User }) {
         onDuplicate={handleDuplicate}
       />
     );
-    if (tab === 'leads' && businessId) return (
-      <Leads
-        businessId={businessId}
-        onOpenCustomer={(cid) => { setSelectedCustomerId(cid); setTab('customerProfile'); }}
-        onCreateJob={(draft, leadId) => {
-          // Carry leadId through the AddJob flow so the post-save effect
-          // can flip lead.status='Booked' + lead.jobId on the originating
-          // Lead. Task 16 implements the linkback by reading leadId off
-          // the in-memory jobDraft at save time.
-          //
-          // Job (src/types/index.ts) doesn't declare leadId — it's an
-          // in-memory-only carry that never reaches Firestore on Job
-          // documents. The `as unknown as Job` cast is the minimal way
-          // to thread it through without polluting the Job type. Task 16
-          // will reach for it via the same cast on the read side.
-          setJobDraft({ ...EMPTY_JOB(), ...draft, leadId } as unknown as Job);
-          setTab('add');
-        }}
-      />
-    );
     if (tab === 'customers') return (
       <CustomerHub
         businessId={businessId ?? ''}
@@ -1805,22 +1746,15 @@ function AuthenticatedApp({ user }: { user: User }) {
           hidden — see AddJob.tsx onCancel prop. */}
       {tab !== 'add' && (
         <nav className="bottom-nav" aria-label="Primary">
-          {/* V2 nav order (2026-06-07): Home · Leads · Jobs · Customers ·
-              Inventory · Log(+) · More. Money starts with leads; inventory
-              is a daily tool; Log is the action button (visually distinct). */}
+          {/* Nav order: Home · Jobs · Customers · Inventory · Log(+) · More.
+              Inventory is a daily tool; Log is the action button (visually
+              distinct). (Leads tab removed.) */}
           <button
             className={'nav-btn' + (tab === 'dashboard' ? ' active' : '')}
             aria-current={tab === 'dashboard' ? 'page' : undefined}
             onClick={() => setTab('dashboard')}
           >
             <span className="nav-ico" aria-hidden="true"><NavHome /></span><span>Home</span>
-          </button>
-          <button
-            className={'nav-btn' + (tab === 'leads' ? ' active' : '')}
-            aria-current={tab === 'leads' ? 'page' : undefined}
-            onClick={() => setTab('leads')}
-          >
-            <span className="nav-ico" aria-hidden="true"><NavLeads /></span><span>Leads</span>
           </button>
           <button
             className={'nav-btn' + (tab === 'history' ? ' active' : '')}
@@ -1903,19 +1837,9 @@ function AuthenticatedApp({ user }: { user: User }) {
           onCreateNewJob={(phoneE164) => {
             // Pre-fill the AddJob phone field. CustomerLookupCard
             // detects the populated phone on mount and auto-resolves
-            // the customer if one exists — same path Leads → Create
-            // Job uses.
+            // the customer if one exists.
             setJobDraft({ ...EMPTY_JOB(), customerPhone: phoneE164 } as Job);
             setTab('add');
-          }}
-          onCreateLead={(_phoneE164) => {
-            // Leads list is the create-lead surface today. The
-            // missed-call lead-creation path (twilioVoiceStatus
-            // webhook) is operator-automated; manual lead capture
-            // routes through the Leads tab where the operator can
-            // pick an existing draft or create one. Future: deep-link
-            // a lead-create modal with phone pre-filled.
-            setTab('leads');
           }}
         />
       )}
