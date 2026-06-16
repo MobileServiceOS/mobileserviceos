@@ -85,6 +85,13 @@ export { drainReviewRequests }         from './drainReviewRequests';
 export { sendTestReviewSms }           from './sendTestReviewSms';
 export { sendManualReviewRequest }     from './sendManualReviewRequest';
 
+// AI ops layer (docs/ai-ops-layer.md). Single server-side boundary for
+// Anthropic Messages API calls — owner/admin gated, holds the
+// ANTHROPIC_API_KEY secret, returns raw model text for the client to
+// safely parse. Ships DORMANT: without the ANTHROPIC_API_KEY secret the
+// call fails cleanly with AI_NOT_CONFIGURED, no SDK request is made.
+export { aiOps } from './aiOps';
+
 // SP4B: missed-call recovery. Four functions:
 //   - twilioVoiceStatus       Public HTTPS webhook; Twilio Console
 //                             points its Voice Status Callback URL here.
