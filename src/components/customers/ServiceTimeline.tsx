@@ -23,6 +23,7 @@ import {
 } from 'firebase/firestore';
 import { requireDb } from '@/lib/firebase';
 import type { Job } from '@/types';
+import { SizeLink } from '@/components/SizeLink';
 
 interface Props {
   businessId: string;
@@ -85,7 +86,7 @@ function ServiceTimelineImpl({ businessId, customerId, canViewFinancials, onJobC
               <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 2 }}>
                 {fmtDate(j.date)}
                 {j.vehicleMakeModel && <span> · {j.vehicleMakeModel}</span>}
-                {j.tireSize && <span> · {j.tireSize}</span>}
+                {j.tireSize && <> · <SizeLink size={j.tireSize} variant="plain" as="span" showArrow={false} style={{ fontSize: 11 }} /></>}
                 {j.city && <span> · {j.city}</span>}
               </div>
             </button>

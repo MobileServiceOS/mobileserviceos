@@ -8,6 +8,8 @@ import {
   r2, resolvePaymentStatus, weekSummary,
 } from '@/lib/utils';
 import { ServiceIcon } from '@/components/ServiceIcon';
+import { SizeLink, useSizeLinkNav } from '@/components/SizeLink';
+import { sizeKey } from '@/lib/inventoryIntel';
 import { formatPhonePartial } from '@/lib/formatPhone';
 import {
   expenseTotalsInRange,
@@ -442,6 +444,22 @@ export function Dashboard({
     });
     return alerts.slice(0, 3);
   }, [visibleJobs, inventory, vertical.features.inventoryDeduction]);
+
+  // Single SizeLink navigator (Low Stock cards + Quick Quote stock check).
+  const openSize = useSizeLinkNav();
+
+  // On-hand for the size typed into Quick Quote — so the operator can see
+  // "can I fulfill this right now?" without leaving the quote. Summed per
+  // normalized size to match how Inventory consolidates duplicates.
+  const qqOnHand = useMemo(() => {
+    const key = sizeKey(qqTireSize || '');
+    if (!key) return null;
+    let onHand = 0;
+    for (const i of (Array.isArray(inventory) ? inventory : [])) {
+      if (sizeKey(i.size || '') === key) onHand += Number(i.qty || 0);
+    }
+    return onHand;
+  }, [inventory, qqTireSize]);
 
   // Phase 1 polish — operational Today panel needs an active-jobs
   // count alongside the existing today-revenue / pending-payment
@@ -968,12 +986,28 @@ export function Dashboard({
             <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 8 }}>
               ⚠ Low Stock Alert
             </div>
-            {lowStock.map((ls) => (
-              <div key={ls.size} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '4px 0', color: 'var(--t2)' }}>
-                <span style={{ fontWeight: 700 }}>{ls.size}</span>
-                <span>{ls.onHand} left (sold {ls.soldCount})</span>
-              </div>
-            ))}
+            {lowStock.map((ls) => {
+              const row = (
+                <>
+                  <span style={{ fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    {ls.size}
+                    {openSize && <span aria-hidden style={{ color: 'var(--brand-primary)', fontWeight: 900 }}>→</span>}
+                  </span>
+                  <span>{ls.onHand} left (sold {ls.soldCount})</span>
+                </>
+              );
+              const rowStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, padding: '6px 0', color: 'var(--t2)', width: '100%' } as const;
+              // Tap the card → open this size in Inventory with the restock action.
+              return openSize ? (
+                <button key={ls.size} type="button" onClick={() => openSize(ls.size)}
+                  title={`Reorder ${ls.size} in inventory`}
+                  style={{ ...rowStyle, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
+                  {row}
+                </button>
+              ) : (
+                <div key={ls.size} style={rowStyle}>{row}</div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -1111,6 +1145,24 @@ export function Dashboard({
                 onChange={(e) => setQqTireSize(e.target.value)}
                 placeholder="e.g. 225/45R17"
               />
+              {qqTireSize.trim() && qqOnHand !== null && (
+                <button
+                  type="button"
+                  onClick={() => openSize?.(qqTireSize.trim())}
+                  disabled={!openSize}
+                  title={openSize ? `View ${qqTireSize.trim()} in inventory` : undefined}
+                  style={{
+                    marginTop: 6, background: 'none', border: 'none', padding: 0,
+                    cursor: openSize ? 'pointer' : 'default', textAlign: 'left',
+                    fontSize: 11, fontWeight: 700,
+                    color: qqOnHand > 0 ? 'var(--green)' : 'var(--red)',
+                    display: 'inline-flex', alignItems: 'center', gap: 4,
+                  }}
+                >
+                  {qqOnHand > 0 ? `✓ ${qqOnHand} in stock` : 'Out of stock'}
+                  {openSize && <span aria-hidden style={{ color: 'var(--brand-primary)', fontWeight: 900 }}>→</span>}
+                </button>
+              )}
             </div>
           )}
         </div>

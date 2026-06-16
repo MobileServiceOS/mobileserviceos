@@ -3,6 +3,7 @@ import type { Job, Settings } from '@/types';
 import { PAYMENT_METHOD_LABELS } from '@/types';
 import { fmtDate, fmtDateShort, jobGrossProfit, money, paymentPillClass, resolvePaymentStatus } from '@/lib/utils';
 import { ServiceIcon } from '@/components/ServiceIcon';
+import { SizeLink } from '@/components/SizeLink';
 import { useBrand } from '@/context/BrandContext';
 import { useMembersDirectory } from '@/lib/useMembersDirectory';
 import { useLongPress } from '@/lib/useLongPress';
@@ -23,15 +24,13 @@ interface Props {
   onSendInvoice: (j: Job) => void;
   onSendReview: (j: Job) => void;
   onDuplicate: (j: Job) => void;
-  /** Jump to this tire size in Inventory (tap the size pill on a job). */
-  onOpenInventory?: (size: string) => void;
 }
 
 type Filter = 'all' | 'completed' | 'pending' | 'cancelled' | 'unpaid';
 
 export function History({
   jobs: rawJobs, settings, onViewJob, onMarkPaid, onComplete, onEditJob,
-  onGenerateInvoice, onSendInvoice, onSendReview, onDuplicate, onOpenInventory,
+  onGenerateInvoice, onSendInvoice, onSendReview, onDuplicate,
 }: Props) {
   // Phase 2.2 Sub-Project B: scope to what the current member sees.
   const jobs = useScopedJobs(rawJobs);
@@ -180,7 +179,6 @@ export function History({
               onView={() => onViewJob(j)}
               onLongPress={() => setSheetJob(j)}
               onMarkPaid={() => onMarkPaid(j)}
-              onOpenInventory={onOpenInventory}
               selecting={selecting}
               isSelected={selected.has(j.id)}
               onToggleSelect={() => toggleSelected(j.id)}
@@ -287,7 +285,7 @@ export function History({
  * Technician attribution renders below the meta line when known.
  */
 function HistoryJobCard({
-  job, settings, techName, onView, onLongPress, onMarkPaid, onOpenInventory,
+  job, settings, techName, onView, onLongPress, onMarkPaid,
   selecting = false, isSelected = false, onToggleSelect,
 }: {
   job: Job;
@@ -296,7 +294,6 @@ function HistoryJobCard({
   onView: () => void;
   onLongPress: () => void;
   onMarkPaid: () => void;
-  onOpenInventory?: (size: string) => void;
   /** When true, the card switches to selection-mode behavior: tap
    *  toggles selection instead of opening the detail modal, swipe-
    *  to-mark-paid is disabled, and a checkbox circle renders on the
@@ -393,28 +390,15 @@ function HistoryJobCard({
         <div className="job-main">
           <div className="job-title" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             <span>{job.customerName || job.service}</span>
-            {job.tireSize && (() => {
-              const linkable = !!onOpenInventory && !selecting;
-              const pillStyle = {
-                fontSize: 10, fontWeight: 800, color: 'var(--brand-primary)',
-                letterSpacing: '0.3px',
-                padding: '2px 6px', borderRadius: 99,
-                background: 'rgba(200,164,74,.06)',
-                border: '1px solid rgba(200,164,74,.25)',
-              } as const;
-              if (!linkable) return <span style={pillStyle}>{job.tireSize}</span>;
-              return (
-                <button
-                  type="button"
-                  title={`View ${job.tireSize} in inventory`}
-                  onClick={(e) => { e.stopPropagation(); onOpenInventory!(job.tireSize); }}
-                  style={{ ...pillStyle, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3 }}
-                >
-                  {job.tireSize}
-                  <span aria-hidden style={{ opacity: 0.7, fontWeight: 900 }}>→</span>
-                </button>
-              );
-            })()}
+            {job.tireSize && (
+              selecting
+                ? <span style={{
+                    fontSize: 10, fontWeight: 800, color: 'var(--brand-primary)', letterSpacing: '0.3px',
+                    padding: '2px 6px', borderRadius: 99,
+                    background: 'rgba(200,164,74,.06)', border: '1px solid rgba(200,164,74,.25)',
+                  }}>{job.tireSize}</span>
+                : <SizeLink size={job.tireSize} />
+            )}
           </div>
           <div className="job-meta">
             {job.service} · {job.fullLocationLabel || job.area || '—'} · {fmtDateShort(job.date)}

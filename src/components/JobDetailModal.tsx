@@ -7,6 +7,7 @@ import { ServiceIcon } from '@/components/ServiceIcon';
 import { useActiveVertical } from '@/lib/useActiveVertical';
 import { useMembership } from '@/context/MembershipContext';
 import { RoadsideActions } from '@/components/RoadsideActions';
+import { SizeLink } from '@/components/SizeLink';
 
 // Clean inline action icons (premium — replaces emoji on the action row).
 const Svg = ({ children }: { children: ReactNode }) => (
@@ -248,7 +249,7 @@ export function JobDetailModal({
           {showTireBlock && (
             <div className="form-group" style={{ marginBottom: 12 }}>
               <div className="form-group-title">Tire Details</div>
-              <Row label="Size" value={job.tireSize || '—'} />
+              <Row label="Size" value={job.tireSize ? <SizeLink size={job.tireSize} variant="plain" /> : '—'} />
               <Row label="Qty" value={String(job.qty || 0)} />
               <Row label="Source" value={job.tireSource} />
               {job.tireVendor ? <Row label="Vendor" value={job.tireVendor} /> : null}
@@ -486,7 +487,7 @@ function CmdDone({ label, actionLabel, onAction }: {
   );
 }
 
-function Row({ label, value, className = '', bold = false }: { label: string; value: string; className?: string; bold?: boolean }) {
+function Row({ label, value, className = '', bold = false }: { label: string; value: ReactNode; className?: string; bold?: boolean }) {
   return (
     <div className="card-row" style={{ padding: '8px 0' }}>
       <span className="label">{label}</span>

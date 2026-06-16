@@ -145,6 +145,26 @@ Tested by `tests/inventoryIntel.test.ts`, `tests/bestSellingTires.test.ts`
 (tsx) and `tests/inventoryConsolidate.spec.ts` /
 `tests/inventoryAcceptance.spec.ts` (vitest).
 
+## Internal linking (SizeLink)
+
+Every tire size shown in the app is a tappable link to its stock, via one
+shared component — `src/components/SizeLink.tsx`. It's wired through a React
+context (`SizeLinkProvider` in `App.tsx`) so it works inside pages, lazy
+routes, and modals without prop-drilling, and degrades to plain text when no
+provider is mounted. Tapping a size focuses the **Inventory** tab on it.
+
+Surfaces: History job cards, Best Sellers (Insights), Reorder Now /
+Inventory Intelligence rows, Job Detail, Customer profile service history,
+Quick Quote (shows on-hand under the size field), and the Dashboard **Low
+Stock Alert** cards (whole card is tappable, via the `useSizeLinkNav` hook).
+
+The **buy decision happens on one screen**: arriving via a SizeLink pins a
+focus banner at the top of Inventory showing **on-hand · jobs/90d · sold
+(90d)** plus a **Reorder** action that records restocked units
+(`src/lib/inventoryRestock.ts` — adds to the size's entry, or creates one if
+it was never stocked). Tested by `tests/components/SizeLink.test.tsx` and
+`tests/inventoryRestock.spec.ts`.
+
 ## Troubleshooting deployed auth errors
 
 | Error | Fix |

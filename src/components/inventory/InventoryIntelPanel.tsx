@@ -10,6 +10,7 @@ import type { CSSProperties } from 'react';
 import { money } from '@/lib/utils';
 import type { InventoryIntel } from '@/lib/inventoryIntel';
 import type { BestSellerWindow } from '@/lib/bestSellingTires';
+import { SizeLink } from '@/components/SizeLink';
 
 const WINDOW_TABS: ReadonlyArray<readonly [BestSellerWindow, string]> = [
   [7, 'Week'], [30, '30d'], [90, '90d'], ['all', 'All'],
@@ -56,7 +57,7 @@ export function InventoryIntelPanel({ intel, window, onWindow, onViewAll }: {
         </button>
         {topMover && (
           <div style={statStyle()}>
-            <span style={{ ...statVal, fontSize: 15 }}>{topMover.size}</span>
+            <span style={{ ...statVal, fontSize: 15 }}><SizeLink size={topMover.size} variant="plain" style={{ fontSize: 15 }} /></span>
             <span style={statLabel}>Top mover · {topMover.jobs} job{topMover.jobs === 1 ? '' : 's'}{sfx}</span>
           </div>
         )}
@@ -67,7 +68,7 @@ export function InventoryIntelPanel({ intel, window, onWindow, onViewAll }: {
           <div style={miniLabel}>Reorder now — in demand · low stock</div>
           {reorderNow.map((i) => (
             <div key={i.id} style={miniRow}>
-              <span style={{ fontWeight: 700, color: 'var(--t1)' }}>{i.size}</span>
+              <SizeLink size={i.size} variant="plain" style={{ fontSize: 13, textDecoration: 'none' }} />
               <span style={{ color: 'var(--t3)', fontSize: 11 }}>{i.jobs} job{i.jobs === 1 ? '' : 's'}{sfx} · {i.units} sold · {i.qty} on hand</span>
             </div>
           ))}

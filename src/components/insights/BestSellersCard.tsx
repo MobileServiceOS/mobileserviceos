@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import type { Job, InventoryItem } from '@/types';
 import { money } from '@/lib/utils';
 import { extractTireSize } from '@/lib/inventoryNotesParser';
+import { SizeLink } from '@/components/SizeLink';
 import {
   computeBestSellingTires,
   type BestSellerWindow,
@@ -165,7 +166,7 @@ export function BestSellersCard({ jobs, inventory }: Props) {
                 {/* Size + count */}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--t1)' }}>
-                    {r.tireSize}
+                    <SizeLink size={r.tireSize} variant="plain" style={{ fontSize: 13.5 }} />
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 1 }}>
                     {r.jobCount} job{r.jobCount === 1 ? '' : 's'} · {money(r.avgPerTire)} avg/tire
