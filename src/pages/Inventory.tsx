@@ -36,6 +36,8 @@ interface Props {
    *  Consumed once on arrival via onFocusConsumed so it doesn't re-trigger. */
   focusSize?: string | null;
   onFocusConsumed?: () => void;
+  /** Reverse link: open History filtered to this size ("View jobs"). */
+  onViewJobsForSize?: (size: string) => void;
 }
 
 type CondFilter = 'all' | 'New' | 'Used';
@@ -122,12 +124,12 @@ function parseCsv(text: string): ParsedRow[] {
 // editor over the same InventoryItem shape (now widened with
 // optional partNumber/partName/supplier/unitCost/chemicalName/
 // category/dilutionRatio fields).
-export function Inventory({ inventory, onSave, settings, jobs, onStartJob, focusSize, onFocusConsumed }: Props) {
+export function Inventory({ inventory, onSave, settings, jobs, onStartJob, focusSize, onFocusConsumed, onViewJobsForSize }: Props) {
   const vertical = useActiveVertical();
   if (!vertical.features.inventoryDeduction) {
     return <GenericInventoryView inventory={inventory} onSave={onSave} vertical={vertical} />;
   }
-  return <TireInventoryView inventory={inventory} onSave={onSave} jobs={jobs} onStartJob={onStartJob} focusSize={focusSize} onFocusConsumed={onFocusConsumed} />;
+  return <TireInventoryView inventory={inventory} onSave={onSave} jobs={jobs} onStartJob={onStartJob} focusSize={focusSize} onFocusConsumed={onFocusConsumed} onViewJobsForSize={onViewJobsForSize} />;
 }
 
 // Inline form to add a new reservation against an InventoryItem.
@@ -188,9 +190,10 @@ interface InternalViewProps {
   onStartJob?: (item: InventoryItem) => void;
   focusSize?: string | null;
   onFocusConsumed?: () => void;
+  onViewJobsForSize?: (size: string) => void;
 }
 
-function TireInventoryView({ inventory, onSave, jobs, onStartJob, focusSize, onFocusConsumed }: InternalViewProps) {
+function TireInventoryView({ inventory, onSave, jobs, onStartJob, focusSize, onFocusConsumed, onViewJobsForSize }: InternalViewProps) {
   const safe: InventoryItem[] = Array.isArray(inventory) ? inventory : [];
   const [list, setList] = useState<InventoryItem[]>(safe);
   const [search, setSearch] = useState('');
@@ -726,6 +729,11 @@ function TireInventoryView({ inventory, onSave, jobs, onStartJob, focusSize, onF
               {onStartJob && (
                 <button type="button" className="btn xs secondary" onClick={() => onStartJob(match ?? { id: 'focus', size: focused, qty: onHand, cost: 0 } as InventoryItem)}>
                   Log a job
+                </button>
+              )}
+              {onViewJobsForSize && (
+                <button type="button" className="btn xs secondary" onClick={() => onViewJobsForSize(focused)}>
+                  View {jobs90} job{jobs90 === 1 ? '' : 's'} →
                 </button>
               )}
             </div>

@@ -230,7 +230,7 @@ export function Insights({ jobs, settings, inventory }: Props) {
         title="Best Selling Tires"
         icon="🛞"
         summary={weeklyTopTire
-          ? `This week: ${weeklyTopTire.tireSize} · ${weeklyTopTire.quantity} sold`
+          ? `This week: ${weeklyTopTire.tireSize} · ${weeklyTopTire.jobCount} job${weeklyTopTire.jobCount === 1 ? '' : 's'}`
           : 'No tire sales this week yet'}
         open={openSections.bestSellers}
         onToggle={toggle('bestSellers')}
