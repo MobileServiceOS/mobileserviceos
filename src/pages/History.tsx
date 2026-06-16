@@ -4,6 +4,7 @@ import { PAYMENT_METHOD_LABELS } from '@/types';
 import { fmtDate, fmtDateShort, jobGrossProfit, money, paymentPillClass, resolvePaymentStatus } from '@/lib/utils';
 import { ServiceIcon } from '@/components/ServiceIcon';
 import { SizeLink } from '@/components/SizeLink';
+import { PageSkeleton } from '@/components/Skeleton';
 import { useBrand } from '@/context/BrandContext';
 import { useMembersDirectory } from '@/lib/useMembersDirectory';
 import { useLongPress } from '@/lib/useLongPress';
@@ -15,6 +16,8 @@ import { usePermissions, useMembership } from '@/context/MembershipContext';
 
 interface Props {
   jobs: Job[];
+  /** True until the first jobs snapshot arrives — shows a skeleton. */
+  loading?: boolean;
   settings: Settings;
   onViewJob: (j: Job) => void;
   onMarkPaid: (j: Job) => void;
@@ -29,7 +32,7 @@ interface Props {
 type Filter = 'all' | 'completed' | 'pending' | 'cancelled' | 'unpaid';
 
 export function History({
-  jobs: rawJobs, settings, onViewJob, onMarkPaid, onComplete, onEditJob,
+  jobs: rawJobs, loading = false, settings, onViewJob, onMarkPaid, onComplete, onEditJob,
   onGenerateInvoice, onSendInvoice, onSendReview, onDuplicate,
 }: Props) {
   // Phase 2.2 Sub-Project B: scope to what the current member sees.
@@ -117,6 +120,9 @@ export function History({
     list.sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.id || '').localeCompare(a.id || ''));
     return list;
   }, [jobs, query, filter]);
+
+  // First load (no jobs yet) → skeleton instead of a blank screen.
+  if (loading && jobs.length === 0) return <PageSkeleton />;
 
   return (
     <div className="page page-enter">

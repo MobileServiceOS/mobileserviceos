@@ -60,6 +60,8 @@ import { TrialCountdownBanner } from '@/components/TrialCountdownBanner';
 import { JobSuccessPanel } from '@/components/JobSuccessPanel';
 import { JobDetailModal } from '@/components/JobDetailModal';
 import { SizeLinkProvider } from '@/components/SizeLink';
+import { PageSkeleton } from '@/components/Skeleton';
+import { useBreakpoint } from '@/lib/useBreakpoint';
 import { ActiveTimerBar } from '@/components/ActiveTimerBar';
 import { OfflineBanner } from '@/components/OfflineBanner';
 import { Onboarding } from '@/components/Onboarding';
@@ -440,6 +442,10 @@ function AuthenticatedApp({ user }: { user: User }) {
   // tabs that previously had no UI entry point.
   const [moreOpen, setMoreOpen] = useState(false);
   const [jobs, setJobs] = useState<Job[]>([]);
+  // First-snapshot flag for the jobs listener — drives the History (Jobs)
+  // loading skeleton so it shows structure instead of a blank screen.
+  const [jobsReady, setJobsReady] = useState(false);
+  const bp = useBreakpoint();
   const [inventory, setInventoryRaw] = useState<InventoryItem[]>([]);
   const [settings, setSettingsRaw] = useState<SettingsT>(DEFAULT_SETTINGS);
   // Has the settings/main subscription listener fired at least once?
@@ -541,6 +547,7 @@ function AuthenticatedApp({ user }: { user: User }) {
     const jobsCol = scopedCol(businessId, 'jobs');
     unsubs.push(fbListen(jobsCol ? buildJobsListenerQuery(jobsCol) : null, (docs) => {
       setJobs(docs.map(deserializeJob));
+      setJobsReady(true);
       markReady('jobs');
     }, handleErr('jobs')));
 
@@ -1564,6 +1571,7 @@ function AuthenticatedApp({ user }: { user: User }) {
     if (tab === 'history') return (
       <History
         jobs={jobs}
+        loading={!jobsReady}
         settings={settings}
         onViewJob={handleViewJob}
         onMarkPaid={handleMarkPaid}
@@ -1772,12 +1780,8 @@ function AuthenticatedApp({ user }: { user: User }) {
           setTab('settings');
         }}
       />
-      <main className="main-content">
-        <Suspense fallback={
-          <div className="page" style={{ padding: 18, color: 'var(--t3)', fontSize: 12 }}>
-            Loading…
-          </div>
-        }>
+      <main className="main-content" data-bp={bp}>
+        <Suspense fallback={<PageSkeleton />}>
           {tabContent}
         </Suspense>
       </main>

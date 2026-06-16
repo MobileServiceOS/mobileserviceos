@@ -165,6 +165,28 @@ focus banner at the top of Inventory showing **on-hand · jobs/90d · sold
 it was never stocked). Tested by `tests/components/SizeLink.test.tsx` and
 `tests/inventoryRestock.spec.ts`.
 
+## Responsive layout (mobile-first)
+
+Phone is the default and the source of truth — `.page` is capped at
+`min(760px, 100%)` and the layout is built/tuned at phone width first.
+Tablet and desktop **scale up** via media queries in `src/styles/app.css`
+(they never change phone rendering):
+
+- **≥768px (tablet):** content widens to `min(900px, 100%)`.
+- **≥1200px (desktop):** content widens to `1160px`; the bottom nav floats
+  into a centered pill instead of stretching edge-to-edge.
+- **≥1024px:** the `.cols-lg` utility splits independent cards into two
+  columns (used on Insights) so wide screens aren't wasted; it collapses
+  back to one column below 1024px.
+
+`src/lib/useBreakpoint.ts` exposes the same breakpoints to JS (`mobile` /
+`tablet` / `desktop`, mobile-default) and stamps `data-bp` on `<main>`.
+Tested in `tests/components/useBreakpoint.test.tsx` at all three widths.
+
+**Loading states:** lazy routes (Insights, Payments, …) and the Jobs/History
+screen show `src/components/Skeleton.tsx` placeholders while loading instead
+of a blank screen (`tests/components/Skeleton.test.tsx`).
+
 ## Troubleshooting deployed auth errors
 
 | Error | Fix |
