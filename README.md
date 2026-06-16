@@ -145,6 +145,24 @@ Tested by `tests/inventoryIntel.test.ts`, `tests/bestSellingTires.test.ts`
 (tsx) and `tests/inventoryConsolidate.spec.ts` /
 `tests/inventoryAcceptance.spec.ts` (vitest).
 
+## AI Ops layer
+
+`More → AI Ops` (owner/admin) turns business data into recommendations and
+drafts with a hard human-approval gate on anything that sends or spends. Three
+loops ship today — **daily brief**, **reorder recommendations**, and a
+**Google review reply** drafter (house style: no emoji, no dashes, always
+"mobile tire repair service", references Broward + Miami Dade) — and the pattern
+is reusable for more.
+
+Every Anthropic call runs server-side in the `aiOps` Cloud Function
+(`functions/src/aiOps.ts`), which holds the `ANTHROPIC_API_KEY` secret; the key
+never reaches the client. Model output is always safe-parsed before render, and
+side-effecting actions route through a fail-closed approval gate. Reorder/brief
+reuse the inventory intelligence above (no reinvented ranking).
+
+Full guide — how it works, adding a loop, secret + model config — in
+[`docs/ai-ops-layer.md`](docs/ai-ops-layer.md). Tested by `tests/ops/*.spec.ts`.
+
 ## Internal linking (SizeLink)
 
 Every tire size shown in the app is a tappable link to its stock, via one
