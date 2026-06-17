@@ -223,15 +223,15 @@ a { color: var(--brand-primary); text-decoration: none; }
      stays clearly visible (solid fill + shadow + full radius) instead of
      a faint strip that's easy to miss. */
   .bottom-nav {
-    left: 50%; right: auto; transform: translateX(-50%);
-    bottom: 14px;
-    width: min(640px, calc(100% - 64px));
-    border: 1px solid var(--border2);
-    border-radius: 18px;
+    left: 0; right: 0; transform: none;
+    bottom: 0;
+    width: 100%;
+    border: none;
+    border-radius: 0;
     overflow: hidden;
-    padding-bottom: 0;
+    padding-bottom: var(--safe-bot);
     background: rgba(20,23,28,.97);
-    box-shadow: 0 8px 28px -6px rgba(0,0,0,.6), 0 2px 8px rgba(0,0,0,.4);
+    box-shadow: none;
   }
 }
 

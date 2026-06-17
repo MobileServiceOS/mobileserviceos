@@ -249,9 +249,9 @@ export const EMPTY_JOB = (): Job => ({
   // touch vehicle pricing get a 'Sedan'-defaulted draft.
   vehicleType: 'Sedan',
   area: '',
-  // Payment is collected as a deliberate step, not assumed at logging.
-  // Leave the legacy free-text method empty (no method until paid) and
-  // start every job unpaid — see paymentStatus below.
+  // Operator logs jobs after the work is done and paid, so a new job
+  // defaults to Completed + Paid (see paymentStatus below). The legacy
+  // free-text method stays empty; the operator can set a method if needed.
   payment: '',
   status: 'Completed',
   source: 'Google',
@@ -279,10 +279,10 @@ export const EMPTY_JOB = (): Job => ({
   tireNotes: '',
   inventoryDeductions: null,
   inventoryUsed: null,
-  // Every new job is born unpaid. The operator collects payment as an
-  // explicit step (Mark Paid), or marks it paid on the spot via the
-  // Payment Status chips in the New Job form.
-  paymentStatus: 'Pending Payment',
+  // Default Paid — the operator logs jobs that are already done and
+  // collected. They can switch to Pending Payment via the Payment Status
+  // chips in the New Job form when a job isn't paid yet.
+  paymentStatus: 'Paid',
   invoiceGenerated: false,
   invoiceGeneratedAt: null,
   invoiceNumber: null,
