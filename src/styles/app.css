@@ -183,11 +183,17 @@ a { color: var(--brand-primary); text-decoration: none; }
 /* ── Layout ─────────────────────────────────────────────── */
 /* main-content reserves space at the bottom equal to bottom-nav height
    plus the safe-area inset so scrollable content never hides under the
-   nav bar on iPhone. */
+   nav bar on iPhone. On desktop, the nav is centered with margin, so the
+   reservation is slightly less. */
 .main-content {
   padding: 0 0 calc(72px + var(--safe-bot)) 0;
   width: 100%;
   max-width: 100vw;
+}
+@media (min-width: 1200px) {
+  .main-content {
+    padding-bottom: calc(96px + var(--safe-bot));
+  }
 }
 
 /* .page is the inner content wrapper used by Dashboard / Jobs / etc.
@@ -212,12 +218,20 @@ a { color: var(--brand-primary); text-decoration: none; }
 }
 @media (min-width: 1200px) {
   .page { max-width: 1160px; padding-top: 20px; }
-  /* Float + center the bottom nav into a pill on desktop so its seven
-     buttons don't stretch edge-to-edge across a wide screen. */
+  /* On desktop the nav floats as a centered, elevated pill so its six
+     buttons don't stretch edge-to-edge across a wide screen — and so it
+     stays clearly visible (solid fill + shadow + full radius) instead of
+     a faint strip that's easy to miss. */
   .bottom-nav {
     left: 50%; right: auto; transform: translateX(-50%);
-    width: min(720px, calc(100% - 32px));
-    border: 1px solid var(--border); border-radius: 16px 16px 0 0;
+    bottom: 14px;
+    width: min(640px, calc(100% - 64px));
+    border: 1px solid var(--border2);
+    border-radius: 18px;
+    overflow: hidden;
+    padding-bottom: 0;
+    background: rgba(20,23,28,.97);
+    box-shadow: 0 8px 28px -6px rgba(0,0,0,.6), 0 2px 8px rgba(0,0,0,.4);
   }
 }
 
