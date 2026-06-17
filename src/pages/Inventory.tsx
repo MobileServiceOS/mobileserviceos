@@ -769,7 +769,9 @@ function TireInventoryView({ inventory, onSave, jobs, onStartJob, focusSize, onF
         </button>
         {HEALTH_BUCKETS.map((b) => {
           const n = healthCounts[b];
-          const label = b.charAt(0).toUpperCase() + b.slice(1);
+          // 'critical' === qty 0 === out of stock; label it plainly so the
+          // operator gets an obvious "Out of Stock" tab.
+          const label = b === 'critical' ? 'Out of Stock' : b.charAt(0).toUpperCase() + b.slice(1);
           return (
             <button
               key={b}
