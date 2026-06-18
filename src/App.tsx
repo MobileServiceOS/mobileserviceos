@@ -1272,20 +1272,26 @@ function AuthenticatedApp({ user }: { user: User }) {
     window.open(phone ? `sms:${phone}?body=${msg}` : `sms:?body=${msg}`);
   }, [businessId, brand, handleGenerateInvoice]);
 
-  // Send a QUOTE exactly like Send Invoice: generate the quote PDF (same
-  // download path invoices use) and open the Messages composer with the
-  // quote text. Read-only — a quote isn't an invoice, so nothing is
-  // persisted on the job (no invoiceGenerated/sent writes).
-  const handleSendQuote = useCallback(async (j: Job) => {
-    const { generateInvoicePDF } = await import('@/lib/invoice');
-    const result = await generateInvoicePDF(j, settings, brand, { mode: 'quote' });
-    if (!result) return;
+  // Send a QUOTE. Open the Messages composer FIRST — synchronously in the
+  // tap, before any await — so iOS never expires the user gesture (the
+  // dynamic import + PDF render would otherwise consume it and the sms:
+  // open would silently no-op, i.e. "the message is gone"). The quote PDF
+  // is generated right after as a best-effort download (works on desktop;
+  // iOS suspends the page on the sms: hand-off). Read-only: no
+  // invoiceGenerated/sent writes — a quote isn't an invoice.
+  const handleSendQuote = useCallback((j: Job) => {
     const phone = (j.customerPhone || '').replace(/\D/g, '');
     const total = Number(j.revenue || 0);
     const msg = encodeURIComponent(
       `Hi ${j.customerName || ''}, here's your quote from ${brand.businessName} for ${j.service || 'service'}. Total: $${total}. Valid 14 days — let me know if you'd like to book.`,
     );
     window.open(phone ? `sms:${phone}?body=${msg}` : `sms:?body=${msg}`);
+    void (async () => {
+      try {
+        const { generateInvoicePDF } = await import('@/lib/invoice');
+        await generateInvoicePDF(j, settings, brand, { mode: 'quote' });
+      } catch { /* PDF is best-effort; the message already went out */ }
+    })();
   }, [settings, brand]);
 
   const handleSendReview = useCallback(async (j: Job) => {
