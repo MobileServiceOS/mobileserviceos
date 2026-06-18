@@ -1272,6 +1272,22 @@ function AuthenticatedApp({ user }: { user: User }) {
     window.open(phone ? `sms:${phone}?body=${msg}` : `sms:?body=${msg}`);
   }, [businessId, brand, handleGenerateInvoice]);
 
+  // Send a pre-sale QUOTE — same generator in quote mode (service, tire
+  // make/model, qty, total). Read-only document: it downloads the quote
+  // PDF and opens a text; nothing is persisted on the job (quotes aren't
+  // invoices), so there are no invoiceGenerated/sent writes here.
+  const handleSendQuote = useCallback(async (j: Job) => {
+    const { generateInvoicePDF } = await import('@/lib/invoice');
+    const result = await generateInvoicePDF(j, settings, brand, { mode: 'quote' });
+    if (!result) return;
+    const phone = (j.customerPhone || '').replace(/\D/g, '');
+    const total = Number(j.revenue || 0);
+    const msg = encodeURIComponent(
+      `Hi ${j.customerName || ''}, here's your quote from ${brand.businessName} for ${j.service || 'service'}: $${total}. Valid 14 days — let me know if you'd like to book.`,
+    );
+    window.open(phone ? `sms:${phone}?body=${msg}` : `sms:?body=${msg}`);
+  }, [settings, brand]);
+
   const handleSendReview = useCallback(async (j: Job) => {
     if (!brand.reviewUrl) { addToast('Set review URL in Settings', 'warn'); return; }
     const location = j.fullLocationLabel || j.area || '';
@@ -1814,6 +1830,7 @@ function AuthenticatedApp({ user }: { user: User }) {
           onDelete={() => { void deleteJob(detailJob.id); setDetailJob(null); }}
           onGenerateInvoice={() => handleGenerateInvoice(detailJob)}
           onSendInvoice={() => handleSendInvoice(detailJob)}
+          onSendQuote={() => handleSendQuote(detailJob)}
           onSendReview={() => handleSendReview(detailJob)}
           onMarkPaid={(method) => handleMarkPaid(detailJob, method)}
           onDeductInventory={() => { void handleDeductInventory(detailJob); }}
