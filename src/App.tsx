@@ -1272,29 +1272,20 @@ function AuthenticatedApp({ user }: { user: User }) {
     window.open(phone ? `sms:${phone}?body=${msg}` : `sms:?body=${msg}`);
   }, [businessId, brand, handleGenerateInvoice]);
 
-  // Send a pre-sale QUOTE — same generator in quote mode (service, tire
-  // make/model, qty, total). The PDF is shared as a FILE via the native
-  // share sheet so it actually attaches to the message (an sms: link can
-  // only carry text); desktop/unsupported falls back to downloading the
-  // PDF + opening a prefilled text. Read-only: nothing is persisted on the
-  // job (a quote isn't an invoice), so no invoiceGenerated/sent writes.
+  // Send a QUOTE exactly like Send Invoice: generate the quote PDF (same
+  // download path invoices use) and open the Messages composer with the
+  // quote text. Read-only — a quote isn't an invoice, so nothing is
+  // persisted on the job (no invoiceGenerated/sent writes).
   const handleSendQuote = useCallback(async (j: Job) => {
-    const [{ generateInvoicePDF }, { shareOrDownloadPdf }] = await Promise.all([
-      import('@/lib/invoice'),
-      import('@/lib/shareFile'),
-    ]);
-    const result = await generateInvoicePDF(j, settings, brand, { mode: 'quote', returnBlob: true });
-    if (!result?.blob) return;
+    const { generateInvoicePDF } = await import('@/lib/invoice');
+    const result = await generateInvoicePDF(j, settings, brand, { mode: 'quote' });
+    if (!result) return;
+    const phone = (j.customerPhone || '').replace(/\D/g, '');
     const total = Number(j.revenue || 0);
-    const text = `Hi ${j.customerName || ''}, here's your quote from ${brand.businessName} for ${j.service || 'service'}: $${total}. Valid 14 days — let me know if you'd like to book.`;
-    const how = await shareOrDownloadPdf({
-      blob: result.blob,
-      filename: result.filename,
-      text,
-      title: `Quote — ${brand.businessName}`,
-      phone: (j.customerPhone || '').replace(/\D/g, ''),
-    });
-    if (how === 'downloaded') addToast('Quote PDF downloaded — text opened to send it', 'info');
+    const msg = encodeURIComponent(
+      `Hi ${j.customerName || ''}, here's your quote from ${brand.businessName} for ${j.service || 'service'}. Total: $${total}. Valid 14 days — let me know if you'd like to book.`,
+    );
+    window.open(phone ? `sms:${phone}?body=${msg}` : `sms:?body=${msg}`);
   }, [settings, brand]);
 
   const handleSendReview = useCallback(async (j: Job) => {
