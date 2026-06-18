@@ -57,6 +57,7 @@ import { TrialCountdownBanner } from '@/components/TrialCountdownBanner';
 import { JobSuccessPanel } from '@/components/JobSuccessPanel';
 import { JobDetailModal } from '@/components/JobDetailModal';
 import { SizeLinkProvider } from '@/components/SizeLink';
+import { shareOrDownloadPdf } from '@/lib/shareFile';
 import { PageSkeleton } from '@/components/Skeleton';
 import { useBreakpoint } from '@/lib/useBreakpoint';
 import { ActiveTimerBar } from '@/components/ActiveTimerBar';
@@ -465,6 +466,11 @@ function AuthenticatedApp({ user }: { user: User }) {
   const [editingJobId, setEditingJobId] = useState<string | null>(null);
   const [savedJob, setSavedJob] = useState<Job | null>(null);
   const [detailJob, setDetailJob] = useState<Job | null>(null);
+  // Pre-warm the PDF generator chunk (jsPDF ~360KB) the moment a job detail
+  // opens, so a later "Send Quote"/"Send Invoice" tap doesn't spend its iOS
+  // user-gesture window downloading the chunk — which would make
+  // navigator.share() (file attach) silently no-op.
+  useEffect(() => { if (detailJob) void import('@/lib/invoice'); }, [detailJob]);
   const [prefilledFromQuote, setPrefilledFromQuote] = useState(false);
 
   // Sub-Project D: subscribe to business members for owner/tech
@@ -1279,10 +1285,10 @@ function AuthenticatedApp({ user }: { user: User }) {
   // PDF + opening a prefilled text. Read-only: nothing is persisted on the
   // job (a quote isn't an invoice), so no invoiceGenerated/sent writes.
   const handleSendQuote = useCallback(async (j: Job) => {
-    const [{ generateInvoicePDF }, { shareOrDownloadPdf }] = await Promise.all([
-      import('@/lib/invoice'),
-      import('@/lib/shareFile'),
-    ]);
+    // shareFile is statically imported (tiny, no deps); the heavy invoice
+    // chunk is pre-warmed on modal open, so this import resolves instantly
+    // and the user gesture survives through to navigator.share().
+    const { generateInvoicePDF } = await import('@/lib/invoice');
     const result = await generateInvoicePDF(j, settings, brand, { mode: 'quote', returnBlob: true });
     if (!result?.blob) return;
     const total = Number(j.revenue || 0);
