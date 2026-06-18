@@ -194,6 +194,19 @@ export function invoiceTaglineFor(brand: Brand, isPro: boolean): string {
   return isPro ? (brand.tagline || '').trim() : '';
 }
 
+/** Detail rows for a QUOTE document, in order: service type, tire make +
+ *  model (combined; omitted when neither is set), size (when set), and
+ *  quantity. The big total renders separately. Pure + exported so the
+ *  quote contents are unit-testable without rendering a PDF. */
+export function quoteDetailRows(job: Job, serviceName: string): Array<[string, string]> {
+  const rows: Array<[string, string]> = [['Service', serviceName]];
+  const makeModel = [job.tireBrand, job.tireModel].map((s) => (s || '').trim()).filter(Boolean).join(' ');
+  if (makeModel) rows.push(['Tire', makeModel]);
+  if ((job.tireSize || '').trim()) rows.push(['Size', job.tireSize.trim()]);
+  rows.push(['Quantity', String(Number(job.qty) || 1)]);
+  return rows;
+}
+
 export interface InvoiceResult {
   filename: string;
   invoiceNumber: string;
@@ -204,6 +217,11 @@ export interface InvoiceOptions {
    *  Caller (App.tsx) owns the resolution since it has access to the
    *  members directory. Pass undefined to skip the Technician line. */
   technicianName?: string | null;
+  /** 'invoice' (default) renders the full customer invoice. 'quote'
+   *  renders a pre-sale QUOTE from the same job data: service type, tire
+   *  make/model, quantity, and one total price — no PAID badge, no
+   *  tax/payment breakdown, no line-item table. Never auto-sent. */
+  mode?: 'invoice' | 'quote';
 }
 
 /**
@@ -285,8 +303,11 @@ export async function generateInvoicePDF(
   const hB = parseInt(pc.slice(5, 7), 16);
 
   // ── Resolve display values ────────────────────────────────────────
+  const isQuote = opts.mode === 'quote';
   const paymentStatus = resolvePaymentStatus(job);
-  const isPaid = paymentStatus === 'Paid';
+  // A quote is pre-sale — never show a paid state on it, even though a
+  // logged job defaults to Paid.
+  const isPaid = !isQuote && paymentStatus === 'Paid';
   const invNum = job.invoiceNumber || generateInvoiceNumber(brand, job);
 
   // ── Vertical-aware invoice template + pricing breakdown ───────────
@@ -381,7 +402,7 @@ export async function generateInvoicePDF(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(13);
   doc.setTextColor(hR, hG, hB);
-  doc.text('INVOICE', W - M, 16, { align: 'right' });
+  doc.text(isQuote ? 'QUOTE' : 'INVOICE', W - M, 16, { align: 'right' });
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);
   doc.setTextColor(200, 200, 210);
@@ -413,15 +434,15 @@ export async function generateInvoicePDF(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.5);
   doc.setTextColor(...GRAY);
-  doc.text('BILL TO', M, y);
-  doc.text('COMPLETED', 130, y);
+  doc.text(isQuote ? 'QUOTE FOR' : 'BILL TO', M, y);
+  doc.text(isQuote ? 'DATE' : 'COMPLETED', 130, y);
   y += 5;
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10.5);
   doc.setTextColor(...NEAR_BLK);
   doc.text(job.customerName || 'Customer', M, y);
-  doc.text(formatCompletedDate(job.date) || TODAY(), 130, y);
+  doc.text(isQuote ? TODAY() : (formatCompletedDate(job.date) || TODAY()), 130, y);
   y += 5;
 
   if (job.customerPhone) {
@@ -438,7 +459,7 @@ export async function generateInvoicePDF(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.5);
   doc.setTextColor(...GRAY);
-  doc.text('SERVICE PERFORMED', M, y);
+  doc.text(isQuote ? 'QUOTE DETAILS' : 'SERVICE PERFORMED', M, y);
   y += 5;
 
   doc.setFont('helvetica', 'normal');
@@ -453,18 +474,24 @@ export async function generateInvoicePDF(
   // tire job missing tireSize still produces today's exact output
   // (no blank row).
   const serviceRows: Array<[string, string]> = [];
-  const jobBag = job as unknown as Record<string, unknown>;
-  for (const field of template.servicePerformedFields) {
-    const raw = jobBag[field.jobKey];
-    const value = field.format ? field.format(raw) : raw == null ? '' : String(raw);
-    if (value && value.trim()) serviceRows.push([field.label, value]);
+  if (isQuote) {
+    // Quote: exactly what the operator asked for — service type, tire
+    // make + model, quantity. (Total renders in the box below.)
+    serviceRows.push(...quoteDetailRows(job, friendlyService));
+  } else {
+    const jobBag = job as unknown as Record<string, unknown>;
+    for (const field of template.servicePerformedFields) {
+      const raw = jobBag[field.jobKey];
+      const value = field.format ? field.format(raw) : raw == null ? '' : String(raw);
+      if (value && value.trim()) serviceRows.push([field.label, value]);
+    }
+    // Location + Technician are shared across all verticals, so they
+    // remain hardcoded here (rather than living in every template's
+    // servicePerformedFields). Both still respect "skip when unknown".
+    const locLabel = job.fullLocationLabel || job.area;
+    if (locLabel) serviceRows.push(['Service Location', `Completed on-site in ${locLabel}`]);
+    if (opts.technicianName) serviceRows.push(['Technician', opts.technicianName]);
   }
-  // Location + Technician are shared across all verticals, so they
-  // remain hardcoded here (rather than living in every template's
-  // servicePerformedFields). Both still respect "skip when unknown".
-  const locLabel = job.fullLocationLabel || job.area;
-  if (locLabel) serviceRows.push(['Service Location', `Completed on-site in ${locLabel}`]);
-  if (opts.technicianName) serviceRows.push(['Technician', opts.technicianName]);
 
   for (const [label, value] of serviceRows) {
     doc.setFont('helvetica', 'normal');
@@ -480,7 +507,10 @@ export async function generateInvoicePDF(
 
   // ═════════════════════════════════════════════════════════════════
   //  LINE ITEM TABLE (#1: customer-facing only — no internal pricing)
+  //  Invoice only — a quote shows its detail rows + a single total, with
+  //  no priced line-item table.
   // ═════════════════════════════════════════════════════════════════
+  if (!isQuote) {
   y += 6;
   // Subtle row header band
   doc.setFillColor(248, 248, 252);
@@ -538,6 +568,13 @@ export async function generateInvoicePDF(
   doc.setDrawColor(...LIGHT_GRAY);
   doc.line(M, y, W - M, y);
   y += 8;
+  } else {
+    // Quote: thin separator between the detail rows and the total box.
+    y += 8;
+    doc.setDrawColor(...LIGHT_GRAY);
+    doc.line(M, y, W - M, y);
+    y += 8;
+  }
 
   // ═════════════════════════════════════════════════════════════════
   //  TOTALS BOX (#5: large, premium)
@@ -547,10 +584,9 @@ export async function generateInvoicePDF(
   const taxAmt = r2(subtotal * taxRate);
   const total = r2(subtotal + taxAmt);
 
-  // Show subtotal + tax rows ONLY when there's actual tax. Otherwise
-  // skip straight to the total — no need to expose internal-looking
-  // math when the customer is paying a single round number.
-  if (taxRate > 0) {
+  // Show subtotal + tax rows ONLY when there's actual tax (invoice only).
+  // A quote shows one number — "just the total price" — never a breakdown.
+  if (taxRate > 0 && !isQuote) {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9.5);
     doc.setTextColor(...GRAY);
@@ -570,11 +606,11 @@ export async function generateInvoicePDF(
   doc.setFillColor(hR, hG, hB);
   doc.rect(M, y, 2.5, boxH, 'F');
 
-  // Label: "TOTAL PAID" vs "TOTAL DUE" depending on payment state.
+  // Label: quote → "QUOTE TOTAL"; invoice → "TOTAL PAID" / "TOTAL DUE".
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8);
   doc.setTextColor(180, 180, 190);
-  doc.text(isPaid ? 'TOTAL PAID' : 'TOTAL DUE', M + 7, y + 8);
+  doc.text(isQuote ? 'QUOTE TOTAL' : (isPaid ? 'TOTAL PAID' : 'TOTAL DUE'), M + 7, y + 8);
 
   // Huge total amount
   doc.setFont('helvetica', 'bold');
@@ -587,7 +623,14 @@ export async function generateInvoicePDF(
   // ═════════════════════════════════════════════════════════════════
   //  PAYMENT METHOD + TIMESTAMP (#8)
   // ═════════════════════════════════════════════════════════════════
-  if (isPaid) {
+  if (isQuote) {
+    // Quote validity / not-a-bill note in place of payment status.
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(...GRAY);
+    doc.text('This is a quote, not a bill. Valid for 14 days. Price may change after inspection.', M, y);
+    y += 6;
+  } else if (isPaid) {
     const method = job.payment || 'Cash';
     const ts = formatPaymentTimestamp(job.paidAt);
     const line = ts
@@ -739,7 +782,7 @@ export async function generateInvoicePDF(
     (job.customerName || '').split(/\s+/)[0],  // first name only for brevity
     'Customer',
   );
-  const filename = `${bizSlug}_Invoice_${dateSlug}_${custSlug}.pdf`;
+  const filename = `${bizSlug}_${isQuote ? 'Quote' : 'Invoice'}_${dateSlug}_${custSlug}.pdf`;
   doc.save(filename);
   return { filename, invoiceNumber: invNum };
 }

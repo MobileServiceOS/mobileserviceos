@@ -38,6 +38,10 @@ interface Props {
   onDelete: () => void;
   onGenerateInvoice: () => void;
   onSendInvoice: () => void;
+  /** Generate + text a pre-sale QUOTE PDF (service, tire make/model, qty,
+   *  total) from this job's data. Reuses the invoice generator in quote
+   *  mode. Optional — renders disabled when absent. */
+  onSendQuote?: () => void;
   onSendReview: () => void;
   onMarkPaid: (method?: PaymentMethod) => void;
   /** Deduct this job's tire stock on demand (Complete Job Command
@@ -52,7 +56,7 @@ interface Props {
 
 export function JobDetailModal({
   job, settings, onClose, onEdit, onDuplicate, onDelete,
-  onGenerateInvoice, onSendInvoice, onSendReview, onMarkPaid,
+  onGenerateInvoice, onSendInvoice, onSendQuote, onSendReview, onMarkPaid,
   onDeductInventory, onUpdateJob,
 }: Props) {
   // Audit a11y P1-4 (2026-05-31): keep keyboard focus inside the
@@ -163,6 +167,13 @@ export function JobDetailModal({
               ) : (
                 <CmdAction label="Send Invoice" sub="Generates + texts the invoice" icon={<IcoSend />} onClick={onSendInvoice} />
               )}
+
+              {/* 3b · Send Quote — pre-sale quote PDF (service, tire, total) */}
+              <CmdAction
+                label="Send Quote" sub="Quote PDF: tire, qty, total price" icon={<IcoInvoice />}
+                disabled={!onSendQuote}
+                onClick={() => onSendQuote?.()}
+              />
 
               {/* 4 · Send Review SMS (free native text) */}
               {reviewDone ? (
