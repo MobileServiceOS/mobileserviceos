@@ -210,9 +210,6 @@ export function quoteDetailRows(job: Job, serviceName: string): Array<[string, s
 export interface InvoiceResult {
   filename: string;
   invoiceNumber: string;
-  /** Present only when generated with `returnBlob: true` — the PDF bytes,
-   *  for sharing as a file (e.g. attaching a quote to a text). */
-  blob?: Blob;
 }
 
 export interface InvoiceOptions {
@@ -225,10 +222,6 @@ export interface InvoiceOptions {
    *  make/model, quantity, and one total price — no PAID badge, no
    *  tax/payment breakdown, no line-item table. Never auto-sent. */
   mode?: 'invoice' | 'quote';
-  /** When true, return the PDF as a Blob (on result.blob) instead of
-   *  triggering a browser download. Lets the caller share the file via the
-   *  native share sheet (e.g. attach a quote to a text). */
-  returnBlob?: boolean;
 }
 
 /**
@@ -790,11 +783,6 @@ export async function generateInvoicePDF(
     'Customer',
   );
   const filename = `${bizSlug}_${isQuote ? 'Quote' : 'Invoice'}_${dateSlug}_${custSlug}.pdf`;
-  if (opts.returnBlob) {
-    // Caller will share the file (e.g. attach the quote to a text) rather
-    // than download it.
-    return { filename, invoiceNumber: invNum, blob: doc.output('blob') };
-  }
   doc.save(filename);
   return { filename, invoiceNumber: invNum };
 }
