@@ -49,6 +49,10 @@ export function resolveBrandDefaults(brand: Brand): Brand {
   return {
     ...brand,
     tagline: (brand.tagline || '').trim() || DEFAULT_BRAND.tagline,
+    // Coalesce a blank state to the default so city autocomplete (which is
+    // keyed by state) works everywhere — AddJob seeds the job's state from
+    // brand.state, Settings + Onboarding read it directly.
+    state: (brand.state || '').trim() || DEFAULT_BRAND.state,
     serviceCities: (brand.serviceCities && brand.serviceCities.length)
       ? brand.serviceCities
       : DEFAULT_BRAND.serviceCities,
@@ -76,7 +80,10 @@ export const DEFAULT_BRAND: Brand = {
   // — but new bootstraps now write the canonical key from second one.
   businessType: 'tire',
   tagline: 'We rush. You roll.',
-  state: '',
+  // Default state so the state-keyed city autocomplete works out of the box
+  // (the service area is South Florida — see DEFAULT_SERVICE_CITIES). The
+  // operator can change it in Settings.
+  state: 'FL',
   mainCity: '',
   fullLocationLabel: '',
   serviceCities: DEFAULT_SERVICE_CITIES,

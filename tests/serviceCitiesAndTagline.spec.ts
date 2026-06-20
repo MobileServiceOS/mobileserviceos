@@ -57,6 +57,14 @@ describe('resolveBrandDefaults', () => {
     const r = resolveBrandDefaults(base({ serviceCities: ['Tampa'] }));
     expect(r.serviceCities).toEqual(['Tampa']);
   });
+  it('blank state coalesces to FL so city autocomplete works app-wide', () => {
+    expect(resolveBrandDefaults(base({ state: '' })).state).toBe('FL');
+    expect(resolveBrandDefaults(base({ state: '  ' })).state).toBe('FL');
+    expect(DEFAULT_BRAND.state).toBe('FL');
+  });
+  it('a custom state is preserved', () => {
+    expect(resolveBrandDefaults(base({ state: 'TX' })).state).toBe('TX');
+  });
 });
 
 describe('invoiceTaglineFor', () => {
