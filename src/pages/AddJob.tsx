@@ -22,6 +22,8 @@ import { ServicePicker } from '@/components/addJob/ServicePicker';
 import { MemoInput, MemoTextarea, MemoSelect } from '@/components/addJob/MemoInput';
 import { CustomerLookupCard, type UseCustomerPatch } from '@/components/addJob/CustomerLookupCard';
 import { AddressAutofillInput, type AddressValue } from '@/components/addJob/AddressAutofillInput';
+import { LineItemsEditor } from '@/components/addJob/LineItemsEditor';
+import type { JobLineItem } from '@/types';
 import { useMembership } from '@/context/MembershipContext';
 import { useBusinessMembers } from '@/lib/useBusinessMembers';
 import { validateAddJob } from '@/lib/addJobValidation';
@@ -238,6 +240,20 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
   // memoization downstream was useless.
   const set = useCallback(<K extends keyof Job>(k: K, v: Job[K]): void => {
     setJob((prev) => ({ ...prev, [k]: v }));
+  }, [setJob]);
+
+  // Itemized breakdown (Type B). When line items exist, they ARE the
+  // price — keep job.revenue synced to their sum so the total is
+  // consistent everywhere (Type A total, reports, SMS).
+  const setLineItems = useCallback((next: JobLineItem[]): void => {
+    setJob((prev) => {
+      const sum = next.reduce((s, li) => s + (Number(li.qty) || 0) * (Number(li.unitPrice) || 0), 0);
+      return {
+        ...prev,
+        lineItems: next,
+        ...(next.length ? { revenue: String(Math.round(sum * 100) / 100) } : {}),
+      };
+    });
   }, [setJob]);
 
   // Stable per-field setter callbacks. Built once (set is stable) and
@@ -892,6 +908,13 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
             </button>
           )}
         </div>
+
+        {/* Itemized breakdown (Type B invoice/estimate). Only when the
+            actor can set the price — it writes revenue from the line sum.
+            Leaving it empty keeps the job on a Type A (total-only) doc. */}
+        {!revenueLocked && (
+          <LineItemsEditor items={job.lineItems || []} onChange={setLineItems} />
+        )}
 
         {/* Pricing breakdown panel — vertical-aware, owner/admin
             only. It exposes cost + profit, so technicians

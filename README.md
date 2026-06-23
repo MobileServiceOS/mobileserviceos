@@ -229,6 +229,27 @@ of a blank screen (`tests/components/Skeleton.test.tsx`).
   `tests/serviceCitiesAndTagline.spec.ts` and
   `tests/components/ServiceCitiesField.test.tsx`.
 
+## Invoice & Estimate documents
+
+One generator (`src/lib/invoice.ts` → `generateInvoicePDF`) produces both
+documents from a job, matching the Wheel Rush branded template (orange
+accent + navy bars + logo, contact line, PREPARED FOR / VEHICLE / TIRE SIZE
+/ SERVICE TYPE block, TOTAL DUE bar, notes, navy footer). Two axes:
+
+- **mode** — `invoice` → **INVOICE**, `quote` → **ESTIMATE** (adds a
+  "Valid Until" date).
+- **breakdown** — `total` (**Type A**, one price) or `itemized` (**Type B**,
+  a DESCRIPTION/QTY/UNIT PRICE/AMOUNT table with Subtotal + Tax). Defaults to
+  itemized when the job has line items, else total.
+
+**Type B data** comes from operator-entered `job.lineItems`
+(`{ description, qty, unitPrice }`) via the `LineItemsEditor` in Add/Edit
+Job; the lines auto-sum and set `job.revenue`. From a job, the Job Detail
+sheet's **Document style** toggle picks Total (A) or Itemized (B) for both
+**Send Invoice** and **Send Quote**. Pure helpers (`buildDocNumber`,
+`normalizeLineItems`, `lineItemsTotal`) are tested in
+`tests/quoteDocument.spec.ts`.
+
 ## Removed: Leads tab & Missed Call Recovery
 
 The **Leads** bottom-nav tab + pipeline screen and the **Missed Call

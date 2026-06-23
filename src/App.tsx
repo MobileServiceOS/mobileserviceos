@@ -1223,7 +1223,7 @@ function AuthenticatedApp({ user }: { user: User }) {
     }
   }, [businessId, jobs]);
 
-  const handleGenerateInvoice = useCallback(async (j: Job) => {
+  const handleGenerateInvoice = useCallback(async (j: Job, breakdown?: 'total' | 'itemized') => {
     // Lazy-load the PDF generator. invoice.ts statically imports
     // jspdf (358 KB) + html2canvas (201 KB) — together ~75% of the
     // app's JS payload. Loading them on demand means the
@@ -1233,7 +1233,7 @@ function AuthenticatedApp({ user }: { user: User }) {
     // fetch before rendering; the await covers both that and the
     // dynamic import.
     const { generateInvoicePDF } = await import('@/lib/invoice');
-    const result = await generateInvoicePDF(j, settings, brand, {});
+    const result = await generateInvoicePDF(j, settings, brand, breakdown ? { breakdown } : {});
     if (!result || !businessId) return;
     const jobsCol = scopedCol(businessId, 'jobs');
     // Write ONLY the fields we're changing. fbSetFast already does
@@ -1254,9 +1254,11 @@ function AuthenticatedApp({ user }: { user: User }) {
     }
   }, [settings, brand, businessId]);
 
-  const handleSendInvoice = useCallback(async (j: Job) => {
+  const handleSendInvoice = useCallback(async (j: Job, breakdown?: 'total' | 'itemized') => {
     if (!businessId) return;
-    if (!j.invoiceGenerated) await handleGenerateInvoice(j);
+    // Always (re)generate so the chosen style — Total (A) or Itemized (B) —
+    // is what gets produced, even if an invoice was generated earlier.
+    await handleGenerateInvoice(j, breakdown);
     const jobsCol = scopedCol(businessId, 'jobs');
     // Partial write — see handleGenerateInvoice for rationale.
     const patch = { invoiceSent: true, invoiceSentAt: new Date().toISOString() };
@@ -1279,7 +1281,7 @@ function AuthenticatedApp({ user }: { user: User }) {
   // is generated right after as a best-effort download (works on desktop;
   // iOS suspends the page on the sms: hand-off). Read-only: no
   // invoiceGenerated/sent writes — a quote isn't an invoice.
-  const handleSendQuote = useCallback((j: Job) => {
+  const handleSendQuote = useCallback((j: Job, breakdown?: 'total' | 'itemized') => {
     const phone = (j.customerPhone || '').replace(/\D/g, '');
     const total = Number(j.revenue || 0);
     const msg = encodeURIComponent(
@@ -1289,7 +1291,7 @@ function AuthenticatedApp({ user }: { user: User }) {
     void (async () => {
       try {
         const { generateInvoicePDF } = await import('@/lib/invoice');
-        await generateInvoicePDF(j, settings, brand, { mode: 'quote' });
+        await generateInvoicePDF(j, settings, brand, { mode: 'quote', breakdown });
       } catch { /* PDF is best-effort; the message already went out */ }
     })();
   }, [settings, brand]);
@@ -1835,8 +1837,8 @@ function AuthenticatedApp({ user }: { user: User }) {
           onDuplicate={() => handleDuplicate(detailJob)}
           onDelete={() => { void deleteJob(detailJob.id); setDetailJob(null); }}
           onGenerateInvoice={() => handleGenerateInvoice(detailJob)}
-          onSendInvoice={() => handleSendInvoice(detailJob)}
-          onSendQuote={() => handleSendQuote(detailJob)}
+          onSendInvoice={(breakdown) => handleSendInvoice(detailJob, breakdown)}
+          onSendQuote={(breakdown) => handleSendQuote(detailJob, breakdown)}
           onSendReview={() => handleSendReview(detailJob)}
           onMarkPaid={(method) => handleMarkPaid(detailJob, method)}
           onDeductInventory={() => { void handleDeductInventory(detailJob); }}
