@@ -1,50 +1,32 @@
 import { jsPDF } from 'jspdf';
-import type { Job, Settings, Brand } from '@/types';
+import type { Job, Settings, Brand, JobLineItem } from '@/types';
 import { TODAY } from '@/lib/defaults';
-import { money, r2, resolvePaymentStatus, normalizeHex } from '@/lib/utils';
-import { canAccessFeature } from '@/lib/planAccess';
-import { resolveVerticalKey } from '@/lib/verticalContext';
-import { getInvoiceTemplate, type InvoiceTemplate, type InvoiceLineItem } from '@/config/businessTypes/invoice';
-import { computeBreakdownTagged } from '@/lib/pricing';
+import { money, r2, resolvePaymentStatus } from '@/lib/utils';
 
 // ─────────────────────────────────────────────────────────────────────
-//  Helpers
+//  Wheel Rush invoice / estimate generator.
+//
+//  Matches the operator's branded template: orange accent + navy bars +
+//  logo, a contact line, PREPARED FOR / VEHICLE / TIRE SIZE / SERVICE TYPE
+//  block, an optional itemized line-item table, a TOTAL DUE bar, notes,
+//  and a navy footer.
+//
+//  Two axes, set via InvoiceOptions:
+//    • mode:      'invoice' → INVOICE / 'quote' → ESTIMATE (+ Valid Until)
+//    • breakdown: 'itemized' (Type B — lists job.lineItems) /
+//                 'total'    (Type A — one price, no breakdown)
+//  Default breakdown: itemized when the job has line items, else total.
+//
+//  Customer-facing only — internal cost fields (tireCost etc.) are never
+//  shown; the breakdown comes from operator-entered job.lineItems.
 // ─────────────────────────────────────────────────────────────────────
 
-// customerFriendlyServiceName moved to
-// src/config/businessTypes/invoice/tire.ts (and a parallel implementation
-// lives in invoice/mechanic.ts). The template registry resolves the
-// appropriate function at render time via getInvoiceTemplate(key).
-
 /**
- * Format an ISO timestamp like "May 11, 2026 at 8:42 PM".
- * Used for payment timestamp (#8).
- */
-function formatPaymentTimestamp(iso: string | undefined | null): string {
-  if (!iso) return '';
-  try {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return '';
-    const date = d.toLocaleDateString('en-US', {
-      year: 'numeric', month: 'long', day: 'numeric',
-    });
-    const time = d.toLocaleTimeString('en-US', {
-      hour: 'numeric', minute: '2-digit', hour12: true,
-    });
-    return `${date} at ${time}`;
-  } catch {
-    return '';
-  }
-}
-
-/**
- * Format an ISO/yyyy-mm-dd date as "May 11, 2026" for the Completed line.
+ * Format an ISO/yyyy-mm-dd date as "June 23, 2026".
  */
 function formatCompletedDate(s: string | undefined | null): string {
   if (!s) return '';
   try {
-    // Handle both 2026-05-11 and full ISO; parse as local to avoid the
-    // off-by-one date shift that UTC parsing causes.
     const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
     let d: Date;
     if (m) {
@@ -53,12 +35,20 @@ function formatCompletedDate(s: string | undefined | null): string {
       d = new Date(s);
     }
     if (Number.isNaN(d.getTime())) return s;
-    return d.toLocaleDateString('en-US', {
-      year: 'numeric', month: 'long', day: 'numeric',
-    });
+    return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
   } catch {
     return s;
   }
+}
+
+/** "Valid Until" date = the job date + N days, formatted like the header. */
+function addDaysLabel(dateStr: string | undefined | null, days: number): string {
+  const base = dateStr && /^\d{4}-\d{2}-\d{2}/.test(dateStr) ? dateStr.slice(0, 10) : TODAY();
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(base);
+  if (!m) return '';
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  d.setDate(d.getDate() + days);
+  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 }
 
 /**
@@ -78,43 +68,20 @@ function sanitizeForFilename(s: string | undefined | null, fallback: string): st
 /**
  * Pre-load a remote logo URL into a PNG data URI that jsPDF.addImage
  * can draw. jsPDF needs raw image bytes (data URI), not a URL.
- *
- * Strategy (in order of reliability):
- *   1. Already a data URI? Return as-is.
- *   2. Load via <Image> with crossOrigin="anonymous", then draw to a
- *      canvas and read back as PNG data URI. This is the canonical
- *      pattern that works with Firebase Storage URLs once the storage
- *      bucket has CORS configured for the app origin (which our app
- *      bucket does — see firebase.json / CORS rules).
- *   3. If <Image> fails (CORS rejected by server, 404, network error),
- *      fall back to fetch() + FileReader. This handles cases where the
- *      server allows fetch but not <img> tainted-canvas reads.
- *   4. All failures return null so the invoice still renders without
- *      a logo rather than blocking the PDF.
  */
 async function preloadLogo(url: string | undefined | null): Promise<string | null> {
   if (!url) return null;
   if (url.startsWith('data:')) return url;
 
-  // Strategy 2: Image() → canvas → toDataURL. Works for Firebase
-  // Storage when the bucket emits Access-Control-Allow-Origin.
   const viaImage = await new Promise<string | null>((resolve) => {
     try {
       const img = new Image();
-      // crossOrigin MUST be set before src for the request to include
-      // CORS headers. Setting it after has no effect.
       img.crossOrigin = 'anonymous';
       img.referrerPolicy = 'no-referrer';
       img.onload = () => {
         try {
-          // Skip 0-dim images (broken upload).
-          if (!img.naturalWidth || !img.naturalHeight) {
-            resolve(null);
-            return;
-          }
+          if (!img.naturalWidth || !img.naturalHeight) { resolve(null); return; }
           const canvas = document.createElement('canvas');
-          // Cap canvas size — the logo only renders at ~28mm = ~106px
-          // on a 96 DPI PDF, so any source above 512px is wasted bytes.
           const maxDim = 512;
           const scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
           canvas.width = Math.round(img.naturalWidth * scale);
@@ -122,29 +89,20 @@ async function preloadLogo(url: string | undefined | null): Promise<string | nul
           const ctx = canvas.getContext('2d');
           if (!ctx) { resolve(null); return; }
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          // toDataURL throws SecurityError if the canvas is tainted
-          // (no CORS) — guarded by the try/catch.
-          const dataUri = canvas.toDataURL('image/png');
-          resolve(dataUri);
+          resolve(canvas.toDataURL('image/png'));
         } catch {
           resolve(null);
         }
       };
       img.onerror = () => resolve(null);
-      // 8-second cap — if the image hasn't loaded by then, the invoice
-      // ships without a logo rather than hanging the user's tap.
       setTimeout(() => resolve(null), 8000);
       img.src = url;
     } catch {
       resolve(null);
     }
   });
-
   if (viaImage) return viaImage;
 
-  // Strategy 3: fetch() + FileReader. Some storage backends allow
-  // cross-origin fetch but reject <img> tainted reads. The original
-  // implementation; kept as a safety net.
   try {
     const res = await fetch(url, { mode: 'cors' });
     if (!res.ok) return null;
@@ -160,51 +118,40 @@ async function preloadLogo(url: string | undefined | null): Promise<string | nul
   }
 }
 
-/**
- * Resolve whether the business is on the Pro plan. Branded invoice
- * features (logo + brand primary color) are reserved for Pro. Core
- * users get a clean, generic invoice with the universal gold default.
- *
- * Delegates to the centralized plan-access module so the invoice gate
- * stays in lockstep with every other Pro check across the app. The
- * resolver handles trialing accounts as Pro automatically — see
- * `resolvePlan` in `src/lib/planAccess.ts` for the full ruleset.
- *
- * Kept as a thin wrapper (rather than calling `hasProAccess` inline
- * everywhere) so existing comments/blame in `generateInvoicePDF`
- * still read sensibly and the local name signals "this is the
- * invoice-side branding gate" semantically.
- */
-function canUseBrandedInvoices(settings: Settings): boolean {
-  return canAccessFeature(settings, 'brandedInvoices');
-}
-
 // ─────────────────────────────────────────────────────────────────────
 //  Public API
 // ─────────────────────────────────────────────────────────────────────
 
-export function generateInvoiceNumber(brand: Brand, job: Job): string {
-  const slug = (brand.businessName || 'SVC').replace(/[^A-Z0-9]/gi, '').slice(0, 4).toUpperCase();
-  return slug + '-' + (job.date || '').replace(/-/g, '') + '-' + (job.id || '').slice(-4).toUpperCase();
+/** Document number like "WR-2026-0623" — business initials + year + MMDD. */
+export function buildDocNumber(brand: Brand, job: Job): string {
+  const words = (brand.businessName || '').trim().split(/\s+/).filter(Boolean);
+  const initials = (words.map((w) => w[0]).join('').replace(/[^A-Za-z0-9]/g, '').slice(0, 3).toUpperCase()) || 'WR';
+  const d = job.date && /^\d{4}-\d{2}-\d{2}/.test(job.date) ? job.date : TODAY();
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d);
+  const ymd = m ? `${m[1]}-${m[2]}${m[3]}` : '';
+  return ymd ? `${initials}-${ymd}` : initials;
 }
 
-/** The tagline drawn under the business name on the invoice. A Pro
- *  white-label touch — blank on Core, and blank when no tagline is set. */
+/** Normalize operator-entered line items: trim, coerce numbers, drop empties. */
+export function normalizeLineItems(job: Job): JobLineItem[] {
+  const raw = Array.isArray(job.lineItems) ? job.lineItems : [];
+  return raw
+    .map((li) => ({
+      description: String(li?.description ?? '').trim(),
+      qty: Math.max(0, Number(li?.qty) || 0),
+      unitPrice: Math.max(0, Number(li?.unitPrice) || 0),
+    }))
+    .filter((li) => li.description && (li.qty > 0 || li.unitPrice > 0));
+}
+
+/** Sum of qty × unitPrice across line items, rounded to cents. */
+export function lineItemsTotal(items: ReadonlyArray<JobLineItem>): number {
+  return r2(items.reduce((s, li) => s + (Number(li.qty) || 0) * (Number(li.unitPrice) || 0), 0));
+}
+
+/** The tagline drawn under the business name. Pro white-label touch. */
 export function invoiceTaglineFor(brand: Brand, isPro: boolean): string {
   return isPro ? (brand.tagline || '').trim() : '';
-}
-
-/** Detail rows for a QUOTE document, in order: service type, tire make +
- *  model (combined; omitted when neither is set), size (when set), and
- *  quantity. The big total renders separately. Pure + exported so the
- *  quote contents are unit-testable without rendering a PDF. */
-export function quoteDetailRows(job: Job, serviceName: string): Array<[string, string]> {
-  const rows: Array<[string, string]> = [['Service', serviceName]];
-  const makeModel = [job.tireBrand, job.tireModel].map((s) => (s || '').trim()).filter(Boolean).join(' ');
-  if (makeModel) rows.push(['Tire', makeModel]);
-  if ((job.tireSize || '').trim()) rows.push(['Size', job.tireSize.trim()]);
-  rows.push(['Quantity', String(Number(job.qty) || 1)]);
-  return rows;
 }
 
 export interface InvoiceResult {
@@ -213,42 +160,17 @@ export interface InvoiceResult {
 }
 
 export interface InvoiceOptions {
-  /** Optional technician display name, resolved from `job.createdByUid`.
-   *  Caller (App.tsx) owns the resolution since it has access to the
-   *  members directory. Pass undefined to skip the Technician line. */
+  /** Optional technician display name (reserved; not shown on this layout). */
   technicianName?: string | null;
-  /** 'invoice' (default) renders the full customer invoice. 'quote'
-   *  renders a pre-sale QUOTE from the same job data: service type, tire
-   *  make/model, quantity, and one total price — no PAID badge, no
-   *  tax/payment breakdown, no line-item table. Never auto-sent. */
+  /** 'invoice' (default) → INVOICE; 'quote' → ESTIMATE with a Valid Until. */
   mode?: 'invoice' | 'quote';
+  /** 'itemized' (Type B) lists job.lineItems; 'total' (Type A) shows one
+   *  price. Default: itemized when the job has line items, else total. */
+  breakdown?: 'total' | 'itemized';
 }
 
-/**
- * Premium-feel mobile-tire-service invoice generator.
- *
- * Customer-facing — DOES NOT expose internal pricing breakdowns, dispatch
- * fee allocations, or markup structure. The customer sees:
- *   - friendly service name + qty
- *   - tire size + vehicle type (when known)
- *   - service location (when known)
- *   - technician (when known)
- *   - completed date + payment timestamp/method (when paid)
- *   - one big final total
- *   - business-set warranty (when enabled)
- *   - business-set footer text
- *   - review CTA (only when brand.reviewUrl is set)
- *
- * Branding (logo + custom primary color + tagline + footer + warranty
- * + review URL) is included on BOTH Core and Pro as of 2026-05-28.
- * Accounts with no brand color simply render the universal gold accent.
- * Accounts with no logo render the layout without one. The gate exists
- * for future tiers that may revert branding to a paid feature; the
- * matrix in planAccess.ts is the single source of truth.
- *
- * Async because it pre-fetches the brand logo into a base64 data URI
- * before drawing (jsPDF.addImage requires inlined image bytes).
- */
+type RGB = [number, number, number];
+
 export async function generateInvoicePDF(
   job: Job,
   settings: Settings,
@@ -260,529 +182,213 @@ export async function generateInvoicePDF(
     return null;
   }
 
-  // ── Branding gate ─────────────────────────────────────────────────
-  // Accounts entitled to brandedInvoices (Core + Pro as of 2026-05-28)
-  // get logo + brand color + tagline + footer + warranty + review URL.
-  // Local var stays `isPro` for historical comment continuity below; the
-  // semantic now is "branded invoice entitled," not "Pro plan."
-  const isPro = canUseBrandedInvoices(settings);
+  const isQuote = opts.mode === 'quote';
+  const items = normalizeLineItems(job);
+  const breakdown = opts.breakdown ?? (items.length ? 'itemized' : 'total');
+  const itemized = breakdown === 'itemized' && items.length > 0;
 
-  // ── Inline the logo before drawing (Pro only) ─────────────────────
-  // Skip the network round-trip entirely on Core so the invoice
-  // generates faster AND the logo never leaks into a non-Pro export.
-  const logoDataUri = isPro ? await preloadLogo(brand.logoUrl) : null;
+  const isPaid = !isQuote && resolvePaymentStatus(job) === 'Paid';
+  const logoDataUri = await preloadLogo(brand.logoUrl);
 
-  // ── Document setup ────────────────────────────────────────────────
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const W = 210;
   const M = 18;
 
-  // Color palette. Hex parsing for the brand primary so PAID badges and
-  // accent rule match the customer's actual branding.
-  const WHITE: [number, number, number] = [255, 255, 255];
-  const NEAR_BLK: [number, number, number] = [20, 20, 20];
-  const GRAY: [number, number, number] = [110, 110, 125];
-  const LIGHT_GRAY: [number, number, number] = [225, 225, 232];
-  const TOTAL_BG_DARK: [number, number, number] = [17, 17, 17];
-  const GREEN: [number, number, number] = [34, 178, 86];
+  // Palette — orange accent + navy bars, per the Wheel Rush sample.
+  const ORANGE: RGB = [242, 106, 33];
+  const NAVY: RGB = [22, 38, 63];
+  const WHITE: RGB = [255, 255, 255];
+  const INK: RGB = [26, 26, 26];
+  const GRAY: RGB = [110, 110, 125];
+  const ZEBRA: RGB = [244, 245, 248];
+  const RULE: RGB = [222, 224, 230];
+  const FOOT_SUB: RGB = [196, 202, 212];
 
-  // Pro: use brand.primaryColor. Core: use the universal default so
-  // the invoice still looks polished, just not white-labeled.
-  // Defensive normalization: even though BrandContext normalizes on
-  // read, the invoice can be generated from a Brand snapshot that
-  // bypassed that path (e.g. server-side, off-context callers).
-  // Without this, a stored value like `'c8a44a'` (no `#`) would
-  // produce NaN RGB and a black PDF header.
-  const DEFAULT_ACCENT = '#f4b400';
-  const pc = normalizeHex(
-    isPro ? (brand.primaryColor || DEFAULT_ACCENT) : DEFAULT_ACCENT,
-    DEFAULT_ACCENT,
-  );
-  const hR = parseInt(pc.slice(1, 3), 16);
-  const hG = parseInt(pc.slice(3, 5), 16);
-  const hB = parseInt(pc.slice(5, 7), 16);
-
-  // ── Resolve display values ────────────────────────────────────────
-  const isQuote = opts.mode === 'quote';
-  const paymentStatus = resolvePaymentStatus(job);
-  // A quote is pre-sale — never show a paid state on it, even though a
-  // logged job defaults to Paid.
-  const isPaid = !isQuote && paymentStatus === 'Paid';
-  const invNum = job.invoiceNumber || generateInvoiceNumber(brand, job);
-
-  // ── Vertical-aware invoice template + pricing breakdown ───────────
-  // Resolved once per invoice. Tire renders identically to the
-  // pre-Phase-2.1 implementation because TIRE_INVOICE_TEMPLATE is a
-  // verbatim port of today's data (single line item, "NOTES" label,
-  // tire-style servicePerformedFields).
-  const template: InvoiceTemplate = getInvoiceTemplate(resolveVerticalKey(settings));
-  const breakdown = computeBreakdownTagged(job, settings);
-  const friendlyService = template.resolveServiceName(job.service);
-
-  // ═════════════════════════════════════════════════════════════════
-  //  HEADER (#2): larger logo, stronger hierarchy, PAID badge
-  // ═════════════════════════════════════════════════════════════════
-  doc.setFillColor(11, 11, 11);
-  doc.rect(0, 0, W, 48, 'F');
-  // Accent rule in resolved color (brand on Pro, default on Core)
-  doc.setFillColor(hR, hG, hB);
-  doc.rect(0, 48, W, 2.5, 'F');
-
-  // Logo (Pro only), bigger than before (28mm vs 24mm). Inlined data
-  // URI required. logoDataUri is guaranteed null when isPro=false, so
-  // a single nullish check covers both gate and load-failure cases.
+  // ── Header: logo (left) + title + meta (right) ───────────────────────
   if (logoDataUri) {
     try {
-      doc.addImage(logoDataUri, 'PNG', M, 8, 28, 28);
-    } catch {
-      // ignore — invoice still renders without logo
-    }
-  }
-  const textX = logoDataUri ? M + 34 : M;
-
-  // Business name — larger, stronger typography. Auto-shrink and
-  // truncate so it never collides with the INVOICE block on the right.
-  // The right side reserves ~50mm for the invoice header (label + #
-  // + PAID badge). We compute the max allowable width and shrink the
-  // font size or ellipsis-truncate, whichever preserves more text.
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(...WHITE);
-  const rawName = brand.businessName || 'Mobile Service OS';
-  const RIGHT_RESERVED = 52; // mm reserved for INVOICE label + # + PAID badge
-  const maxNameWidth = W - M - textX - RIGHT_RESERVED;
-  // Try the natural size first; step down to 18, 16, 14 if needed.
-  let nameSize = 22;
-  const sizeSteps = [22, 20, 18, 16, 14];
-  let nameFits = false;
-  for (const s of sizeSteps) {
-    doc.setFontSize(s);
-    if (doc.getTextWidth(rawName) <= maxNameWidth) {
-      nameSize = s;
-      nameFits = true;
-      break;
-    }
-  }
-  // If even 14pt doesn't fit, truncate with ellipsis at 14pt.
-  let drawName = rawName;
-  if (!nameFits) {
-    doc.setFontSize(14);
-    nameSize = 14;
-    let s = rawName;
-    while (s.length > 1 && doc.getTextWidth(s + '…') > maxNameWidth) {
-      s = s.slice(0, -1);
-    }
-    drawName = s + '…';
-  }
-  doc.setFontSize(nameSize);
-  doc.text(drawName, textX, 20);
-
-  // Tagline — a Pro white-label touch, between the name and the
-  // contact line. Skipped on Core and when no tagline is set.
-  const invoiceTagline = invoiceTaglineFor(brand, isPro);
-  if (invoiceTagline) {
-    doc.setFont('helvetica', 'italic');
-    doc.setFontSize(8);
-    doc.setTextColor(212, 212, 222);
-    doc.text(invoiceTagline, textX, 24.5);
-  }
-
-  // Business contact line — smaller, dimmer, just one line of context
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8.5);
-  doc.setTextColor(200, 200, 210);
-  const infoLine = [brand.phone, brand.email, brand.fullLocationLabel || brand.serviceArea]
-    .filter(Boolean).join('  ·  ');
-  if (infoLine) doc.text(infoLine, textX, 28);
-  if (brand.website) {
-    doc.setFontSize(8);
-    doc.text(brand.website, textX, 34);
-  }
-
-  // "INVOICE" + number in top-right
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(13);
-  doc.setTextColor(hR, hG, hB);
-  doc.text(isQuote ? 'QUOTE' : 'INVOICE', W - M, 16, { align: 'right' });
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8.5);
-  doc.setTextColor(200, 200, 210);
-  doc.text('#' + invNum, W - M, 22, { align: 'right' });
-
-  // Status badge — PAID stamp (#2). Floats under the invoice number.
-  if (isPaid) {
-    const badgeText = 'PAID ✓';
+      const props = doc.getImageProperties(logoDataUri);
+      const ratio = props.width && props.height ? props.width / props.height : 2;
+      const maxW = 46;
+      const maxH = 27;
+      let w = maxW;
+      let h = w / ratio;
+      if (h > maxH) { h = maxH; w = h * ratio; }
+      doc.addImage(logoDataUri, 'PNG', M, 12, w, h);
+    } catch { /* render without logo */ }
+  } else {
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    const padX = 4;
-    const tw = doc.getTextWidth(badgeText);
-    const bw = tw + padX * 2;
-    const bh = 7;
-    const bx = W - M - bw;
-    const by = 27;
-    doc.setFillColor(...GREEN);
-    doc.roundedRect(bx, by, bw, bh, 1.5, 1.5, 'F');
-    doc.setTextColor(...WHITE);
-    doc.text(badgeText, bx + padX, by + 5);
+    doc.setFontSize(18);
+    doc.setTextColor(...NAVY);
+    doc.text(brand.businessName || 'Mobile Service OS', M, 26);
   }
 
-  // ── Body cursor starts below the header band + accent rule ──
-  let y = 60;
-
-  // ═════════════════════════════════════════════════════════════════
-  //  CUSTOMER + COMPLETED DATE  (#4: "Completed" label)
-  // ═════════════════════════════════════════════════════════════════
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7.5);
-  doc.setTextColor(...GRAY);
-  doc.text(isQuote ? 'QUOTE FOR' : 'BILL TO', M, y);
-  doc.text(isQuote ? 'DATE' : 'COMPLETED', 130, y);
-  y += 5;
+  doc.setFontSize(26);
+  doc.setTextColor(...ORANGE);
+  doc.text(isQuote ? 'ESTIMATE' : 'INVOICE', W - M, 26, { align: 'right' });
 
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10.5);
-  doc.setTextColor(...NEAR_BLK);
-  doc.text(job.customerName || 'Customer', M, y);
-  doc.text(isQuote ? TODAY() : (formatCompletedDate(job.date) || TODAY()), 130, y);
-  y += 5;
-
-  if (job.customerPhone) {
-    doc.setFontSize(9);
-    doc.setTextColor(...GRAY);
-    doc.text(job.customerPhone, M, y);
-    y += 4.5;
-  }
-
-  // ═════════════════════════════════════════════════════════════════
-  //  SERVICE PERFORMED (#3: tire size + vehicle, #6: location, #7: tech)
-  // ═════════════════════════════════════════════════════════════════
-  y += 4;
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7.5);
+  doc.setFontSize(9);
   doc.setTextColor(...GRAY);
-  doc.text(isQuote ? 'QUOTE DETAILS' : 'SERVICE PERFORMED', M, y);
-  y += 5;
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9.5);
-  doc.setTextColor(...NEAR_BLK);
-
-  // Build the service details rows. Vertical-specific rows come from
-  // template.servicePerformedFields (tire: tireSize + vehicleType +
-  // optional used-tire indicator; mechanic: vehicle make/model +
-  // mileage + diagnostic code; detailing: vehicle size). Each row
-  // is emitted only when its formatted value is non-empty, so a
-  // tire job missing tireSize still produces today's exact output
-  // (no blank row).
-  const serviceRows: Array<[string, string]> = [];
+  let metaY = 34;
+  doc.text(`No.  ${buildDocNumber(brand, job)}`, W - M, metaY, { align: 'right' });
+  metaY += 5;
+  doc.text(`Date:  ${formatCompletedDate(job.date) || formatCompletedDate(TODAY())}`, W - M, metaY, { align: 'right' });
   if (isQuote) {
-    // Quote: exactly what the operator asked for — service type, tire
-    // make + model, quantity. (Total renders in the box below.)
-    serviceRows.push(...quoteDetailRows(job, friendlyService));
-  } else {
-    const jobBag = job as unknown as Record<string, unknown>;
-    for (const field of template.servicePerformedFields) {
-      const raw = jobBag[field.jobKey];
-      const value = field.format ? field.format(raw) : raw == null ? '' : String(raw);
-      if (value && value.trim()) serviceRows.push([field.label, value]);
-    }
-    // Location + Technician are shared across all verticals, so they
-    // remain hardcoded here (rather than living in every template's
-    // servicePerformedFields). Both still respect "skip when unknown".
-    const locLabel = job.fullLocationLabel || job.area;
-    if (locLabel) serviceRows.push(['Service Location', `Completed on-site in ${locLabel}`]);
-    if (opts.technicianName) serviceRows.push(['Technician', opts.technicianName]);
+    metaY += 5;
+    doc.text(`Valid Until:  ${addDaysLabel(job.date, 30)}`, W - M, metaY, { align: 'right' });
   }
 
-  for (const [label, value] of serviceRows) {
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.5);
-    doc.setTextColor(...GRAY);
-    doc.text(label + ':', M, y);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9.5);
-    doc.setTextColor(...NEAR_BLK);
-    doc.text(value, M + 32, y);
-    y += 5;
-  }
+  // Orange rule under the header.
+  doc.setFillColor(...ORANGE);
+  doc.rect(0, 48, W, 1.6, 'F');
 
-  // ═════════════════════════════════════════════════════════════════
-  //  LINE ITEM TABLE (#1: customer-facing only — no internal pricing)
-  //  Invoice only — a quote shows its detail rows + a single total, with
-  //  no priced line-item table.
-  // ═════════════════════════════════════════════════════════════════
-  if (!isQuote) {
-  y += 6;
-  // Subtle row header band
-  doc.setFillColor(248, 248, 252);
-  doc.rect(M, y, W - 2 * M, 8, 'F');
+  // Contact line, centered.
+  const region = (brand.serviceArea || '').trim() || 'Broward and Miami Dade';
+  const contact = [(brand.phone || '').trim(), (brand.website || '').trim(), '24/7 Mobile Service', region].filter(Boolean);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7.5);
-  doc.setTextColor(...GRAY);
-  doc.text('DESCRIPTION', M + 3, y + 5.5);
-  doc.text('QTY', W - M - 30, y + 5.5);
-  doc.text('AMOUNT', W - M - 3, y + 5.5, { align: 'right' });
-  y += 11;
+  doc.setFontSize(8.5);
+  doc.setTextColor(...INK);
+  doc.text(contact.join('     •     '), W / 2, 57, { align: 'center' });
 
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
-  doc.setTextColor(...NEAR_BLK);
+  // ── Info block ───────────────────────────────────────────────────────
+  const colR = 112;
+  const label = (x: number, yy: number, t: string) => {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(...ORANGE);
+    doc.text(t, x, yy);
+  };
+  const value = (x: number, yy: number, t: string) => {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); doc.setTextColor(...INK);
+    doc.text(t, x, yy);
+  };
+  const underline = (x: number, yy: number, w: number) => {
+    doc.setDrawColor(...RULE); doc.line(x, yy, x + w, yy);
+  };
 
-  // Line items come from the vertical-aware template. Tire returns
-  // exactly one line (description + qty + revenue) — same render as
-  // pre-Phase-2.1. Mechanic returns one header row + per-component
-  // rows (Labor, Parts, Markup, Diagnostic, Travel). Each line is
-  // rendered with the same layout, so the table grows downward
-  // automatically.
-  //
-  // Column rendering rules:
-  //   - QTY:    rendered when `item.qty` is defined.
-  //   - AMOUNT: rendered when (a) the row has a qty (it's an item
-  //             line, always paired with an amount) OR (b) the
-  //             amount is > 0 (a cost component). Mechanic's header
-  //             row (qty undefined, amount 0) intentionally renders
-  //             description-only, like a section heading.
-  const lineItems: ReadonlyArray<InvoiceLineItem> = template.buildLineItems(job, breakdown, friendlyService);
-  for (let i = 0; i < lineItems.length; i += 1) {
-    const item = lineItems[i];
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    doc.setTextColor(...NEAR_BLK);
-    doc.text(item.description, M + 3, y + 3);
-    if (item.qty !== undefined) {
-      doc.setFont('helvetica', 'bold');
-      doc.text(String(item.qty), W - M - 30, y + 3);
-    }
-    if (item.qty !== undefined || item.amount > 0) {
-      doc.setFont('helvetica', 'bold');
-      doc.text(money(item.amount), W - M - 3, y + 3, { align: 'right' });
-    }
-    y += 7;
-  }
-  // Trailing spacer to preserve the pre-2.1 9mm gap after the table
-  // when there is exactly one line item (the tire case: y += 9 was
-  // the original; loop already added 7, so 2 more here = 9).
-  if (lineItems.length === 1) y += 2;
-  else y += 1;
+  let y = 70;
+  const fieldW = W - M - colR;
+  // Left: PREPARED FOR; Right: TIRE SIZE
+  label(M, y, 'PREPARED FOR');
+  label(colR, y, 'TIRE SIZE');
+  if ((job.customerName || '').trim()) value(M, y + 5.5, job.customerName.trim()); else underline(M, y + 4.5, fieldW);
+  if ((job.tireSize || '').trim()) value(colR, y + 5.5, job.tireSize.trim()); else underline(colR, y + 4.5, fieldW);
+  y += 16;
+  // Left: VEHICLE; Right: SERVICE TYPE (wraps)
+  const vehicle = (job.vehicleMakeModel || job.vehicleType || '').trim();
+  label(M, y, 'VEHICLE');
+  label(colR, y, 'SERVICE TYPE');
+  if (vehicle) value(M, y + 5.5, vehicle); else underline(M, y + 4.5, fieldW);
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); doc.setTextColor(...INK);
+  const svcLines = doc.splitTextToSize((job.service || 'Tire service').trim(), fieldW);
+  doc.text(svcLines, colR, y + 5.5);
+  y += 16 + Math.max(0, (svcLines.length - 1) * 5);
+  y = Math.max(y, 104);
 
-  // Light separator
-  doc.setDrawColor(...LIGHT_GRAY);
-  doc.line(M, y, W - M, y);
-  y += 8;
-  } else {
-    // Quote: thin separator between the detail rows and the total box.
-    y += 8;
-    doc.setDrawColor(...LIGHT_GRAY);
-    doc.line(M, y, W - M, y);
-    y += 8;
-  }
-
-  // ═════════════════════════════════════════════════════════════════
-  //  TOTALS BOX (#5: large, premium)
-  // ═════════════════════════════════════════════════════════════════
-  const subtotal = Number(job.revenue || 0);
+  // ── Totals math (tax included unless a rate is set) ──────────────────
+  const subtotal = itemized ? lineItemsTotal(items) : Number(job.revenue || 0);
   const taxRate = Number(settings.invoiceTaxRate || 0) / 100;
   const taxAmt = r2(subtotal * taxRate);
   const total = r2(subtotal + taxAmt);
 
-  // Show subtotal + tax rows ONLY when there's actual tax (invoice only).
-  // A quote shows one number — "just the total price" — never a breakdown.
-  if (taxRate > 0 && !isQuote) {
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9.5);
-    doc.setTextColor(...GRAY);
-    doc.text('Subtotal', M + 3, y);
-    doc.text(money(subtotal), W - M - 3, y, { align: 'right' });
+  const amtR = W - M - 3;
+  const qtyR = 122;
+  const unitR = 154;
+  const descX = M + 3;
+
+  // ── Itemized table (Type B) ──────────────────────────────────────────
+  if (itemized) {
+    doc.setFillColor(...NAVY);
+    doc.rect(M, y, W - 2 * M, 9, 'F');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(...WHITE);
+    doc.text('DESCRIPTION', descX, y + 6);
+    doc.text('QTY', qtyR, y + 6, { align: 'right' });
+    doc.text('UNIT PRICE', unitR, y + 6, { align: 'right' });
+    doc.text('AMOUNT', amtR, y + 6, { align: 'right' });
+    y += 9;
+
+    items.forEach((li, i) => {
+      const descLines = doc.splitTextToSize(li.description, qtyR - descX - 8);
+      const rowH = Math.max(11, descLines.length * 5 + 5);
+      if (i % 2 === 1) { doc.setFillColor(...ZEBRA); doc.rect(M, y, W - 2 * M, rowH, 'F'); }
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(...INK);
+      doc.text(descLines, descX, y + 7);
+      doc.text(String(li.qty), qtyR, y + 7, { align: 'right' });
+      doc.text(money(li.unitPrice), unitR, y + 7, { align: 'right' });
+      doc.setFont('helvetica', 'bold');
+      doc.text(money(r2(li.qty * li.unitPrice)), amtR, y + 7, { align: 'right' });
+      y += rowH;
+    });
+
+    y += 5;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(...GRAY);
+    doc.text('Subtotal', unitR, y, { align: 'right' });
+    doc.setTextColor(...INK);
+    doc.text(money(subtotal), amtR, y, { align: 'right' });
     y += 6;
-    doc.text(`Tax (${settings.invoiceTaxRate}%)`, M + 3, y);
-    doc.text(money(taxAmt), W - M - 3, y, { align: 'right' });
+    doc.setTextColor(...GRAY);
+    doc.text('Tax', unitR, y, { align: 'right' });
+    doc.text(taxRate > 0 ? money(taxAmt) : 'Included', amtR, y, { align: 'right' });
     y += 8;
-  }
-
-  // Big dark totals box. Filled rectangle with brand-accent left bar.
-  const boxH = 22;
-  doc.setFillColor(...TOTAL_BG_DARK);
-  doc.roundedRect(M, y, W - 2 * M, boxH, 2, 2, 'F');
-  // Accent bar on left edge in resolved color
-  doc.setFillColor(hR, hG, hB);
-  doc.rect(M, y, 2.5, boxH, 'F');
-
-  // Label: quote → "QUOTE TOTAL"; invoice → "TOTAL PAID" / "TOTAL DUE".
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8);
-  doc.setTextColor(180, 180, 190);
-  doc.text(isQuote ? 'QUOTE TOTAL' : (isPaid ? 'TOTAL PAID' : 'TOTAL DUE'), M + 7, y + 8);
-
-  // Huge total amount
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(20);
-  doc.setTextColor(...WHITE);
-  doc.text(money(total), W - M - 5, y + 15, { align: 'right' });
-
-  y += boxH + 6;
-
-  // ═════════════════════════════════════════════════════════════════
-  //  PAYMENT METHOD + TIMESTAMP (#8)
-  // ═════════════════════════════════════════════════════════════════
-  if (isQuote) {
-    // Quote validity / not-a-bill note in place of payment status.
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.5);
-    doc.setTextColor(...GRAY);
-    doc.text('This is a quote, not a bill. Valid for 14 days. Price may change after inspection.', M, y);
-    y += 6;
-  } else if (isPaid) {
-    const method = job.payment || 'Cash';
-    const ts = formatPaymentTimestamp(job.paidAt);
-    const line = ts
-      ? `Paid via ${method} — ${ts}`
-      : `Paid via ${method}`;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.5);
-    doc.setTextColor(...GRAY);
-    doc.text(line, M, y);
-    y += 6;
-  } else if (paymentStatus === 'Pending Payment') {
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.5);
-    doc.setTextColor(...GRAY);
-    doc.text('Payment due upon receipt.', M, y);
+  } else {
     y += 6;
   }
 
-  // ═════════════════════════════════════════════════════════════════
-  //  NOTES (#10) — only when present. Label is vertical-aware:
-  //  tire/detailing show "NOTES"; mechanic shows "RECOMMENDATIONS"
-  //  so the same job.note field reads as actionable customer advice
-  //  ("Belt showing wear, recommend replacement at next service").
-  // ═════════════════════════════════════════════════════════════════
-  if (job.note && job.note.trim()) {
-    y += 3;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
-    doc.setTextColor(...GRAY);
-    doc.text(template.notesLabel, M, y);
-    y += 4.5;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.setTextColor(...NEAR_BLK);
-    const noteLines = doc.splitTextToSize(job.note, W - 2 * M);
-    doc.text(noteLines, M, y);
-    y += noteLines.length * 4.5 + 4;
+  // ── TOTAL DUE bar ────────────────────────────────────────────────────
+  const barX = itemized ? 110 : M;
+  const barW = W - M - barX;
+  const barH = 13;
+  doc.setFillColor(...NAVY);
+  doc.rect(barX, y, barW, barH, 'F');
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(...ORANGE);
+  doc.text(isPaid ? 'TOTAL PAID' : 'TOTAL DUE', barX + 5, y + 8.6);
+  doc.setFontSize(15); doc.setTextColor(...WHITE);
+  doc.text(money(total), W - M - 4, y + 9, { align: 'right' });
+  y += barH + 11;
+
+  // ── NOTES ────────────────────────────────────────────────────────────
+  const notes: string[] = [];
+  if ((job.note || '').trim()) notes.push(job.note.trim());
+  if (isQuote) notes.push('Estimate valid 30 days from the date above. Final price confirmed on site before any work begins.');
+  notes.push(`24/7 mobile tire service across ${region}. We bring the tire shop to you.`);
+
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(...ORANGE);
+  doc.text('NOTES', M, y);
+  y += 5;
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(...GRAY);
+  for (const n of notes) {
+    const lines = doc.splitTextToSize(`•  ${n}`, W - 2 * M);
+    doc.text(lines, M, y);
+    y += lines.length * 4.4 + 1.6;
   }
 
-  // ═════════════════════════════════════════════════════════════════
-  //  WARRANTY (#13) — per-business toggle (Pro feature — warranty
-  //  branding is a Pro tier perk along with logo and brand color)
-  // ═════════════════════════════════════════════════════════════════
-  if (isPro && brand.warrantyEnabled && brand.warrantyText && brand.warrantyText.trim()) {
-    y += 2;
-    doc.setFillColor(248, 248, 252);
-    // Cap the warranty text at a sane length before splitTextToSize.
-    // jsPDF will happily try to flow a 5,000-character paste across
-    // 10+ pages and either crash or produce an ungainly invoice. 800
-    // chars is well over a paragraph and still fits cleanly on a
-    // single page after wrapping. The ellipsis tells operators they
-    // need to tighten the copy in Settings rather than silently
-    // truncating.
-    const MAX_WARRANTY_LEN = 800;
-    const warrSrc = brand.warrantyText.trim().length > MAX_WARRANTY_LEN
-      ? brand.warrantyText.trim().slice(0, MAX_WARRANTY_LEN - 1) + '…'
-      : brand.warrantyText;
-    const warrLines = doc.splitTextToSize(warrSrc, W - 2 * M - 6);
-    const warrH = warrLines.length * 4 + 6;
-    doc.roundedRect(M, y, W - 2 * M, warrH, 1.5, 1.5, 'F');
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(...GRAY);
-    doc.text(warrLines, M + 3, y + 4.5);
-    y += warrH + 6;
+  // ── Footer bar (navy), anchored near the bottom ──────────────────────
+  const fY = 268;
+  const fH = 22;
+  doc.setFillColor(...NAVY);
+  doc.rect(0, fY, W, fH, 'F');
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(...WHITE);
+  doc.text(`Thank you for choosing ${brand.businessName || 'us'}`, M, fY + 9);
+  const tagline = (brand.tagline || '').trim();
+  const phone = (brand.phone || '').trim();
+  const footSub = [tagline, phone ? `Call or text ${phone} to book` : ''].filter(Boolean).join('   |   ');
+  if (footSub) {
+    doc.setFont('helvetica', 'italic'); doc.setFontSize(7.8); doc.setTextColor(...FOOT_SUB);
+    doc.text(footSub, M, fY + 15);
   }
-
-  // ═════════════════════════════════════════════════════════════════
-  //  REVIEW CTA (#11) — only when brand.reviewUrl is set
-  //  + business-set invoice footer
-  //  (#12: collapse aggressively if no content — no wasted whitespace)
-  //
-  //  Both reviewUrl and invoiceFooter are Pro-tier (white-label) features.
-  //  Core sees a single line attribution instead: "Powered by Mobile
-  //  Service OS" — this doubles as conversion marketing.
-  // ═════════════════════════════════════════════════════════════════
-  const reviewUrl = isPro ? (brand.reviewUrl || '').trim() : '';
-  // Phase 2.2: settings.warrantyPolicy is appended to the brand
-  // footer when present, on top of any operator-set invoiceFooter.
-  // This is vertical-agnostic — any vertical can set a warranty
-  // policy in Settings and have it print on the invoice — but is
-  // primarily aimed at mechanic accounts where parts warranties
-  // matter.
-  const warrantyPolicy = (settings.warrantyPolicy || '').trim();
-  const brandFooter = isPro ? (brand.invoiceFooter || '').trim() : '';
-  const footerText = [brandFooter, warrantyPolicy].filter(Boolean).join('\n\n');
-
-  if (reviewUrl || footerText) {
-    // Position the footer block at most ~30mm from the bottom of A4
-    // (297mm), but no closer than `y + 8` so it doesn't overlap content
-    // when the invoice is short. This balances "anchored to bottom"
-    // (premium feel) with "no awkward gap" (#12).
-    const targetY = Math.max(y + 8, 257);
-    y = targetY;
-
-    // Thin divider above footer
-    doc.setDrawColor(...LIGHT_GRAY);
-    doc.line(M, y, W - M, y);
-    y += 6;
-
-    if (reviewUrl) {
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
-      doc.setTextColor(...NEAR_BLK);
-      doc.text(`Thank you for choosing ${brand.businessName || 'us'}.`, W / 2, y, { align: 'center' });
-      y += 5;
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8.5);
-      doc.setTextColor(...GRAY);
-      doc.text('We\'d love your feedback — please leave a review:', W / 2, y, { align: 'center' });
-      y += 4.5;
-
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8.5);
-      doc.setTextColor(hR, hG, hB);
-      // Use jsPDF's link annotation so tapping the URL in a PDF viewer
-      // opens the browser. addLink+text is the standard pattern.
-      doc.textWithLink(reviewUrl, W / 2, y, { align: 'center', url: reviewUrl });
-      y += 5;
-    }
-
-    if (footerText) {
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.5);
-      doc.setTextColor(...GRAY);
-      const footLines = doc.splitTextToSize(footerText, W - 2 * M);
-      doc.text(footLines, W / 2, y, { align: 'center' });
-    }
-  } else if (!isPro) {
-    // Core-tier attribution footer. Anchored to the bottom of the page
-    // so it sits in the same spot regardless of invoice length. Doubles
-    // as a passive marketing nudge — every Core invoice the customer
-    // receives points back to the platform.
-    const attribY = 280;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7);
-    doc.setTextColor(170, 170, 180);
-    doc.text('Powered by Mobile Service OS', W / 2, attribY, { align: 'center' });
+  const website = (brand.website || '').trim();
+  if (website) {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(...ORANGE);
+    doc.text(website, W - M, fY + 9, { align: 'right' });
   }
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(7.8); doc.setTextColor(...FOOT_SUB);
+  doc.text('Mobile Tire Repair  •  Available 24/7', W - M, fY + 15, { align: 'right' });
 
-  // ═════════════════════════════════════════════════════════════════
-  //  SMART FILENAME (#14)
-  //  Format: BusinessName_Invoice_YYYY-MM-DD_CustomerName.pdf
-  // ═════════════════════════════════════════════════════════════════
-  const bizSlug = sanitizeForFilename(brand.businessName, 'Invoice');
+  // ── Save ─────────────────────────────────────────────────────────────
+  const bizSlug = sanitizeForFilename(brand.businessName, isQuote ? 'Estimate' : 'Invoice');
   const dateSlug = (job.date || TODAY()).replace(/[^0-9-]/g, '').slice(0, 10);
-  const custSlug = sanitizeForFilename(
-    (job.customerName || '').split(/\s+/)[0],  // first name only for brevity
-    'Customer',
-  );
-  const filename = `${bizSlug}_${isQuote ? 'Quote' : 'Invoice'}_${dateSlug}_${custSlug}.pdf`;
+  const custSlug = sanitizeForFilename((job.customerName || '').split(/\s+/)[0], 'Customer');
+  const filename = `${bizSlug}_${isQuote ? 'Estimate' : 'Invoice'}_${dateSlug}_${custSlug}.pdf`;
   doc.save(filename);
-  return { filename, invoiceNumber: invNum };
+  return { filename, invoiceNumber: buildDocNumber(brand, job) };
 }

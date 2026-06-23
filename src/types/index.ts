@@ -661,6 +661,14 @@ export interface TimeSession {
 //  Job
 // ─────────────────────────────────────────────────────────────────────
 
+/** One customer-facing price line on an itemized invoice/quote.
+ *  amount = qty × unitPrice (computed at render time). */
+export interface JobLineItem {
+  description: string;
+  qty: number;
+  unitPrice: number;
+}
+
 export interface Job {
   id: string;
   date: string;
@@ -707,6 +715,12 @@ export interface Job {
   tireCondition?: 'New' | 'Used' | '';
   tireReceiptUrl?: string;
   tireNotes?: string;
+  /** Customer-facing price breakdown for an itemized (Type B) invoice or
+   *  quote — e.g. tire, mobile labor, mount/balance, disposal. Each line's
+   *  amount = qty × unitPrice; the lines sum to the document total. Empty /
+   *  absent → the Type A (total-only) document. Operator-entered on the job;
+   *  NOT the internal cost fields (tireCost etc.), which stay private. */
+  lineItems?: JobLineItem[];
   /** Multi-photo upload — before / after / damage / inspection
    *  shots attached to a job. Each entry is a Firebase Storage
    *  download URL. Captured client-side via PhotoCapture and

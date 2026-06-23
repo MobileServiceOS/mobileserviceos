@@ -113,6 +113,14 @@ export function deserializeJob(raw: RawDoc): Job {
     })(),
     tireReceiptUrl: asString(raw.tireReceiptUrl, ''),
     tireNotes: asString(raw.tireNotes, ''),
+    // Itemized invoice/estimate line items (Type B). Whitelisted like
+    // every other field so they survive the Firestore round-trip.
+    lineItems: Array.isArray(raw.lineItems)
+      ? (raw.lineItems as unknown[]).map((li) => {
+          const o = (li ?? {}) as Record<string, unknown>;
+          return { description: asString(o.description, ''), qty: Number(o.qty) || 0, unitPrice: Number(o.unitPrice) || 0 };
+        }).filter((li) => li.description || li.qty > 0 || li.unitPrice > 0)
+      : undefined,
     photos: Array.isArray(raw.photos)
       ? (raw.photos as unknown[]).filter((p) => typeof p === 'string') as string[]
       : undefined,

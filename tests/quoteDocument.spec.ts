@@ -1,49 +1,69 @@
 // tests/quoteDocument.spec.ts
 // Run: npx vitest run tests/quoteDocument.spec.ts
 //
-// The QUOTE document (invoice generator in quote mode) shows exactly:
-// service type, tire make + model, quantity, and one total price. This
-// pins the detail-row contents without rendering a PDF.
+// Pure helpers behind the invoice / estimate document: the doc number,
+// line-item normalization, and the itemized total. (The PDF layout itself
+// is visual; these are the testable inputs.)
 
 import { describe, it, expect } from 'vitest';
-import { quoteDetailRows } from '@/lib/invoice';
-import { EMPTY_JOB } from '@/lib/defaults';
-import type { Job } from '@/types';
+import { buildDocNumber, normalizeLineItems, lineItemsTotal } from '@/lib/invoice';
+import { EMPTY_JOB, DEFAULT_BRAND } from '@/lib/defaults';
+import type { Job, Brand, JobLineItem } from '@/types';
 
 const job = (over: Partial<Job>): Job => ({ ...EMPTY_JOB(), ...over });
-const asMap = (rows: Array<[string, string]>) => Object.fromEntries(rows);
+const brand = (over: Partial<Brand>): Brand => ({ ...DEFAULT_BRAND, ...over });
 
-describe('quoteDetailRows', () => {
-  it('includes service type, tire make+model, size, and quantity', () => {
-    const rows = quoteDetailRows(
-      job({ tireBrand: 'Michelin', tireModel: 'Pilot Sport 4', tireSize: '225/45R17', qty: 4 }),
-      'Tire Replacement',
-    );
-    const m = asMap(rows);
-    expect(m.Service).toBe('Tire Replacement');
-    expect(m.Tire).toBe('Michelin Pilot Sport 4'); // make + model combined
-    expect(m.Size).toBe('225/45R17');
-    expect(m.Quantity).toBe('4');
+describe('buildDocNumber', () => {
+  it('formats as INITIALS-YYYY-MMDD (e.g. WR-2026-0623)', () => {
+    expect(buildDocNumber(brand({ businessName: 'Wheel Rush' }), job({ date: '2026-06-23' }))).toBe('WR-2026-0623');
   });
-
-  it('omits the Tire row when neither make nor model is set', () => {
-    const rows = quoteDetailRows(job({ tireBrand: '', tireModel: '', tireSize: '', qty: 1 }), 'Flat Tire Repair');
-    const labels = rows.map((r) => r[0]);
-    expect(labels).not.toContain('Tire');
-    expect(labels).not.toContain('Size');
-    expect(labels).toEqual(['Service', 'Quantity']);
+  it('uses up to three initials', () => {
+    expect(buildDocNumber(brand({ businessName: 'Mobile Service OS' }), job({ date: '2026-01-05' }))).toBe('MSO-2026-0105');
   });
-
-  it('shows make alone, or model alone', () => {
-    expect(asMap(quoteDetailRows(job({ tireBrand: 'Goodyear', tireModel: '' }), 'svc')).Tire).toBe('Goodyear');
-    expect(asMap(quoteDetailRows(job({ tireBrand: '', tireModel: 'Assurance' }), 'svc')).Tire).toBe('Assurance');
+  it('falls back to WR when no business name', () => {
+    expect(buildDocNumber(brand({ businessName: '' }), job({ date: '2026-06-23' }))).toBe('WR-2026-0623');
   });
+});
 
-  it('defaults quantity to 1 when missing', () => {
-    expect(asMap(quoteDetailRows(job({ qty: undefined as unknown as number }), 'svc')).Quantity).toBe('1');
+describe('normalizeLineItems', () => {
+  const li = (o: Partial<JobLineItem>): JobLineItem => ({ description: 'x', qty: 1, unitPrice: 1, ...o });
+
+  it('keeps valid rows and coerces numbers', () => {
+    const out = normalizeLineItems(job({ lineItems: [
+      li({ description: 'LT245/75R16 tire', qty: 1, unitPrice: 170 }),
+      li({ description: 'Mobile labor', qty: 1, unitPrice: 160 }),
+    ] }));
+    expect(out).toHaveLength(2);
+    expect(out[0]).toEqual({ description: 'LT245/75R16 tire', qty: 1, unitPrice: 170 });
   });
+  it('drops rows with no description, or with zero qty AND zero price', () => {
+    const out = normalizeLineItems(job({ lineItems: [
+      li({ description: '', qty: 2, unitPrice: 50 }),
+      li({ description: 'Disposal', qty: 0, unitPrice: 0 }),
+      li({ description: 'Balance', qty: 1, unitPrice: 20 }),
+    ] }));
+    expect(out.map((r) => r.description)).toEqual(['Balance']);
+  });
+  it('clamps negative numbers to 0', () => {
+    const out = normalizeLineItems(job({ lineItems: [li({ description: 'Tire', qty: -3, unitPrice: 100 })] }));
+    expect(out[0].qty).toBe(0);
+  });
+  it('handles missing/absent lineItems', () => {
+    expect(normalizeLineItems(job({}))).toEqual([]);
+  });
+});
 
-  it('always leads with the service type', () => {
-    expect(quoteDetailRows(job({ qty: 2 }), 'Tire Rotation')[0]).toEqual(['Service', 'Tire Rotation']);
+describe('lineItemsTotal', () => {
+  it('sums qty × unitPrice (the sample: 170 + 160 = 330)', () => {
+    expect(lineItemsTotal([
+      { description: 'Tire', qty: 1, unitPrice: 170 },
+      { description: 'Labor', qty: 1, unitPrice: 160 },
+    ])).toBe(330);
+  });
+  it('multiplies qty', () => {
+    expect(lineItemsTotal([{ description: 'Tire', qty: 4, unitPrice: 175 }])).toBe(700);
+  });
+  it('rounds to cents', () => {
+    expect(lineItemsTotal([{ description: 'x', qty: 3, unitPrice: 33.333 }])).toBe(100);
   });
 });

@@ -37,11 +37,11 @@ interface Props {
   onDuplicate: () => void;
   onDelete: () => void;
   onGenerateInvoice: () => void;
-  onSendInvoice: () => void;
-  /** Generate + text a pre-sale QUOTE PDF (service, tire make/model, qty,
-   *  total) from this job's data. Reuses the invoice generator in quote
-   *  mode. Optional — renders disabled when absent. */
-  onSendQuote?: () => void;
+  /** Send the invoice as Type A (total) or Type B (itemized). */
+  onSendInvoice: (breakdown?: 'total' | 'itemized') => void;
+  /** Send a pre-sale ESTIMATE/quote PDF, Type A (total) or B (itemized).
+   *  Reuses the invoice generator in quote mode. Optional — disabled when absent. */
+  onSendQuote?: (breakdown?: 'total' | 'itemized') => void;
   onSendReview: () => void;
   onMarkPaid: (method?: PaymentMethod) => void;
   /** Deduct this job's tire stock on demand (Complete Job Command
@@ -89,6 +89,10 @@ export function JobDetailModal({
   // write path (paymentStatus stays 'Paid', paidAt preserved,
   // paymentMethod updated).
   const [editingMethod, setEditingMethod] = useState(false);
+  // Invoice/Estimate style: Type A (total only) vs Type B (itemized). Defaults
+  // to itemized when the job has a price breakdown entered, else total.
+  const hasLineItems = Array.isArray(job.lineItems) && job.lineItems.some((li) => (li?.description || '').trim());
+  const [docStyle, setDocStyle] = useState<'total' | 'itemized'>(hasLineItems ? 'itemized' : 'total');
   const { role, member, permissions } = useMembership();
   const myUid = member?.uid || null;
   // Technicians see revenue (they set the price) but never the
@@ -161,18 +165,22 @@ export function JobDetailModal({
                 <CollectPayment amount={job.revenue} onMarkPaid={(m) => onMarkPaid(m)} />
               )}
 
-              {/* 3 · Send Invoice (generates if needed, then texts it) */}
+              {/* Document style — Type A (total) vs Type B (itemized).
+                  Applies to both Send Invoice and Send Quote below. */}
+              <DocStyleToggle value={docStyle} onChange={setDocStyle} hasLineItems={hasLineItems} />
+
+              {/* 3 · Send Invoice (generates the chosen style, then texts it) */}
               {job.invoiceSent ? (
-                <CmdDone label="Invoice sent" actionLabel="Resend" onAction={onSendInvoice} />
+                <CmdDone label="Invoice sent" actionLabel="Resend" onAction={() => onSendInvoice(docStyle)} />
               ) : (
-                <CmdAction label="Send Invoice" sub="Generates + texts the invoice" icon={<IcoSend />} onClick={onSendInvoice} />
+                <CmdAction label="Send Invoice" sub={`Texts a ${docStyle === 'itemized' ? 'Type B itemized' : 'Type A total'} invoice`} icon={<IcoSend />} onClick={() => onSendInvoice(docStyle)} />
               )}
 
-              {/* 3b · Send Quote — pre-sale quote PDF (service, tire, total) */}
+              {/* 3b · Send Quote/Estimate — same two styles */}
               <CmdAction
-                label="Send Quote" sub="Quote PDF: tire, qty, total price" icon={<IcoInvoice />}
+                label="Send Quote" sub={`Texts a ${docStyle === 'itemized' ? 'Type B itemized' : 'Type A total'} estimate`} icon={<IcoInvoice />}
                 disabled={!onSendQuote}
-                onClick={() => onSendQuote?.()}
+                onClick={() => onSendQuote?.(docStyle)}
               />
 
               {/* 4 · Send Review SMS (free native text) */}
@@ -440,6 +448,39 @@ const cmdWrap: CSSProperties = {
   marginBottom: 14, padding: 12,
   background: 'var(--s2)', border: '1px solid var(--border)', borderRadius: 14,
 };
+/** Total (Type A) vs Itemized (Type B) selector for the invoice/estimate
+ *  send actions. Shows a hint to add a price breakdown when Itemized is
+ *  picked but the job has none (it would fall back to a total-only doc). */
+function DocStyleToggle({ value, onChange, hasLineItems }: {
+  value: 'total' | 'itemized';
+  onChange: (v: 'total' | 'itemized') => void;
+  hasLineItems: boolean;
+}) {
+  const pill = (active: boolean): CSSProperties => ({
+    flex: 1, padding: '8px 10px', borderRadius: 9, cursor: 'pointer',
+    fontSize: 12, fontWeight: 800, textAlign: 'center',
+    border: `1px solid ${active ? 'var(--brand-primary)' : 'var(--border)'}`,
+    background: active ? 'var(--brand-primary)' : 'var(--s1)',
+    color: active ? '#0a0a0a' : 'var(--t2)',
+  });
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.6, textTransform: 'uppercase', color: 'var(--t3)', marginBottom: 5 }}>
+        Document style
+      </div>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <button type="button" style={pill(value === 'total')} onClick={() => onChange('total')}>Total only (A)</button>
+        <button type="button" style={pill(value === 'itemized')} onClick={() => onChange('itemized')}>Itemized (B)</button>
+      </div>
+      {value === 'itemized' && !hasLineItems && (
+        <div style={{ fontSize: 11, color: 'var(--amber)', marginTop: 5 }}>
+          No line items on this job yet — add a price breakdown when editing to show it. Otherwise this sends a total-only doc.
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** A tappable command-center action row — icon + label/sub + chevron.
  *  `tone` raises it to a filled primary/green CTA; otherwise it's a
  *  bordered secondary row. Full-width + ≥56px tall for one-thumb use. */
