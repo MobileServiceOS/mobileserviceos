@@ -1,7 +1,7 @@
 import { jsPDF } from 'jspdf';
 import type { Job, Settings, Brand, JobLineItem } from '@/types';
 import { TODAY } from '@/lib/defaults';
-import { money, r2, resolvePaymentStatus } from '@/lib/utils';
+import { money, r2, resolvePaymentStatus, realCustomerName } from '@/lib/utils';
 
 // ─────────────────────────────────────────────────────────────────────
 //  Wheel Rush invoice / estimate generator.
@@ -271,7 +271,8 @@ export async function generateInvoicePDF(
   // Left: PREPARED FOR; Right: TIRE SIZE
   label(M, y, 'PREPARED FOR');
   label(colR, y, 'TIRE SIZE');
-  if ((job.customerName || '').trim()) value(M, y + 5.5, job.customerName.trim()); else underline(M, y + 4.5, fieldW);
+  const custName = realCustomerName(job.customerName);
+  if (custName) value(M, y + 5.5, custName); else underline(M, y + 4.5, fieldW);
   if ((job.tireSize || '').trim()) value(colR, y + 5.5, job.tireSize.trim()); else underline(colR, y + 4.5, fieldW);
   y += 16;
   // Left: VEHICLE; Right: SERVICE TYPE (wraps)
@@ -387,7 +388,7 @@ export async function generateInvoicePDF(
   // ── Save ─────────────────────────────────────────────────────────────
   const bizSlug = sanitizeForFilename(brand.businessName, isQuote ? 'Estimate' : 'Invoice');
   const dateSlug = (job.date || TODAY()).replace(/[^0-9-]/g, '').slice(0, 10);
-  const custSlug = sanitizeForFilename((job.customerName || '').split(/\s+/)[0], 'Customer');
+  const custSlug = sanitizeForFilename(realCustomerName(job.customerName).split(/\s+/)[0], 'Customer');
   const filename = `${bizSlug}_${isQuote ? 'Estimate' : 'Invoice'}_${dateSlug}_${custSlug}.pdf`;
   doc.save(filename);
   return { filename, invoiceNumber: buildDocNumber(brand, job) };

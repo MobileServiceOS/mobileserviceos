@@ -242,6 +242,22 @@ export function calcQuote(form: QuoteForm, settings: Settings): QuoteResult {
 }
 
 // ============================================================
+// Customer name
+// ============================================================
+
+/**
+ * A real customer name for CUSTOMER-FACING use (texts, invoices, quotes),
+ * or '' when there isn't one. Treats both blank and the "Unknown"
+ * placeholder — which the customer-entity layer assigns to unnamed jobs —
+ * as "no name", so a message never reads "Hi Unknown".
+ */
+export function realCustomerName(name: string | null | undefined): string {
+  const n = (name || '').trim();
+  if (!n || n.toLowerCase() === 'unknown') return '';
+  return n;
+}
+
+// ============================================================
 // Status helpers
 // ============================================================
 
