@@ -66,7 +66,7 @@ import { PaywallLockout } from '@/components/PaywallLockout';
 import { shouldLockApp, isExistingCustomer } from '@/lib/planAccess';
 import { addToast, addActionToast } from '@/lib/toast';
 import { humanizeFirestoreError, logFirestoreError, isPermissionDenied } from '@/lib/firebaseErrors';
-import { applyBrandColors, planInventoryDeduction, r2, uid } from '@/lib/utils';
+import { applyBrandColors, planInventoryDeduction, r2, uid, realCustomerName } from '@/lib/utils';
 import { getLastPaymentMethod, setLastPaymentMethod } from '@/lib/paymentMethodMemory';
 import { computeJobTireCost } from '@/lib/jobTireCost';
 import { planJobInventory } from '@/lib/planJobInventory';
@@ -1270,7 +1270,9 @@ function AuthenticatedApp({ user }: { user: User }) {
       return;
     }
     const phone = (j.customerPhone || '').replace(/\D/g, '');
-    const msg = encodeURIComponent(`Hi ${j.customerName || ''}, here's your invoice from ${brand.businessName}. Total: $${j.revenue}. Thanks!`);
+    const name = realCustomerName(j.customerName);
+    const greet = name ? `Hi ${name}, here's` : `Here's`;
+    const msg = encodeURIComponent(`${greet} your invoice from ${brand.businessName}. Total: $${j.revenue}. Thanks!`);
     window.open(phone ? `sms:${phone}?body=${msg}` : `sms:?body=${msg}`);
   }, [businessId, brand, handleGenerateInvoice]);
 
@@ -1284,8 +1286,10 @@ function AuthenticatedApp({ user }: { user: User }) {
   const handleSendQuote = useCallback((j: Job, breakdown?: 'total' | 'itemized') => {
     const phone = (j.customerPhone || '').replace(/\D/g, '');
     const total = Number(j.revenue || 0);
+    const name = realCustomerName(j.customerName);
+    const greet = name ? `Hi ${name}, here's` : `Here's`;
     const msg = encodeURIComponent(
-      `Hi ${j.customerName || ''}, here's your quote from ${brand.businessName} for ${j.service || 'service'}. Total: $${total}. Valid 14 days — let me know if you'd like to book.`,
+      `${greet} your quote from ${brand.businessName} for ${j.service || 'service'}. Total: $${total}. Valid 14 days — let me know if you'd like to book.`,
     );
     window.open(phone ? `sms:${phone}?body=${msg}` : `sms:?body=${msg}`);
     void (async () => {

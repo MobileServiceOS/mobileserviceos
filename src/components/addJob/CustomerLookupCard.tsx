@@ -24,6 +24,7 @@
 
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { formatPhoneForDisplay, normalizePhone } from '@/lib/phone';
+import { realCustomerName } from '@/lib/utils';
 import { lookupCustomerByPhone, type LookupResult, type LookupLastJob } from '@/lib/lookupCustomerByPhone';
 import { deriveVipTier } from '@/lib/customerInsights';
 import type { Customer, Vehicle } from '@/lib/customerEntity';
@@ -93,9 +94,12 @@ function _deriveCardState(args: {
 }
 
 function _deriveUseCustomerPatch(customer: Customer, vehicle: Vehicle | null): UseCustomerPatch {
+  // Don't pre-fill the "Unknown" placeholder the entity layer assigns to
+  // unnamed customers — leave the name blank so it never reaches a text/PDF.
+  const cleanName = realCustomerName(customer.name);
   const patch: UseCustomerPatch = {
     customerId: customer.id,
-    customerName: customer.name,
+    ...(cleanName ? { customerName: cleanName } : {}),
     customerPhone: customer.phoneE164 ? formatPhoneForDisplay(customer.phoneE164) : undefined,
   };
   if (customer.email)         patch.customerEmail = customer.email;
