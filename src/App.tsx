@@ -66,7 +66,7 @@ import { PaywallLockout } from '@/components/PaywallLockout';
 import { shouldLockApp, isExistingCustomer } from '@/lib/planAccess';
 import { addToast, addActionToast } from '@/lib/toast';
 import { humanizeFirestoreError, logFirestoreError, isPermissionDenied } from '@/lib/firebaseErrors';
-import { applyBrandColors, planInventoryDeduction, r2, uid, realCustomerName } from '@/lib/utils';
+import { applyBrandColors, planInventoryDeduction, r2, uid, realCustomerName, money } from '@/lib/utils';
 import { getLastPaymentMethod, setLastPaymentMethod } from '@/lib/paymentMethodMemory';
 import { computeJobTireCost } from '@/lib/jobTireCost';
 import { planJobInventory } from '@/lib/planJobInventory';
@@ -1254,27 +1254,36 @@ function AuthenticatedApp({ user }: { user: User }) {
     }
   }, [settings, brand, businessId]);
 
-  const handleSendInvoice = useCallback(async (j: Job, breakdown?: 'total' | 'itemized') => {
+  const handleSendInvoice = useCallback((j: Job, breakdown?: 'total' | 'itemized') => {
     if (!businessId) return;
-    // Always (re)generate so the chosen style — Total (A) or Itemized (B) —
-    // is what gets produced, even if an invoice was generated earlier.
-    await handleGenerateInvoice(j, breakdown);
-    const jobsCol = scopedCol(businessId, 'jobs');
-    // Partial write — see handleGenerateInvoice for rationale.
-    const patch = { invoiceSent: true, invoiceSentAt: new Date().toISOString() };
-    try {
-      await fbSetFast(jobsCol, j.id, patch);
-    } catch (e) {
-      setSyncStatus('sync_failed');
-      addToast(`Invoice update failed: ${humanizeFirestoreError(e)}`, 'error');
-      return;
-    }
+    // Open Messages FIRST — synchronously in the tap, before any await — so
+    // iOS never expires the user gesture (the PDF import + render would
+    // otherwise consume it and the sms: open would silently no-op). Same fix
+    // as handleSendQuote (#100). PDF generation + the sent-flag write run
+    // right after as best-effort. Total matches the PDF: itemized sum (or
+    // revenue) plus tax, formatted — not the raw revenue string.
     const phone = (j.customerPhone || '').replace(/\D/g, '');
     const name = realCustomerName(j.customerName);
     const greet = name ? `Hi ${name}, here's` : `Here's`;
-    const msg = encodeURIComponent(`${greet} your invoice from ${brand.businessName}. Total: $${j.revenue}. Thanks!`);
+    const itemsSum = (j.lineItems || []).reduce((s, li) => s + (Number(li.qty) || 0) * (Number(li.unitPrice) || 0), 0);
+    const subtotal = itemsSum > 0 ? itemsSum : Number(j.revenue || 0);
+    const totalStr = money(r2(subtotal * (1 + Number(settings.invoiceTaxRate || 0) / 100)));
+    const msg = encodeURIComponent(`${greet} your invoice from ${brand.businessName}. Total: ${totalStr}. Thanks!`);
     window.open(phone ? `sms:${phone}?body=${msg}` : `sms:?body=${msg}`);
-  }, [businessId, brand, handleGenerateInvoice]);
+    void (async () => {
+      // Always (re)generate so the chosen style — Total (A) or Itemized (B) —
+      // is what gets produced, even if an invoice was generated earlier.
+      await handleGenerateInvoice(j, breakdown);
+      const jobsCol = scopedCol(businessId, 'jobs');
+      // Partial write — see handleGenerateInvoice for rationale.
+      try {
+        await fbSetFast(jobsCol, j.id, { invoiceSent: true, invoiceSentAt: new Date().toISOString() });
+      } catch (e) {
+        setSyncStatus('sync_failed');
+        addToast(`Invoice update failed: ${humanizeFirestoreError(e)}`, 'error');
+      }
+    })();
+  }, [businessId, brand, settings, handleGenerateInvoice]);
 
   // Send a QUOTE. Open the Messages composer FIRST — synchronously in the
   // tap, before any await — so iOS never expires the user gesture (the
@@ -1285,11 +1294,14 @@ function AuthenticatedApp({ user }: { user: User }) {
   // invoiceGenerated/sent writes — a quote isn't an invoice.
   const handleSendQuote = useCallback((j: Job, breakdown?: 'total' | 'itemized') => {
     const phone = (j.customerPhone || '').replace(/\D/g, '');
-    const total = Number(j.revenue || 0);
     const name = realCustomerName(j.customerName);
     const greet = name ? `Hi ${name}, here's` : `Here's`;
+    // Match the PDF total: itemized sum (or revenue) plus tax, formatted.
+    const itemsSum = (j.lineItems || []).reduce((s, li) => s + (Number(li.qty) || 0) * (Number(li.unitPrice) || 0), 0);
+    const subtotal = itemsSum > 0 ? itemsSum : Number(j.revenue || 0);
+    const totalStr = money(r2(subtotal * (1 + Number(settings.invoiceTaxRate || 0) / 100)));
     const msg = encodeURIComponent(
-      `${greet} your quote from ${brand.businessName} for ${j.service || 'service'}. Total: $${total}. Valid 14 days — let me know if you'd like to book.`,
+      `${greet} your quote from ${brand.businessName} for ${j.service || 'service'}. Total: ${totalStr}. Valid 14 days — let me know if you'd like to book.`,
     );
     window.open(phone ? `sms:${phone}?body=${msg}` : `sms:?body=${msg}`);
     void (async () => {
