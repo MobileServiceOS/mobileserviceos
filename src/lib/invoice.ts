@@ -1,7 +1,14 @@
 import { jsPDF } from 'jspdf';
 import type { Job, Settings, Brand, JobLineItem } from '@/types';
 import { TODAY } from '@/lib/defaults';
-import { money, r2, resolvePaymentStatus, realCustomerName } from '@/lib/utils';
+import { r2, resolvePaymentStatus, realCustomerName } from '@/lib/utils';
+
+// Document currency — always two decimals so itemized rows foot exactly to
+// the subtotal/total. The app-wide money() rounds to whole dollars (for
+// outdoor readability on the dashboard), which would make a $50.50 line
+// print "$51" and the columns visibly fail to add up on a printed invoice.
+const money2 = (n: number | null | undefined): string =>
+  '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 // ─────────────────────────────────────────────────────────────────────
 //  Wheel Rush invoice / estimate generator.
@@ -331,9 +338,9 @@ export async function generateInvoicePDF(
       doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(...INK);
       doc.text(descLines, descX, y + 7);
       doc.text(String(li.qty), qtyR, y + 7, { align: 'right' });
-      doc.text(money(li.unitPrice), unitR, y + 7, { align: 'right' });
+      doc.text(money2(li.unitPrice), unitR, y + 7, { align: 'right' });
       doc.setFont('helvetica', 'bold');
-      doc.text(money(r2(li.qty * li.unitPrice)), amtR, y + 7, { align: 'right' });
+      doc.text(money2(r2(li.qty * li.unitPrice)), amtR, y + 7, { align: 'right' });
       y += rowH;
     }
 
@@ -342,11 +349,11 @@ export async function generateInvoicePDF(
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(...GRAY);
     doc.text('Subtotal', unitR, y, { align: 'right' });
     doc.setTextColor(...INK);
-    doc.text(money(subtotal), amtR, y, { align: 'right' });
+    doc.text(money2(subtotal), amtR, y, { align: 'right' });
     y += 6;
     doc.setTextColor(...GRAY);
     doc.text('Tax', unitR, y, { align: 'right' });
-    doc.text(taxRate > 0 ? money(taxAmt) : 'Included', amtR, y, { align: 'right' });
+    doc.text(taxRate > 0 ? money2(taxAmt) : 'Included', amtR, y, { align: 'right' });
     y += 8;
   } else {
     y += 6;
@@ -362,7 +369,7 @@ export async function generateInvoicePDF(
   doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(...ORANGE);
   doc.text(isPaid ? 'TOTAL PAID' : 'TOTAL DUE', barX + 5, y + 8.6);
   doc.setFontSize(15); doc.setTextColor(...WHITE);
-  doc.text(money(total), W - M - 4, y + 9, { align: 'right' });
+  doc.text(money2(total), W - M - 4, y + 9, { align: 'right' });
   y += barH + 11;
 
   // ── NOTES ────────────────────────────────────────────────────────────

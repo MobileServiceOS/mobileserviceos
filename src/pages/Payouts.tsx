@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { Job, Settings } from '@/types';
-import { getWeekStart, jobGrossProfit, money, monthlyFixed, formatWeekRange, formatMonth, getMonth } from '@/lib/utils';
+import { getWeekStart, jobGrossProfit, money, formatWeekRange, formatMonth, getMonth } from '@/lib/utils';
 import { TODAY } from '@/lib/defaults';
 import { businessNetProfit } from '@/lib/expenseCalc';
 
@@ -31,8 +31,6 @@ export function Payouts({ jobs, settings }: Props) {
   const weekJobs = completedJobs.filter((j) => getWeekStart(j.date, weekStartDay) === thisWeek);
 
   const weekProfit = weekJobs.reduce((t, j) => t + jobGrossProfit(j, settings), 0);
-  const fixed = monthlyFixed(settings);
-  const weeklyFixed = fixed / 4.33;
   // Net weekly = jobs gross MINUS every kind of expense dated in the
   // week (one-time, job-linked, prorated recurring). The previous
   // calc only subtracted recurring fixed; one-time expenses like a
@@ -50,6 +48,10 @@ export function Payouts({ jobs, settings }: Props) {
     startISO: thisWeek,
     endISO: thisWeekEnd,
   });
+  // Everything subtracted from gross this week (one-time + job-linked +
+  // prorated recurring) — shown as one line so the card foots exactly:
+  // Weekly profit − Expenses = Net.
+  const weekExpenses = Math.max(0, weekProfit - netWeekly);
   const taxReserve = netWeekly * Number(settings.taxRate || 0) / 100;
   const distributable = netWeekly - taxReserve;
 
@@ -137,7 +139,7 @@ export function Payouts({ jobs, settings }: Props) {
         <div className="form-group-title">This Week's Breakdown</div>
         <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: -8, marginBottom: 8 }}>{thisWeekRange}</div>
         <div className="card-row"><span className="label">Weekly profit</span><span className="value">{money(weekProfit)}</span></div>
-        <div className="card-row"><span className="label">Fixed costs (weekly)</span><span className="value red">-{money(weeklyFixed)}</span></div>
+        <div className="card-row"><span className="label">Expenses (this week)</span><span className="value red">-{money(weekExpenses)}</span></div>
         <div className="card-row"><span className="label">Net</span><span className="value">{money(netWeekly)}</span></div>
         <div className="card-row"><span className="label">Tax reserve</span><span className="value red">-{money(taxReserve)}</span></div>
         <div className="card-row total"><span className="label">Distributable</span><span className="value green">{money(distributable)}</span></div>

@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type { JobLineItem } from '@/types';
 import { money } from '@/lib/utils';
@@ -14,6 +15,59 @@ const cell: CSSProperties = {
   padding: '9px 8px', borderRadius: 8, border: '1px solid var(--border)',
   background: 'var(--s1)', color: 'var(--t1)', fontSize: 13, minWidth: 0, width: '100%',
 };
+
+// Numeric cell with a local text buffer so the field can be cleared, or hold
+// a trailing "." mid-edit, without the numeric model snapping it back to 0.
+// type="text" + inputMode keeps the mobile numeric keypad while allowing an
+// empty value — a plain type="number" forces 0 the instant you clear it,
+// which made typing over the default 0 (or entering cents) fiddly.
+function NumCell({ value, onCommit, style, placeholder, ariaLabel, decimal }: {
+  value: number;
+  onCommit: (n: number) => void;
+  style: CSSProperties;
+  placeholder: string;
+  ariaLabel: string;
+  decimal?: boolean;
+}) {
+  const [text, setText] = useState(value ? String(value) : '');
+  const focused = useRef(false);
+
+  // Re-sync from the model when it changes externally (row reset, line-sum
+  // mirror, etc.) — but never while the user is actively typing.
+  useEffect(() => {
+    if (!focused.current) setText(value ? String(value) : '');
+  }, [value]);
+
+  return (
+    <input
+      style={style}
+      type="text"
+      inputMode={decimal ? 'decimal' : 'numeric'}
+      placeholder={placeholder}
+      aria-label={ariaLabel}
+      value={text}
+      onFocus={() => { focused.current = true; }}
+      onChange={(e) => {
+        let clean: string;
+        if (decimal) {
+          clean = e.target.value.replace(/[^\d.]/g, '');
+          const dot = clean.indexOf('.');
+          if (dot !== -1) clean = clean.slice(0, dot + 1) + clean.slice(dot + 1).replace(/\./g, '');
+        } else {
+          clean = e.target.value.replace(/\D/g, '');
+        }
+        setText(clean);
+        onCommit(Math.max(0, Number(clean) || 0));
+      }}
+      onBlur={() => {
+        focused.current = false;
+        const n = Math.max(0, Number(text) || 0);
+        setText(n ? String(n) : '');
+        onCommit(n);
+      }}
+    />
+  );
+}
 
 export function LineItemsEditor({ items, onChange }: {
   items: JobLineItem[];
@@ -51,19 +105,20 @@ export function LineItemsEditor({ items, onChange }: {
             value={r.description}
             onChange={(e) => update(i, { description: e.target.value })}
           />
-          <input
+          <NumCell
             style={{ ...cell, flex: '0 0 48px', textAlign: 'center' }}
-            type="number" inputMode="numeric" min={0} placeholder="Qty"
+            placeholder="Qty"
             value={r.qty}
-            onChange={(e) => update(i, { qty: Math.max(0, Number(e.target.value) || 0) })}
-            aria-label={`Quantity for line ${i + 1}`}
+            onCommit={(n) => update(i, { qty: n })}
+            ariaLabel={`Quantity for line ${i + 1}`}
           />
-          <input
+          <NumCell
             style={{ ...cell, flex: '0 0 72px', textAlign: 'right' }}
-            type="number" inputMode="decimal" min={0} placeholder="Unit $"
+            placeholder="Unit $"
+            decimal
             value={r.unitPrice}
-            onChange={(e) => update(i, { unitPrice: Math.max(0, Number(e.target.value) || 0) })}
-            aria-label={`Unit price for line ${i + 1}`}
+            onCommit={(n) => update(i, { unitPrice: n })}
+            ariaLabel={`Unit price for line ${i + 1}`}
           />
           <span style={{ flex: '0 0 64px', textAlign: 'right', fontSize: 12, fontWeight: 700, color: 'var(--t1)' }}>
             {money((Number(r.qty) || 0) * (Number(r.unitPrice) || 0))}
