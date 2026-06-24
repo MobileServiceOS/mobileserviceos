@@ -297,21 +297,37 @@ export async function generateInvoicePDF(
   const unitR = 154;
   const descX = M + 3;
 
+  // Page-flow guards — content must never run under the footer (y=268) or
+  // off the 297mm page. When a block won't fit, start a new page.
+  const PAGE_BOTTOM = 258;
+  const PAGE_TOP = 20;
+  const need = (h: number): boolean => {
+    if (y + h > PAGE_BOTTOM) { doc.addPage(); y = PAGE_TOP; return true; }
+    return false;
+  };
+
   // ── Itemized table (Type B) ──────────────────────────────────────────
   if (itemized) {
-    doc.setFillColor(...NAVY);
-    doc.rect(M, y, W - 2 * M, 9, 'F');
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(...WHITE);
-    doc.text('DESCRIPTION', descX, y + 6);
-    doc.text('QTY', qtyR, y + 6, { align: 'right' });
-    doc.text('UNIT PRICE', unitR, y + 6, { align: 'right' });
-    doc.text('AMOUNT', amtR, y + 6, { align: 'right' });
-    y += 9;
+    const drawTableHeader = () => {
+      doc.setFillColor(...NAVY);
+      doc.rect(M, y, W - 2 * M, 9, 'F');
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(...WHITE);
+      doc.text('DESCRIPTION', descX, y + 6);
+      doc.text('QTY', qtyR, y + 6, { align: 'right' });
+      doc.text('UNIT PRICE', unitR, y + 6, { align: 'right' });
+      doc.text('AMOUNT', amtR, y + 6, { align: 'right' });
+      y += 9;
+    };
+    drawTableHeader();
 
-    items.forEach((li, i) => {
+    let zebra = 0;
+    for (const li of items) {
       const descLines = doc.splitTextToSize(li.description, qtyR - descX - 8);
       const rowH = Math.max(11, descLines.length * 5 + 5);
-      if (i % 2 === 1) { doc.setFillColor(...ZEBRA); doc.rect(M, y, W - 2 * M, rowH, 'F'); }
+      // Repeat the header when the table spills onto a new page.
+      if (need(rowH)) { drawTableHeader(); zebra = 0; }
+      if (zebra % 2 === 1) { doc.setFillColor(...ZEBRA); doc.rect(M, y, W - 2 * M, rowH, 'F'); }
+      zebra += 1;
       doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(...INK);
       doc.text(descLines, descX, y + 7);
       doc.text(String(li.qty), qtyR, y + 7, { align: 'right' });
@@ -319,8 +335,9 @@ export async function generateInvoicePDF(
       doc.setFont('helvetica', 'bold');
       doc.text(money(r2(li.qty * li.unitPrice)), amtR, y + 7, { align: 'right' });
       y += rowH;
-    });
+    }
 
+    need(16);
     y += 5;
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(...GRAY);
     doc.text('Subtotal', unitR, y, { align: 'right' });
@@ -336,9 +353,10 @@ export async function generateInvoicePDF(
   }
 
   // ── TOTAL DUE bar ────────────────────────────────────────────────────
+  const barH = 13;
+  need(barH + 4);
   const barX = itemized ? 110 : M;
   const barW = W - M - barX;
-  const barH = 13;
   doc.setFillColor(...NAVY);
   doc.rect(barX, y, barW, barH, 'F');
   doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(...ORANGE);
@@ -353,12 +371,14 @@ export async function generateInvoicePDF(
   if (isQuote) notes.push('Estimate valid 30 days from the date above. Final price confirmed on site before any work begins.');
   notes.push(`24/7 mobile tire service across ${region}. We bring the tire shop to you.`);
 
+  need(10);
   doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(...ORANGE);
   doc.text('NOTES', M, y);
   y += 5;
   doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(...GRAY);
   for (const n of notes) {
     const lines = doc.splitTextToSize(`•  ${n}`, W - 2 * M);
+    need(lines.length * 4.4 + 2);
     doc.text(lines, M, y);
     y += lines.length * 4.4 + 1.6;
   }
