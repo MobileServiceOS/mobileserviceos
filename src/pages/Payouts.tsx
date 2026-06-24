@@ -70,7 +70,23 @@ export function Payouts({ jobs, settings }: Props) {
     });
     return Object.entries(weeks)
       .sort((a, b) => b[0].localeCompare(a[0]))
-      .slice(0, 8);
+      .slice(0, 8)
+      .map(([w, d]) => {
+        // Net = jobs gross MINUS expenses dated in that week (one-time,
+        // job-linked, prorated recurring) — the same businessNetProfit the
+        // current-week hero + Recent Months use. Without this, a logged
+        // weekly expense never reduced the per-week figure here.
+        const end = new Date(w + 'T12:00:00');
+        end.setDate(end.getDate() + 6);
+        const endISO = end.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+        const net = businessNetProfit({
+          jobsProfitSum: d.profit,
+          expenses: settings.expenses || [],
+          startISO: w,
+          endISO,
+        });
+        return { week: w, ...d, net };
+      });
   }, [completedJobs, settings, weekStartDay]);
 
   const monthBreakdown = useMemo(() => {
@@ -145,15 +161,15 @@ export function Payouts({ jobs, settings }: Props) {
           <div className="section-label">Recent Weeks</div>
           <div className="card card-anim">
             <div className="card-pad">
-              {weekBreakdown.map(([w, d], i) => (
-                <div key={w} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderTop: i ? '1px solid var(--border2)' : 'none' }}>
+              {weekBreakdown.map((d, i) => (
+                <div key={d.week} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderTop: i ? '1px solid var(--border2)' : 'none' }}>
                   <div>
-                    <div style={{ fontSize: 13, fontWeight: 700 }}>{formatWeekRange(w)}</div>
+                    <div style={{ fontSize: 13, fontWeight: 700 }}>{formatWeekRange(d.week)}</div>
                     <div style={{ fontSize: 11, color: 'var(--t3)' }}>{d.count} job{d.count !== 1 ? 's' : ''}</div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <div className="value">{money(d.revenue)}</div>
-                    <div style={{ fontSize: 11, color: 'var(--green)' }}>profit {money(d.profit)}</div>
+                    <div style={{ fontSize: 11, color: d.net >= 0 ? 'var(--green)' : 'var(--red, #ef4444)' }}>net {money(d.net)}</div>
                   </div>
                 </div>
               ))}
