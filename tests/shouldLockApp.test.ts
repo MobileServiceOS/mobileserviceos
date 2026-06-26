@@ -8,7 +8,16 @@
 // real-money bugs, so the coverage here is deliberately exhaustive.
 
 import { shouldLockApp, isExistingCustomer, EXISTING_CUSTOMER_CUTOFF_ISO } from '@/lib/planAccess';
+import { __setGrowthModeForTests } from '@/lib/growthMode';
 import type { Settings } from '@/types';
+
+// This suite verifies the billing-ENFORCEMENT logic — the lock decisions
+// that re-engage when the early-access GROWTH_MODE master switch is off.
+// The app currently ships with GROWTH_MODE on (free for everyone), which
+// globally bypasses these locks, so force the override off here to keep
+// exercising the dormant enforcement paths. A dedicated block at the end
+// asserts the growth-mode-ON (free) behavior explicitly.
+__setGrowthModeForTests(false);
 
 let passed = 0;
 let failed = 0;
@@ -166,6 +175,20 @@ check('pre-cutoff signup with stamped trialing (post-migration) → unlocked',
     subscriptionStatus: 'trialing',
     trialEndsAt: futureIso(10 * DAY),
   } as Settings) === false);
+
+console.log('\n┌─ Growth mode ON → app is free (every lock bypassed) ──');
+__setGrowthModeForTests(true);
+check('growth on: expired trial → NOT locked',
+  shouldLockApp({ subscriptionStatus: 'trialing', trialEndsAt: pastIso(DAY) } as Settings) === false);
+check('growth on: canceled → NOT locked',
+  shouldLockApp({ subscriptionStatus: 'canceled' } as Settings) === false);
+check('growth on: past_due → NOT locked',
+  shouldLockApp({ subscriptionStatus: 'past_due' } as Settings) === false);
+check('growth on: no subscription at all → NOT locked',
+  shouldLockApp({} as Settings) === false);
+check('growth on: post-cutoff signup, no status → NOT locked',
+  shouldLockApp({ onboardingCompletedAt: postCutoffIso } as Settings) === false);
+__setGrowthModeForTests(null); // restore the build-time default
 
 console.log(`\n  ${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);
