@@ -31,6 +31,14 @@ import {
   planLiteralIsPro,
   sanitizeSubscriptionWrite,
 } from '@/lib/planAccess';
+import { __setGrowthModeForTests } from '@/lib/growthMode';
+
+// These tests verify the Stripe-state → gating translation that the
+// early-access GROWTH_MODE switch globally overrides while the app ships
+// free. Force the override off so the dormant enforcement/exemption logic
+// is actually exercised (a growth-mode-ON block at the end covers the free
+// behavior). Restored to the build-time default before the suite ends.
+__setGrowthModeForTests(false);
 
 let passed = 0;
 let failed = 0;
@@ -258,6 +266,15 @@ section('sanitizeSubscriptionWrite — prevents Stripe state from demoting exemp
   // Regression — input must NOT be mutated.
   check('input object not mutated',
     'plan' in stripeUpdate && stripeUpdate.plan === 'core');
+}
+
+section('GROWTH MODE ON — billing globally bypassed (app is free)');
+{
+  __setGrowthModeForTests(true);
+  check('any account resolves to Pro', resolvePlan(makeSettings({ plan: 'core', subscriptionStatus: 'canceled' })) === 'pro');
+  check('non-exempt account treated as billing-exempt', isBillingExempt(makeSettings({ billingExempt: false })) === true);
+  check('canceled account reports active subscription', hasActiveSubscription(makeSettings({ subscriptionStatus: 'canceled' })) === true);
+  __setGrowthModeForTests(null); // restore the build-time default
 }
 
 console.log(`\n  ${passed} passed, ${failed} failed`);

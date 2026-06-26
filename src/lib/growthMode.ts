@@ -58,7 +58,7 @@
  * enforcement, and the value needs to be statically analyzable so
  * dead-code paths are obvious in review.
  */
-export const GROWTH_MODE = false as const;
+export const GROWTH_MODE = true as const;
 
 /**
  * Founder discount terms — the offer Founding Members lock in.
@@ -79,7 +79,20 @@ export const FOUNDER_DISCOUNT_TERM_MONTHS = 12 as const;
  * (`if (isGrowthMode())`) and so a future change to runtime-flag
  * sourcing only touches this one function.
  */
+// Test-only override seam. The billing-enforcement unit tests
+// (shouldLockApp, stripeFinancialPaths) must be able to exercise the
+// DORMANT lock/exemption logic with growth mode forced off, independent of
+// the production GROWTH_MODE constant — otherwise flipping the master switch
+// to ship the app free would silently disable the real-money paywall
+// coverage. Production code never calls this. Pass null to restore the
+// build-time default.
+let _growthModeTestOverride: boolean | null = null;
+export function __setGrowthModeForTests(value: boolean | null): void {
+  _growthModeTestOverride = value;
+}
+
 export function isGrowthMode(): boolean {
+  if (_growthModeTestOverride !== null) return _growthModeTestOverride;
   return GROWTH_MODE as boolean;
 }
 
