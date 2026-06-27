@@ -24,7 +24,12 @@ import type { Timestamp } from 'firebase/firestore';
 // ─────────────────────────────────────────────────────────────────────
 
 export type PaymentStatus = 'Paid' | 'Pending Payment' | 'Partial Payment' | 'Refunded' | 'Cancelled';
-export type JobStatus = 'Completed' | 'Pending' | 'Cancelled';
+// Job status. The scheduling pipeline (Scheduled → En Route → In Progress)
+// precedes the legacy terminal states. Scheduled-pipeline jobs are booked
+// ahead and must NOT count toward revenue/profit/inventory until they reach
+// 'Completed' (see src/lib/jobStatus.ts and the revenue filters). 'Pending'
+// is the legacy "work done, not yet paid" state and still counts as revenue.
+export type JobStatus = 'Scheduled' | 'En Route' | 'In Progress' | 'Completed' | 'Pending' | 'Cancelled';
 export type TireSource = 'Inventory' | 'Bought for this job' | 'Customer supplied';
 
 /**
@@ -776,6 +781,12 @@ export interface Job {
    *  job-creation time from `date` (the service date, which can be
    *  any day). */
   createdAt?: string;
+  /** Booked appointment date+time for a Scheduled job, as a local
+   *  datetime string "YYYY-MM-DDTHH:mm" (the value of an
+   *  <input type="datetime-local">). Null/absent for jobs logged live
+   *  after the work. Drives Today's Schedule + the Upcoming list; the
+   *  date part is compared against TODAY() (America/New_York). */
+  appointmentDate?: string | null;
 
   // ─── Mechanic-specific job fields (Phase 2.1) ────────────────────
   // Declared optional so tire jobs are unaffected. The Add Job form

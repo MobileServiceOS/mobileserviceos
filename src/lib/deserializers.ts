@@ -67,7 +67,11 @@ function deserializeReservations(v: unknown): ReservedSlot[] | undefined {
   return out.length ? out : undefined;
 }
 
-const VALID_STATUSES: JobStatus[] = ['Completed', 'Pending', 'Cancelled'];
+// Scheduled / En Route / In Progress added for the scheduling pipeline.
+// Fallback stays 'Completed' so any job with a missing/unknown status (every
+// pre-pipeline job that never had one written) backfills as Completed —
+// keeping Insights, revenue, and the AI Ops reorder loop unchanged.
+const VALID_STATUSES: JobStatus[] = ['Scheduled', 'En Route', 'In Progress', 'Completed', 'Pending', 'Cancelled'];
 const VALID_PAYMENT_STATUSES: PaymentStatus[] = ['Paid', 'Pending Payment', 'Partial Payment', 'Refunded', 'Cancelled'];
 const VALID_PAYMENT_METHODS: PaymentMethod[] = ['cash', 'card', 'zelle', 'venmo', 'cashapp', 'check', 'apple_pay', 'google_pay', 'other'];
 const VALID_TIRE_SOURCES: TireSource[] = ['Inventory', 'Bought for this job', 'Customer supplied'];
@@ -154,6 +158,8 @@ export function deserializeJob(raw: RawDoc): Job {
     createdByUid: raw.createdByUid == null ? undefined : asString(raw.createdByUid),
     createdAt: raw.createdAt == null ? undefined : asString(raw.createdAt),
     assignedToUid: raw.assignedToUid == null ? undefined : asString(raw.assignedToUid),
+    // Booked appointment datetime ("YYYY-MM-DDTHH:mm") for Scheduled jobs.
+    appointmentDate: raw.appointmentDate == null ? null : asString(raw.appointmentDate),
 
     // ─── Mechanic job fields (Phase 2.1 + 2.2) ─────────────────────
     laborHours: raw.laborHours == null ? undefined : asNumberOrString(raw.laborHours),

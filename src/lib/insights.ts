@@ -11,6 +11,7 @@
 import type { Job, Settings, ExpenseCategory } from '@/types';
 import { EXPENSE_CATEGORY_LABELS } from '@/types';
 import { jobGrossProfit, resolvePaymentStatus, getWeekStart } from '@/lib/utils';
+import { isScheduledPipeline } from '@/lib/jobStatus';
 import { deriveCustomerProfiles } from '@/lib/customers';
 import {
   expenseTotalsInRange,
@@ -165,7 +166,11 @@ export function computeInsights(
     // Operator-visible symptom: cancel a $500 job → it still shows
     // in "Top Cities" and "Unpaid 0-7d" the same week. Filter once
     // at the top so every downstream metric inherits the exclusion.
-    if (j.status === 'Cancelled') continue;
+    // Scheduled-pipeline jobs (Scheduled / En Route / In Progress) are
+    // booked ahead and haven't happened yet — exclude them alongside
+    // Cancelled so a future appointment never inflates revenue, top
+    // services/cities, or unpaid aging until it's marked Completed.
+    if (j.status === 'Cancelled' || isScheduledPipeline(j.status)) continue;
     const revenue = Number(j.revenue || 0);
     const profit = jobGrossProfit(j, settings);
 
@@ -217,7 +222,7 @@ export function computeInsights(
   // ── Daily job stats (Phase 5) ───────────────────────────────────
   // Cancelled jobs are deliberately excluded so they can't inflate
   // today / this-week / busiest-service counts.
-  const liveJobs = list.filter((j) => j.status !== 'Cancelled');
+  const liveJobs = list.filter((j) => j.status !== 'Cancelled' && !isScheduledPipeline(j.status));
   const todayJobs    = liveJobs.filter((j) => j.date === today);
   const thisWeekJobs = liveJobs.filter((j) => j.date && getWeekStart(j.date, weekStartDay) === thisWeek);
 
@@ -288,7 +293,7 @@ export function computeInsights(
     const wkJobCost = (() => {
       let sum = 0;
       for (const j of list) {
-        if (!j.date || j.status === 'Cancelled') continue;
+        if (!j.date || j.status === 'Cancelled' || isScheduledPipeline(j.status)) continue;
         if (getWeekStart(j.date, weekStartDay) !== wk) continue;
         sum += Number(j.revenue || 0) - jobGrossProfit(j, settings);
       }

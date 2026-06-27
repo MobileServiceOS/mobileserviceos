@@ -57,6 +57,42 @@ export function fmtDateShort(date: string): string {
   }
 }
 
+// ─── Appointment date+time (scheduling pipeline) ───────────────────
+// appointmentDate is a local datetime string "YYYY-MM-DDTHH:mm" (the raw
+// value of <input type="datetime-local">). `new Date(s)` parses that as
+// LOCAL time (no trailing Z), which is what we want — the operator books
+// in their own clock. The date part for "is it today?" is just slice(0,10).
+
+/** The YYYY-MM-DD date portion of an appointment string (for today/upcoming
+ *  comparisons against TODAY()). Empty string when unset. */
+export function apptDatePart(appt: string | null | undefined): string {
+  return (appt || '').slice(0, 10);
+}
+
+/** Time only: "2:30 PM". Empty when unset or malformed. */
+export function fmtApptTime(appt: string | null | undefined): string {
+  if (!appt) return '';
+  const dt = new Date(appt);
+  if (Number.isNaN(dt.getTime())) return '';
+  return dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
+/** Date only: "Sun, Jun 29". Empty when unset or malformed. */
+export function fmtApptDate(appt: string | null | undefined): string {
+  if (!appt) return '';
+  const dt = new Date(appt);
+  if (Number.isNaN(dt.getTime())) return '';
+  return dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+/** Full appointment label: "Sun, Jun 29 · 2:30 PM". Empty when unset. */
+export function fmtApptDateTime(appt: string | null | undefined): string {
+  const d = fmtApptDate(appt);
+  const t = fmtApptTime(appt);
+  if (!d) return '';
+  return t ? `${d} · ${t}` : d;
+}
+
 /**
  * Resolve the ISO date (YYYY-MM-DD) of the start of the week that
  * contains date `d`. The week-start day is configurable per business:

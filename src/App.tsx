@@ -64,6 +64,7 @@ import { OfflineBanner } from '@/components/OfflineBanner';
 import { Onboarding } from '@/components/Onboarding';
 import { PaywallLockout } from '@/components/PaywallLockout';
 import { shouldLockApp, isExistingCustomer } from '@/lib/planAccess';
+import { isScheduledPipeline } from '@/lib/jobStatus';
 import { addToast, addActionToast } from '@/lib/toast';
 import { humanizeFirestoreError, logFirestoreError, isPermissionDenied } from '@/lib/firebaseErrors';
 import { applyBrandColors, planInventoryDeduction, r2, uid, realCustomerName, money } from '@/lib/utils';
@@ -77,7 +78,7 @@ import { planJobCancelRefund } from '@/lib/inventoryRefund';
 // there. Keeps jspdf (358 KB) + html2canvas (201 KB) out of the main
 // bundle until the operator actually generates an invoice.
 import { openReviewSMSFromJob, shouldPromptReview } from '@/lib/review';
-import { APP_LOGO, DEFAULT_SETTINGS, EMPTY_JOB } from '@/lib/defaults';
+import { APP_LOGO, DEFAULT_SETTINGS, EMPTY_JOB, TODAY } from '@/lib/defaults';
 import { attachStripeSync } from '@/lib/stripeSync';
 import {
   deserializeExpense,
@@ -919,6 +920,38 @@ function AuthenticatedApp({ user }: { user: User }) {
     setTab('add');
   }, []);
 
+  // Schedule Job: the additive booked-ahead flow. Opens the SAME AddJob form
+  // as Log Job but seeded as a Scheduled job — status drives AddJob's
+  // appointment picker + "Schedule Job" save, and the scheduling pipeline
+  // keeps it out of revenue/inventory until it's marked Completed. Not paid
+  // yet (Pending Payment), no price required (set at completion), and the
+  // appointment seeds to 9:00 AM today for the operator to adjust.
+  const startScheduleJob = useCallback(() => {
+    setJobDraft({
+      ...EMPTY_JOB(),
+      status: 'Scheduled',
+      paymentStatus: 'Pending Payment',
+      revenue: '',
+      appointmentDate: `${TODAY()}T09:00`,
+    });
+    setEditingJobId(null);
+    setPrefilledFromQuote(false);
+    setTab('add');
+  }, []);
+
+  // Mark Complete on a scheduled job → open the real completion flow (the
+  // AddJob form, pre-set to Completed) so the operator confirms price/notes
+  // and the save runs the full pipeline (inventory deduction, revenue, stats).
+  // A bare status patch would skip all of that, so completing a booked job
+  // must route through here, not onUpdateJob({status:'Completed'}).
+  const handleCompleteScheduledJob = useCallback((j: Job) => {
+    setDetailJob(null);
+    setJobDraft({ ...j, status: 'Completed' });
+    setEditingJobId(j.id);
+    setPrefilledFromQuote(false);
+    setTab('add');
+  }, []);
+
   const saveJob = useCallback(async (resetAfter = false): Promise<Job | null> => {
     if (!businessId) { addToast('Sign in to save', 'warn'); return null; }
     const j = jobDraft;
@@ -948,6 +981,11 @@ function AuthenticatedApp({ user }: { user: User }) {
     // permanently lost its 4-tire stock — operators had to re-stock
     // by hand. Mirrors the refund pattern in deleteJob().
     const isCanceling = j.status === 'Cancelled';
+    // A scheduled-pipeline job (Scheduled / En Route / In Progress) is booked
+    // ahead and not yet performed, so it must NOT deduct inventory — the tire
+    // isn't installed yet. Deduction runs only when it's actually completed
+    // (the Mark Complete flow re-opens the job and re-saves it as Completed).
+    const isScheduled = isScheduledPipeline(j.status);
 
     try {
       if (isCanceling && isEditing) {
@@ -994,7 +1032,7 @@ function AuthenticatedApp({ user }: { user: User }) {
         deductions = null;
       }
 
-      if (!isCanceling && j.tireSource === 'Inventory' && j.tireSize) {
+      if (!isCanceling && !isScheduled && j.tireSource === 'Inventory' && j.tireSize) {
         // Restore (on edit) + FIFO plan + apply is pure — see
         // planJobInventory (tested in planJobInventory.test). saveJob keeps
         // only the I/O: persist the touched items, mirror to local state,
@@ -1546,6 +1584,7 @@ function AuthenticatedApp({ user }: { user: User }) {
           inventory={inventory}
           setTab={setTab}
           onNewJob={startNewJob}
+          onScheduleJob={startScheduleJob}
           onQuoteToJob={startJobFromQuote}
           onViewJob={handleViewJob}
           onGenerateInvoice={handleGenerateInvoice}
@@ -1663,7 +1702,7 @@ function AuthenticatedApp({ user }: { user: User }) {
   }, [tab, jobs, settings, inventory, jobDraft, editingJobId, prefilledFromQuote, savedJob, brand,
       businessId, canViewFinancials, user,
       handleViewJob, handleGenerateInvoice, handleSendReview, handleMarkPaid,
-      handleEditJob, handleDuplicate, handleCompleteJob, saveJob, startNewJob, startJobFromQuote, persistExpenses, persistInventory, persistSettings]);
+      handleEditJob, handleDuplicate, handleCompleteJob, saveJob, startNewJob, startScheduleJob, startJobFromQuote, persistExpenses, persistInventory, persistSettings]);
 
   if (brandLoading) {
     return (
@@ -1858,6 +1897,7 @@ function AuthenticatedApp({ user }: { user: User }) {
           onSendReview={() => handleSendReview(detailJob)}
           onMarkPaid={(method) => handleMarkPaid(detailJob, method)}
           onDeductInventory={() => { void handleDeductInventory(detailJob); }}
+          onCompleteScheduled={() => handleCompleteScheduledJob(detailJob)}
           onUpdateJob={async (patch) => {
             if (!businessId) return;
             // Send ONLY the patch — fbSetFast merges into Firestore, so
