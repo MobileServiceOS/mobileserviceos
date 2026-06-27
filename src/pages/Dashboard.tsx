@@ -910,7 +910,7 @@ export function Dashboard({
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
                     <span className="num" style={{ fontSize: 14, fontWeight: 700, color: 'var(--gold)' }}>{money(j.revenue)}</span>
-                    <button className="btn xs success" onClick={() => onMarkPaid(j)}>Paid</button>
+                    <button className="btn xs success" onClick={() => onMarkPaid(j)}>Mark Paid</button>
                   </div>
                 </div>
               ))}
