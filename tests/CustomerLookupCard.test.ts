@@ -12,7 +12,7 @@ function check(name: string, cond: boolean, detail?: string): void {
   else { failed++; console.error(`  ✗ ${name}${detail ? `  — ${detail}` : ''}`); }
 }
 
-const { deriveCardState, deriveUseCustomerPatch, deriveRepeatLastServicePatch } = __pureHooks;
+const { deriveCardState, deriveUseCustomerPatch, deriveRepeatLastServicePatch, deriveVehiclePatch } = __pureHooks;
 
 console.log('\n┌─ deriveCardState ───────────────────────────────');
 check('empty phone → idle',
@@ -88,6 +88,27 @@ console.log('\n┌─ deriveRepeatLastServicePatch ─────────�
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const zeroPatch = deriveRepeatLastServicePatch(customer as any, vehicle as any, { ...lastJob, revenue: 0 } as any);
   check('zero last revenue is not carried', !('revenue' in zeroPatch));
+}
+
+console.log('\n┌─ deriveVehiclePatch (tap a saved car → its size) ──');
+{
+  const vehicle = { id: 'truck-f150', year: 2021, make: 'Ford', model: 'F-150', vehicleMakeModel: 'Ford F-150', tireSize: '275/65R18', vehicleType: 'Truck' };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const patch = deriveVehiclePatch(vehicle as any);
+  check('switches tireSize to the tapped vehicle', patch.tireSize === '275/65R18');
+  check('switches vehicleType', patch.vehicleType === 'Truck');
+  check('switches vehicleMakeModel', patch.vehicleMakeModel === 'Ford F-150');
+  check('carries vehicleId', patch.vehicleId === 'truck-f150');
+  // Vehicle-only patch: must NOT touch customer identity / pricing / notes,
+  // so tapping a car never clobbers what the operator already entered.
+  check('does NOT include customerName', !('customerName' in patch));
+  check('does NOT include customerPhone', !('customerPhone' in patch));
+  check('does NOT include revenue', !('revenue' in patch));
+  check('does NOT include note', !('note' in patch));
+  // Falls back to make+model when no precomposed makeModel is stored.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const p2 = deriveVehiclePatch({ id: 'v2', make: 'Honda', model: 'Civic', tireSize: '215/55R17' } as any);
+  check('composes makeModel from make+model', p2.vehicleMakeModel === 'Honda Civic');
 }
 
 console.log('\n══════════════════════════════════════════════════');
