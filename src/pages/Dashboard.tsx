@@ -8,6 +8,7 @@ import {
   r2, resolvePaymentStatus, weekSummary,
 } from '@/lib/utils';
 import { todaysSchedule } from '@/lib/schedule';
+import { isScheduledPipeline } from '@/lib/jobStatus';
 import { ScheduleJobCard } from '@/components/ScheduleJobCard';
 import { ServiceIcon } from '@/components/ServiceIcon';
 import { SizeLink, useSizeLinkNav } from '@/components/SizeLink';
@@ -413,7 +414,9 @@ export function Dashboard({
   const pendingTotal = pendingJobs.reduce((s, j) => s + Number(j.revenue || 0), 0);
 
   const pendingPaymentJobs = useMemo(
-    () => visibleJobs.filter((j) => resolvePaymentStatus(j) === 'Pending Payment'),
+    // Exclude scheduled-pipeline jobs: a future booking isn't money owed for
+    // completed work, and its quick "Mark Paid" would prematurely complete it.
+    () => visibleJobs.filter((j) => !isScheduledPipeline(j.status) && resolvePaymentStatus(j) === 'Pending Payment'),
     [visibleJobs],
   );
   const pendingPaymentTotal = pendingPaymentJobs.reduce((s, j) => s + Number(j.revenue || 0), 0);
