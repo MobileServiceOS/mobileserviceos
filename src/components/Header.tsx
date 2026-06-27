@@ -68,7 +68,7 @@ export function Header({ syncStatus, onSignOut }: Props) {
             width: 32, height: 32, objectFit: 'contain', borderRadius: 9, flexShrink: 0,
             boxShadow: '0 2px 10px rgba(0,0,0,.5), 0 0 0 1px rgba(200,164,74,.18)',
           }}
-          onError={(e) => { (e.target as HTMLImageElement).src = APP_LOGO; }}
+          onError={(e) => { const t = e.currentTarget; if (!t.src.endsWith(APP_LOGO)) t.src = APP_LOGO; }}
         />
         <div style={{ minWidth: 0, flex: 1 }}>
           <h1 style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>

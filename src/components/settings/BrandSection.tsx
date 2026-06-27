@@ -120,6 +120,11 @@ function BrandForm() {
         // "Miami Gardens" never both persist.
         serviceCities: normalizeServiceCities(draft.serviceCities),
       };
+      // A session-only blob: preview URL must never reach Firestore — it's
+      // dead on the next page load and renders as a broken image (the root
+      // cause of the "logo broken" report). Drop it; the upload queue patches
+      // the real Storage URL into settings/main when it drains.
+      if (cleanDraft.logoUrl?.startsWith('blob:')) cleanDraft.logoUrl = '';
       // Audit a11y P1-5 (2026-05-31): reject brand colors that render
       // illegibly on the dark app surface. The brand primary is used
       // as text colour on `--s1` backgrounds (banner copy, KPI hints,
@@ -162,7 +167,8 @@ function BrandForm() {
       <div className="field">
         <label htmlFor="settings-logo-upload">Logo</label>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <img src={draft.logoUrl || APP_LOGO} alt="" style={{ width: 56, height: 56, borderRadius: 12, objectFit: 'contain', background: 'var(--s3)' }} />
+          <img src={draft.logoUrl || APP_LOGO} alt="" style={{ width: 56, height: 56, borderRadius: 12, objectFit: 'contain', background: 'var(--s3)' }}
+            onError={(e) => { const t = e.currentTarget; if (!t.src.endsWith(APP_LOGO)) t.src = APP_LOGO; }} />
           <input id="settings-logo-upload" ref={logoInputRef} type="file" accept="image/*" style={{ display: 'none' }}
             onChange={(e) => { const f = e.target.files?.[0]; if (f) handleLogo(f); if (logoInputRef.current) logoInputRef.current.value = ''; }} />
           <button className="btn sm secondary" onClick={() => logoInputRef.current?.click()} disabled={logoUploading}>

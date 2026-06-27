@@ -9,6 +9,7 @@
 // ═══════════════════════════════════════════════════════════════════
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { APP_LOGO } from '@/lib/defaults';
 
 export interface AccordionShellProps {
   title: string;
@@ -125,6 +126,7 @@ export function AccordionShell({
               objectFit: 'contain', background: 'var(--s2)',
               flexShrink: 0,
             }}
+            onError={(e) => { const t = e.currentTarget; if (!t.src.endsWith(APP_LOGO)) t.src = APP_LOGO; }}
           />
         ) : icon ? (
           <span style={{
