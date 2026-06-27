@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Job, Settings } from '@/types';
 import { PAYMENT_METHOD_LABELS } from '@/types';
-import { fmtDate, fmtDateShort, jobGrossProfit, money, paymentPillClass, resolvePaymentStatus } from '@/lib/utils';
+import { fmtDate, fmtDateShort, jobGrossProfit, money, paymentPillClass, resolvePaymentStatus, fmtApptDateTime } from '@/lib/utils';
 import { ServiceIcon } from '@/components/ServiceIcon';
 import { SizeLink } from '@/components/SizeLink';
 import { PageSkeleton } from '@/components/Skeleton';
@@ -13,7 +13,8 @@ import { QuickActionSheet } from '@/components/QuickActionSheet';
 import { useScopedJobs } from '@/lib/useScopedJobs';
 import { filterHistoryJobs } from '@/lib/historyFilter';
 import { upcomingSchedule } from '@/lib/schedule';
-import { ScheduleJobCard } from '@/components/ScheduleJobCard';
+import { isScheduledPipeline } from '@/lib/jobStatus';
+import { ScheduleJobCard, ScheduledStatusBadge } from '@/components/ScheduleJobCard';
 import { usePermissions, useMembership } from '@/context/MembershipContext';
 
 interface Props {
@@ -334,6 +335,13 @@ function HistoryJobCard({
   onToggleSelect?: () => void;
 }) {
   const ps = resolvePaymentStatus(job);
+  // A booked job (Scheduled / En Route / In Progress) gets a status badge +
+  // appointment line so it's never mistaken for a regular unpaid job. Its
+  // "Mark Paid" footer/swipe are suppressed too — marking a scheduled job
+  // paid would prematurely complete it (handleMarkPaid sets Completed),
+  // skipping the real completion flow + inventory deduction. Complete a
+  // booking via the detail modal's advance buttons instead.
+  const scheduled = isScheduledPipeline(job.status);
   // Technicians see revenue but not the per-job profit line. Don't even
   // compute profit for them — keeps the cost-derived figure out of the
   // tech's client entirely (defense in depth alongside the UI gate).
@@ -345,7 +353,7 @@ function HistoryJobCard({
   // so the gesture doesn't fire alongside selection toggles. The
   // explicit "Mark Paid" button below still renders for discoverability
   // outside of select mode.
-  const canSwipe = !selecting && ps !== 'Paid' && ps !== 'Cancelled';
+  const canSwipe = !selecting && !scheduled && ps !== 'Paid' && ps !== 'Cancelled';
   const swipe = useSwipeAction({ enabled: canSwipe, onCommit: onMarkPaid });
 
   return (
@@ -421,6 +429,7 @@ function HistoryJobCard({
         <div className="job-main">
           <div className="job-title" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             <span>{job.customerName || job.service}</span>
+            {scheduled && <ScheduledStatusBadge status={job.status} />}
             {job.tireSize && (
               selecting
                 ? <span style={{
@@ -432,8 +441,13 @@ function HistoryJobCard({
             )}
           </div>
           <div className="job-meta">
-            {job.service} · {job.fullLocationLabel || job.area || '—'} · {fmtDateShort(job.date)}
+            {job.service} · {job.fullLocationLabel || job.area || '—'}{!scheduled ? ` · ${fmtDateShort(job.date)}` : ''}
           </div>
+          {scheduled && (
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--brand-primary)', marginTop: 2 }}>
+              📅 {job.appointmentDate ? fmtApptDateTime(job.appointmentDate) : 'No date set'}
+            </div>
+          )}
           {techName && (
             <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 2 }}>
               Tech: {techName}
@@ -460,7 +474,7 @@ function HistoryJobCard({
           ) : null}
         </div>
       </div>
-      {ps !== 'Paid' && ps !== 'Cancelled' && (
+      {!scheduled && ps !== 'Paid' && ps !== 'Cancelled' && (
         <div style={{
           padding: '10px 14px',
           borderTop: '1px solid var(--border2)',

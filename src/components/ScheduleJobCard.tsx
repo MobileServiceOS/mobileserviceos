@@ -17,7 +17,7 @@ const STATUS_BADGE: Record<string, { bg: string; fg: string }> = {
   'In Progress': { bg: 'rgba(34,197,94,.16)',   fg: '#4ade80' }, // green
 };
 
-function StatusBadge({ status }: { status: JobStatus }) {
+export function ScheduledStatusBadge({ status }: { status: JobStatus }) {
   const c = STATUS_BADGE[status] || { bg: 'var(--s3)', fg: 'var(--t2)' };
   return (
     <span style={{
@@ -71,7 +71,7 @@ export function ScheduleJobCard({ job, onTap, showDate = false }: {
           }}>{sub}</div>
         )}
       </div>
-      <StatusBadge status={job.status} />
+      <ScheduledStatusBadge status={job.status} />
     </button>
   );
 }

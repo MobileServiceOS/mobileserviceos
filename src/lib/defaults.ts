@@ -229,7 +229,12 @@ export const SERVICE_ICONS: Record<string, string> = {
 };
 
 export const PAYMENT_STATUSES: PaymentStatus[] = ['Paid', 'Pending Payment', 'Partial Payment', 'Refunded', 'Cancelled'];
-export const JOB_STATUSES: JobStatus[] = ['Completed', 'Pending', 'Cancelled'];
+// Manually-settable job statuses shown as chips in AddJob. 'Scheduled' is
+// included so a job can be booked ahead (or an existing one converted) —
+// picking it reveals the appointment date+time picker. En Route / In Progress
+// aren't here on purpose: those are advanced one-tap from the job detail as
+// the day moves, not hand-picked while logging.
+export const JOB_STATUSES: JobStatus[] = ['Scheduled', 'Completed', 'Pending', 'Cancelled'];
 
 export const TIRE_MATERIAL_SERVICES = [
   'Tire Replacement',
