@@ -27,6 +27,7 @@ import type { JobLineItem } from '@/types';
 import { useMembership } from '@/context/MembershipContext';
 import { useBusinessMembers } from '@/lib/useBusinessMembers';
 import { validateAddJob } from '@/lib/addJobValidation';
+import { isScheduledPipeline } from '@/lib/jobStatus';
 import { splitEmojiLabel } from '@/lib/emojiLabel';
 
 // ─── DynamicJobField: shared renderer for vertical.jobFields ──────────
@@ -523,13 +524,18 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
   // "No phone number" — for walk-ins / calls where the customer's number
   // wasn't collected. Makes the phone field optional for this save.
   const [noPhone, setNoPhone] = useState(false);
+  // Scheduling mode is driven entirely by the draft's status — no extra
+  // prop. When the job is in the scheduling pipeline (Scheduled / En Route /
+  // In Progress) we show the appointment picker, relax the revenue
+  // requirement (price is confirmed at completion), and relabel Save.
+  const scheduling = isScheduledPipeline(job.status);
   const validation = useMemo(
     () => validateAddJob({
       customerPhone: job.customerPhone,
       service: job.service,
       revenue: job.revenue,
-    }, { phoneOptional: noPhone }),
-    [job.customerPhone, job.service, job.revenue, noPhone],
+    }, { phoneOptional: noPhone, revenueOptional: scheduling }),
+    [job.customerPhone, job.service, job.revenue, noPhone, scheduling],
   );
 
   // Batch C (2026-06-05): unified save-attempt path.
@@ -813,6 +819,27 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
           )}
         </div>
       </div>
+
+      {/* ─── Appointment (scheduling pipeline only) ───────────────
+          Shown when the draft is a Scheduled/En Route/In Progress job.
+          Booked date+time drives Today's Schedule + the Upcoming list. */}
+      {scheduling && (
+        <div className="form-group card-anim" style={{ borderColor: 'var(--brand-primary)' }}>
+          <div className="form-group-title" style={{ color: 'var(--brand-primary)' }}>📅 Appointment</div>
+          <div className="field">
+            <label htmlFor="addjob-appointment">Date &amp; time</label>
+            <input
+              id="addjob-appointment"
+              type="datetime-local"
+              value={job.appointmentDate || ''}
+              onChange={(e) => setJob((prev) => ({ ...prev, appointmentDate: e.target.value || null }))}
+            />
+            <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 6 }}>
+              When you&apos;re booked to do this job. It shows in Today&apos;s Schedule and Upcoming until you mark it complete.
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ─── Step 1: Quick Pricing ─────────────────────────────
           Miles + tire cost + revenue + the vertical-aware breakdown
@@ -1567,7 +1594,9 @@ export function AddJob({ job, setJob, settings, inventory, jobs, isEditing, pref
               transition: 'opacity 120ms ease',
             }}
           >
-            {savingMode === 'save' ? 'Saving…' : (isEditing ? 'Update Job' : 'Save Job')}
+            {savingMode === 'save'
+              ? (scheduling ? 'Scheduling…' : 'Saving…')
+              : (scheduling ? 'Schedule Job' : (isEditing ? 'Update Job' : 'Save Job'))}
           </button>
         </div>
       </div>

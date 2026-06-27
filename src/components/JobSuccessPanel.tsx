@@ -76,7 +76,7 @@ export function JobSuccessPanel({
           <div className="kpi">
             <div className="kpi-label">Job Status</div>
             <div>
-              <span className={'pill ' + (job.status === 'Completed' ? 'green' : job.status === 'Pending' ? 'amber' : 'red')}>
+              <span className={'pill ' + (job.status === 'Completed' ? 'green' : job.status === 'Cancelled' ? 'red' : 'amber')}>
                 {job.status}
               </span>
             </div>

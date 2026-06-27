@@ -2,7 +2,8 @@ import { useState, type CSSProperties, type ReactNode } from 'react';
 import type { Job, Settings, InventoryDeduction, PaymentMethod } from '@/types';
 import { useFocusTrap } from '@/lib/useFocusTrap';
 import { PAYMENT_METHOD_LABELS } from '@/types';
-import { fmtDate, jobGrossProfit, money, paymentPillClass, resolvePaymentStatus, travelCost } from '@/lib/utils';
+import { fmtDate, jobGrossProfit, money, paymentPillClass, resolvePaymentStatus, travelCost, fmtApptDateTime } from '@/lib/utils';
+import { isScheduledPipeline, nextStatus, nextStatusLabel } from '@/lib/jobStatus';
 import { ServiceIcon } from '@/components/ServiceIcon';
 import { useActiveVertical } from '@/lib/useActiveVertical';
 import { useMembership } from '@/context/MembershipContext';
@@ -52,12 +53,17 @@ interface Props {
    *  signature surfaces, and the command center's Complete Job action.
    *  Threaded from App.tsx; when absent those actions render disabled. */
   onUpdateJob?: (patch: Partial<Job>) => Promise<void>;
+  /** Mark a Scheduled-pipeline job complete: opens the real completion
+   *  flow (AddJob, pre-set to Completed) so price/notes are confirmed and
+   *  the save runs inventory deduction + revenue. Threaded from App.tsx;
+   *  when absent the "Mark Complete" advance button renders disabled. */
+  onCompleteScheduled?: () => void;
 }
 
 export function JobDetailModal({
   job, settings, onClose, onEdit, onDuplicate, onDelete,
   onGenerateInvoice, onSendInvoice, onSendQuote, onSendReview, onMarkPaid,
-  onDeductInventory, onUpdateJob,
+  onDeductInventory, onUpdateJob, onCompleteScheduled,
 }: Props) {
   // Audit a11y P1-4 (2026-05-31): keep keyboard focus inside the
   // modal while it's open, and return focus to the card that opened
@@ -113,6 +119,12 @@ export function JobDetailModal({
   const isPaid = ps === 'Paid';
   const isCancelled = ps === 'Cancelled' || job.status === 'Cancelled';
   const isInventoryJob = job.tireSource === 'Inventory' && !!job.tireSize;
+  // Scheduled-pipeline jobs get a dedicated advance panel instead of the
+  // Complete & Collect command center (you don't collect payment on a job
+  // you haven't done yet).
+  const isScheduled = isScheduledPipeline(job.status);
+  const advanceLabel = nextStatusLabel(job.status);
+  const advanceTo = nextStatus(job.status);
 
   return (
     <div
@@ -135,14 +147,51 @@ export function JobDetailModal({
           <button onClick={onClose} className="modal-close" aria-label="Close">✕</button>
         </div>
         <div className="modal-body">
+          {/* ─── Scheduled appointment panel ──────────────────────────
+              For booked jobs (Scheduled / En Route / In Progress): show the
+              appointment + a one-tap status advance. The final step ("Mark
+              Complete") routes through the real completion flow so price /
+              notes are confirmed and revenue + inventory post correctly.
+              Replaces the Complete & Collect center until the job is done. */}
+          {isScheduled && (
+            <div className="form-group" style={cmdWrap}>
+              <div className="form-group-title" style={{ marginBottom: 4 }}>Scheduled appointment</div>
+              <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--brand-primary)', marginBottom: 12 }}>
+                {fmtApptDateTime(job.appointmentDate) || 'No date set'}
+              </div>
+              {advanceLabel && (
+                <CmdAction
+                  label={advanceLabel}
+                  sub={advanceTo === 'Completed' ? 'Confirm price & finish the job' : `Move to ${advanceTo}`}
+                  icon={<IcoCheck />}
+                  tone="primary"
+                  disabled={advanceTo === 'Completed' ? !onCompleteScheduled : !onUpdateJob}
+                  onClick={() => {
+                    if (advanceTo === 'Completed') onCompleteScheduled?.();
+                    else if (advanceTo) void onUpdateJob?.({ status: advanceTo });
+                  }}
+                />
+              )}
+              <button
+                type="button"
+                className="btn secondary"
+                style={{ width: '100%', marginTop: 8 }}
+                disabled={!onUpdateJob}
+                onClick={() => { void onUpdateJob?.({ status: 'Cancelled' }); }}
+              >
+                Cancel appointment
+              </button>
+            </div>
+          )}
+
           {/* ─── Complete Job Command Center ──────────────────────────
               Everything to close out a job, on one screen at the top:
               Complete · Mark Paid · Send Invoice · Send Review SMS ·
               Deduct Inventory. Each row shows its done-state so the
               operator sees what's left at a glance. All actions use the
               free native-SMS / on-device handlers — no backend SMS cost.
-              Hidden for cancelled jobs (nothing to collect). */}
-          {!isCancelled && (
+              Hidden for cancelled + scheduled jobs (nothing to collect yet). */}
+          {!isCancelled && !isScheduled && (
             <div className="form-group" style={cmdWrap}>
               <div className="form-group-title" style={{ marginBottom: 10 }}>Complete &amp; Collect</div>
 
@@ -314,7 +363,7 @@ export function JobDetailModal({
             <div className="form-group-title">Status</div>
             <div className="card-row" style={{ padding: '10px 0' }}>
               <span className="label">Job</span>
-              <span className={'pill ' + (job.status === 'Completed' ? 'green' : job.status === 'Pending' ? 'amber' : 'red')}>
+              <span className={'pill ' + (job.status === 'Completed' ? 'green' : job.status === 'Cancelled' ? 'red' : 'amber')}>
                 {job.status}
               </span>
             </div>

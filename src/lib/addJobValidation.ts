@@ -67,7 +67,7 @@ export function isValidAddJobPhone(raw: unknown): boolean {
  */
 export function validateAddJob(
   job: Pick<Job, 'customerPhone' | 'service' | 'revenue'>,
-  opts?: { phoneOptional?: boolean },
+  opts?: { phoneOptional?: boolean; revenueOptional?: boolean },
 ): AddJobValidation {
   const missing: AddJobMissingField[] = [];
 
@@ -91,8 +91,15 @@ export function validateAddJob(
   // anything <= 0. Explicit `Number('')` returns 0 — caught here. The
   // string '0' is also caught (Number('0') === 0). Negative numbers
   // are similarly rejected.
+  // Revenue is required for a logged (completed) job, but OPTIONAL when
+  // scheduling ahead — a booked appointment may not have a confirmed price
+  // yet (final price is set when the job is completed). A typed value still
+  // has to be a positive number; an empty field is allowed when optional.
   const rev = Number(job.revenue);
-  if (!Number.isFinite(rev) || rev <= 0) {
+  const revBlank = job.revenue === '' || job.revenue == null;
+  if (opts?.revenueOptional) {
+    if (!revBlank && (!Number.isFinite(rev) || rev <= 0)) missing.push('revenue');
+  } else if (!Number.isFinite(rev) || rev <= 0) {
     missing.push('revenue');
   }
 

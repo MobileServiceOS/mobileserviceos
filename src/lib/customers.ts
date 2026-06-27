@@ -14,6 +14,7 @@
 
 import type { Job, Settings } from '@/types';
 import { jobGrossProfit, resolvePaymentStatus } from '@/lib/utils';
+import { isScheduledPipeline } from '@/lib/jobStatus';
 
 /**
  * Persisted per-customer metadata at `businesses/{bid}/customers/{key}`.
@@ -119,6 +120,11 @@ export function deriveCustomerProfiles(
   for (const j of jobs || []) {
     const key = customerKey(j);
     if (!key) continue;
+    // A booked-but-not-done job (Scheduled / En Route / In Progress) hasn't
+    // produced revenue yet — skip it entirely so it never inflates a
+    // customer's lifetime revenue, profit, or unpaid totals. It rejoins the
+    // profile once it's marked Completed.
+    if (isScheduledPipeline(j.status)) continue;
 
     let p = map.get(key);
     if (!p) {

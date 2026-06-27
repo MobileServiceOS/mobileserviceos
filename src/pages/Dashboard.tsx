@@ -7,6 +7,8 @@ import {
   jobGrossProfit, money, normalizeTireSize, paymentPillClass,
   r2, resolvePaymentStatus, weekSummary,
 } from '@/lib/utils';
+import { todaysSchedule } from '@/lib/schedule';
+import { ScheduleJobCard } from '@/components/ScheduleJobCard';
 import { ServiceIcon } from '@/components/ServiceIcon';
 import { SizeLink, useSizeLinkNav } from '@/components/SizeLink';
 import { sizeKey } from '@/lib/inventoryIntel';
@@ -59,6 +61,9 @@ interface Props {
    *  Use this for every "log a new job" CTA; setTab('add') alone
    *  preloads the last-saved job into the form. */
   onNewJob: () => void;
+  /** Start a booked-ahead Scheduled job — opens AddJob seeded with status
+   *  Scheduled + the appointment picker. Additive to onNewJob (live log). */
+  onScheduleJob: () => void;
   /** One-tap Quote → Job: carries the Quick Quote's service / vehicle /
    *  pricing / surcharges (+ optional phone & tire size) into a prefilled
    *  Add Job so the operator re-enters nothing already captured. */
@@ -173,7 +178,7 @@ function SubKpi({ label, value, tone }: { label: string; value: string; tone: 'n
 }
 
 export function Dashboard({
-  jobs: rawJobs, settings, inventory, setTab, onNewJob, onQuoteToJob,
+  jobs: rawJobs, settings, inventory, setTab, onNewJob, onScheduleJob, onQuoteToJob,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   onViewJob, onGenerateInvoice, onSendInvoice, onSendReview, onMarkPaid, onEditJob,
   onLogExpense,
@@ -291,6 +296,12 @@ export function Dashboard({
     [completedJobs, lastWeek, weekStartDay],
   );
   const todayJobs = useMemo(() => completedJobs.filter((j) => j.date === today), [completedJobs, today]);
+
+  // Today's Schedule — booked jobs (Scheduled / En Route / In Progress) whose
+  // appointment falls today, soonest first. Drives the section at the top of
+  // the home screen; when empty the section collapses entirely (no empty
+  // state). Reads `visibleJobs` (role-scoped), NOT completedJobs.
+  const todaySchedule = useMemo(() => todaysSchedule(visibleJobs, today), [visibleJobs, today]);
 
   // Today's totals — revenue, costs, profit. Sits under the weekly
   // hero so the operator gets an instant "what did today actually
@@ -578,6 +589,25 @@ export function Dashboard({
 
   return (
     <div className="page page-enter dashboard-page">
+      {/* ─── 0. Today's Schedule ──────────────────────────────────────
+          Booked appointments for today, soonest first. Sits ABOVE the
+          stats/hero. Collapses entirely when there's nothing today. */}
+      {todaySchedule.length > 0 && (
+        <div className="form-group card-anim" style={{ marginBottom: 14 }}>
+          <div className="form-group-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>📅 Today&apos;s Schedule</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--t3)' }}>
+              {todaySchedule.length} appointment{todaySchedule.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {todaySchedule.map((j) => (
+              <ScheduleJobCard key={j.id} job={j} onTap={() => onViewJob(j)} />
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ─── 1. Pending alert strip ───────────────────────────────── */}
       {pendingJobs.length > 0 && (
         <div className="pending-banner card-anim" onClick={() => setTab('history')}>
@@ -927,6 +957,22 @@ export function Dashboard({
             : `📋 ${isTechnician ? 'Assigned' : 'All Jobs'}`}
         </button>
       </div>
+
+      {/* Schedule Job — additive booked-ahead CTA alongside Log Job. Opens
+          the same AddJob form seeded as a Scheduled appointment. */}
+      <button
+        className="press-scale"
+        onClick={onScheduleJob}
+        style={{
+          width: '100%', padding: '13px 12px', marginBottom: 14,
+          background: 'var(--s2)', color: 'var(--brand-primary)',
+          border: '1px solid var(--brand-primary)', borderRadius: 12,
+          fontSize: 14, fontWeight: 800, cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+        }}
+      >
+        📅 Schedule a Job
+      </button>
 
       {/* ─── 3b. Vertical Stats — rendered when the active business
               type declares dashboardMetrics. Tire's array is empty,

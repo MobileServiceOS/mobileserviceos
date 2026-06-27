@@ -12,6 +12,8 @@ import { useSwipeAction } from '@/lib/useSwipeAction';
 import { QuickActionSheet } from '@/components/QuickActionSheet';
 import { useScopedJobs } from '@/lib/useScopedJobs';
 import { filterHistoryJobs } from '@/lib/historyFilter';
+import { upcomingSchedule } from '@/lib/schedule';
+import { ScheduleJobCard } from '@/components/ScheduleJobCard';
 import { usePermissions, useMembership } from '@/context/MembershipContext';
 
 interface Props {
@@ -33,7 +35,7 @@ interface Props {
   onDuplicate: (j: Job) => void;
 }
 
-type Filter = 'all' | 'completed' | 'pending' | 'cancelled' | 'unpaid';
+type Filter = 'all' | 'upcoming' | 'completed' | 'pending' | 'cancelled' | 'unpaid';
 
 export function History({
   jobs: rawJobs, loading = false, focusSize, onFocusConsumed, settings, onViewJob, onMarkPaid, onComplete, onEditJob,
@@ -112,7 +114,23 @@ export function History({
     [jobs, selected],
   );
 
-  const filtered = useMemo(() => filterHistoryJobs(jobs, query, filter), [jobs, query, filter]);
+  const isUpcoming = filter === 'upcoming';
+  const filtered = useMemo(
+    () => (isUpcoming ? [] : filterHistoryJobs(jobs, query, filter)),
+    [jobs, query, filter, isUpcoming],
+  );
+
+  // Upcoming = every booked job in the scheduling pipeline (Scheduled / En
+  // Route / In Progress), soonest appointment first. This is where Sunday's
+  // job and the July 6 job show together. Honors the search box.
+  const upcoming = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const base = upcomingSchedule(jobs);
+    return q
+      ? base.filter((j) => [j.customerName, j.service, j.city, j.fullLocationLabel, j.area, j.tireSize, j.vehicleType]
+          .some((f) => (f || '').toLowerCase().includes(q)))
+      : base;
+  }, [jobs, query]);
 
   // First load (no jobs yet) → skeleton instead of a blank screen.
   if (loading && jobs.length === 0) return <PageSkeleton />;
@@ -129,7 +147,7 @@ export function History({
       </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
         <div className="chip-grid" style={{ marginBottom: 0, flex: 1, minWidth: 0 }}>
-          {(['all', 'completed', 'pending', 'cancelled', 'unpaid'] as Filter[]).map((f) => (
+          {(['all', 'upcoming', 'completed', 'pending', 'cancelled', 'unpaid'] as Filter[]).map((f) => (
             <button key={f} type="button" className={'chip sm' + (filter === f ? ' active' : '')} onClick={() => setFilter(f)}>
               {f[0].toUpperCase() + f.slice(1)}
             </button>
@@ -161,7 +179,21 @@ export function History({
         )}
       </div>
 
-      {filtered.length === 0 ? (
+      {isUpcoming ? (
+        upcoming.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-state-icon">📅</div>
+            <div className="empty-state-title">No upcoming jobs</div>
+            <div className="empty-state-sub">Tap “Schedule a Job” on Home to book one.</div>
+          </div>
+        ) : (
+          <div className="stack">
+            {upcoming.map((j) => (
+              <ScheduleJobCard key={j.id} job={j} onTap={() => onViewJob(j)} showDate />
+            ))}
+          </div>
+        )
+      ) : filtered.length === 0 ? (
         <div className="empty-state">
           <div className="empty-state-icon">🗂</div>
           <div className="empty-state-title">No jobs found</div>
