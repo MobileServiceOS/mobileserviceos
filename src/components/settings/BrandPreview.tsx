@@ -42,6 +42,7 @@ export function BrandPreview({ businessName, tagline, logoUrl, primaryColor }: P
               width: 32, height: 32, borderRadius: 9, objectFit: 'contain',
               flexShrink: 0, boxShadow: `0 0 0 1px ${color}55`,
             }}
+            onError={(e) => { const t = e.currentTarget; if (!t.src.endsWith(APP_LOGO)) t.src = APP_LOGO; }}
           />
           <div style={{ minWidth: 0 }}>
             <div style={{
@@ -67,6 +68,7 @@ export function BrandPreview({ businessName, tagline, logoUrl, primaryColor }: P
             <img
               src={logo} alt=""
               style={{ width: 36, height: 36, borderRadius: 8, objectFit: 'contain', flexShrink: 0 }}
+              onError={(e) => { const t = e.currentTarget; if (!t.src.endsWith(APP_LOGO)) t.src = APP_LOGO; }}
             />
             <div style={{ minWidth: 0 }}>
               <div style={{
