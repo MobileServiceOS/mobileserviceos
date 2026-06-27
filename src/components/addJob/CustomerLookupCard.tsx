@@ -131,6 +131,20 @@ function _deriveUseCustomerPatch(customer: Customer, vehicle: Vehicle | null): U
   return patch;
 }
 
+// Vehicle-only patch applied when the operator taps a saved vehicle chip.
+// Overwrites just the vehicle + tire-size fields (an explicit "this is the
+// car they're driving today") and never touches name/phone/notes. The Size
+// field on the job stays freely editable, so a brand-new car not in the
+// system is just typed in directly.
+function _deriveVehiclePatch(vehicle: Vehicle): UseCustomerPatch {
+  const patch: UseCustomerPatch = { vehicleId: vehicle.id };
+  if (vehicle.vehicleType)      patch.vehicleType      = vehicle.vehicleType;
+  if (vehicle.vehicleMakeModel) patch.vehicleMakeModel = vehicle.vehicleMakeModel;
+  else if (vehicle.make && vehicle.model) patch.vehicleMakeModel = `${vehicle.make} ${vehicle.model}`;
+  if (vehicle.tireSize)         patch.tireSize         = vehicle.tireSize;
+  return patch;
+}
+
 function _deriveRepeatLastServicePatch(
   customer: Customer,
   vehicle: Vehicle | null,
@@ -310,7 +324,9 @@ function CustomerLookupCardImpl({ businessId, rawPhone, onApplyPatch, onContinue
 
       {vehicles.length > 0 && (
         <div className="field" style={{ marginBottom: 8 }}>
-          <div style={{ fontSize: 11, color: 'var(--t3)', marginBottom: 4 }}>Vehicles</div>
+          <div style={{ fontSize: 11, color: 'var(--t3)', marginBottom: 4 }}>
+            {vehicles.length > 1 ? 'Which car today? Tap to use its tire size' : 'Vehicle'}
+          </div>
           <div className="chip-grid">
             {vehicles.map((v) => {
               const label = [
@@ -322,12 +338,19 @@ function CustomerLookupCardImpl({ businessId, rawPhone, onApplyPatch, onContinue
                   key={v.id}
                   type="button"
                   className={'chip' + (active ? ' active' : '')}
-                  onClick={() => setPickedVehicleId(v.id)}
+                  // Tapping a saved vehicle switches the job to that car's tire
+                  // size (explicit overwrite) — for a customer driving a
+                  // different car than last time. The Size field below stays
+                  // editable for a car that isn't saved at all.
+                  onClick={() => { setPickedVehicleId(v.id); onApplyPatch(_deriveVehiclePatch(v)); }}
                 >
                   {label}
                 </button>
               );
             })}
+          </div>
+          <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 4 }}>
+            Different car? Just type the size in Tire Details below.
           </div>
         </div>
       )}
@@ -386,4 +409,5 @@ export const __pureHooks = {
   deriveCardState: _deriveCardState,
   deriveUseCustomerPatch: _deriveUseCustomerPatch,
   deriveRepeatLastServicePatch: _deriveRepeatLastServicePatch,
+  deriveVehiclePatch: _deriveVehiclePatch,
 };
