@@ -376,6 +376,12 @@ export interface Permissions {
 export interface Brand {
   businessName: string;
   logoUrl: string;
+  /** Small (downscaled) PNG data URI of the logo, stamped at upload time.
+   *  Used to embed the logo in generated PDFs (invoice/estimate) — a data
+   *  URI needs no network/CORS, unlike the Firebase Storage logoUrl which
+   *  the browser can't read into a canvas without bucket CORS headers, so
+   *  the logo silently dropped from PDFs. The UI keeps using logoUrl. */
+  logoDataUri?: string;
   primaryColor: string;
   accentColor: string;
   phone: string;
