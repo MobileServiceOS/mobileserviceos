@@ -216,6 +216,41 @@ console.log('\n┌─ Expense analysis ─────────────�
     emptyExp.expenseAnalysis.monthlyRecurringBurden === 0);
 }
 
+console.log('\n┌─ Monthly revenue + profit ────────────────────────');
+{
+  const ins = computeInsights([
+    mkJob({ revenue: 200, tireCost: 50, date: '2026-04-10' }),  // Apr: profit 150
+    mkJob({ revenue: 300, tireCost: 100, date: '2026-04-25' }), // Apr: profit 200
+    mkJob({ revenue: 500, tireCost: 100, date: '2026-05-05' }), // May: profit 400
+  ], settings, TODAY);
+  check('two months present', ins.monthly.length === 2);
+  check('months sorted oldest → newest',
+    ins.monthly[0].month === '2026-04' && ins.monthly[1].month === '2026-05');
+  check('April revenue sums both jobs', ins.monthly[0].revenue === 500);
+  check('April profit sums both jobs', ins.monthly[0].profit === 350);
+  check('April job count is 2', ins.monthly[0].count === 2);
+  check('May revenue', ins.monthly[1].revenue === 500);
+  check('May profit', ins.monthly[1].profit === 400);
+
+  // Scheduled + cancelled jobs never count toward a month.
+  const gated = computeInsights([
+    mkJob({ revenue: 500, date: '2026-05-05' }),
+    mkJob({ revenue: 999, status: 'Scheduled', date: '2026-05-06', appointmentDate: '2026-07-06T10:00' }),
+    mkJob({ revenue: 999, status: 'Cancelled', date: '2026-05-07' }),
+  ], settings, TODAY);
+  check('scheduled + cancelled excluded from monthly',
+    gated.monthly.length === 1 && gated.monthly[0].revenue === 500);
+
+  check('no jobs → empty monthly', computeInsights([], settings, TODAY).monthly.length === 0);
+
+  // Only the last 6 months are returned.
+  const many = ['2025-10', '2025-11', '2025-12', '2026-01', '2026-02', '2026-03', '2026-04', '2026-05']
+    .map((m) => mkJob({ revenue: 100, date: `${m}-15` }));
+  const ins6 = computeInsights(many, settings, TODAY);
+  check('caps at the last 6 months',
+    ins6.monthly.length === 6 && ins6.monthly[0].month === '2025-12');
+}
+
 console.log('');
 console.log(passed + ' passed, ' + failed + ' failed');
 if (failed > 0) process.exit(1);

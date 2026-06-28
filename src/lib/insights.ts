@@ -10,7 +10,7 @@
 
 import type { Job, Settings, ExpenseCategory } from '@/types';
 import { EXPENSE_CATEGORY_LABELS } from '@/types';
-import { jobGrossProfit, resolvePaymentStatus, getWeekStart } from '@/lib/utils';
+import { jobGrossProfit, resolvePaymentStatus, getWeekStart, getMonth } from '@/lib/utils';
 import { isScheduledPipeline } from '@/lib/jobStatus';
 import { deriveCustomerProfiles } from '@/lib/customers';
 import {
@@ -88,9 +88,20 @@ export interface ExpenseAnalysis {
   netProfit8w: number;
 }
 
+/** One calendar month of revenue + profit (completed/pending jobs only;
+ *  scheduled-pipeline + cancelled excluded, same as the rest of Insights). */
+export interface MonthPoint {
+  month: string; // 'YYYY-MM'
+  revenue: number;
+  profit: number;
+  count: number;
+}
+
 export interface Insights {
   /** Last 8 weeks, oldest → newest, zero-filled. */
   revenueTrend: WeekPoint[];
+  /** Up to the last 6 calendar months with activity, oldest → newest. */
+  monthly: MonthPoint[];
   /** Service types ranked by total profit, highest first. */
   topServices: ServiceStat[];
   /** Lead sources ranked by total revenue, highest first. */
@@ -147,6 +158,9 @@ export function computeInsights(
   }
   const trendMap = new Map<string, WeekPoint>();
   for (const k of weekKeys) trendMap.set(k, { weekStart: k, revenue: 0, profit: 0 });
+  // Per-calendar-month revenue + profit (all activity, not just the 8-week
+  // window). Keyed 'YYYY-MM'; the last 6 with activity are returned.
+  const monthMap = new Map<string, MonthPoint>();
 
   // ── Single pass for the rankings + trend ────────────────────────
   const svc = new Map<string, ServiceStat>();
@@ -181,6 +195,13 @@ export function computeInsights(
       if (point) {
         point.revenue += revenue;
         point.profit += profit;
+      }
+      // Monthly revenue + profit (all months, not just the 8-week window).
+      const m = getMonth(j.date);
+      if (m) {
+        const mp = monthMap.get(m) || { month: m, revenue: 0, profit: 0, count: 0 };
+        mp.revenue += revenue; mp.profit += profit; mp.count += 1;
+        monthMap.set(m, mp);
       }
     }
 
@@ -327,6 +348,9 @@ export function computeInsights(
 
   return {
     revenueTrend: weekKeys.map((k) => trendMap.get(k) as WeekPoint),
+    monthly: Array.from(monthMap.values())
+      .sort((a, b) => a.month.localeCompare(b.month))
+      .slice(-6),
     topServices: Array.from(svc.values()).sort((a, b) => b.profit - a.profit),
     topSources: Array.from(src.values()).sort((a, b) => b.revenue - a.revenue),
     topCities: Array.from(cty.values()).sort((a, b) => b.profit - a.profit),

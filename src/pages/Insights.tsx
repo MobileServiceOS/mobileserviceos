@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { Job, Settings, InventoryItem } from '@/types';
-import { money, fmtDate } from '@/lib/utils';
+import { money, fmtDate, formatMonth } from '@/lib/utils';
 import { TODAY } from '@/lib/defaults';
 import { computeInsights } from '@/lib/insights';
 import { computeBestSellingTires } from '@/lib/bestSellingTires';
@@ -28,6 +28,9 @@ export function Insights({ jobs, settings, inventory }: Props) {
   const trendMax = Math.max(1, ...ins.revenueTrend.map((w) => w.revenue));
   const trendRevenue = ins.revenueTrend.reduce((s, w) => s + w.revenue, 0);
   const trendProfit = ins.revenueTrend.reduce((s, w) => s + w.profit, 0);
+  const monthMax = Math.max(1, ...ins.monthly.map((m) => m.revenue));
+  const monthlyRevenue = ins.monthly.reduce((s, m) => s + m.revenue, 0);
+  const monthlyProfit = ins.monthly.reduce((s, m) => s + m.profit, 0);
   const unpaidTotal = ins.unpaidAging.reduce((s, r) => s + r.total, 0);
 
   // ─── Accordion open-state for each section ───────────────────────
@@ -37,6 +40,7 @@ export function Insights({ jobs, settings, inventory }: Props) {
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
     dailyJobs: true,
     revenue: false,
+    monthly: true,
     repeat: false,
     topServices: false,
     topSources: false,
@@ -151,6 +155,46 @@ export function Insights({ jobs, settings, inventory }: Props) {
           <span style={{ color: 'var(--t3)' }}>8-wk revenue <strong style={{ color: 'var(--green)' }}>{money(trendRevenue)}</strong></span>
           <span style={{ color: 'var(--t3)' }}>profit <strong style={{ color: trendProfit >= 0 ? 'var(--green)' : 'var(--red)' }}>{money(trendProfit)}</strong></span>
         </div>
+      </AccordionShell>
+
+      {/* ── Revenue & profit by month ──────────────────────────── */}
+      <AccordionShell
+        title="Revenue & Profit by Month"
+        icon="🗓️"
+        summary={ins.monthly.length
+          ? `${money(monthlyRevenue)} revenue · ${money(monthlyProfit)} profit`
+          : 'No completed jobs yet'}
+        open={openSections.monthly}
+        onToggle={toggle('monthly')}
+      >
+        {ins.monthly.length === 0 ? (
+          <div style={{ fontSize: 12, color: 'var(--t3)' }}>No completed jobs yet.</div>
+        ) : (
+          <>
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 110, marginBottom: 10 }}>
+              {ins.monthly.map((m) => (
+                <div key={m.month} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                  <div style={{
+                    width: '100%',
+                    height: Math.max(2, Math.round((m.revenue / monthMax) * 88)),
+                    background: 'linear-gradient(180deg, var(--brand-primary) 0%, rgba(244,180,0,.35) 100%)',
+                    borderRadius: '4px 4px 0 0',
+                  }} title={`${formatMonth(m.month)} · ${money(m.revenue)}`} />
+                  <div style={{ fontSize: 9, color: 'var(--t3)' }}>{formatMonth(m.month).split(' ')[0]}</div>
+                </div>
+              ))}
+            </div>
+            {[...ins.monthly].reverse().map((m) => (
+              <div key={m.month} className="card-row" style={{ padding: '8px 0', borderTop: '1px solid var(--border2)' }}>
+                <span className="label">{formatMonth(m.month)}</span>
+                <span style={{ display: 'flex', gap: 12, alignItems: 'baseline' }}>
+                  <span style={{ fontSize: 12, color: 'var(--t3)' }}>{money(m.revenue)} rev</span>
+                  <strong style={{ color: m.profit >= 0 ? 'var(--green)' : 'var(--red)' }}>{money(m.profit)} profit</strong>
+                </span>
+              </div>
+            ))}
+          </>
+        )}
       </AccordionShell>
 
       {/* ── Repeat customers ───────────────────────────────────── */}
