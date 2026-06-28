@@ -62,7 +62,7 @@ export function Header({ syncStatus, onSignOut }: Props) {
     <div className="header-compact">
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
         <img
-          src={brand.logoUrl || APP_LOGO}
+          src={brand.logoDataUri || brand.logoUrl || APP_LOGO}
           alt=""
           style={{
             width: 32, height: 32, objectFit: 'contain', borderRadius: 9, flexShrink: 0,
