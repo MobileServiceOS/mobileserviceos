@@ -28,7 +28,6 @@ import { Dashboard } from '@/pages/Dashboard';
 import { AddJob } from '@/pages/AddJob';
 import { History } from '@/pages/History';
 import { Inventory } from '@/pages/Inventory';
-import { OpsPage } from '@/components/ops/OpsPage';
 // Secondary tabs are lazy-loaded to keep the initial bundle lean.
 // Dashboard / AddJob / History / Inventory are the daily-driver
 // surfaces (the four eager imports above). Insights / Payouts /
@@ -1674,7 +1673,6 @@ function AuthenticatedApp({ user }: { user: User }) {
       focusSize={inventoryFocusSize}
       onFocusConsumed={() => setInventoryFocusSize(null)}
       onViewJobsForSize={openJobsForSize} />;
-    if (tab === 'ops') return <OpsPage jobs={jobs} inventory={inventory} settings={settings} />;
     if (tab === 'settings') return <Settings settings={settings} onSave={persistSettings} />;
     if (tab === 'help') return <Help onBack={() => setTab('dashboard')} />;
     if (tab === 'success' && savedJob) {
@@ -1868,7 +1866,7 @@ function AuthenticatedApp({ user }: { user: User }) {
             <span className="nav-ico" aria-hidden="true"><NavLog /></span><span>Log</span>
           </button>
           <button
-            className={'nav-btn' + ((tab === 'settings' || tab === 'payouts' || tab === 'payments' || tab === 'expenses' || tab === 'insights' || tab === 'ops' || tab === 'help') ? ' active' : '')}
+            className={'nav-btn' + ((tab === 'settings' || tab === 'payouts' || tab === 'payments' || tab === 'expenses' || tab === 'insights' || tab === 'help') ? ' active' : '')}
             aria-haspopup="dialog"
             aria-expanded={moreOpen}
             onClick={() => setMoreOpen(true)}
