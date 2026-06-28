@@ -70,7 +70,7 @@ function deserializeReservations(v: unknown): ReservedSlot[] | undefined {
 // Scheduled / En Route / In Progress added for the scheduling pipeline.
 // Fallback stays 'Completed' so any job with a missing/unknown status (every
 // pre-pipeline job that never had one written) backfills as Completed —
-// keeping Insights, revenue, and the AI Ops reorder loop unchanged.
+// keeping Insights and revenue unchanged.
 const VALID_STATUSES: JobStatus[] = ['Scheduled', 'En Route', 'In Progress', 'Completed', 'Pending', 'Cancelled'];
 const VALID_PAYMENT_STATUSES: PaymentStatus[] = ['Paid', 'Pending Payment', 'Partial Payment', 'Refunded', 'Cancelled'];
 const VALID_PAYMENT_METHODS: PaymentMethod[] = ['cash', 'card', 'zelle', 'venmo', 'cashapp', 'check', 'apple_pay', 'google_pay', 'other'];
