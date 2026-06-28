@@ -195,7 +195,10 @@ export async function generateInvoicePDF(
   const itemized = breakdown === 'itemized' && items.length > 0;
 
   const isPaid = !isQuote && resolvePaymentStatus(job) === 'Paid';
-  const logoDataUri = await preloadLogo(brand.logoUrl);
+  // Prefer the stored data URI (embeds with no network/CORS — the reliable
+  // path). Fall back to the Storage URL for accounts that uploaded before the
+  // data URI existed (works only if the bucket sends CORS headers).
+  const logoDataUri = await preloadLogo(brand.logoDataUri || brand.logoUrl);
 
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const W = 210;

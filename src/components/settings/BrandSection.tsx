@@ -21,6 +21,40 @@ import { BrandPreview } from '@/components/settings/BrandPreview';
  */
 const LOGO_UPLOAD_TIMEOUT_MS = 30_000;
 
+/**
+ * Downscale the uploaded logo File to a small PNG data URI (≤256px). Stored
+ * as brand.logoDataUri so generated PDFs can embed the logo directly — a data
+ * URI needs no network/CORS, unlike the Firebase Storage URL which the
+ * browser can't read into a canvas (the reason the logo dropped from
+ * invoices/estimates). The source is a local File (same-origin blob), so the
+ * canvas isn't tainted and toDataURL succeeds. Resolves null on any failure.
+ */
+function fileToLogoDataUri(file: File, maxDim = 256): Promise<string | null> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onerror = () => resolve(null);
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => resolve(null);
+      img.onload = () => {
+        try {
+          const scale = Math.min(1, maxDim / Math.max(img.naturalWidth || 1, img.naturalHeight || 1));
+          const w = Math.max(1, Math.round((img.naturalWidth || 1) * scale));
+          const h = Math.max(1, Math.round((img.naturalHeight || 1) * scale));
+          const canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) { resolve(null); return; }
+          ctx.drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL('image/png'));
+        } catch { resolve(null); }
+      };
+      img.src = typeof reader.result === 'string' ? reader.result : '';
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 // ─────────────────────────────────────────────────────────────────────
 //  Brand accordion
 // ─────────────────────────────────────────────────────────────────────
@@ -67,6 +101,11 @@ function BrandForm() {
     if (logoUploading) return;
     setLogoUploading(true);
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    // Build the embeddable data URI from the local File up front — it's
+    // independent of the Storage upload and is what makes the logo appear on
+    // PDFs (no CORS). Persisted alongside logoUrl in every branch below.
+    const logoDataUri = await fileToLogoDataUri(file);
+    const dataUriPatch = logoDataUri ? { logoDataUri } : {};
     try {
       // `uploadLogo` returns `Promise<string | null>` (null on a quietly-
       // skipped upload). The timeout race arm must use the same union
@@ -85,14 +124,17 @@ function BrandForm() {
         // Logo upload auto-saves immediately. patch with markDirty=false
         // semantics via replace, so the form doesn't think the user has
         // unsaved changes after a successful upload.
-        replace({ ...draft, logoUrl: url }, false);
-        await updateBrand({ logoUrl: url });
+        replace({ ...draft, logoUrl: url, ...dataUriPatch }, false);
+        await updateBrand({ logoUrl: url, ...dataUriPatch });
         addToast('Logo updated', 'success');
       } else {
         // Queued offline. Show a local preview so the user sees the
         // change immediately; the queue patches settings/main on drain.
+        // Persist the data URI now (it doesn't need the upload) so the PDF
+        // logo works even before the Storage write drains.
         const localUrl = URL.createObjectURL(file);
-        replace({ ...draft, logoUrl: localUrl }, false);
+        replace({ ...draft, logoUrl: localUrl, ...dataUriPatch }, false);
+        if (logoDataUri) await updateBrand(dataUriPatch);
         addToast('Logo queued — uploads when online', 'info');
       }
     } catch (e) {
