@@ -15,13 +15,6 @@ import { AccordionShell } from '@/components/settings/AccordionShell';
 import { BrandPreview } from '@/components/settings/BrandPreview';
 
 /**
- * Hard cap on logo upload time. Firebase Storage retries internally,
- * but if the network never settles we still want to release the
- * spinner so the user isn't stuck. 30s is generous for a sub-MB image.
- */
-const LOGO_UPLOAD_TIMEOUT_MS = 30_000;
-
-/**
  * Downscale the uploaded logo File to a small PNG data URI (≤256px). Stored
  * as brand.logoDataUri so generated PDFs can embed the logo directly — a data
  * URI needs no network/CORS, unlike the Firebase Storage URL which the
@@ -73,7 +66,7 @@ export function BrandAccordion({ open, onToggle }: { open: boolean; onToggle: ()
       summary={summary}
       open={open}
       onToggle={onToggle}
-      logoUrl={brand.logoUrl}
+      logoUrl={brand.logoDataUri || brand.logoUrl}
     >
       <BrandForm />
     </AccordionShell>
@@ -100,47 +93,29 @@ function BrandForm() {
     if (!businessId) { addToast('Sign in required', 'warn'); return; }
     if (logoUploading) return;
     setLogoUploading(true);
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
-    // Build the embeddable data URI from the local File up front — it's
-    // independent of the Storage upload and is what makes the logo appear on
-    // PDFs (no CORS). Persisted alongside logoUrl in every branch below.
-    const logoDataUri = await fileToLogoDataUri(file);
-    const dataUriPatch = logoDataUri ? { logoDataUri } : {};
     try {
-      // `uploadLogo` returns `Promise<string | null>` (null on a quietly-
-      // skipped upload). The timeout race arm must use the same union
-      // so the generic type-checks; we narrow back to a non-null string
-      // at the use site below.
-      const url = await Promise.race<string | null>([
-        enqueueLogoUpload(businessId, file),
-        new Promise<string | null>((_, reject) => {
-          timeoutId = setTimeout(
-            () => reject(new Error('Logo upload timed out — please try again')),
-            LOGO_UPLOAD_TIMEOUT_MS,
-          );
-        }),
-      ]);
-      if (url) {
-        // Logo upload auto-saves immediately. patch with markDirty=false
-        // semantics via replace, so the form doesn't think the user has
-        // unsaved changes after a successful upload.
-        replace({ ...draft, logoUrl: url, ...dataUriPatch }, false);
-        await updateBrand({ logoUrl: url, ...dataUriPatch });
-        addToast('Logo updated', 'success');
-      } else {
-        // Queued offline. Show a local preview so the user sees the
-        // change immediately; the queue patches settings/main on drain.
-        // Persist the data URI now (it doesn't need the upload) so the PDF
-        // logo works even before the Storage write drains.
-        const localUrl = URL.createObjectURL(file);
-        replace({ ...draft, logoUrl: localUrl, ...dataUriPatch }, false);
-        if (logoDataUri) await updateBrand(dataUriPatch);
-        addToast('Logo queued — uploads when online', 'info');
+      // PRIMARY path: a small downscaled data URI persisted to Firestore.
+      // This is what drives every logo surface — the app UI AND PDFs — and it
+      // works regardless of Firebase Storage, whose uploads have been failing
+      // for this account (enqueueLogoUpload throws → queues → never lands).
+      // Firestore writes work ("SYNCED"), so the logo is reliable here.
+      const logoDataUri = await fileToLogoDataUri(file);
+      if (!logoDataUri) {
+        addToast('Could not read that image — try a PNG or JPG', 'error');
+        return;
       }
+      replace({ ...draft, logoDataUri }, false);
+      await updateBrand({ logoDataUri });
+      addToast('Logo updated', 'success');
+
+      // BEST-EFFORT: also push the original to Storage so logoUrl is populated
+      // for any consumer that reads it. Non-blocking — failure is harmless
+      // because the data URI already covers display. enqueueLogoUpload patches
+      // settings/main.logoUrl itself on success (or queues for later drain).
+      void enqueueLogoUpload(businessId, file).catch(() => { /* data URI covers it */ });
     } catch (e) {
-      addToast((e as Error).message || 'Upload failed', 'error');
+      addToast((e as Error).message || 'Logo update failed', 'error');
     } finally {
-      if (timeoutId) clearTimeout(timeoutId);
       setLogoUploading(false);
     }
   };
@@ -209,7 +184,7 @@ function BrandForm() {
       <div className="field">
         <label htmlFor="settings-logo-upload">Logo</label>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <img src={draft.logoUrl || APP_LOGO} alt="" style={{ width: 56, height: 56, borderRadius: 12, objectFit: 'contain', background: 'var(--s3)' }}
+          <img src={draft.logoDataUri || draft.logoUrl || APP_LOGO} alt="" style={{ width: 56, height: 56, borderRadius: 12, objectFit: 'contain', background: 'var(--s3)' }}
             onError={(e) => { const t = e.currentTarget; if (!t.src.endsWith(APP_LOGO)) t.src = APP_LOGO; }} />
           <input id="settings-logo-upload" ref={logoInputRef} type="file" accept="image/*" style={{ display: 'none' }}
             onChange={(e) => { const f = e.target.files?.[0]; if (f) handleLogo(f); if (logoInputRef.current) logoInputRef.current.value = ''; }} />
@@ -217,7 +192,7 @@ function BrandForm() {
             {logoUploading ? 'Uploading…' : 'Upload logo'}
           </button>
         </div>
-        {!draft.logoUrl && !logoUploading && (
+        {!draft.logoDataUri && !draft.logoUrl && !logoUploading && (
           <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 6 }}>
             Logo appears on invoices and customer-facing receipts. PNG or
             JPG, square preferred.
@@ -244,7 +219,7 @@ function BrandForm() {
       <BrandPreview
         businessName={draft.businessName}
         tagline={draft.tagline}
-        logoUrl={draft.logoUrl}
+        logoUrl={draft.logoDataUri || draft.logoUrl}
         primaryColor={draft.primaryColor}
       />
 
