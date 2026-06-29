@@ -8,6 +8,9 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Mobile Service OS" />
   <meta name="theme-color" content="#0B0B0B" />
+  <!-- Apply the saved theme before first paint so there's no dark→light
+       flash. Dark is the default; light is opt-in (Settings → Appearance). -->
+  <script>try{var t=localStorage.getItem('msos_theme');document.documentElement.setAttribute('data-theme',t==='light'?'light':'dark');if(t==='light'){var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content','#f3f4f6');}}catch(e){}</script>
   <meta name="description" content="Mobile Service OS — operating system for mobile tire and roadside assistance businesses." />
   <title>Mobile Service OS — Mobile Tire &amp; Roadside</title>
 

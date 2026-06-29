@@ -2,6 +2,7 @@
    Mobile Service OS — premium dark mobile-first theme
    ============================================================ */
 :root {
+  color-scheme: dark;
   --brand-primary: #f4b400;
   --brand-primary-dim: #f4b40022;
   --brand-primary-glow: #f4b40066;
@@ -72,6 +73,32 @@
   --safe-bot: env(safe-area-inset-bottom, 0);
   --safe-l:   env(safe-area-inset-left, 0);
   --safe-r:   env(safe-area-inset-right, 0);
+}
+
+/* ── Light theme (opt-in) ───────────────────────────────────────────
+   The app is DARK by default (:root above). Setting data-theme="light"
+   on <html> (persisted in localStorage as msos_theme, applied pre-render
+   by the inline script in index.html) flips the surface / text / border /
+   status tokens to a light palette. Brand gold stays the same; status
+   colors are darkened slightly for contrast on white. Everything that
+   reads these tokens adapts automatically. */
+[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f3f4f6;
+  --s1: #ffffff;
+  --s2: #f5f6f8;
+  --s3: #eceef1;
+  --s4: #e3e6ea;
+  --border: rgba(0,0,0,.10);
+  --border2: rgba(0,0,0,.16);
+  --t1: #14161a;
+  --t2: #44474e;
+  --t3: #6c7079;
+  --green: #16a34a;
+  --red: #dc2626;
+  --amber: #d97706;
+  --brand-primary-dim: #f4b40026;
+  --brand-primary-glow: #f4b40044;
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
