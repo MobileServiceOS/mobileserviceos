@@ -102,6 +102,9 @@ export interface Insights {
   revenueTrend: WeekPoint[];
   /** Up to the last 6 calendar months with activity, oldest → newest. */
   monthly: MonthPoint[];
+  /** All-time totals across every Completed job (the lifetime "jobs done"
+   *  count + the revenue they produced). Excludes scheduled/cancelled. */
+  allTime: { jobs: number; revenue: number };
   /** Service types ranked by total profit, highest first. */
   topServices: ServiceStat[];
   /** Lead sources ranked by total revenue, highest first. */
@@ -161,6 +164,9 @@ export function computeInsights(
   // Per-calendar-month revenue + profit (all activity, not just the 8-week
   // window). Keyed 'YYYY-MM'; the last 6 with activity are returned.
   const monthMap = new Map<string, MonthPoint>();
+  // All-time "jobs done" — every Completed job and the revenue it produced.
+  let allTimeJobs = 0;
+  let allTimeRevenue = 0;
 
   // ── Single pass for the rankings + trend ────────────────────────
   const svc = new Map<string, ServiceStat>();
@@ -187,6 +193,9 @@ export function computeInsights(
     if (j.status === 'Cancelled' || isScheduledPipeline(j.status)) continue;
     const revenue = Number(j.revenue || 0);
     const profit = jobGrossProfit(j, settings);
+
+    // All-time "jobs done" — count Completed jobs (Pending = not finished).
+    if (j.status === 'Completed') { allTimeJobs += 1; allTimeRevenue += revenue; }
 
     // Trend — only weeks inside the 8-week window count.
     if (j.date) {
@@ -351,6 +360,7 @@ export function computeInsights(
     monthly: Array.from(monthMap.values())
       .sort((a, b) => a.month.localeCompare(b.month))
       .slice(-6),
+    allTime: { jobs: allTimeJobs, revenue: allTimeRevenue },
     topServices: Array.from(svc.values()).sort((a, b) => b.profit - a.profit),
     topSources: Array.from(src.values()).sort((a, b) => b.revenue - a.revenue),
     topCities: Array.from(cty.values()).sort((a, b) => b.profit - a.profit),
