@@ -251,6 +251,20 @@ console.log('\n┌─ Monthly revenue + profit ───────────
     ins6.monthly.length === 6 && ins6.monthly[0].month === '2025-12');
 }
 
+console.log('\n┌─ All-time jobs completed ─────────────────────────');
+{
+  const ins = computeInsights([
+    mkJob({ revenue: 100, status: 'Completed', date: '2026-01-10' }),
+    mkJob({ revenue: 200, status: 'Completed', date: '2026-03-10' }),
+    mkJob({ revenue: 999, status: 'Pending', date: '2026-03-11' }),   // not done
+    mkJob({ revenue: 999, status: 'Scheduled', date: '2026-03-12', appointmentDate: '2026-07-06T10:00' }),
+    mkJob({ revenue: 999, status: 'Cancelled', date: '2026-03-13' }),
+  ], settings, TODAY);
+  check('all-time counts only Completed jobs', ins.allTime.jobs === 2);
+  check('all-time revenue sums Completed jobs', ins.allTime.revenue === 300);
+  check('no jobs → all-time is 0', computeInsights([], settings, TODAY).allTime.jobs === 0);
+}
+
 console.log('');
 console.log(passed + ' passed, ' + failed + ' failed');
 if (failed > 0) process.exit(1);

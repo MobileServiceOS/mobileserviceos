@@ -71,6 +71,28 @@ export function Insights({ jobs, settings, inventory }: Props) {
     <div className="page page-enter">
       <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 14 }}>Insights</div>
 
+      {/* All-time headline — total jobs done since day one + the revenue
+          they produced. Sits above the accordions so it's the first thing
+          you see. Counts Completed jobs only. */}
+      <div className="card card-anim" style={{ marginBottom: 14 }}>
+        <div className="card-pad" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--t3)' }}>
+              Jobs completed · all time
+            </div>
+            <div style={{ fontSize: 34, fontWeight: 800, color: 'var(--t1)', lineHeight: 1.05 }}>
+              {ins.allTime.jobs.toLocaleString()}
+            </div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--t3)' }}>
+              Revenue
+            </div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--green)' }}>{money(ins.allTime.revenue)}</div>
+          </div>
+        </div>
+      </div>
+
       {/* Cards stack on phone (single column) and split into two columns
           on desktop (.cols-lg, ≥1024px) so the wide screen isn't wasted. */}
       <div className="cols-lg">
