@@ -30,6 +30,7 @@ import { TeamAccordion } from '@/components/settings/TeamSection';
 import { SubscriptionAccordion } from '@/components/settings/SubscriptionSection';
 import { ReferralAccordion } from '@/components/settings/ReferralSection';
 import { AccountAccordion } from '@/components/settings/AccountSection';
+import { ThemeToggle } from '@/components/settings/ThemeToggle';
 
 interface Props {
   settings: SettingsT;
@@ -152,6 +153,9 @@ export function Settings({ settings, onSave }: Props) {
           label; spacing/safe-area is handled by .settings-page in CSS
           (see src/styles/app.css). */}
       <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 14 }}>Settings</div>
+
+      {/* Appearance (dark / light) — available to everyone, device-local. */}
+      <ThemeToggle />
 
       {canSeeBusinessSettings && (
         <BrandAccordion
