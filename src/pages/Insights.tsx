@@ -33,6 +33,27 @@ export function Insights({ jobs, settings, inventory }: Props) {
   const monthlyProfit = ins.monthly.reduce((s, m) => s + m.profit, 0);
   const unpaidTotal = ins.unpaidAging.reduce((s, r) => s + r.total, 0);
 
+  // ─── Baselines for color coding + derived stats ──────────────────
+  // green = above the relevant average, amber = at/below it, red = ≤ 0.
+  const weeks = ins.revenueTrend.length || 1;        // 8
+  const avgWeekRevenue = trendRevenue / weeks;
+  const avgWeekProfit = trendProfit / weeks;
+  const avgDayRevenue = avgWeekRevenue / 7;
+  const avgDayProfit = avgWeekProfit / 7;
+  const avgMonthRevenue = ins.monthly.length ? monthlyRevenue / ins.monthly.length : 0;
+  const avgMonthProfit = ins.monthly.length ? monthlyProfit / ins.monthly.length : 0;
+  // Average job value = total revenue ÷ total completed jobs (all time).
+  const avgJobValue = ins.allTime.jobs > 0 ? ins.allTime.revenue / ins.allTime.jobs : 0;
+  // Lead-source totals for the percentage split.
+  const sourceRevenueTotal = ins.topSources.reduce((s, x) => s + x.revenue, 0);
+  // Cities ranked by REVENUE (not just the most profitable one).
+  const citiesByRevenue = [...ins.topCities].sort((a, b) => b.revenue - a.revenue);
+
+  const tone = (v: number, avg: number): string =>
+    v <= 0 ? 'var(--red)' : v > avg ? 'var(--green)' : 'var(--amber)';
+  const margin = (revenue: number, profit: number): number =>
+    revenue > 0 ? Math.round((profit / revenue) * 100) : 0;
+
   // ─── Accordion open-state for each section ───────────────────────
   // Daily Jobs is the headline → opens by default. Everything else
   // collapses. The dropdown chevron toggles, and multiple sections
@@ -64,12 +85,37 @@ export function Insights({ jobs, settings, inventory }: Props) {
   );
   const topService = ins.topServices[0];
   const topSource = ins.topSources[0];
-  const topCity = ins.topCities[0];
+  const cityByRevenue = citiesByRevenue[0];
   const topCost = ins.expenseAnalysis.topCategoriesByCost[0];
 
   return (
     <div className="page page-enter">
       <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 14 }}>Insights</div>
+
+      {/* ── Hero stat row — the first thing visible on load ──────────
+          Today's jobs, revenue, profit. Revenue/profit color-coded vs the
+          daily average; profit shows its margin. */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 10 }}>
+        <HeroStat label="Jobs Today" value={ins.dailyJobs.jobsToday.toLocaleString()} />
+        <HeroStat label="Revenue Today" value={money(ins.dailyJobs.revenueToday)}
+          color={tone(ins.dailyJobs.revenueToday, avgDayRevenue)} />
+        <HeroStat label="Profit Today" value={money(ins.dailyJobs.profitToday)}
+          color={tone(ins.dailyJobs.profitToday, avgDayProfit)}
+          sub={ins.dailyJobs.revenueToday > 0 ? `${margin(ins.dailyJobs.revenueToday, ins.dailyJobs.profitToday)}% margin` : undefined} />
+      </div>
+
+      {/* Average job value — directly below the hero row. */}
+      <div className="card card-anim" style={{ marginBottom: 14 }}>
+        <div className="card-pad" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--t3)' }}>
+            Average job value
+          </div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+            <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--t1)' }}>{money(avgJobValue)}</div>
+            <div style={{ fontSize: 11, color: 'var(--t3)' }}>across {ins.allTime.jobs.toLocaleString()} job{ins.allTime.jobs !== 1 ? 's' : ''}</div>
+          </div>
+        </div>
+      </div>
 
       {/* All-time headline — total jobs done since day one + the revenue
           they produced. Sits above the accordions so it's the first thing
@@ -175,7 +221,7 @@ export function Insights({ jobs, settings, inventory }: Props) {
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
           <span style={{ color: 'var(--t3)' }}>8-wk revenue <strong style={{ color: 'var(--green)' }}>{money(trendRevenue)}</strong></span>
-          <span style={{ color: 'var(--t3)' }}>profit <strong style={{ color: trendProfit >= 0 ? 'var(--green)' : 'var(--red)' }}>{money(trendProfit)}</strong></span>
+          <span style={{ color: 'var(--t3)' }}>profit <strong style={{ color: trendProfit >= 0 ? 'var(--green)' : 'var(--red)' }}>{money(trendProfit)}</strong> · {margin(trendRevenue, trendProfit)}%</span>
         </div>
       </AccordionShell>
 
@@ -183,6 +229,7 @@ export function Insights({ jobs, settings, inventory }: Props) {
       <AccordionShell
         title="Revenue & Profit by Month"
         icon="🗓️"
+        accent
         summary={ins.monthly.length
           ? `${money(monthlyRevenue)} revenue · ${money(monthlyProfit)} profit`
           : 'No completed jobs yet'}
@@ -193,25 +240,15 @@ export function Insights({ jobs, settings, inventory }: Props) {
           <div style={{ fontSize: 12, color: 'var(--t3)' }}>No completed jobs yet.</div>
         ) : (
           <>
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 110, marginBottom: 10 }}>
-              {ins.monthly.map((m) => (
-                <div key={m.month} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-                  <div style={{
-                    width: '100%',
-                    height: Math.max(2, Math.round((m.revenue / monthMax) * 88)),
-                    background: 'linear-gradient(180deg, var(--brand-primary) 0%, rgba(244,180,0,.35) 100%)',
-                    borderRadius: '4px 4px 0 0',
-                  }} title={`${formatMonth(m.month)} · ${money(m.revenue)}`} />
-                  <div style={{ fontSize: 9, color: 'var(--t3)' }}>{formatMonth(m.month).split(' ')[0]}</div>
-                </div>
-              ))}
-            </div>
+            <MonthlyChart months={ins.monthly} max={monthMax} />
             {[...ins.monthly].reverse().map((m) => (
               <div key={m.month} className="card-row" style={{ padding: '8px 0', borderTop: '1px solid var(--border2)' }}>
                 <span className="label">{formatMonth(m.month)}</span>
                 <span style={{ display: 'flex', gap: 12, alignItems: 'baseline' }}>
-                  <span style={{ fontSize: 12, color: 'var(--t3)' }}>{money(m.revenue)} rev</span>
-                  <strong style={{ color: m.profit >= 0 ? 'var(--green)' : 'var(--red)' }}>{money(m.profit)} profit</strong>
+                  <span style={{ fontSize: 12, color: tone(m.revenue, avgMonthRevenue) }}>{money(m.revenue)} rev</span>
+                  <strong style={{ color: tone(m.profit, avgMonthProfit) }}>
+                    {money(m.profit)} · {margin(m.revenue, m.profit)}%
+                  </strong>
                 </span>
               </div>
             ))}
@@ -223,6 +260,7 @@ export function Insights({ jobs, settings, inventory }: Props) {
       <AccordionShell
         title="Repeat Customers"
         icon="🔁"
+        accent
         summary={ins.repeat.total > 0 ? `${ins.repeat.pct}% repeat rate · ${ins.repeat.repeat} of ${ins.repeat.total}` : 'No customers yet'}
         open={openSections.repeat}
         onToggle={toggle('repeat')}
@@ -250,43 +288,51 @@ export function Insights({ jobs, settings, inventory }: Props) {
             label: s.service,
             sub: `${s.count} job${s.count !== 1 ? 's' : ''} · ${money(s.revenue)} revenue`,
             value: s.profit,
-            valueLabel: money(s.profit),
+            valueLabel: `${money(s.profit)} · ${margin(s.revenue, s.profit)}%`,
           }))}
         />
       </AccordionShell>
 
       {/* ── Top lead sources ───────────────────────────────────── */}
       <AccordionShell
-        title="Top Lead Sources — by Revenue"
+        title="Lead Source Breakdown"
         icon="📣"
-        summary={topSource ? `${topSource.source} · ${money(topSource.revenue)}` : 'No lead-source data yet'}
+        summary={topSource && sourceRevenueTotal > 0
+          ? `${topSource.source} · ${Math.round((topSource.revenue / sourceRevenueTotal) * 100)}% of revenue`
+          : 'No lead-source data yet'}
         open={openSections.topSources}
         onToggle={toggle('topSources')}
       >
+        {/* Every lead source with its share of total revenue — not just the
+            top one. The bar + % shows the split at a glance. */}
         <RankedCard
-          rows={ins.topSources.slice(0, 6).map((s) => ({
-            label: s.source,
-            sub: `${s.count} job${s.count !== 1 ? 's' : ''}`,
-            value: s.revenue,
-            valueLabel: money(s.revenue),
-          }))}
+          rows={ins.topSources.map((s) => {
+            const pct = sourceRevenueTotal > 0 ? Math.round((s.revenue / sourceRevenueTotal) * 100) : 0;
+            return {
+              label: s.source,
+              sub: `${s.count} job${s.count !== 1 ? 's' : ''} · ${money(s.revenue)}`,
+              value: s.revenue,
+              valueLabel: `${pct}%`,
+            };
+          })}
         />
       </AccordionShell>
 
       {/* ── Top cities ─────────────────────────────────────────── */}
       <AccordionShell
-        title="Most Profitable Cities"
+        title="Revenue by City"
         icon="📍"
-        summary={topCity ? `${topCity.city} · ${money(topCity.profit)} profit` : 'No city data yet'}
+        summary={cityByRevenue ? `${cityByRevenue.city} · ${money(cityByRevenue.revenue)}` : 'No city data yet'}
         open={openSections.topCities}
         onToggle={toggle('topCities')}
       >
+        {/* All active cities ranked by revenue (profit + margin per row). */}
         <RankedCard
-          rows={ins.topCities.slice(0, 6).map((c) => ({
+          rows={citiesByRevenue.map((c) => ({
             label: c.city,
-            sub: `${c.count} job${c.count !== 1 ? 's' : ''}`,
-            value: c.profit,
-            valueLabel: money(c.profit),
+            sub: `${c.count} job${c.count !== 1 ? 's' : ''} · ${money(c.profit)} profit · ${margin(c.revenue, c.profit)}%`,
+            value: c.revenue,
+            valueLabel: money(c.revenue),
           }))}
         />
       </AccordionShell>
@@ -414,6 +460,73 @@ export function Insights({ jobs, settings, inventory }: Props) {
           }))}
         />
       </AccordionShell>
+      </div>
+    </div>
+  );
+}
+
+// ─── Hero stat — one big bold number with optional color + sub ──────
+function HeroStat({ label, value, color, sub }: {
+  label: string;
+  value: string;
+  color?: string;
+  sub?: string;
+}) {
+  return (
+    <div className="card card-anim" style={{ padding: '12px' }}>
+      <div style={{
+        fontSize: 9, fontWeight: 800, letterSpacing: 1, textTransform: 'uppercase',
+        color: 'var(--t3)', marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+      }}>{label}</div>
+      <div style={{ fontSize: 22, fontWeight: 800, color: color || 'var(--t1)', lineHeight: 1.05 }}>{value}</div>
+      {sub && <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 2 }}>{sub}</div>}
+    </div>
+  );
+}
+
+// ─── Monthly revenue bars with a trend line overlaid on the bar tops ─
+function MonthlyChart({ months, max }: {
+  months: ReadonlyArray<{ month: string; revenue: number; profit: number }>;
+  max: number;
+}) {
+  const H = 96; // bar-area height in px (also the SVG y-range)
+  const barH = (rev: number) => Math.max(2, Math.round((rev / max) * 88));
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ position: 'relative', height: H }}>
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'flex-end', gap: 8 }}>
+          {months.map((m) => (
+            <div key={m.month} style={{ flex: 1 }}>
+              <div style={{
+                width: '100%', height: barH(m.revenue),
+                background: 'linear-gradient(180deg, var(--brand-primary) 0%, rgba(244,180,0,.35) 100%)',
+                borderRadius: '4px 4px 0 0',
+              }} title={`${formatMonth(m.month)} · ${money(m.revenue)}`} />
+            </div>
+          ))}
+        </div>
+        {/* Trend line — connects the top of each revenue bar. Stroke is
+            non-scaling so it stays crisp regardless of the x-stretch. */}
+        {months.length > 1 && (
+          <svg
+            viewBox={`0 0 ${months.length} ${H}`}
+            preserveAspectRatio="none"
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', overflow: 'visible' }}
+          >
+            <polyline
+              points={months.map((m, i) => `${i + 0.5},${H - barH(m.revenue)}`).join(' ')}
+              fill="none" stroke="var(--t1)" strokeWidth={2}
+              vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" opacity={0.9}
+            />
+          </svg>
+        )}
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+        {months.map((m) => (
+          <div key={m.month} style={{ flex: 1, textAlign: 'center', fontSize: 9, color: 'var(--t3)' }}>
+            {formatMonth(m.month).split(' ')[0]}
+          </div>
+        ))}
       </div>
     </div>
   );

@@ -37,6 +37,7 @@ export interface SourceStat {
 }
 export interface CityStat {
   city: string;
+  revenue: number;
   profit: number;
   count: number;
 }
@@ -59,6 +60,10 @@ export interface DailyJobStats {
   bestDayThisWeek: { date: string; count: number } | null;
   /** Service with the most jobs today. null when no jobs today. */
   busiestServiceToday: { service: string; count: number } | null;
+  /** Revenue + gross profit from today's jobs (completed + pending, not
+   *  cancelled/scheduled) — drives the hero "today" stats. */
+  revenueToday: number;
+  profitToday: number;
 }
 
 export interface CategoryStat {
@@ -232,8 +237,8 @@ export function computeInsights(
       (j.fullLocationLabel || '').trim() ||
       (j.area || '').trim();
     if (cName) {
-      const c = cty.get(cName) || { city: cName, profit: 0, count: 0 };
-      c.profit += profit; c.count += 1;
+      const c = cty.get(cName) || { city: cName, revenue: 0, profit: 0, count: 0 };
+      c.revenue += revenue; c.profit += profit; c.count += 1;
       cty.set(cName, c);
     }
 
@@ -279,12 +284,21 @@ export function computeInsights(
   const trendJobsCount = liveJobs.filter((j) => j.date && weekKeys.includes(getWeekStart(j.date, weekStartDay))).length;
   const avgPerDay = trendJobsCount / (TREND_WEEKS * 7);
 
+  let revenueToday = 0;
+  let profitToday = 0;
+  for (const j of todayJobs) {
+    revenueToday += Number(j.revenue || 0);
+    profitToday += jobGrossProfit(j, settings);
+  }
+
   const dailyJobs: DailyJobStats = {
     jobsToday: todayJobs.length,
     jobsThisWeek: thisWeekJobs.length,
     avgPerDay,
     bestDayThisWeek: bestDay,
     busiestServiceToday: busiestService,
+    revenueToday,
+    profitToday,
   };
 
   // ── Expense analysis (Phase 5) ──────────────────────────────────

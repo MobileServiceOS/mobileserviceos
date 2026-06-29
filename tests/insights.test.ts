@@ -251,6 +251,32 @@ console.log('\n┌─ Monthly revenue + profit ───────────
     ins6.monthly.length === 6 && ins6.monthly[0].month === '2025-12');
 }
 
+console.log('\n┌─ Today revenue + profit (hero stats) ─────────────');
+{
+  const ins = computeInsights([
+    mkJob({ revenue: 300, tireCost: 100, date: TODAY }),  // today: profit 200
+    mkJob({ revenue: 200, tireCost: 50, date: TODAY }),   // today: profit 150
+    mkJob({ revenue: 999, tireCost: 0, date: '2026-05-01' }), // not today
+    mkJob({ revenue: 999, status: 'Scheduled', date: TODAY, appointmentDate: '2026-07-06T10:00' }), // excluded
+  ], settings, TODAY);
+  check('revenueToday sums today jobs only', ins.dailyJobs.revenueToday === 500);
+  check('profitToday sums today jobs only', ins.dailyJobs.profitToday === 350);
+  check('scheduled job excluded from revenueToday', ins.dailyJobs.revenueToday === 500);
+}
+
+console.log('\n┌─ City revenue (Revenue by City) ──────────────────');
+{
+  const ins = computeInsights([
+    mkJob({ revenue: 400, tireCost: 100, city: 'Miami', date: TODAY }),
+    mkJob({ revenue: 300, tireCost: 50, city: 'Miami', date: TODAY }),
+    mkJob({ revenue: 100, tireCost: 0, city: 'Weston', date: TODAY }),
+  ], settings, TODAY);
+  const miami = ins.topCities.find((c) => c.city === 'Miami');
+  check('city accumulates revenue', miami?.revenue === 700);
+  check('city accumulates profit', miami?.profit === 550);
+  check('city counts jobs', miami?.count === 2);
+}
+
 console.log('\n┌─ All-time jobs completed ─────────────────────────');
 {
   const ins = computeInsights([
