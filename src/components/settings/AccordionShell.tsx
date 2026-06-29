@@ -19,11 +19,14 @@ export interface AccordionShellProps {
   open: boolean;
   onToggle: () => void;
   logoUrl?: string;
+  /** Visual emphasis for primary cards — a brand-colored left accent + a
+   *  slightly larger title, so primary sections outrank secondary ones. */
+  accent?: boolean;
   children: ReactNode;
 }
 
 export function AccordionShell({
-  title, icon, summary, badge, open, onToggle, logoUrl, children,
+  title, icon, summary, badge, open, onToggle, logoUrl, accent, children,
 }: AccordionShellProps) {
   // Use a controlled card + click handler so mutex works. The existing
   // Accordion component manages its own open state internally — not a fit
@@ -98,7 +101,11 @@ export function AccordionShell({
   }, [open]);
 
   return (
-    <div className="card card-anim" style={{ overflow: 'hidden', marginBottom: 12 }}>
+    <div className="card card-anim" style={{
+      overflow: 'hidden',
+      marginBottom: accent ? 16 : 12,
+      borderLeft: accent ? '3px solid var(--brand-primary)' : undefined,
+    }}>
       <button
         type="button"
         onClick={onToggle}
@@ -140,7 +147,7 @@ export function AccordionShell({
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{
             display: 'flex', alignItems: 'center', gap: 8,
-            fontSize: 14, fontWeight: 800, color: 'var(--t1)',
+            fontSize: accent ? 15.5 : 14, fontWeight: 800, color: 'var(--t1)',
           }}>
             {title}
             {badge && (

@@ -64,6 +64,7 @@ import { Onboarding } from '@/components/Onboarding';
 import { PaywallLockout } from '@/components/PaywallLockout';
 import { shouldLockApp, isExistingCustomer } from '@/lib/planAccess';
 import { isScheduledPipeline } from '@/lib/jobStatus';
+import { todaysSchedule } from '@/lib/schedule';
 import { addToast, addActionToast } from '@/lib/toast';
 import { humanizeFirestoreError, logFirestoreError, isPermissionDenied } from '@/lib/firebaseErrors';
 import { applyBrandColors, planInventoryDeduction, r2, uid, realCustomerName, money } from '@/lib/utils';
@@ -1840,7 +1841,23 @@ function AuthenticatedApp({ user }: { user: User }) {
             aria-current={tab === 'history' ? 'page' : undefined}
             onClick={() => setTab('history')}
           >
-            <span className="nav-ico" aria-hidden="true"><NavJobs /></span><span>Jobs</span>
+            <span className="nav-ico" aria-hidden="true" style={{ position: 'relative', display: 'inline-flex' }}>
+              <NavJobs />
+              {/* Active jobs today — booked appointments (Scheduled / En Route
+                  / In Progress) for today. Hidden when there are none. */}
+              {(() => {
+                const n = todaysSchedule(jobs, TODAY()).length;
+                return n > 0 ? (
+                  <span aria-hidden="true" style={{
+                    position: 'absolute', top: -5, right: -9,
+                    minWidth: 16, height: 16, padding: '0 4px', borderRadius: 99,
+                    background: 'var(--brand-primary)', color: '#000',
+                    fontSize: 9, fontWeight: 800, lineHeight: 1,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>{n > 99 ? '99+' : n}</span>
+                ) : null;
+              })()}
+            </span><span>Jobs</span>
           </button>
           <button
             className={'nav-btn' + (tab === 'customers' ? ' active' : '')}
