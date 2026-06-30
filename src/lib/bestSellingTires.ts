@@ -8,7 +8,10 @@ import { extractTireSize } from '@/lib/inventoryNotesParser';
 //    computeBestSellingTires(jobs, options) → BestSellerRow[]
 //
 //  Default behavior:
-//    - Only counts jobs with status === 'Completed'
+//    - Counts "work done" jobs: status === 'Completed' OR 'Pending'
+//      (Pending = legacy done-but-unpaid; still a real sale). The
+//      scheduled pipeline (Scheduled/En Route/In Progress) + Cancelled
+//      are excluded — same rule the revenue metrics use.
 //    - Groups by CANONICAL tireSize via extractTireSize (e.g.
 //      "225/65-17" / "225-65-17" / "225 65 17" all → "225/65R17"
 //      so the same physical size doesn't split across rows AND the
@@ -93,7 +96,15 @@ export function computeBestSellingTires(
   const buckets = new Map<string, BestSellerRow>();
 
   for (const j of jobs) {
-    if (j.status !== 'Completed') continue;
+    // Count both "work done" states. 'Pending' is the legacy done-but-unpaid
+    // status — a sold/installed tire is a real sale even before payment clears,
+    // and the revenue + demand metrics already treat Pending as done work (see
+    // `liveJobs` in insights.ts). Previously this counted ONLY 'Completed', so
+    // every Pending sale was silently dropped from Best Sellers — which is why
+    // a size sold many times could fail to appear. The forward-looking
+    // scheduled pipeline (Scheduled/En Route/In Progress) and Cancelled are
+    // still excluded: those are not completed sales.
+    if (j.status !== 'Completed' && j.status !== 'Pending') continue;
     const sizeRaw = (j.tireSize || '').trim();
     if (!sizeRaw) continue;
     // extractTireSize returns canonical "WIDTH/ASPECTRRIM" or '' when

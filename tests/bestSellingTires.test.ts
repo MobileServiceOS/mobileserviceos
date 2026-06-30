@@ -47,17 +47,17 @@ check('null jobs → []', computeBestSellingTires(null).length === 0);
 check('undefined jobs → []', computeBestSellingTires(undefined).length === 0);
 check('empty array → []', computeBestSellingTires([]).length === 0);
 
-console.log('\n┌─ Status filter — only Completed counted ──────');
+console.log('\n┌─ Status filter — Completed + Pending counted; pipeline + Cancelled excluded ──');
 {
   const jobs: Job[] = [
-    makeJob({ status: 'Completed',  tireSize: '225/65R17', qty: 4, revenue: 800, date: '2026-05-20' }),
-    makeJob({ status: 'Pending',    tireSize: '225/65R17', qty: 4, revenue: 800, date: '2026-05-20' }),
-    makeJob({ status: 'Quoted',     tireSize: '225/65R17', qty: 4, revenue: 800, date: '2026-05-20' }),
-    makeJob({ status: 'Canceled',   tireSize: '225/65R17', qty: 4, revenue: 800, date: '2026-05-20' }),
+    makeJob({ status: 'Completed',   tireSize: '225/65R17', qty: 4, revenue: 800, date: '2026-05-20' }),
+    makeJob({ status: 'Pending',     tireSize: '225/65R17', qty: 4, revenue: 800, date: '2026-05-20' }), // done, unpaid — IS a sale
+    makeJob({ status: 'In Progress', tireSize: '225/65R17', qty: 4, revenue: 800, date: '2026-05-20' }), // scheduled pipeline — not yet sold
+    makeJob({ status: 'Cancelled',   tireSize: '225/65R17', qty: 4, revenue: 800, date: '2026-05-20' }), // never happened
   ];
   const out = computeBestSellingTires(jobs, { now: NOW });
-  check('Pending / Quoted / Canceled excluded — only completed counted',
-    out.length === 1 && out[0].quantity === 4 && out[0].jobCount === 1);
+  check('Completed + Pending counted; In Progress + Cancelled excluded',
+    out.length === 1 && out[0].quantity === 8 && out[0].jobCount === 2);
 }
 
 console.log('\n┌─ Size normalization — same physical size groups ──');
