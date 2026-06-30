@@ -150,6 +150,9 @@ export function Insights({ jobs, settings, inventory }: Props) {
         open={openSections.dailyJobs}
         onToggle={toggle('dailyJobs')}
       >
+        {ins.dailyJobs.jobsToday === 0 && ins.dailyJobs.jobsThisWeek === 0 ? (
+          <EmptyState icon="🗓️" text="No jobs yet today. Tap + to add your first job." />
+        ) : (
         <div style={{
           display: 'grid', gridTemplateColumns: '1fr 1fr 1fr',
           gap: 10, marginBottom: 10,
@@ -169,6 +172,7 @@ export function Insights({ jobs, settings, inventory }: Props) {
             </div>
           </div>
         </div>
+        )}
         {(ins.dailyJobs.bestDayThisWeek || ins.dailyJobs.busiestServiceToday) && (
           <div style={{ paddingTop: 8, borderTop: '1px solid var(--border2)' }}>
             {ins.dailyJobs.bestDayThisWeek && (
@@ -237,7 +241,16 @@ export function Insights({ jobs, settings, inventory }: Props) {
         onToggle={toggle('monthly')}
       >
         {ins.monthly.length === 0 ? (
-          <div style={{ fontSize: 12, color: 'var(--t3)' }}>No completed jobs yet.</div>
+          <>
+            {/* Empty chart frame keeps the card's shape so it doesn't collapse. */}
+            <div style={{
+              height: 96, marginBottom: 8, borderRadius: 8,
+              border: '1px dashed var(--border2)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <span style={{ fontSize: 12, color: 'var(--t3)' }}>No data yet for this period</span>
+            </div>
+          </>
         ) : (
           <>
             <MonthlyChart months={ins.monthly} max={monthMax} />
@@ -265,14 +278,18 @@ export function Insights({ jobs, settings, inventory }: Props) {
         open={openSections.repeat}
         onToggle={toggle('repeat')}
       >
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-          <span style={{ fontSize: 34, fontWeight: 800, color: 'var(--green)', lineHeight: 1 }}>
-            {ins.repeat.pct}%
-          </span>
-          <span style={{ fontSize: 12, color: 'var(--t3)' }}>
-            {ins.repeat.repeat} of {ins.repeat.total} customer{ins.repeat.total !== 1 ? 's' : ''} booked more than once
-          </span>
-        </div>
+        {ins.repeat.total === 0 ? (
+          <EmptyState icon="🔁" text="No repeat customers yet. They'll appear here automatically." />
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+            <span style={{ fontSize: 34, fontWeight: 800, color: 'var(--green)', lineHeight: 1 }}>
+              {ins.repeat.pct}%
+            </span>
+            <span style={{ fontSize: 12, color: 'var(--t3)' }}>
+              {ins.repeat.repeat} of {ins.repeat.total} customer{ins.repeat.total !== 1 ? 's' : ''} booked more than once
+            </span>
+          </div>
+        )}
       </AccordionShell>
 
       {/* ── Top services ───────────────────────────────────────── */}
@@ -284,6 +301,7 @@ export function Insights({ jobs, settings, inventory }: Props) {
         onToggle={toggle('topServices')}
       >
         <RankedCard
+          emptyText="Complete jobs to see your top services."
           rows={ins.topServices.slice(0, 6).map((s) => ({
             label: s.service,
             sub: `${s.count} job${s.count !== 1 ? 's' : ''} · ${money(s.revenue)} revenue`,
@@ -359,9 +377,7 @@ export function Insights({ jobs, settings, inventory }: Props) {
         onToggle={toggle('unpaid')}
       >
         {unpaidTotal === 0 ? (
-          <div style={{ fontSize: 13, color: 'var(--t3)' }}>
-            Nothing outstanding — every job is paid.
-          </div>
+          <EmptyState icon="✅" text="All caught up. Nothing unpaid." />
         ) : (
           <>
             {ins.unpaidAging.map((r) => (
@@ -392,6 +408,9 @@ export function Insights({ jobs, settings, inventory }: Props) {
         open={openSections.expenses}
         onToggle={toggle('expenses')}
       >
+        {(settings.expenses || []).length === 0 ? (
+          <EmptyState icon="💰" text="No expenses logged yet." />
+        ) : (<>
         <div className="card-row" style={{ padding: '6px 0' }}>
           <span className="label">Business net profit</span>
           <span
@@ -441,6 +460,7 @@ export function Insights({ jobs, settings, inventory }: Props) {
             );
           })()}
         </div>
+        </>)}
       </AccordionShell>
 
       {/* ── Top cost categories (Phase 5) ──────────────────────── */}
@@ -532,6 +552,19 @@ function MonthlyChart({ months, max }: {
   );
 }
 
+// ─── Shared empty-state — subtle icon + message, card-matching style ──
+function EmptyState({ icon, text }: { icon: string; text: string }) {
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', alignItems: 'center',
+      gap: 8, padding: '18px 8px', textAlign: 'center',
+    }}>
+      <div style={{ fontSize: 26, opacity: 0.55 }} aria-hidden="true">{icon}</div>
+      <div style={{ fontSize: 12.5, color: 'var(--t3)', maxWidth: 250, lineHeight: 1.45 }}>{text}</div>
+    </div>
+  );
+}
+
 // ─── Ranked list card — proportional bars ──────────────────────────
 interface RankedRow {
   label: string;
@@ -540,12 +573,12 @@ interface RankedRow {
   valueLabel: string;
 }
 
-function RankedCard({ rows }: { rows: RankedRow[] }) {
+function RankedCard({ rows, emptyText = 'Not enough data yet.' }: { rows: RankedRow[]; emptyText?: string }) {
   const max = Math.max(1, ...rows.map((r) => r.value));
   return (
     <div>
       {rows.length === 0 ? (
-        <div style={{ fontSize: 13, color: 'var(--t3)' }}>Not enough data yet.</div>
+        <EmptyState icon="📊" text={emptyText} />
       ) : (
         rows.map((r, i) => (
           <div key={r.label + i} style={{ padding: '7px 0', position: 'relative' }}>
