@@ -247,6 +247,7 @@ export function Settings({ settings, onSave }: Props) {
 
       {canSeeTeam && (
         <TeamAccordion
+          settings={settings}
           open={openSection === 'team'}
           onToggle={() => setOpenSection(openSection === 'team' ? null : 'team')}
         />

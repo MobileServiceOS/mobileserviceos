@@ -2,6 +2,7 @@ import { jsPDF } from 'jspdf';
 import type { Job, Settings, Brand, JobLineItem } from '@/types';
 import { TODAY } from '@/lib/defaults';
 import { r2, resolvePaymentStatus, realCustomerName } from '@/lib/utils';
+import { isPaid as isPaidPlan } from '@/lib/planAccess';
 
 // Document currency — always two decimals so itemized rows foot exactly to
 // the subtotal/total. The app-wide money() rounds to whole dollars (for
@@ -214,8 +215,14 @@ export async function generateInvoicePDF(
   const RULE: RGB = [222, 224, 230];
   const FOOT_SUB: RGB = [196, 202, 212];
 
+  // Branded invoices (logo + tagline) are a Paid-tier feature. Free
+  // accounts get a clean, professional invoice with the business name in
+  // text instead of the logo. Note: `isPaid` (local, above) is PAYMENT
+  // status — `branded` is the PLAN check.
+  const branded = isPaidPlan(settings);
+
   // ── Header: logo (left) + title + meta (right) ───────────────────────
-  if (logoDataUri) {
+  if (branded && logoDataUri) {
     try {
       const props = doc.getImageProperties(logoDataUri);
       const ratio = props.width && props.height ? props.width / props.height : 2;
@@ -400,7 +407,7 @@ export async function generateInvoicePDF(
   doc.rect(0, fY, W, fH, 'F');
   doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(...WHITE);
   doc.text(`Thank you for choosing ${brand.businessName || 'us'}`, M, fY + 9);
-  const tagline = (brand.tagline || '').trim();
+  const tagline = branded ? (brand.tagline || '').trim() : '';
   const phone = (brand.phone || '').trim();
   const footSub = [tagline, phone ? `Call or text ${phone} to book` : ''].filter(Boolean).join('   |   ');
   if (footSub) {

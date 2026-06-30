@@ -1,18 +1,25 @@
+import type { Settings } from '@/types';
 import { TeamManagement } from '@/components/TeamManagement';
 import { AccordionShell } from '@/components/settings/AccordionShell';
+import { LockedFeature } from '@/components/LockedFeature';
 
 // ─────────────────────────────────────────────────────────────────────
 //  Team accordion
 //
-//  No longer plan-gated. Every account is on Pro, so the lock screen
-//  has been replaced with the "coming soon" placeholder (matches the
-//  pattern other in-progress features use elsewhere in the app).
+//  Team management (inviting techs/admins, multi-tech assignment) is a
+//  Paid-tier feature. Free accounts see the invite UI as a locked preview
+//  with an upgrade CTA; entitled accounts use it normally. Staged behind
+//  GROWTH_MODE like every other gate.
 // ─────────────────────────────────────────────────────────────────────
 
-export function TeamAccordion({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+export function TeamAccordion({
+  settings, open, onToggle,
+}: { settings: Settings; open: boolean; onToggle: () => void }) {
   return (
     <AccordionShell title="Team Management" icon="🧑‍🔧" summary="Invite & manage" open={open} onToggle={onToggle}>
-      <TeamManagement />
+      <LockedFeature feature="teamManagement" settings={settings}>
+        <TeamManagement />
+      </LockedFeature>
     </AccordionShell>
   );
 }
