@@ -12,6 +12,9 @@ import { addToast } from '@/lib/toast';
 import { computeInventoryIntel, computeSizeDemand, sizeKey } from '@/lib/inventoryIntel';
 import type { BestSellerWindow } from '@/lib/bestSellingTires';
 import { InventoryIntelPanel } from '@/components/inventory/InventoryIntelPanel';
+import { LockedFeature } from '@/components/LockedFeature';
+import { requiresUpgrade } from '@/lib/planAccess';
+import { triggerUpgrade } from '@/lib/upgradeFlow';
 import { NumberField } from '@/components/NumberField';
 import { useActiveVertical } from '@/lib/useActiveVertical';
 import type { BusinessTypeInventoryField, BusinessTypeConfig } from '@/config/businessTypes/registry';
@@ -129,7 +132,7 @@ export function Inventory({ inventory, onSave, settings, jobs, onStartJob, focus
   if (!vertical.features.inventoryDeduction) {
     return <GenericInventoryView inventory={inventory} onSave={onSave} vertical={vertical} />;
   }
-  return <TireInventoryView inventory={inventory} onSave={onSave} jobs={jobs} onStartJob={onStartJob} focusSize={focusSize} onFocusConsumed={onFocusConsumed} onViewJobsForSize={onViewJobsForSize} />;
+  return <TireInventoryView inventory={inventory} onSave={onSave} settings={settings} jobs={jobs} onStartJob={onStartJob} focusSize={focusSize} onFocusConsumed={onFocusConsumed} onViewJobsForSize={onViewJobsForSize} />;
 }
 
 // Inline form to add a new reservation against an InventoryItem.
@@ -186,6 +189,7 @@ function ReservationAdder({
 interface InternalViewProps {
   inventory: InventoryItem[];
   onSave: (next: InventoryItem[]) => void;
+  settings: Settings;
   jobs: Job[];
   onStartJob?: (item: InventoryItem) => void;
   focusSize?: string | null;
@@ -193,7 +197,7 @@ interface InternalViewProps {
   onViewJobsForSize?: (size: string) => void;
 }
 
-function TireInventoryView({ inventory, onSave, jobs, onStartJob, focusSize, onFocusConsumed, onViewJobsForSize }: InternalViewProps) {
+function TireInventoryView({ inventory, onSave, settings, jobs, onStartJob, focusSize, onFocusConsumed, onViewJobsForSize }: InternalViewProps) {
   const safe: InventoryItem[] = Array.isArray(inventory) ? inventory : [];
   const [list, setList] = useState<InventoryItem[]>(safe);
   const [search, setSearch] = useState('');
@@ -677,8 +681,17 @@ function TireInventoryView({ inventory, onSave, jobs, onStartJob, focusSize, onF
           <button className="btn xs secondary" onClick={downloadTemplate}>⬇ Template</button>
           <input ref={fileInputRef} type="file" accept=".csv,text/csv" style={{ display: 'none' }}
             onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); if (fileInputRef.current) fileInputRef.current.value = ''; }} />
-          <button className="btn xs secondary" onClick={() => fileInputRef.current?.click()}>⬆ Bulk Upload</button>
-          <button className="btn xs secondary" onClick={() => { setPasteText(''); setShowPaste(true); }}>📝 Paste Notes</button>
+          {/* Bulk import (CSV + paste-from-notes) is a Paid feature; manual
+              one-at-a-time entry below stays free. When locked these route
+              to the upgrade flow instead of opening the import. */}
+          <button className="btn xs secondary"
+            onClick={() => (requiresUpgrade(settings, 'bulkInventoryUpload') ? triggerUpgrade() : fileInputRef.current?.click())}>
+            {requiresUpgrade(settings, 'bulkInventoryUpload') ? '🔒 Bulk Upload' : '⬆ Bulk Upload'}
+          </button>
+          <button className="btn xs secondary"
+            onClick={() => (requiresUpgrade(settings, 'bulkInventoryUpload') ? triggerUpgrade() : (setPasteText(''), setShowPaste(true)))}>
+            {requiresUpgrade(settings, 'bulkInventoryUpload') ? '🔒 Paste Notes' : '📝 Paste Notes'}
+          </button>
           {duplicateCount > 0 && (
             <button className="btn xs" style={{ background: 'var(--amber)', color: '#0a0a0a', fontWeight: 700 }} onClick={mergeDuplicates}>
               ⚠ Consolidate {duplicateSizes} size{duplicateSizes === 1 ? '' : 's'}
@@ -818,7 +831,9 @@ function TireInventoryView({ inventory, onSave, jobs, onStartJob, focusSize, onF
 
       {/* Inventory Intelligence — reorder / dead-stock / movers, tappable
           to the health filters. Deterministic, on-device. */}
-      <InventoryIntelPanel intel={inventoryIntel} window={intelWindow} onWindow={setIntelWindow} onViewAll={(b) => setHealthFilter(b)} />
+      <LockedFeature feature="lowStockAlerts" settings={settings}>
+        <InventoryIntelPanel intel={inventoryIntel} window={intelWindow} onWindow={setIntelWindow} onViewAll={(b) => setHealthFilter(b)} />
+      </LockedFeature>
 
       {/* Hot Sizes — quick-add chip strip for repeat-stock sizes. */}
       {hotSizes.length > 0 && (

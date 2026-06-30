@@ -32,6 +32,8 @@ import type { Customer } from '@/lib/customerEntity';
 import { computeCustomerIntel } from '@/lib/customerIntel';
 import { CustomerIntelPanel } from '@/components/customers/CustomerIntelPanel';
 import type { Job, Settings } from '@/types';
+import { requiresUpgrade } from '@/lib/planAccess';
+import { triggerUpgrade } from '@/lib/upgradeFlow';
 
 type SortKey = 'recent' | 'revenue' | 'name';
 
@@ -139,16 +141,23 @@ export default function CustomerHub(props: Props): JSX.Element {
           style={inputStyle}
         />
         <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
-          {(['recent', 'revenue', 'name'] as SortKey[]).map(k => (
-            <button
-              key={k}
-              type="button"
-              className={'chip' + (sortKey === k ? ' active' : '')}
-              onClick={() => setSortKey(k)}
-            >
-              {k === 'recent' ? '🕒 Recent' : k === 'revenue' ? '💰 Revenue' : 'A–Z Name'}
-            </button>
-          ))}
+          {(['recent', 'revenue', 'name'] as SortKey[]).map(k => {
+            // Sort by lifetime revenue is a Paid feature; Recent + Name stay
+            // free. When locked, the Revenue chip routes to the upgrade flow
+            // instead of sorting, and shows a lock.
+            const revenueLocked = k === 'revenue' && requiresUpgrade(props.settings, 'advancedCustomerSort');
+            return (
+              <button
+                key={k}
+                type="button"
+                className={'chip' + (sortKey === k ? ' active' : '')}
+                onClick={() => (revenueLocked ? triggerUpgrade() : setSortKey(k))}
+                aria-label={revenueLocked ? 'Sort by revenue — upgrade to unlock' : undefined}
+              >
+                {k === 'recent' ? '🕒 Recent' : k === 'revenue' ? (revenueLocked ? '🔒 Revenue' : '💰 Revenue') : 'A–Z Name'}
+              </button>
+            );
+          })}
         </div>
       </header>
 
