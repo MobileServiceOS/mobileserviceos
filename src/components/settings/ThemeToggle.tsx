@@ -3,10 +3,11 @@
 // and applies instantly (see src/lib/theme.ts).
 import { useState } from 'react';
 import { getStoredTheme, setTheme, type ThemeName } from '@/lib/theme';
+import { syncStatusBarToTheme } from '@/lib/native';
 
 export function ThemeToggle() {
   const [theme, setThemeState] = useState<ThemeName>(getStoredTheme);
-  const pick = (t: ThemeName) => { setThemeState(t); setTheme(t); };
+  const pick = (t: ThemeName) => { setThemeState(t); setTheme(t); void syncStatusBarToTheme(); };
 
   return (
     <div className="card card-anim" style={{ marginBottom: 12 }}>

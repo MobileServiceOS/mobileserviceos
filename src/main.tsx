@@ -1,5 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { Capacitor } from '@capacitor/core';
 import { App } from '@/App';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { setupInstallPrompt, watchServiceWorkerUpdates } from '@/lib/pwa';
@@ -99,7 +100,10 @@ const isLocalhost =
     location.hostname === '[::1]' ||
     location.hostname === '::1');
 
-if ('serviceWorker' in navigator) {
+// Skip the web service worker entirely inside the Capacitor native shell —
+// the app is served from the bundled assets there, and a SW + its caches
+// would only fight the native WebView. (No-op condition on the web PWA.)
+if ('serviceWorker' in navigator && !Capacitor.isNativePlatform()) {
   if (import.meta.env.PROD && !isLocalhost) {
     // Production registration. Self-healing for poisoned caches:
     //   1. register() then immediately update() to fetch the newest
