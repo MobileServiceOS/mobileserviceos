@@ -21,11 +21,14 @@ const config: CapacitorConfig = {
   plugins: {
     SplashScreen: {
       // MSOS navy background with the app icon; brief, no spinner.
-      launchShowDuration: 1200,
-      launchAutoHide: false, // we hide it from JS once the app is interactive
+      // launchAutoHide MUST stay true: the native splash hides on its own
+      // after launchShowDuration so it can never trap the app if the JS hide
+      // path is delayed/unavailable. initNative() also calls SplashScreen.hide()
+      // for a snappier dismiss on success — belt and suspenders.
+      launchShowDuration: 2000,
+      launchAutoHide: true,
       backgroundColor: '#16263F', // MSOS navy
       showSpinner: false,
-      iosSpinnerStyle: 'small',
       splashImmersive: false,
     },
     PushNotifications: {
