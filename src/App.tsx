@@ -69,6 +69,7 @@ import { addToast, addActionToast } from '@/lib/toast';
 import { humanizeFirestoreError, logFirestoreError, isPermissionDenied } from '@/lib/firebaseErrors';
 import { applyBrandColors, planInventoryDeduction, r2, uid, realCustomerName, money } from '@/lib/utils';
 import { legalTabFromLocation } from '@/lib/legalRoute';
+import { initNative, requestPushPermissionAfterOnboarding } from '@/lib/native';
 import { getLastPaymentMethod, setLastPaymentMethod } from '@/lib/paymentMethodMemory';
 import { computeJobTireCost } from '@/lib/jobTireCost';
 import { planJobInventory } from '@/lib/planJobInventory';
@@ -213,6 +214,8 @@ export function App() {
   }, []);
 
   useEffect(() => { applyBrandColors('#f4b400', '#f7ca4d'); }, []);
+  // Native shell bootstrap (status bar + splash). No-op on the web PWA.
+  useEffect(() => { void initNative(); }, []);
 
   if (initError) {
     return (
@@ -1556,6 +1559,9 @@ function AuthenticatedApp({ user }: { user: User }) {
       // tap because persistPartial routes through this handler.
       if (brandPatch.onboardingComplete) {
         addToast('Welcome aboard!', 'success');
+        // Native only: ask for push permission now that onboarding is done
+        // (never on cold first launch). No-op + denial-safe on web.
+        void requestPushPermissionAfterOnboarding();
       }
     } catch (e) {
       addToast(`Onboarding save failed: ${humanizeFirestoreError(e)}`, 'error');

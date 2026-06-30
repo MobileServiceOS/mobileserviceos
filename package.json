@@ -9,6 +9,9 @@
     "dev:emulator": "VITE_USE_FIREBASE_EMULATOR=1 vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
+    "cap:sync": "npm run build && npx cap sync ios",
+    "cap:open": "npx cap open ios",
+    "ios": "npm run build && npx cap sync ios && npx cap open ios",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test": "for f in tests/*.test.ts; do echo \"\\n\\u25b6 $f\"; tsx \"$f\" || exit 1; done",
@@ -20,12 +23,18 @@
     "emulator:seed": "tsx scripts/seed-emulator.ts"
   },
   "dependencies": {
+    "@capacitor/core": "^8.4.1",
+    "@capacitor/ios": "^8.4.1",
+    "@capacitor/push-notifications": "^8.1.1",
+    "@capacitor/splash-screen": "^8.0.1",
+    "@capacitor/status-bar": "^8.0.2",
     "firebase": "^12.14.0",
     "jspdf": "^4.2.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.4.1",
     "@firebase/rules-unit-testing": "^5.0.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
