@@ -17,6 +17,22 @@ interface Props {
   onAuth: (user: User) => void;
 }
 
+// A Firebase auth call should never hang silently. If one doesn't settle in
+// time (e.g. a native-WebView stall), reject with a visible error instead of
+// leaving the button spinning forever.
+const AUTH_TIMEOUT_MS = 20_000;
+function withTimeout<T>(p: Promise<T>, label: string): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) =>
+      setTimeout(
+        () => reject({ code: 'auth/timeout', message: `${label} timed out after ${AUTH_TIMEOUT_MS / 1000}s.` }),
+        AUTH_TIMEOUT_MS,
+      ),
+    ),
+  ]);
+}
+
 export function AuthScreen({ onAuth }: Props) {
   const [email, setEmail] = useState('');
   const [pass, setPass] = useState('');
@@ -37,13 +53,13 @@ export function AuthScreen({ onAuth }: Props) {
     console.info(`[auth] ${mode} start · native=${isNative()} · email=${email}`);
     try {
       if (mode === 'reset') {
-        await sendPasswordResetEmail(_auth, email);
+        await withTimeout(sendPasswordResetEmail(_auth, email), 'Reset email');
         console.info('[auth] reset email sent');
         setResetSent(true);
       } else {
         const c = mode === 'login'
-          ? await signInWithEmailAndPassword(_auth, email, pass)
-          : await createUserWithEmailAndPassword(_auth, email, pass);
+          ? await withTimeout(signInWithEmailAndPassword(_auth, email, pass), 'Sign in')
+          : await withTimeout(createUserWithEmailAndPassword(_auth, email, pass), 'Account creation');
         console.info(`[auth] ${mode} OK · uid=${c.user.uid} · emailVerified=${c.user.emailVerified}`);
 
         // On signup with email/password, fire a verification email

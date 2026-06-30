@@ -1,4 +1,5 @@
 import { initializeApp, type FirebaseApp } from 'firebase/app';
+import { Capacitor } from '@capacitor/core';
 import {
   initializeAuth,
   indexedDBLocalPersistence,
@@ -163,20 +164,33 @@ try {
   // a browser/WebView; in the Node test runner they reference undefined globals
   // and trip a Firebase "Expected a class definition" assertion. Scope them to
   // the browser and fall back to in-memory in Node.
-  _auth =
-    typeof window !== 'undefined'
-      ? initializeAuth(app, {
-          persistence: [
-            indexedDBLocalPersistence,
-            browserLocalPersistence,
-            browserSessionPersistence,
-            inMemoryPersistence,
-          ],
-          popupRedirectResolver: browserPopupRedirectResolver,
-        })
-      : initializeAuth(app, { persistence: inMemoryPersistence });
-  if (typeof window !== 'undefined') {
-    console.info('[firebase] auth ready — persistence chain: indexedDB → local → session → memory');
+  const inBrowser = typeof window !== 'undefined';
+  const nativeShell = inBrowser && Capacitor.isNativePlatform();
+  if (inBrowser) {
+    _auth = initializeAuth(app, {
+      persistence: [
+        indexedDBLocalPersistence,
+        browserLocalPersistence,
+        browserSessionPersistence,
+        inMemoryPersistence,
+      ],
+      // popupRedirectResolver is what makes Firebase Auth eagerly load the
+      // cross-origin auth iframe (https://<project>.firebaseapp.com/__/auth/
+      // iframe) at init and AWAIT its redirect-result handshake before auth is
+      // "initialized". Under capacitor://localhost that postMessage handshake
+      // never completes — so onAuthStateChanged never fires and every signIn*
+      // call queues behind init forever (the reported hang + the cross-origin
+      // "Script error" at boot). Native uses email/password only (the Google
+      // popup is hidden), so we OMIT the resolver there: auth initializes
+      // immediately and the email/password REST call actually fires. The web
+      // PWA keeps the resolver so signInWithPopup still works.
+      ...(nativeShell ? {} : { popupRedirectResolver: browserPopupRedirectResolver }),
+    });
+    console.info(
+      `[firebase] auth ready — persistence: indexedDB→local→session→memory · popupResolver=${!nativeShell}`,
+    );
+  } else {
+    _auth = initializeAuth(app, { persistence: inMemoryPersistence });
   }
   _storage = getStorage(app);
 
