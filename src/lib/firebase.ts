@@ -1,8 +1,11 @@
 import { initializeApp, type FirebaseApp } from 'firebase/app';
 import {
-  getAuth,
-  setPersistence,
+  initializeAuth,
+  indexedDBLocalPersistence,
   browserLocalPersistence,
+  browserSessionPersistence,
+  inMemoryPersistence,
+  browserPopupRedirectResolver,
   connectAuthEmulator,
   type Auth,
 } from 'firebase/auth';
@@ -145,8 +148,36 @@ try {
     console.warn('[firebase] persistent cache failed, falling back to memory:', e);
     _db = initializeFirestore(app, { localCache: memoryLocalCache() });
   }
-  _auth = getAuth(app);
-  void setPersistence(_auth, browserLocalPersistence).catch((e) => console.warn('[firebase] auth persistence:', e));
+  // ─── Auth persistence — hardened for the Capacitor native WebView ──
+  // Previously: getAuth(app) + an async setPersistence(browserLocalPersistence).
+  // Firebase serializes EVERY auth operation behind persistence init, so in a
+  // capacitor://localhost WKWebView — where the localStorage probe can stall —
+  // the very first signInWithEmailAndPassword() queues behind it and never
+  // resolves: the button spins, no error, no navigation (exactly the reported
+  // symptom). initializeAuth sets persistence synchronously at creation with an
+  // explicit fallback chain; IndexedDB is the most reliable store inside a
+  // WebView, then localStorage, session, and finally in-memory so auth ALWAYS
+  // initializes (even in the Node test runner, which has none of the browser
+  // stores). popupRedirectResolver preserves the web Google-popup flow.
+  // The DOM-backed persistences (IndexedDB/localStorage/session) only exist in
+  // a browser/WebView; in the Node test runner they reference undefined globals
+  // and trip a Firebase "Expected a class definition" assertion. Scope them to
+  // the browser and fall back to in-memory in Node.
+  _auth =
+    typeof window !== 'undefined'
+      ? initializeAuth(app, {
+          persistence: [
+            indexedDBLocalPersistence,
+            browserLocalPersistence,
+            browserSessionPersistence,
+            inMemoryPersistence,
+          ],
+          popupRedirectResolver: browserPopupRedirectResolver,
+        })
+      : initializeAuth(app, { persistence: inMemoryPersistence });
+  if (typeof window !== 'undefined') {
+    console.info('[firebase] auth ready — persistence chain: indexedDB → local → session → memory');
+  }
   _storage = getStorage(app);
 
   // ─── Firebase Emulator Suite connection (DEV + localhost only) ──
