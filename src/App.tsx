@@ -68,6 +68,7 @@ import { todaysSchedule } from '@/lib/schedule';
 import { addToast, addActionToast } from '@/lib/toast';
 import { humanizeFirestoreError, logFirestoreError, isPermissionDenied } from '@/lib/firebaseErrors';
 import { applyBrandColors, planInventoryDeduction, r2, uid, realCustomerName, money } from '@/lib/utils';
+import { legalTabFromLocation } from '@/lib/legalRoute';
 import { getLastPaymentMethod, setLastPaymentMethod } from '@/lib/paymentMethodMemory';
 import { computeJobTireCost } from '@/lib/jobTireCost';
 import { planJobInventory } from '@/lib/planJobInventory';
@@ -132,20 +133,14 @@ function readInviteTokenFromUrl(): string | null {
 const INITIAL_INVITE_TOKEN: string | null = readInviteTokenFromUrl();
 
 /**
- * Parse the legal-doc param from `?legal=privacy` or `?legal=terms`.
- * Public, shareable URL — works both signed-in and signed-out so
- * Stripe / App Store / email footers can link to the docs directly.
+ * Parse the legal-doc target from the URL — accepts both `?legal=privacy`
+ * and the clean `/privacy` (or `/terms`) path. Public, shareable, and
+ * login-free so Stripe / App Store / email footers can link to the docs
+ * directly. See src/lib/legalRoute.ts for the (tested) resolution.
  */
 function readLegalTabFromUrl(): 'privacy' | 'terms' | null {
   if (typeof window === 'undefined') return null;
-  try {
-    const url = new URL(window.location.href);
-    const t = url.searchParams.get('legal');
-    if (t === 'privacy' || t === 'terms') return t;
-    return null;
-  } catch {
-    return null;
-  }
+  return legalTabFromLocation(window.location.pathname, window.location.search);
 }
 
 const INITIAL_LEGAL_TAB: 'privacy' | 'terms' | null = readLegalTabFromUrl();
@@ -181,9 +176,10 @@ export function App() {
   const closeLegal = useCallback(() => {
     setLegalTab(null);
     try {
-      const url = new URL(window.location.href);
-      url.searchParams.delete('legal');
-      window.history.replaceState({}, document.title, url.toString());
+      // Reset to the app root. Handles BOTH the ?legal=… query form and the
+      // clean /privacy /terms path form, so "Back" always lands in the app
+      // rather than leaving a dead /privacy path in the address bar.
+      window.history.replaceState({}, document.title, '/');
     } catch { /* */ }
   }, []);
 
