@@ -4,13 +4,12 @@ Reference for preparing the Apple App Store listing for **Mobile Service OS (MSO
 This is a **spec only** — no image files are produced here. Capture the screenshots
 per the dimensions below, then upload in App Store Connect.
 
-> **Heads-up (packaging):** MSOS today is a PWA served at `app.mobileserviceos.app`.
-> Apple does **not** accept a pure PWA/URL in the App Store — the binary must be a
-> native wrapper around the web app (e.g. **Capacitor** or a `WKWebView` shell) that
-> ships an `.ipa`. The wrapper must add real value (offline, push, camera) — MSOS
-> already has offline + camera, which satisfies the "minimum functionality"
-> guideline (4.2). Everything below is the **listing** prep; the wrapper is a
-> separate build step.
+> **Packaging status:** the native wrapper now EXISTS — MSOS is wrapped with
+> **Capacitor** (`capacitor.config.ts`, `ios/` project, `docs/capacitor-ios-guide.md`).
+> It adds offline, camera, and push, satisfying the "minimum functionality"
+> guideline (4.2). Remaining native steps (device signing, archive → TestFlight)
+> wait on the Apple Developer account approval + Xcode on Javon's Mac. Everything
+> below is the **listing** prep, all verifiable now.
 
 ---
 
@@ -54,24 +53,30 @@ every week."
 
 ---
 
-## 2. App icon
+## 2. App icon — DONE ✅
 
-- **1024 × 1024 px**, PNG, RGB, **no alpha, no rounded corners** (Apple rounds it).
-- Use the MSOS gold "MS" mark on the dark navy background for contrast.
+- **File:** [`assets/app-icon-1024.png`](../assets/app-icon-1024.png) — ready to upload.
+- **Verified specs:** `1024 × 1024`, PNG, **3 channels / no alpha**, sRGB, square
+  full-bleed (no rounded corners — Apple masks them). Uses the existing MSOS mark on
+  the dark brand background.
+- Note: this was flattened from `public/icons/icon-1024.png`, which had an alpha
+  channel — **App Store Connect rejects icons with transparency**, so do not upload
+  the `public/icons/` version. Use `assets/app-icon-1024.png`.
 
 ---
 
 ## 3. Listing metadata
 
-- **App name (30 char max):** `Mobile Service OS`
-- **Subtitle (30 char max):** `Tire & roadside business OS`
-- **Promotional text (170 char, updatable any time):**
-  `Run your mobile tire & roadside business from your phone — quote, schedule, invoice, and track profit in seconds. No paperwork.`
-- **Keywords (100 char, comma-separated, no spaces):**
-  `tire,mobile mechanic,roadside,invoice,scheduling,small business,auto repair,quote,dispatch,jobs`
-- **Support URL:** `https://app.mobileserviceos.app` (must resolve; add a contact email on it)
+- **App name (30 char max):** `Mobile Service OS`  *(17 chars)*
+- **Subtitle (30 char max):** `Mobile Tire & Roadside Pros`  *(27 chars)*
+- **Promotional text (170 char max, updatable any time):**  *(157 chars)*
+  `Run your whole mobile tire & roadside operation from your phone — quote, schedule, invoice, and see real profit between stops. No paperwork, no spreadsheets.`
+- **Keywords (100 char max, comma-separated, no spaces after commas):**  *(99 chars)*
+  `tire repair,roadside assistance,job tracker,field tech,invoice maker,tire shop,small business,quote`
+  *(Deliberately avoids "mobile"/"service" — already in the app name, so repeating them in keywords is wasted space.)*
+- **Support URL:** `https://app.mobileserviceos.app` (resolves; in-app Help is public via `?help=1`, contact `info@mobileserviceos.app`)
 - **Marketing URL (optional):** `https://app.mobileserviceos.app`
-- **Privacy Policy URL:** `https://app.mobileserviceos.app/privacy`
+- **Privacy Policy URL:** `https://app.mobileserviceos.app/privacy`  *(live — built, see §7)*
 - **Primary category:** Business · **Secondary:** Productivity
 - **Age rating:** 4+
 
@@ -128,7 +133,39 @@ This must match `/privacy`.
 
 ---
 
-## 5. Demo account for App Review
+## 5. Pricing & in-app purchase
+
+**Codebase facts (verified):** two Stripe subscription tiers — **Pro `$79`/month**
+and **Core `$39`/month** (`src/lib/pricing-display.ts`; price IDs via
+`VITE_STRIPE_PRO_PRICE_ID` / `VITE_STRIPE_CORE_PRICE_ID`). **The paywall is currently
+OFF** — `GROWTH_MODE = true` (`src/lib/growthMode.ts`) bypasses billing, so the app
+is free and **no purchase UI is active**.
+
+**Recommendation: ship as a free download with web-based Stripe billing — do NOT use
+Apple In-App Purchase.**
+
+- **At launch this is trivially clean:** with `GROWTH_MODE = true` there is no
+  purchase, paywall, or price shown in the app at all → nothing for Apple to take a
+  cut of and nothing to review under IAP rules. Submit as **free**.
+- **When you re-enable billing later (B2B SaaS path):** keep subscriptions on the
+  **website** (Stripe Checkout / customer portal). Apple's cut (30%, or 15% under the
+  Small Business Program <$1M) only applies to **Apple IAP**. For a $39–$79/mo
+  business tool, web Stripe avoids that *and* keeps the customer + billing
+  relationship with you.
+- **Hard rule for the native build (Guideline 3.1.1 / 3.1.3):** the iOS app must
+  **not** show in-app purchase buttons, prices to buy, or links/CTAs to the external
+  Stripe checkout. Users may *use* a subscription bought on the web, but the app
+  can't sell or link to it. ⚠️ **Action when billing returns:** the existing
+  `SubscribeButton` (`src/components/SubscribeButton.tsx`) + any "Upgrade"/price CTA
+  must be hidden on native (`Capacitor.isNativePlatform()`) before that build is
+  submitted. Not a launch blocker today because the paywall is off.
+- **Trade-off:** web Stripe = no Apple cut + you own billing, but no slick in-app
+  "Upgrade" tap (drive users to the site). Native IAP = smoother upgrade, but
+  15–30% off the top and Apple owns the receipt. For B2B SaaS, web Stripe wins.
+
+---
+
+## 6. Demo account for App Review
 
 Apple reviewers must be able to use the app without setup. Provide in App Store
 Connect → App Review Information:
@@ -141,11 +178,34 @@ Connect → App Review Information:
 
 ---
 
-## 6. Pre-submission checklist
-- [ ] Native wrapper build (Capacitor/WKWebView) producing a signed `.ipa`.
-- [ ] `/privacy` resolves publicly (no login) — submitted as the Privacy URL.
-- [ ] Support URL resolves and shows a contact email.
-- [ ] 6.9" screenshots (5–6) uploaded; icon 1024².
-- [ ] App Privacy answers match `/privacy`.
-- [ ] Demo account seeded + credentials in Review notes.
-- [ ] New-user, existing-user, and empty-data states all verified.
+## 7. Pre-submission checklist (status verified against the repo)
+
+**Done now (verifiable without the Developer account):**
+- [x] **App icon** — `assets/app-icon-1024.png`, 1024², no alpha, sRGB. ✅
+- [x] **Privacy policy built** — `/privacy` (`src/pages/PrivacyTerms.tsx`): covers data
+  collected (account, operational job/customer, team, payment-via-Stripe, technical),
+  storage (Firebase, US), sharing (not sold; sub-processors listed), rights
+  (access/export/correct/delete), contact `info@mobileserviceos.app`. ✅
+- [x] **Listing copy finalized** — name/subtitle/promo/keywords/description above, all
+  within Apple's char limits. ✅
+- [x] **Support + Marketing URL live** — `https://app.mobileserviceos.app` resolves;
+  public Help via `?help=1`. ✅
+- [x] **Onboarding flow** — Welcome + business-type, per-step validation, tested
+  (helpers covered by `tests/`). ✅
+- [x] **Empty states** — every Insights card has a proper empty state. ✅
+- [x] **Capacitor wrapper integrated** — config + `ios/` project + guide. ✅
+- [x] **Pricing decision** — free download, web Stripe, no IAP (see §5). ✅
+
+**Outstanding — needs Javon / the approved Developer account / a Mac:**
+- [ ] **Screenshots** — capture 5–6 at **6.9" (1320×2868)** [or 6.7" 1290×2796];
+  6.5" (1242×2688) optional. Screens: Dashboard → Schedule → Add Job → Invoice PDF →
+  Insights. *(Can be done now in the iOS Simulator even before approval.)*
+- [ ] **Sign-in confirmed in the native build** — code fixed (persistence + cross-origin
+  iframe, PRs #126/#127) but **not yet click-confirmed on a device/sim run**. Verify
+  email/password reaches the dashboard before submitting.
+- [ ] **Device signing + archive → TestFlight** — needs the approved Apple Developer
+  account + Xcode (`docs/capacitor-ios-guide.md`).
+- [ ] **Demo account seeded** + credentials in App Review notes (see §6).
+- [ ] **App Privacy "nutrition label"** answered in App Store Connect to match `/privacy`.
+- [ ] **Click-confirm** `https://app.mobileserviceos.app/privacy` loads with no login
+  (it's deployed; just verify in a browser).
