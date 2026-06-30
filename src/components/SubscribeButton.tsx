@@ -49,8 +49,11 @@ interface Props {
 // the static replacement and leaves the value undefined in production.
 // The env vars are declared in src/vite-env.d.ts so no cast or
 // @ts-ignore is needed — keep these as bare expressions.
+// Single paid tier ($35/mo) maps to the 'pro' literal. Prefer the new
+// VITE_STRIPE_PAID_PRICE_ID; fall back to the legacy PRO id during cutover.
+// 'core' is no longer a purchasable plan (replaced by the free tier).
 const PRICE_IDS = {
-  pro: import.meta.env.VITE_STRIPE_PRO_PRICE_ID || '',
+  pro: import.meta.env.VITE_STRIPE_PAID_PRICE_ID || import.meta.env.VITE_STRIPE_PRO_PRICE_ID || '',
   core: import.meta.env.VITE_STRIPE_CORE_PRICE_ID || '',
 } as const;
 

@@ -70,6 +70,8 @@ import { humanizeFirestoreError, logFirestoreError, isPermissionDenied } from '@
 import { applyBrandColors, planInventoryDeduction, r2, uid, realCustomerName, money } from '@/lib/utils';
 import { legalTabFromLocation } from '@/lib/legalRoute';
 import { initNative, requestPushPermissionAfterOnboarding } from '@/lib/native';
+import { OPEN_UPGRADE_EVENT } from '@/lib/upgradeFlow';
+import { LockedFeature } from '@/components/LockedFeature';
 import { getLastPaymentMethod, setLastPaymentMethod } from '@/lib/paymentMethodMemory';
 import { computeJobTireCost } from '@/lib/jobTireCost';
 import { planJobInventory } from '@/lib/planJobInventory';
@@ -336,7 +338,9 @@ function InsightsGate({ jobs, settings, inventory }: { jobs: Job[]; settings: Se
   const { canViewFinancials } = usePermissions();
   return (
     <PermissionGate title="Insights" granted={canViewFinancials}>
-      <Insights jobs={jobs} settings={settings} inventory={inventory} />
+      <LockedFeature feature="insightsDashboard" settings={settings} previewMaxHeight={560}>
+        <Insights jobs={jobs} settings={settings} inventory={inventory} />
+      </LockedFeature>
     </PermissionGate>
   );
 }
@@ -418,6 +422,14 @@ function AuthenticatedApp({ user }: { user: User }) {
     [activeVertical],
   );
   const [tab, setTab] = useState<TabId>('dashboard');
+  // Upgrade flow: a LockedFeature CTA (or any surface) fires this event;
+  // jump to Settings, where the SubscriptionAccordion auto-expands on the
+  // msos_open_subscription session flag and runs web Stripe Checkout.
+  useEffect(() => {
+    const handler = () => setTab('settings');
+    window.addEventListener(OPEN_UPGRADE_EVENT, handler);
+    return () => window.removeEventListener(OPEN_UPGRADE_EVENT, handler);
+  }, []);
   // SP3 task 9: selected customer id for CustomerProfile drill-down.
   // Set when a customer row is clicked; consumed by the
   // tab === 'customerProfile' render branch below.

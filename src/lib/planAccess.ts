@@ -308,46 +308,18 @@ export function isExistingCustomer(settings: Settings | null | undefined): boole
  * view — Onboarding completes before the app renders the gated
  * surface, so the user never sees a flash of lockout.
  */
-export function shouldLockApp(settings: Settings | null | undefined): boolean {
-  // Safety: no settings yet → don't lock (likely mid-load; the app
-  // is already showing a loading state, not the main UI).
-  if (!settings) return false;
-  // Growth mode globally bypasses all billing enforcement.
-  if (isGrowthMode()) return false;
-  // Exempt accounts (Wheel Rush, comp grants) never see the lockout.
-  if (settings.billingExempt === true) return false;
-
-  const status = settings.subscriptionStatus;
-
-  // Active paying subscriber — unlocked.
-  if (status === 'active') return false;
-
-  // Trialing — unlocked IF the trial window is still open.
-  if (status === 'trialing') {
-    const endMs = parseTimestampMs(settings.trialEndsAt);
-    if (endMs === null) return false; // missing end date → treat as in-trial (safer)
-    return endMs < Date.now();
-  }
-
-  // Past-due and canceled both lock explicitly. These would fall to
-  // the catch-all `return true` below anyway, but documenting them
-  // makes intent obvious and protects against a future status
-  // landing here without us realizing the lockout still engages.
-  if (status === 'past_due') return true;
-  if (status === 'canceled') return true;
-
-  // Existing customer (pre-paywall) with NO subscription state yet
-  // is grandfathered as unlocked. A migration effect (App.tsx) writes
-  // the actual trialing stamp on their next visit, but we don't want
-  // to flash a lockout during that brief window. Once the stamp lands,
-  // the trialing branch above takes over and the trial clock ticks
-  // for 14 days.
-  if (!status && isExistingCustomer(settings)) {
-    return false;
-  }
-
-  // past_due / canceled / unknown / undefined → lock.
-  return true;
+export function shouldLockApp(_settings: Settings | null | undefined): boolean {
+  // FREE-TIER MODEL (2026-06): there is no longer a hard full-app
+  // lockout. Every account — free, trial-expired, canceled — keeps full
+  // use of the app's free surface (job logging, quoting, basic lists).
+  // Advanced capabilities are gated individually via requiresUpgrade() +
+  // <LockedFeature> instead of replacing the whole app. A trial that
+  // ends gracefully drops the account to Free with all data intact.
+  //
+  // Kept as a no-op (always false) rather than deleted so existing
+  // callers (App.tsx) and the migration/trial-stamp paths keep compiling
+  // unchanged. PaywallLockout is consequently never rendered.
+  return false;
 }
 
 /**
@@ -582,3 +554,118 @@ export function sanitizeSubscriptionWrite<T extends Record<string, unknown>>(
   }
   return out as Partial<T>;
 }
+
+// ═════════════════════════════════════════════════════════════════════
+//  FREE + PAID ($35/mo) feature gating (2026-06)
+//
+//  The product model is now a usable FREE tier plus a single PAID tier
+//  ($35/mo, the internal 'pro' plan). There is NO hard app lockout — a
+//  free account uses the app fully; advanced capabilities render a
+//  locked-state preview (see <LockedFeature>) until they upgrade. A
+//  14-day trial of Paid is granted on signup; when it expires the
+//  account gracefully drops to Free (data preserved) and the same
+//  locked states reappear.
+//
+//  This layer is intentionally separate from the legacy
+//  PLAN_FEATURE_MATRIX / resolvePlan above (those keep working for code
+//  that still references them). New product gates use PaidFeature +
+//  requiresUpgrade(), which is WINDOW-AWARE about trials.
+// ═════════════════════════════════════════════════════════════════════
+
+/**
+ * Capabilities locked behind the Paid tier. Each maps 1:1 to a place in
+ * the UI that renders a <LockedFeature> preview for free accounts.
+ */
+export type PaidFeature =
+  | 'insightsDashboard'      // entire Insights screen + all-time/daily stats
+  | 'revenueProfitByMonth'   // monthly revenue & profit chart
+  | 'topServicesByProfit'
+  | 'leadSourceBreakdown'
+  | 'revenueByCity'
+  | 'customerIntelligence'   // repeat-rate, at-risk flags, top customer
+  | 'payouts'                // weekly distributable, splits, tax reserve, history
+  | 'expenseAnalytics'       // categorization, monthly/weekly totals, top categories
+  | 'unpaidInvoiceAging'
+  | 'bestSellingTires'
+  | 'lowStockAlerts'         // low-stock + predictive reorder flags
+  | 'bulkInventoryUpload'    // CSV / paste-from-notes parsing
+  | 'teamManagement'         // invite techs/admins, multi-tech assignment
+  | 'brandedInvoices'        // logo + business-color invoices/estimates
+  | 'advancedCustomerSort';  // lifetime-revenue sort + repeat flagging
+
+/**
+ * Is this account entitled to PAID features right now? True when:
+ *   - growth mode is on (early-access: everything free until the flip), OR
+ *   - the account is billing-exempt (founder/comp), OR
+ *   - subscription is 'active', OR
+ *   - subscription is 'trialing' AND the trial window is still open.
+ *
+ * An EXPIRED trial (trialing + trialEndsAt in the past) returns false —
+ * the account has gracefully dropped to Free. Data is never touched;
+ * only the gate flips.
+ */
+export function isPaid(settings: Settings | null | undefined): boolean {
+  if (isGrowthMode()) return true;
+  if (!settings) return false;
+  if (settings.billingExempt === true) return true;
+  const status = settings.subscriptionStatus;
+  if (status === 'active') return true;
+  if (status === 'trialing') {
+    const endMs = parseTimestampMs(settings.trialEndsAt);
+    return endMs === null || endMs >= Date.now(); // missing end → treat as in-trial
+  }
+  // 'past_due' / 'canceled' / undefined → Free.
+  return false;
+}
+
+/**
+ * Should the given Paid feature be locked for this account? Every
+ * PaidFeature is paid-only, so this is simply "not entitled". Kept as a
+ * per-feature signature so future free-tier promotions (moving one
+ * capability to Free) change one matrix entry, not call sites.
+ */
+export function requiresUpgrade(
+  settings: Settings | null | undefined,
+  _feature: PaidFeature,
+): boolean {
+  return !isPaid(settings);
+}
+
+/** Is the account currently inside an active (unexpired) trial window? */
+export function isInTrial(settings: Settings | null | undefined): boolean {
+  if (!settings || settings.subscriptionStatus !== 'trialing') return false;
+  const endMs = parseTimestampMs(settings.trialEndsAt);
+  return endMs === null || endMs >= Date.now();
+}
+
+/** Whole days left in the trial (0 when none / expired). */
+export function trialDaysRemaining(settings: Settings | null | undefined): number {
+  if (!isInTrial(settings)) return 0;
+  const endMs = parseTimestampMs(settings?.trialEndsAt);
+  if (endMs === null) return 0;
+  return Math.max(0, Math.ceil((endMs - Date.now()) / 86_400_000));
+}
+
+/**
+ * Tailored locked-state copy per feature. Each entry is ONE line about
+ * what the feature does — never a generic paywall. The price/CTA wording
+ * is appended by <LockedFeature> (native-aware), so keep these to the
+ * value proposition only.
+ */
+export const PAID_FEATURE_COPY: Readonly<Record<PaidFeature, { title: string; line: string }>> = {
+  insightsDashboard:    { title: 'See your numbers',        line: 'Track profit, revenue trends, and what every job is really worth.' },
+  revenueProfitByMonth: { title: 'See your numbers',        line: 'Watch revenue and profit climb month over month.' },
+  topServicesByProfit:  { title: 'Know your best work',     line: 'See which services actually make you the most money.' },
+  leadSourceBreakdown:  { title: 'Know what works',         line: 'See where your highest-paying jobs come from.' },
+  revenueByCity:        { title: 'Know your map',           line: 'See which areas drive the most revenue.' },
+  customerIntelligence: { title: 'Grow repeat business',    line: 'Spot your top customers and who’s slipping away.' },
+  payouts:              { title: 'Pay yourself right',      line: 'Weekly take-home, owner splits, and tax reserve, done for you.' },
+  expenseAnalytics:     { title: 'Control your costs',      line: 'Categorize spending and see where the money goes.' },
+  unpaidInvoiceAging:   { title: 'Get paid faster',         line: 'See exactly who owes you and for how long.' },
+  bestSellingTires:     { title: 'Stock what sells',        line: 'See your best-selling tire sizes at a glance.' },
+  lowStockAlerts:       { title: 'Never run out',           line: 'Low-stock alerts and reorder flags before you’re empty.' },
+  bulkInventoryUpload:  { title: 'Load stock in seconds',   line: 'Bulk-import your whole inventory by paste or CSV.' },
+  teamManagement:       { title: 'Run a crew',              line: 'Invite techs, assign jobs, and track the whole team.' },
+  brandedInvoices:      { title: 'Look professional',       line: 'Send invoices and estimates with your logo and colors.' },
+  advancedCustomerSort: { title: 'Find your VIPs',          line: 'Sort by lifetime value and flag your repeat customers.' },
+};

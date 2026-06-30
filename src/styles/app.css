@@ -1653,3 +1653,45 @@ a { color: var(--brand-primary); text-decoration: none; }
   }
 }
 
+/* ── LockedFeature (Free → Paid gate) ─────────────────────────────────
+   Blurred, inert preview of the real feature with a centered upgrade
+   card overlaid. The preview conveys "here's what you're missing"
+   without exposing the data or letting it be interacted with. */
+.locked-feature { position: relative; overflow: hidden; border-radius: 16px; }
+.locked-feature-preview {
+  filter: blur(6px);
+  opacity: 0.5;
+  pointer-events: none;
+  user-select: none;
+  overflow: hidden;
+  /* A clipped preview keeps long screens from rendering a huge blur. */
+  -webkit-mask-image: linear-gradient(to bottom, #000 55%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 55%, transparent 100%);
+}
+.locked-feature-overlay {
+  position: absolute; inset: 0; z-index: 2;
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.locked-feature-card {
+  text-align: center; max-width: 340px; width: 100%;
+  background: rgba(11, 13, 18, 0.9);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 22px 20px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+}
+[data-theme="light"] .locked-feature-card { background: rgba(255, 255, 255, 0.94); }
+.locked-feature-icon { font-size: 26px; margin-bottom: 8px; }
+.locked-feature-title { font-size: 16px; font-weight: 800; color: var(--t1); margin-bottom: 4px; }
+.locked-feature-line { font-size: 12.5px; color: var(--t2); line-height: 1.45; margin-bottom: 16px; }
+.locked-feature-cta {
+  width: 100%;
+  background: var(--brand-primary); color: #06070a;
+  border: none; border-radius: 10px;
+  padding: 12px 14px; font-size: 13px; font-weight: 800; cursor: pointer;
+}
+.locked-feature-cta:active { transform: translateY(1px); }
+.locked-feature-native { font-size: 12px; color: var(--t2); line-height: 1.5; }
+.locked-feature-url { color: var(--brand-primary); font-weight: 700; white-space: nowrap; }
+

@@ -100,10 +100,11 @@ export function SubscriptionAccordion({ settings, open, onToggle }: { settings: 
   // is missing at build time the SubscribeButton inside the card
   // shows an inline diagnostic instead of silently hiding the card —
   // hidden cards are worse than a clear error message.
-  // Exempt accounts (founder) see only the Pro card with a Lifetime
-  // pill — no Core card since switching plans isn't applicable.
+  // Two-tier model (2026-06): Free + Paid. There is no purchasable Core
+  // tier anymore — the free tier replaces it — so only the single Paid
+  // ("Pro", $35/mo) card is shown.
   const showPro = true;
-  const showCore = !exempt;
+  const showCore = false;
 
   // Accordion summary line — adapts to state.
   const summary = founder
