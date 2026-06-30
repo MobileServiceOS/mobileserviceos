@@ -434,5 +434,6 @@ export function friendlyAuthError(err: { code?: string; message?: string }): str
   if (c === 'auth/popup-closed-by-user') return 'Sign-in canceled.';
   if (c === 'auth/operation-not-allowed') return 'This sign-in method is not enabled in Firebase Console.';
   if (c === 'auth/unauthorized-domain') return 'This domain is not authorized in Firebase Console.';
+  if (c === 'auth/timeout') return 'Sign-in timed out — check your connection and try again.';
   return err?.message || 'Sign-in failed.';
 }
