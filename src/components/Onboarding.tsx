@@ -76,6 +76,13 @@ export function Onboarding({ settings, onComplete }: Props) {
   const [email, setEmail] = useState(brand.email || '');
   const [logoUrl, setLogoUrl] = useState(brand.logoUrl || '');
   const [logoDataUri, setLogoDataUri] = useState(brand.logoDataUri || '');
+  // Welcome screen + business-type selector (step 0). Both focuses map to the
+  // same tire & roadside vertical; the choice personalizes the experience.
+  // Skip the welcome when returning mid-onboarding (a name is already set).
+  const [started, setStarted] = useState<boolean>(Boolean(brand.businessName));
+  const [serviceFocus, setServiceFocus] = useState<'tire_repair' | 'roadside'>(
+    brand.serviceFocus === 'roadside' ? 'roadside' : 'tire_repair',
+  );
 
   const [stateCode, setStateCode] = useState(brand.state || '');
   const [mainCity, setMainCity] = useState(brand.mainCity || '');
@@ -109,6 +116,7 @@ export function Onboarding({ settings, onComplete }: Props) {
       const partial: Partial<Brand> = {
         businessName: businessName.trim(),
         businessType,
+        serviceFocus,
         phone: phone.trim(),
         email: email.trim(),
         logoUrl,
@@ -185,6 +193,7 @@ export function Onboarding({ settings, onComplete }: Props) {
       const brandPatch: Partial<Brand> = {
         businessName: businessName.trim(),
         businessType,
+        serviceFocus,
         phone: phone.trim(),
         email: email.trim(),
         logoUrl,
@@ -375,6 +384,63 @@ export function Onboarding({ settings, onComplete }: Props) {
       setBusy(false);
     }
   };
+
+  // ─── Step 0: Welcome + business-type selector ───────────────────────
+  // First impression — MSOS branding, tagline, and the operator's focus.
+  // Both focuses run on the same tire & roadside toolset.
+  if (!started) {
+    const FOCUS = [
+      { key: 'tire_repair' as const, icon: '🛞', label: 'Tire Repair', sub: 'Flats, replacements, installs, balancing' },
+      { key: 'roadside' as const, icon: '🚗', label: 'Roadside Assistance', sub: 'Jump starts, lockouts, fuel, towing calls' },
+    ];
+    return (
+      <div className="onboarding-screen">
+        <div className="onboarding-container">
+          <div className="onboarding-header">
+            <img src={logoDataUri || logoUrl || APP_LOGO} alt="" className="onboarding-logo" />
+            <div>
+              <div className="onboarding-title">Welcome to Mobile Service OS</div>
+              <div className="onboarding-sub">{(brand.tagline || '').trim() || 'Run your mobile tire & roadside business from your phone.'}</div>
+            </div>
+          </div>
+          <div className="onboarding-body">
+            <div className="onboarding-step page-enter">
+              <div className="onboarding-step-title">What&apos;s your main line of work?</div>
+              <div className="onboarding-step-sub">Pick one to start — you&apos;ll have the full tire &amp; roadside toolset either way.</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 14 }}>
+                {FOCUS.map((opt) => {
+                  const active = serviceFocus === opt.key;
+                  return (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      onClick={() => setServiceFocus(opt.key)}
+                      aria-pressed={active}
+                      style={{
+                        display: 'flex', flexDirection: 'column', gap: 4, textAlign: 'left',
+                        padding: 14, borderRadius: 12, cursor: 'pointer',
+                        background: active ? 'var(--brand-primary-dim)' : 'var(--s2)',
+                        border: '2px solid ' + (active ? 'var(--brand-primary)' : 'var(--border)'),
+                        color: 'var(--t1)',
+                      }}
+                    >
+                      <span style={{ fontSize: 26 }} aria-hidden="true">{opt.icon}</span>
+                      <span style={{ fontSize: 14, fontWeight: 800 }}>{opt.label}</span>
+                      <span style={{ fontSize: 11, color: 'var(--t3)', lineHeight: 1.4 }}>{opt.sub}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+          <div className="onboarding-footer">
+            <span />
+            <button className="btn primary" onClick={() => setStarted(true)}>Get started</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="onboarding-screen">

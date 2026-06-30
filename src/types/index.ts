@@ -394,6 +394,9 @@ export interface Brand {
   invoiceFooter: string;
   serviceArea: string;
   businessType: string;
+  /** Operator's primary focus chosen at onboarding — both map to the
+   *  tire & roadside vertical (same toolset); used for personalization. */
+  serviceFocus?: 'tire_repair' | 'roadside';
   tagline: string;
   state?: string;
   mainCity?: string;
