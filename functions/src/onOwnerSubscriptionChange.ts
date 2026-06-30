@@ -72,9 +72,18 @@ function mapStripeStatus(raw: string | undefined): AppSubscriptionStatus {
 function extractPlan(sub: admin.firestore.DocumentData): AppPlan {
   const items = sub.items || [];
   const first = Array.isArray(items) && items.length > 0 ? items[0] : null;
-  const raw = first?.price?.product?.metadata?.msos_plan;
-  if (raw === 'core' || raw === 'pro') return raw;
-  return 'pro';
+  const price = first?.price;
+  // Resolve from price OR product metadata; accept key `msos_plan` or
+  // `plan`; tolerate a `msos_` value prefix (so `msos_pro` → `pro`). This
+  // matches how the $35 price was tagged in the dashboard (plan=msos_pro).
+  const fromMeta = (meta: Record<string, string> | null | undefined): AppPlan | null => {
+    const raw = ((meta?.msos_plan || meta?.plan || '') as string).toLowerCase().replace(/^msos[_-]?/, '');
+    return raw === 'core' || raw === 'pro' ? (raw as AppPlan) : null;
+  };
+  const resolved = fromMeta(price?.metadata) || fromMeta(price?.product?.metadata);
+  // Default to 'pro' — the only tier sold today is the paid ($35) plan, so
+  // any active subscription without explicit metadata is Paid.
+  return resolved || 'pro';
 }
 
 export const onOwnerSubscriptionChange = functions
