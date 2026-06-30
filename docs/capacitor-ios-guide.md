@@ -129,6 +129,48 @@ mobile tire repair,roadside assistance,tire shop,job tracker,mobile mechanic sof
 **Privacy Policy URL:** `https://app.mobileserviceos.app/privacy`
 **Support URL:** `https://app.mobileserviceos.app`
 
+## Authentication in the native shell
+
+The web Firebase SDK runs inside a `capacitor://localhost` WebView, which behaves
+differently from Safari. Two things were hardened for native:
+
+- **Email/password** now works natively. Firebase serializes every auth call
+  behind persistence init, and the old `getAuth()` + async
+  `setPersistence(browserLocalPersistence)` could stall that queue under
+  `capacitor://` — sign-in would hang with no error. We switched to
+  `initializeAuth()` with an **IndexedDB-first** persistence chain
+  (`indexedDB → localStorage → session → memory`), set synchronously at
+  creation. See `src/lib/firebase.ts`.
+- **Auth logging** — every sign-in path logs `[auth] …` to the console (visible
+  in **Xcode → debug console**, or **Safari → Develop → Simulator → the
+  WebView**), so a native-only failure is never silent again.
+
+### Google sign-in on native (optional — currently hidden in the app)
+
+`signInWithPopup` cannot work in a native WebView (it throws
+`auth/cancelled-popup-request`; `signInWithRedirect` can't return to a custom
+scheme either), so the **Google button is hidden when running natively** —
+email/password is the supported native flow. To enable native Google sign-in
+later, use the official plugin (it drives the *native* Google flow, then signs
+the JS SDK in with the resulting credential):
+
+```bash
+npm install @capacitor-firebase/authentication
+```
+
+Then, on your Mac (these are native steps this CLI can't perform/verify):
+1. In the **Firebase Console**, register an **iOS app** (Bundle ID
+   `app.mobileserviceos`) and download **`GoogleService-Info.plist`** into
+   `ios/App/App/` (add it to the Xcode target). Without this plist the native
+   Firebase SDK crashes on launch — only add the plugin once you have it.
+2. Add the URL scheme: copy `REVERSED_CLIENT_ID` from the plist into
+   **Info.plist → URL Types → URL Schemes**.
+3. `npm run cap:sync` (runs `pod install`).
+4. In `AuthScreen.tsx`, replace the native guard in `google()` with the plugin
+   call (`FirebaseAuthentication.signInWithGoogle()` → build a
+   `GoogleAuthProvider.credential(idToken)` → `signInWithCredential(_auth, …)`)
+   and unhide the button for native.
+
 ## Notes / follow-ups
 - **Sending** push (not just permission) needs an APNs Auth Key uploaded in App
   Store Connect + a sender (e.g. a Cloud Function). The wrap satisfies the

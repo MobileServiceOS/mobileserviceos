@@ -206,6 +206,7 @@ export function App() {
     }, 8000);
     const unsub = onAuthStateChanged(_auth, (u) => {
       clearTimeout(t);
+      console.info(`[auth] onAuthStateChanged · ${u ? `signed-in uid=${u.uid}` : 'signed-out'}`);
       setUser(u);
       setAuthReady(true);
       signalReady();

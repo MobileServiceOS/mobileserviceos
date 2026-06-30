@@ -10,6 +10,7 @@ import {
 } from 'firebase/auth';
 import { _auth } from '@/lib/firebase';
 import { friendlyAuthError } from '@/lib/utils';
+import { isNative } from '@/lib/native';
 import { APP_LOGO, FALLBACK_LOGO_SVG } from '@/lib/defaults';
 
 interface Props {
@@ -31,14 +32,19 @@ export function AuthScreen({ onAuth }: Props) {
     }
     if (!_auth) { setErr('Auth unavailable.'); return; }
     setBusy(true); setErr('');
+    // Auth-flow logging — surfaces silent native-WebView failures in Xcode's
+    // debug console (Safari → Develop → Simulator also shows these).
+    console.info(`[auth] ${mode} start · native=${isNative()} · email=${email}`);
     try {
       if (mode === 'reset') {
         await sendPasswordResetEmail(_auth, email);
+        console.info('[auth] reset email sent');
         setResetSent(true);
       } else {
         const c = mode === 'login'
           ? await signInWithEmailAndPassword(_auth, email, pass)
           : await createUserWithEmailAndPassword(_auth, email, pass);
+        console.info(`[auth] ${mode} OK · uid=${c.user.uid} · emailVerified=${c.user.emailVerified}`);
 
         // On signup with email/password, fire a verification email
         // immediately. Non-blocking — if it fails (rate-limited, etc.)
@@ -60,6 +66,8 @@ export function AuthScreen({ onAuth }: Props) {
         onAuth(c.user);
       }
     } catch (e) {
+      const code = (e as { code?: string })?.code ?? 'none';
+      console.error(`[auth] ${mode} FAILED · code=${code}`, e);
       setErr(friendlyAuthError(e as { code?: string; message?: string }));
     } finally {
       setBusy(false);
@@ -67,12 +75,30 @@ export function AuthScreen({ onAuth }: Props) {
   };
 
   const google = async () => {
-    if (!_auth) return;
+    if (!_auth) { setErr('Auth unavailable.'); return; }
+    // Native WebView: Firebase JS popups don't work under the capacitor://
+    // origin — signInWithPopup throws auth/cancelled-popup-request, and
+    // signInWithRedirect can't return to a custom scheme. Real native Google
+    // sign-in needs the @capacitor-firebase/authentication plugin + a
+    // GoogleService-Info.plist (see docs/capacitor-ios-guide.md). The button
+    // is hidden on native (below), so this is a defensive guard.
+    if (isNative()) {
+      console.warn('[auth] google sign-in unsupported in native WebView — use email/password or wire @capacitor-firebase/authentication');
+      setErr('Google sign-in isn’t available in the app yet — please sign in with your email and password.');
+      return;
+    }
+    setBusy(true); setErr('');
+    console.info('[auth] google popup start');
     try {
       const c = await signInWithPopup(_auth, new GoogleAuthProvider());
+      console.info(`[auth] google OK · uid=${c.user.uid}`);
       onAuth(c.user);
     } catch (e) {
+      const code = (e as { code?: string })?.code ?? 'none';
+      console.error(`[auth] google FAILED · code=${code}`, e);
       setErr(friendlyAuthError(e as { code?: string; message?: string }));
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -116,7 +142,7 @@ export function AuthScreen({ onAuth }: Props) {
         <button className="auth-btn-main" onClick={submit} disabled={busy}>
           {busy ? '...' : mode === 'login' ? 'Sign In' : mode === 'signup' ? 'Create Account' : 'Send Reset Email'}
         </button>
-        {mode !== 'reset' && (
+        {mode !== 'reset' && !isNative() && (
           <>
             <div className="auth-divider"><span>or</span></div>
             <button className="auth-btn-google" onClick={google}>
