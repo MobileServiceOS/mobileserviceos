@@ -95,6 +95,13 @@ jobs:
           # added/rotated independently. Empty values are tolerated:
           # the SubscribeButton renders a "Billing coming soon" disabled
           # state when the relevant price ID isn't present.
+          # Single paid tier ($35/mo) — the only purchasable plan. The
+          # SubscribeButton/LockedFeature checkout reads this first and
+          # falls back to the legacy PRO id during cutover.
+          if [ -n "${{ secrets.VITE_STRIPE_PAID_PRICE_ID }}" ]; then
+            echo "VITE_STRIPE_PAID_PRICE_ID=${{ secrets.VITE_STRIPE_PAID_PRICE_ID }}" >> .env.production.local
+            echo "Paid ($35) price ID injected."
+          fi
           if [ -n "${{ secrets.VITE_STRIPE_PRO_PRICE_ID }}" ]; then
             echo "VITE_STRIPE_PRO_PRICE_ID=${{ secrets.VITE_STRIPE_PRO_PRICE_ID }}" >> .env.production.local
             echo "Pro price ID injected."
