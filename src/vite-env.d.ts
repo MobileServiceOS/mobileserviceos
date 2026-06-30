@@ -15,6 +15,9 @@ interface ImportMetaEnv {
   // The cast (`as string`) defeats Vite's compile-time static
   // replacement and leaves the value undefined in the production
   // bundle — declaring the types is the correct fix.
+  // Single paid-tier ($35/mo) price ID — the only purchasable plan.
+  readonly VITE_STRIPE_PAID_PRICE_ID?: string;
+  // Legacy IDs — kept for back-compat fallback during the cutover.
   readonly VITE_STRIPE_PRO_PRICE_ID?: string;
   readonly VITE_STRIPE_CORE_PRICE_ID?: string;
 }
