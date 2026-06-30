@@ -350,7 +350,9 @@ function PayoutsGate({ jobs, settings }: { jobs: Job[]; settings: SettingsT }) {
   const { canManageBilling } = usePermissions();
   return (
     <PermissionGate title="Payouts" granted={canManageBilling}>
-      <Payouts jobs={jobs} settings={settings} />
+      <LockedFeature feature="payouts" settings={settings} previewMaxHeight={560}>
+        <Payouts jobs={jobs} settings={settings} />
+      </LockedFeature>
     </PermissionGate>
   );
 }
@@ -378,7 +380,9 @@ function ExpensesGate({
   const { canViewFinancials } = usePermissions();
   return (
     <PermissionGate title="Expenses" granted={canViewFinancials}>
-      <Expenses expenses={expenses} jobs={jobs} settings={settings} onSave={onSave} />
+      <LockedFeature feature="expenseAnalytics" settings={settings} previewMaxHeight={560}>
+        <Expenses expenses={expenses} jobs={jobs} settings={settings} onSave={onSave} />
+      </LockedFeature>
     </PermissionGate>
   );
 }
