@@ -10,9 +10,7 @@ import { OperationsAccordion } from '@/components/settings/OperationsSection';
 import { ProfitTargetsAccordion } from '@/components/settings/ProfitTargetsSection';
 import { InvoicesAccordion } from '@/components/settings/InvoicesSection';
 import { CustomerDirectorySettingsSection } from '@/components/settings/CustomerDirectorySettingsSection';
-import { CommunicationsSettingsSection } from '@/components/settings/CommunicationsSettingsSection';
 import { ExportDataSection } from '@/components/settings/ExportDataSection';
-import { ReviewAutomationSection } from '@/components/settings/ReviewAutomationSection';
 import { OwnersAccordion } from '@/components/settings/OwnersSection';
 import { PricingAccordion } from '@/components/settings/PricingSection';
 import { VehicleAddonsAccordion } from '@/components/settings/VehiclePricingSection';
@@ -212,35 +210,6 @@ export function Settings({ settings, onSave }: Props) {
           onSaveSettings={onSave}
         />
       )}
-
-      {/* SP3 Task 12: Communications — Twilio provider settings,
-          event toggles (lookup / SMS logging / auto-text / outbound),
-          and the owner-only Test Incoming Call admin action. Connect
-          form is disabled until SP4 deploys. */}
-      {canSeeBusinessSettings && businessId && (
-        <CommunicationsSettingsSection
-          businessId={businessId}
-          settings={settings}
-          open={openSection === 'communications'}
-          onToggle={() => setOpenSection(openSection === 'communications' ? null : 'communications')}
-          onSaveSettings={onSave}
-        />
-      )}
-
-      {/* SP4A: Review Automation — toggle/delay/URL/template + history.
-          Ships OFF; operator enables to start queuing review SMS on
-          job completion. Drainer runs every 1min and is dormant until
-          Twilio env secrets land in SP4B. */}
-      {canSeeBusinessSettings && businessId && (
-        <ReviewAutomationSection
-          businessId={businessId}
-          settings={settings}
-          open={openSection === 'reviewAutomation'}
-          onToggle={() => setOpenSection(openSection === 'reviewAutomation' ? null : 'reviewAutomation')}
-          onSaveSettings={onSave}
-        />
-      )}
-
 
       {/* Owners & Permissions — owner names + splits + technician
           override permission. Gated to canSeeFinancials so admins
