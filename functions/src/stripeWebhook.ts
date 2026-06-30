@@ -333,23 +333,32 @@ async function handleSubscriptionUpdated(
   // incomplete, incomplete_expired.
   const mappedStatus = mapStripeStatus(subscription.status);
 
-  // Resolve plan from price metadata (msos_plan = 'core' | 'pro').
+  // Resolve plan from metadata. Robust to where/how it's stored:
+  //   - looks at the PRICE metadata first, then the PRODUCT metadata
+  //   - accepts key `msos_plan` (preferred) or `plan`
+  //   - tolerates a `msos_` value prefix, so `msos_pro` and `pro` both map
+  // (Functional gating keys off subscriptionStatus, so an unresolved plan
+  // is non-fatal — this just keeps settings.plan accurate for the UI.)
+  const pickPlan = (meta: Record<string, string> | null | undefined): 'core' | 'pro' | undefined => {
+    const raw = ((meta?.msos_plan || meta?.plan || '') as string).toLowerCase().replace(/^msos[_-]?/, '');
+    return raw === 'core' || raw === 'pro' ? raw : undefined;
+  };
   let plan: 'core' | 'pro' | undefined;
   const items = subscription.items.data;
   if (items && items.length > 0) {
-    const product = items[0].price.product;
-    if (typeof product === 'string') {
-      // Need to fetch the product to read metadata.
-      try {
-        const prod = await stripe.products.retrieve(product);
-        const planMeta = (prod.metadata?.msos_plan || '').toLowerCase();
-        if (planMeta === 'core' || planMeta === 'pro') plan = planMeta;
-      } catch {
-        /* non-fatal — leave plan unset */
+    const price = items[0].price;
+    plan = pickPlan(price.metadata);
+    if (!plan) {
+      const product = price.product;
+      if (typeof product === 'string') {
+        try {
+          plan = pickPlan((await stripe.products.retrieve(product)).metadata);
+        } catch {
+          /* non-fatal — leave plan unset */
+        }
+      } else if (product && !product.deleted) {
+        plan = pickPlan(product.metadata);
       }
-    } else if (product && !product.deleted) {
-      const planMeta = (product.metadata?.msos_plan || '').toLowerCase();
-      if (planMeta === 'core' || planMeta === 'pro') plan = planMeta;
     }
   }
 
