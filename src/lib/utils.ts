@@ -289,7 +289,16 @@ export function calcQuote(form: QuoteForm, settings: Settings): QuoteResult {
  */
 export function realCustomerName(name: string | null | undefined): string {
   const n = (name || '').trim();
-  if (!n || n.toLowerCase() === 'unknown') return '';
+  if (!n) return '';
+  // Normalize before the junk check: strip wrapping punctuation so a stored
+  // or imported placeholder like "(unknown)", "[Unknown]", or "Unknown
+  // Customer" — however it was written — never renders as a real name.
+  const norm = n.replace(/^[\s([{"'-]+|[\s)\]}"'-]+$/g, '').toLowerCase();
+  const JUNK = new Set([
+    'unknown', 'unknown customer', 'unknown caller', 'unnamed',
+    'no name', 'n/a', 'na', 'none', 'null', 'undefined',
+  ]);
+  if (!norm || JUNK.has(norm)) return '';
   return n;
 }
 

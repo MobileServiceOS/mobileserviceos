@@ -26,4 +26,18 @@ describe('realCustomerName', () => {
   it('does not strip names that merely contain "unknown"', () => {
     expect(realCustomerName('Unknowns Garage')).toBe('Unknowns Garage');
   });
+  it('treats wrapped/variant placeholders as no name', () => {
+    // The exact value seen in real data (job history showed "(unknown)").
+    expect(realCustomerName('(unknown)')).toBe('');
+    expect(realCustomerName('[Unknown]')).toBe('');
+    expect(realCustomerName('Unknown Customer')).toBe('');
+    expect(realCustomerName('unknown caller')).toBe('');
+    expect(realCustomerName('no name')).toBe('');
+    expect(realCustomerName('N/A')).toBe('');
+    expect(realCustomerName('null')).toBe('');
+  });
+  it('preserves real names with punctuation', () => {
+    expect(realCustomerName("O'Brien")).toBe("O'Brien");
+    expect(realCustomerName('John D.')).toBe('John D.');
+  });
 });

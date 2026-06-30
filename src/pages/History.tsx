@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Job, Settings } from '@/types';
 import { PAYMENT_METHOD_LABELS } from '@/types';
-import { fmtDate, fmtDateShort, jobGrossProfit, money, paymentPillClass, resolvePaymentStatus, fmtApptDateTime } from '@/lib/utils';
+import { fmtDate, fmtDateShort, jobGrossProfit, money, paymentPillClass, realCustomerName, resolvePaymentStatus, fmtApptDateTime } from '@/lib/utils';
 import { ServiceIcon } from '@/components/ServiceIcon';
 import { SizeLink } from '@/components/SizeLink';
 import { PageSkeleton } from '@/components/Skeleton';
@@ -428,7 +428,7 @@ function HistoryJobCard({
         <div className="job-icon"><ServiceIcon name={job.service} /></div>
         <div className="job-main">
           <div className="job-title" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            <span>{job.customerName || job.service}</span>
+            <span>{realCustomerName(job.customerName) || job.service}</span>
             {scheduled && <ScheduledStatusBadge status={job.status} />}
             {job.tireSize && (
               selecting
