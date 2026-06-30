@@ -18,6 +18,8 @@ import {
   clearPendingRefCode,
 } from '@/lib/referral';
 import { _auth } from '@/lib/firebase';
+import { fileToLogoDataUri } from '@/lib/logoDataUri';
+import { parseServiceCities, buildServiceArea, validateOnboarding, canAdvanceFromStep } from '@/lib/onboarding';
 
 interface Props {
   settings: Settings;
@@ -26,13 +28,6 @@ interface Props {
 
 type Step = 1 | 2 | 3 | 4;
 const TRIAL_DAYS = 14;
-/**
- * Hard cap on logo upload time. The Firebase Storage SDK already
- * retries internally, but if the underlying network never settles we
- * still want to release the spinner so the user isn't stuck on a
- * "Uploading…" message forever. 30s is generous for a sub-MB image.
- */
-const LOGO_UPLOAD_TIMEOUT_MS = 30_000;
 
 /**
  * Onboarding — 4-step setup for new businesses.
@@ -80,6 +75,7 @@ export function Onboarding({ settings, onComplete }: Props) {
   const [phone, setPhone] = useState(brand.phone || '');
   const [email, setEmail] = useState(brand.email || '');
   const [logoUrl, setLogoUrl] = useState(brand.logoUrl || '');
+  const [logoDataUri, setLogoDataUri] = useState(brand.logoDataUri || '');
 
   const [stateCode, setStateCode] = useState(brand.state || '');
   const [mainCity, setMainCity] = useState(brand.mainCity || '');
@@ -109,13 +105,14 @@ export function Onboarding({ settings, onComplete }: Props) {
   // safely in component-local state until the next attempt. ─────────
   const persistPartial = async () => {
     try {
-      const serviceCities = serviceCitiesText.split(',').map((s) => s.trim()).filter(Boolean);
+      const serviceCities = parseServiceCities(serviceCitiesText);
       const partial: Partial<Brand> = {
         businessName: businessName.trim(),
         businessType,
         phone: phone.trim(),
         email: email.trim(),
         logoUrl,
+        ...(logoDataUri ? { logoDataUri } : {}),
         state: stateCode,
         mainCity: mainCity.trim(),
         serviceCities,
@@ -141,79 +138,62 @@ export function Onboarding({ settings, onComplete }: Props) {
   };
   const back = () => setStep((s) => (Math.max(1, s - 1) as Step));
 
+  // Gate "Continue" so required fields are filled before advancing
+  // (step 1: business name, step 2: state + main city). Pure + tested.
+  const canContinue = canAdvanceFromStep(step, { businessName, stateCode, mainCity });
+
   /**
-   * Logo upload handler with a hard timeout so the spinner can never
-   * get stuck. Wrap `uploadLogo` in Promise.race against a setTimeout
-   * rejection — whichever settles first wins. The `finally` block
-   * guarantees `logoUploading` flips back to false regardless of
-   * outcome. Toast feedback fires on every branch (success / error
-   * / timeout) so the user always knows what happened.
+   * Logo upload. PRIMARY path: a small data URI held in state and saved to
+   * Firestore on the next persist — it drives the app UI + PDFs and works
+   * regardless of Firebase Storage (whose uploads have been failing). The
+   * Storage upload still fires best-effort in the background to populate
+   * logoUrl, but its failure no longer blocks the logo from working.
    */
   const handleLogo = async (file: File) => {
     if (!businessId) { addToast('Sign in required', 'warn'); return; }
     if (logoUploading) return; // double-tap guard
     setLogoUploading(true);
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     try {
-      // `uploadLogo` returns `Promise<string | null>` (null on a quietly-
-      // skipped upload, e.g. unauthenticated state). The timeout race
-      // arm must use the same union so the generic type-checks; we
-      // narrow back to a non-null string at the use site below.
-      const url = await Promise.race<string | null>([
-        enqueueLogoUpload(businessId, file),
-        new Promise<string | null>((_, reject) => {
-          timeoutId = setTimeout(
-            () => reject(new Error('Logo upload timed out — please try again')),
-            LOGO_UPLOAD_TIMEOUT_MS,
-          );
-        }),
-      ]);
-      if (url) {
-        setLogoUrl(url);
-        addToast('Logo uploaded', 'success');
-      } else {
-        // Queued offline — show local preview until drain.
-        setLogoUrl(URL.createObjectURL(file));
-        addToast('Logo queued — uploads when online', 'info');
+      const dataUri = await fileToLogoDataUri(file);
+      if (!dataUri) {
+        addToast('Could not read that image — try a PNG or JPG', 'error');
+        return;
       }
+      setLogoDataUri(dataUri);
+      addToast('Logo added', 'success');
+      // Best-effort Storage upload (populates logoUrl when it works). Non-
+      // blocking — the data URI already makes the logo show everywhere.
+      void enqueueLogoUpload(businessId, file)
+        .then((url) => { if (url) setLogoUrl(url); })
+        .catch(() => { /* data URI covers display */ });
     } catch (e) {
       addToast((e as Error).message || 'Logo upload failed', 'error');
     } finally {
-      if (timeoutId) clearTimeout(timeoutId);
       setLogoUploading(false);
     }
   };
 
   const finish = async () => {
-    const trimmedName = businessName.trim();
-    if (!trimmedName) { addToast('Business name required', 'warn'); setStep(1); return; }
-    // Length cap protects against accidental long paste / corruption
-    // breaking downstream Firestore writes (Firestore field limit is
-    // 1 MiB, but a 500-char name already breaks UI in headers, browser
-    // tabs, and invoice PDFs). 80 is well above any legitimate
-    // business name and still safe for the longest header layout.
-    if (trimmedName.length > 80) {
-      addToast('Business name is too long (max 80 characters)', 'warn');
-      setStep(1);
-      return;
-    }
-    if (!stateCode || !mainCity.trim()) { addToast('State and main city required', 'warn'); setStep(2); return; }
+    // Required-field validation (pure, tested in tests/onboarding.spec.ts).
+    // Returns the first problem + the step to jump back to so the operator
+    // can fix it. The name cap guards downstream Firestore/header/PDF layout.
+    const problem = validateOnboarding({ businessName, stateCode, mainCity });
+    if (problem) { addToast(problem.message, 'warn'); setStep(problem.step); return; }
     setBusy(true);
     try {
-      const serviceCities = serviceCitiesText.split(',').map((s) => s.trim()).filter(Boolean);
+      const serviceCities = parseServiceCities(serviceCitiesText);
       const brandPatch: Partial<Brand> = {
         businessName: businessName.trim(),
         businessType,
         phone: phone.trim(),
         email: email.trim(),
         logoUrl,
+        ...(logoDataUri ? { logoDataUri } : {}),
         state: stateCode,
         mainCity: mainCity.trim(),
         serviceCities,
         serviceRadius,
-        serviceArea: serviceCities.length
-          ? serviceCities.slice(0, 3).join(' · ') + (stateCode ? `, ${stateCode}` : '')
-          : `${mainCity.trim()}${stateCode ? `, ${stateCode}` : ''}`,
+        serviceArea: buildServiceArea(serviceCities, mainCity, stateCode),
         onboardingComplete: true,
         onboardingCompletedAt: new Date().toISOString(),
       };
@@ -400,7 +380,7 @@ export function Onboarding({ settings, onComplete }: Props) {
     <div className="onboarding-screen">
       <div className="onboarding-container">
         <div className="onboarding-header">
-          <img src={logoUrl || APP_LOGO} alt="" className="onboarding-logo" />
+          <img src={logoDataUri || logoUrl || APP_LOGO} alt="" className="onboarding-logo" />
           <div>
             <div className="onboarding-title">Welcome to Mobile Service OS</div>
             <div className="onboarding-sub">Step {step} of {totalSteps}</div>
@@ -432,10 +412,10 @@ export function Onboarding({ settings, onComplete }: Props) {
               </div>
               <div className="field">
                 <label htmlFor="onb-logo-upload">Logo (optional)</label>
-                {logoUrl ? (
+                {(logoDataUri || logoUrl) ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <img src={logoUrl} alt="Logo" style={{ width: 56, height: 56, borderRadius: 10, border: '1px solid var(--border)', objectFit: 'contain', background: 'var(--s3)' }} />
-                    <button className="btn sm secondary" onClick={() => setLogoUrl('')}>Remove</button>
+                    <img src={logoDataUri || logoUrl} alt="Logo" style={{ width: 56, height: 56, borderRadius: 10, border: '1px solid var(--border)', objectFit: 'contain', background: 'var(--s3)' }} />
+                    <button className="btn sm secondary" onClick={() => { setLogoUrl(''); setLogoDataUri(''); }}>Remove</button>
                   </div>
                 ) : (
                   <input
@@ -446,8 +426,8 @@ export function Onboarding({ settings, onComplete }: Props) {
                     disabled={logoUploading}
                   />
                 )}
-                {logoUploading && <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 4 }}>Uploading…</div>}
-                {!logoUrl && !logoUploading && (
+                {logoUploading && <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 4 }}>Adding…</div>}
+                {!logoDataUri && !logoUrl && !logoUploading && (
                   <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 4 }}>
                     Skip for now — you can add a logo later in Settings.
                   </div>
@@ -554,7 +534,15 @@ export function Onboarding({ settings, onComplete }: Props) {
             <button className="btn secondary" onClick={back} disabled={busy}>Back</button>
           ) : <span />}
           {step < totalSteps ? (
-            <button className="btn primary" onClick={next}>Continue</button>
+            <button
+              className="btn primary"
+              onClick={next}
+              disabled={!canContinue}
+              aria-disabled={!canContinue}
+              title={canContinue ? undefined : (step === 1 ? 'Enter a business name to continue' : 'Pick your state and main city to continue')}
+            >
+              Continue
+            </button>
           ) : (
             <button className="btn primary" onClick={finish} disabled={busy}>
               {busy ? 'Saving…' : 'Finish setup'}

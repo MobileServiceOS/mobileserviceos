@@ -7,6 +7,7 @@ import { NumberField } from '@/components/NumberField';
 import { normalizeServiceCities } from '@/lib/locations';
 import { addToast } from '@/lib/toast';
 import { enqueueLogoUpload } from '@/lib/uploadQueue';
+import { fileToLogoDataUri } from '@/lib/logoDataUri';
 import { APP_LOGO } from '@/lib/defaults';
 import { normalizeHex } from '@/lib/utils';
 import { contrastRatio, WCAG_AA_NORMAL, APP_DARK_BG_HEX } from '@/lib/colorContrast';
@@ -14,39 +15,6 @@ import { useDirtyDraft } from '@/lib/useDirtyDraft';
 import { AccordionShell } from '@/components/settings/AccordionShell';
 import { BrandPreview } from '@/components/settings/BrandPreview';
 
-/**
- * Downscale the uploaded logo File to a small PNG data URI (≤256px). Stored
- * as brand.logoDataUri so generated PDFs can embed the logo directly — a data
- * URI needs no network/CORS, unlike the Firebase Storage URL which the
- * browser can't read into a canvas (the reason the logo dropped from
- * invoices/estimates). The source is a local File (same-origin blob), so the
- * canvas isn't tainted and toDataURL succeeds. Resolves null on any failure.
- */
-function fileToLogoDataUri(file: File, maxDim = 256): Promise<string | null> {
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onerror = () => resolve(null);
-    reader.onload = () => {
-      const img = new Image();
-      img.onerror = () => resolve(null);
-      img.onload = () => {
-        try {
-          const scale = Math.min(1, maxDim / Math.max(img.naturalWidth || 1, img.naturalHeight || 1));
-          const w = Math.max(1, Math.round((img.naturalWidth || 1) * scale));
-          const h = Math.max(1, Math.round((img.naturalHeight || 1) * scale));
-          const canvas = document.createElement('canvas');
-          canvas.width = w; canvas.height = h;
-          const ctx = canvas.getContext('2d');
-          if (!ctx) { resolve(null); return; }
-          ctx.drawImage(img, 0, 0, w, h);
-          resolve(canvas.toDataURL('image/png'));
-        } catch { resolve(null); }
-      };
-      img.src = typeof reader.result === 'string' ? reader.result : '';
-    };
-    reader.readAsDataURL(file);
-  });
-}
 
 // ─────────────────────────────────────────────────────────────────────
 //  Brand accordion
