@@ -20,7 +20,8 @@
     "test:zettle-e2e": "firebase emulators:exec --only firestore --project demo-msos \"cd functions && npx tsx scripts/zettleE2E.ts\"",
     "deploy:rules": "firebase deploy --only firestore:rules,storage",
     "emulator:start": "firebase emulators:start --only auth,firestore,storage,functions --project mobile-service-os",
-    "emulator:seed": "tsx scripts/seed-emulator.ts"
+    "emulator:seed": "tsx scripts/seed-emulator.ts",
+    "seed:appreview": "tsx scripts/seed-appreview.ts"
   },
   "dependencies": {
     "@capacitor/core": "^8.4.1",
