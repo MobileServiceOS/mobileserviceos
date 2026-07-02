@@ -32,6 +32,7 @@ on:
     paths:
       - 'firestore.rules'
       - 'firestore.indexes.json'
+      - 'storage.rules'
       - '.github/workflows/firebase-rules.yml'
   workflow_dispatch:
 
@@ -74,11 +75,11 @@ jobs:
           printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
           echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/sa.json" >> "$GITHUB_ENV"
 
-      - name: Deploy Firestore rules + indexes
+      - name: Deploy Firestore + Storage rules + indexes
         if: ${{ env.FIREBASE_SERVICE_ACCOUNT != '' }}
         run: |
           npx --yes firebase-tools@latest deploy \
-            --only firestore:rules,firestore:indexes \
+            --only firestore:rules,firestore:indexes,storage \
             --project "$FIREBASE_PROJECT_ID" \
             --non-interactive \
             --force

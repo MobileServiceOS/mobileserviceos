@@ -13,14 +13,19 @@ service firebase.storage {
       return isSignedIn() && request.auth.uid == businessId;
     }
 
-    // Teammate access: their user doc points at this business.
-    function hasUserBusinessLink(businessId) {
-      return isSignedIn()
-        && firestore.exists(/databases/(default)/documents/users/$(request.auth.uid))
-        && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.businessId == businessId;
-    }
+    // SECURITY (2026-07 audit, C-1): there is intentionally NO
+    // `hasUserBusinessLink` here. Deriving access from
+    // users/{uid}.businessId is a CROSS-TENANT LEAK — that doc is fully
+    // client-writable (firestore.rules: users/{uid} allow write if
+    // isOwnUser, no value validation), so any authenticated user could
+    // self-set businessId to a victim's id and read/write that tenant's
+    // private receipts and files. Access is granted ONLY by the two
+    // UNFORGEABLE signals below, mirroring the Firestore rules' model.
+    // Do NOT re-introduce a users-doc check here.
 
-    // Member doc check — used to grant access to teammates the owner added.
+    // Member doc check — the unforgeable authority for teammate access. An
+    // owner/admin/technician the owner added has a members/{uid} doc, which
+    // only the owner/admin can create (enforced in firestore.rules).
     function hasMemberDoc(businessId) {
       return isSignedIn()
         && firestore.exists(/databases/(default)/documents/businesses/$(businessId)/members/$(request.auth.uid));
@@ -28,7 +33,6 @@ service firebase.storage {
 
     function canAccessBusiness(businessId) {
       return isOwnerByConvention(businessId)
-        || hasUserBusinessLink(businessId)
         || hasMemberDoc(businessId);
     }
 
