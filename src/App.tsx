@@ -72,6 +72,7 @@ import { legalTabFromLocation } from '@/lib/legalRoute';
 import { initNative, requestPushPermissionAfterOnboarding } from '@/lib/native';
 import { OPEN_UPGRADE_EVENT } from '@/lib/upgradeFlow';
 import { LockedFeature } from '@/components/LockedFeature';
+import { track } from '@/lib/analytics';
 import { getLastPaymentMethod, setLastPaymentMethod } from '@/lib/paymentMethodMemory';
 import { computeJobTireCost } from '@/lib/jobTireCost';
 import { planJobInventory } from '@/lib/planJobInventory';
@@ -1216,6 +1217,7 @@ function AuthenticatedApp({ user }: { user: User }) {
       log('job-write-issued');
       await fbSetFast(jobsCol, finalJob.id, finalJob);
       log('job-write-acked');
+      if (!isEditing) track('job_logged'); // activation signal — new jobs only
 
       addToast(isEditing ? 'Job updated' : 'Job saved', 'success');
       setSavedJob(finalJob);
@@ -1576,6 +1578,7 @@ function AuthenticatedApp({ user }: { user: User }) {
       // tap because persistPartial routes through this handler.
       if (brandPatch.onboardingComplete) {
         addToast('Welcome aboard!', 'success');
+        track('signup_completed');
         // Native only: ask for push permission now that onboarding is done
         // (never on cold first launch). No-op + denial-safe on web.
         void requestPushPermissionAfterOnboarding();

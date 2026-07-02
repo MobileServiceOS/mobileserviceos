@@ -12,10 +12,11 @@
 //  app.mobileserviceos.app" — so the binary never links to outside
 //  purchase from within the app.
 // ─────────────────────────────────────────────────────────────────────
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import type { Settings } from '@/types';
 import { requiresUpgrade, PAID_FEATURE_COPY, type PaidFeature } from '@/lib/planAccess';
 import { triggerUpgrade } from '@/lib/upgradeFlow';
+import { track } from '@/lib/analytics';
 import { isNative } from '@/lib/native';
 import { PAID_PRICE_LINE } from '@/lib/pricing-display';
 
@@ -31,8 +32,16 @@ interface Props {
 }
 
 export function LockedFeature({ feature, settings, children, previewMaxHeight, onUpgrade }: Props) {
+  const locked = requiresUpgrade(settings, feature);
+
+  // Anonymous, aggregate "a free user saw this paid feature" signal — fires
+  // once per mount when locked, so we can see which gates drive interest.
+  useEffect(() => {
+    if (locked) track('locked_feature_viewed', feature);
+  }, [locked, feature]);
+
   // Entitled → render the real feature, no wrapper overhead.
-  if (!requiresUpgrade(settings, feature)) return <>{children}</>;
+  if (!locked) return <>{children}</>;
 
   const copy = PAID_FEATURE_COPY[feature];
   const native = isNative();

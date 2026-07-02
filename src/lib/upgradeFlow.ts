@@ -8,12 +8,15 @@
 //  web Stripe Checkout (NOT native IAP).
 // ─────────────────────────────────────────────────────────────────────
 
+import { track } from '@/lib/analytics';
+
 export const OPEN_UPGRADE_EVENT = 'msos:open-upgrade';
 const OPEN_SUBSCRIPTION_FLAG = 'msos_open_subscription';
 
 /** Route the user to the subscription/upgrade surface (web checkout). */
 export function triggerUpgrade(): void {
   if (typeof window === 'undefined') return;
+  track('upgrade_cta_clicked');
   try {
     sessionStorage.setItem(OPEN_SUBSCRIPTION_FLAG, '1');
   } catch {
