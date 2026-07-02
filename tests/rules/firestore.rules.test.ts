@@ -194,6 +194,42 @@ describe('leads — no client create/delete, bounded update', () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────
+//  C-2 (2026-07 audit): removed member cannot resurrect from a stale invite
+// ─────────────────────────────────────────────────────────────────────
+describe('C-2: member removal is durable (invite resurrection blocked)', () => {
+  const RUID = 'removedTech';
+  const REMAIL = 'removed@wheelrush.test';
+  const TOKEN = 'invite-c2-token';
+  const asRemovedTech = () => env.authenticatedContext(RUID, { email: REMAIL }).firestore();
+  const memberDoc = { uid: RUID, role: 'technician', email: REMAIL, inviteToken: TOKEN };
+
+  async function seedInvite(status: string) {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'invites', TOKEN), {
+        businessId: BIZ_A, email: REMAIL, role: 'technician',
+        status, acceptedByUid: RUID, invitedBy: 'ownerA',
+      });
+    });
+  }
+
+  it('regression: an ACCEPTED invite still lets the invitee self-create their member doc', async () => {
+    await seedInvite('accepted');
+    await assertSucceeds(setDoc(doc(asRemovedTech(), `businesses/${BIZ_A}/members/${RUID}`), memberDoc));
+  });
+
+  it('a REVOKED (post-removal) invite CANNOT be used to re-create the member doc', async () => {
+    await seedInvite('revoked'); // what durable removal leaves behind
+    await assertFails(setDoc(doc(asRemovedTech(), `businesses/${BIZ_A}/members/${RUID}`), memberDoc));
+  });
+
+  it('owner can flip an ACCEPTED invite → revoked (enables durable removal); a technician cannot', async () => {
+    await seedInvite('accepted');
+    await assertFails(setDoc(doc(asTechA(), 'invites', TOKEN), { status: 'revoked' }, { merge: true }));
+    await assertSucceeds(setDoc(doc(asOwnerA(), 'invites', TOKEN), { status: 'revoked' }, { merge: true }));
+  });
+});
+
 // Sanity: prove the harness itself is wired (rules ARE being evaluated,
 // not silently allowing everything).
 describe('harness sanity', () => {
