@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Settings } from '@/types';
 import { isBillingExempt } from '@/lib/planAccess';
+import { isNative } from '@/lib/native';
 
 // ─────────────────────────────────────────────────────────────────────
 //  TrialCountdownBanner
@@ -154,21 +155,29 @@ export function TrialCountdownBanner({ settings, onSubscribe }: Props) {
           (Stripe Customer Portal lives behind that path). Pre-
           subscribe accounts get "Subscribe →" which kicks the
           checkout flow. */}
-      <button
-        onClick={onSubscribe}
-        style={{
-          padding: '6px 12px',
-          background: theme.accent,
-          color: hasStripeSubscription ? '#000' : (expired ? '#fff' : (urgent ? '#fff' : '#000')),
-          border: 'none',
-          borderRadius: 6,
-          fontSize: 11, fontWeight: 800,
-          cursor: 'pointer',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        {hasStripeSubscription ? 'Manage' : 'Subscribe →'}
-      </button>
+      {/* Native iOS shows NO purchase/checkout CTA (App Review 3.1.1) —
+          only where to manage the plan. Web shows the real CTA. */}
+      {isNative() ? (
+        <span style={{ fontSize: 11, fontWeight: 800, color: theme.accent, whiteSpace: 'nowrap' }}>
+          app.mobileserviceos.app
+        </span>
+      ) : (
+        <button
+          onClick={onSubscribe}
+          style={{
+            padding: '6px 12px',
+            background: theme.accent,
+            color: hasStripeSubscription ? '#000' : (expired ? '#fff' : (urgent ? '#fff' : '#000')),
+            border: 'none',
+            borderRadius: 6,
+            fontSize: 11, fontWeight: 800,
+            cursor: 'pointer',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {hasStripeSubscription ? 'Manage' : 'Subscribe →'}
+        </button>
+      )}
       {!urgent && (
         <button
           onClick={dismiss}
