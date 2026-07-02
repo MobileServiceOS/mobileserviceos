@@ -6,6 +6,7 @@ import { addToast } from '@/lib/toast';
 import { startCheckout, createPortalLink } from '@/lib/stripeSync';
 import { isBillingExempt, resolvePlan } from '@/lib/planAccess';
 import { track } from '@/lib/analytics';
+import { isNative } from '@/lib/native';
 
 // ─────────────────────────────────────────────────────────────────────
 //  SubscribeButton — production subscription CTA
@@ -82,6 +83,23 @@ export function SubscribeButton({ settings, plan }: Props) {
 
   // Defensive exemption check.
   if (isBillingExempt(settings)) return null;
+
+  // Native iOS: never present an in-app purchase / web-checkout CTA
+  // (App Review 3.1.1 — no buttons/links to outside purchase). Plan
+  // management happens on the web PWA. Show informational text only
+  // (not a clickable external-purchase link), matching LockedFeature.
+  if (isNative()) {
+    return (
+      <div style={{
+        marginTop: 8, padding: '12px 10px', textAlign: 'center',
+        fontSize: 12, color: 'var(--t2)', lineHeight: 1.5,
+        background: 'var(--s2)', border: '1px solid var(--border)', borderRadius: 10,
+      }}>
+        Manage your plan at{' '}
+        <span style={{ color: 'var(--brand-primary)', fontWeight: 700, whiteSpace: 'nowrap' }}>app.mobileserviceos.app</span>
+      </div>
+    );
+  }
 
   const planLabel = plan === 'pro' ? 'Pro' : 'Core';
 
