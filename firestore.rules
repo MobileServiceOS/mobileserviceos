@@ -241,6 +241,19 @@ service cloud.firestore {
           resource.data.status == 'pending'
           && request.resource.data.status == 'expired'
         )
+        ||
+        // (d) Neutralize on member removal (2026-07 audit C-2): owner/admin
+        //     flips accepted → revoked. Removal MUST kill the invite,
+        //     otherwise a still-logged-in removed teammate could re-create
+        //     their members/{uid} doc from the stale 'accepted' invite (the
+        //     self-enroll create clause only checks status=='accepted') and
+        //     regain full role access. Server-authoritative via isOwnerOrAdmin
+        //     against the invite's own businessId (unforgeable).
+        (
+          resource.data.status == 'accepted'
+          && request.resource.data.status == 'revoked'
+          && isOwnerOrAdmin(resource.data.businessId)
+        )
       );
 
       // No deletes — keep audit trail.

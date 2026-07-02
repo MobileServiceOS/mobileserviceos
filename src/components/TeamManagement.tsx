@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { collection, onSnapshot, deleteDoc, doc, setDoc, writeBatch, type Unsubscribe } from 'firebase/firestore';
+import { collection, onSnapshot, deleteDoc, doc, setDoc, updateDoc, writeBatch, type Unsubscribe } from 'firebase/firestore';
 import type { InviteDoc, MemberDoc, Role } from '@/types';
 import { useBrand } from '@/context/BrandContext';
 import { usePermissions } from '@/context/MembershipContext';
@@ -585,6 +585,21 @@ function ActiveMembersList({ businessId, canManageOwners }: { businessId: string
         await setDoc(doc(db, 'businesses', businessId, 'members', member.uid), { ...member, role: pending.toRole }, { merge: true });
         addToast(`${member.email} → ${pending.toRole}`, 'info');
       } else {
+        // Durable removal (2026-07 audit C-2): neutralize the invite the
+        // member accepted BEFORE deleting their membership, so a
+        // still-logged-in removed teammate can't re-create their member doc
+        // from the stale 'accepted' invite and regain access. Best-effort —
+        // a missing/legacy invite must not block the removal itself.
+        if (member.inviteToken) {
+          try {
+            await updateDoc(doc(db, 'invites', member.inviteToken), {
+              status: 'revoked',
+              revokedAt: new Date().toISOString(),
+            });
+          } catch (revokeErr) {
+            console.warn('[team] invite revoke on member removal failed (continuing):', revokeErr);
+          }
+        }
         await deleteDoc(doc(db, 'businesses', businessId, 'members', member.uid));
         addToast(`${member.email} removed`, 'info');
       }
