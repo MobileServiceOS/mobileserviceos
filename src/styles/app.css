@@ -1695,3 +1695,20 @@ a { color: var(--brand-primary); text-decoration: none; }
 .locked-feature-native { font-size: 12px; color: var(--t2); line-height: 1.5; }
 .locked-feature-url { color: var(--brand-primary); font-weight: 700; white-space: nowrap; }
 
+/* ── Native iOS safe-area floor ───────────────────────────────────────
+   The Capacitor WebView renders under the status bar / Dynamic Island, and
+   env(safe-area-inset-top) can under-report (resolving to ~0) inside it —
+   which pulls the sticky header, and every screen below it, up under the
+   clock. `native.ts` adds `.is-ios` to <html> on the native shell; here we
+   floor the safe-area tokens so every consumer (header, pages, modals,
+   sheets — they all read var(--safe-top)) clears the status bar. max()
+   NEVER shrinks a correct inset — it only raises a too-small one — so a
+   device that reports its real 59px is unchanged, while a WebView reporting
+   0 gets a proper inset. Scoped to `.is-ios`, so the web PWA is untouched.
+   ~59px covers the Dynamic Island; older notches gain a small, harmless
+   top gap. */
+html.is-ios {
+  --safe-top: max(env(safe-area-inset-top, 0px), 59px);
+  --safe-bot: max(env(safe-area-inset-bottom, 0px), 8px);
+}
+
