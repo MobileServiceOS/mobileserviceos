@@ -21,6 +21,15 @@ let pushRequested = false;
  */
 export async function initNative(): Promise<void> {
   if (!isNative()) return;
+  // Tag the root element so CSS can apply native-only safe-area handling.
+  // The Capacitor WebView draws under the status bar / Dynamic Island and can
+  // under-report env(safe-area-inset-top) (it resolves to ~0), which leaves
+  // the sticky header — and every screen below it — crowding the clock. A CSS
+  // floor keyed off `.is-ios` (src/styles/app.css) guarantees the top inset.
+  // Scoped to native so the web PWA is untouched.
+  const root = document.documentElement;
+  root.classList.add('is-native');
+  if (Capacitor.getPlatform() === 'ios') root.classList.add('is-ios');
   await syncStatusBarToTheme();
   try {
     const { SplashScreen } = await import('@capacitor/splash-screen');
