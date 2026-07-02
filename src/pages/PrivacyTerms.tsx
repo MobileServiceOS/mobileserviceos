@@ -34,7 +34,7 @@ interface Props {
   onBack?: () => void;
 }
 
-const LAST_UPDATED = '2026-05-14';
+const LAST_UPDATED = '2026-06-30';
 const ENTITY_NAME = 'Mobile Service OS';
 const ENTITY_TYPE = 'a sole proprietorship';
 const STATE = 'Florida';
@@ -344,15 +344,28 @@ function TermsDoc() {
 
       <Section title="3. Subscriptions and Payment">
         <p style={{ marginTop: 0 }}>
-          The Service is provided on a subscription basis. By subscribing, you
-          authorize us (through our payment processor, Stripe) to charge the
+          The Service offers a free plan (no charge, no payment method required)
+          and a paid plan billed monthly through our payment processor, Stripe.
+          By subscribing to the paid plan, you authorize us to charge the
           payment method you provide on a recurring basis until you cancel.
         </p>
         <p>
+          <strong>Free trial.</strong> New accounts include a 14-day free trial
+          of the paid plan. If you do not cancel before the trial ends, your
+          subscription <strong>automatically converts to a paid, recurring
+          subscription</strong> and your payment method is charged the
+          then-current rate. You may cancel any time before the trial ends from
+          Settings and you will not be charged; your account then moves to the
+          free plan with your data intact.
+        </p>
+        <p>
+          <strong>Automatic renewal.</strong> Paid subscriptions renew
+          automatically at the end of each billing period until you cancel.
           Subscription fees are non-refundable except as expressly stated in
           these Terms or required by applicable law. Cancellations take effect
           at the end of the current billing period; you retain access to paid
-          features until then.
+          features until then. Any promotional or founder rate is preserved for
+          its original term.
         </p>
         <p>
           We may change subscription pricing with at least 30 days' notice. If
