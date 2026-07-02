@@ -5,6 +5,7 @@ import { useBrand } from '@/context/BrandContext';
 import { addToast } from '@/lib/toast';
 import { startCheckout, createPortalLink } from '@/lib/stripeSync';
 import { isBillingExempt, resolvePlan } from '@/lib/planAccess';
+import { track } from '@/lib/analytics';
 
 // ─────────────────────────────────────────────────────────────────────
 //  SubscribeButton — production subscription CTA
@@ -160,6 +161,7 @@ export function SubscribeButton({ settings, plan }: Props) {
       return;
     }
     setBusy(true);
+    track('checkout_started', plan);
     // Safety timeout — if startCheckout's internal 10s timeout for
     // some reason doesn't fire (e.g., promise chain swallowed),
     // make absolutely sure the button doesn't get stuck. 12s gives

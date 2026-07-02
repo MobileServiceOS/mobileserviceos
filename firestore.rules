@@ -109,6 +109,25 @@ service cloud.firestore {
     }
 
     // ─────────────────────────────────────────────────────────────────
+    // analytics/{YYYY-MM-DD} — first-party, AGGREGATE-ONLY product
+    // counters (src/lib/analytics.ts). No PII, no per-user linkage: each
+    // doc is just { date, counts: { <event>: N }, updatedAt } incremented
+    // by signed-in clients. Reads stay closed so the counts aren't
+    // enumerable by clients — triage from the Firebase Console (admin SDK
+    // bypasses rules). Writes are constrained to the expected shape + a
+    // size cap so the doc can't be turned into arbitrary storage.
+    // ─────────────────────────────────────────────────────────────────
+    match /analytics/{day} {
+      allow read: if false;
+      allow create, update: if request.auth != null
+        && request.resource.size() < 20000
+        && request.resource.data.keys().hasOnly(['date', 'counts', 'updatedAt'])
+        && request.resource.data.date is string
+        && request.resource.data.counts is map;
+      allow delete: if false;
+    }
+
+    // ─────────────────────────────────────────────────────────────────
     // Invites — top-level collection, token-keyed.
     // Schema: invites/{token} where token is a 128-bit random string.
     //
